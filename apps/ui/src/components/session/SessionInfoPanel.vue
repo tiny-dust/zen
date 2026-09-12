@@ -3,6 +3,15 @@ import { computed } from "vue";
 
 import { useChatStore } from "@/stores/chat";
 
+withDefaults(
+  defineProps<{
+    embedded?: boolean;
+  }>(),
+  {
+    embedded: false,
+  },
+);
+
 const chatStore = useChatStore();
 
 const tasks = computed(() => [
@@ -33,8 +42,8 @@ const branch = computed(() => "main");
 </script>
 
 <template>
-  <aside class="session-panel" aria-label="会话信息">
-    <div class="panel-title">会话信息</div>
+  <aside class="session-panel" :class="{ 'is-embedded': embedded }" aria-label="会话信息">
+    <div v-if="!embedded" class="panel-title">会话信息</div>
 
     <section class="block">
       <h3>任务清单</h3>
@@ -94,6 +103,12 @@ const branch = computed(() => "main");
   border-left: 1px solid var(--color-line);
 }
 
+.session-panel.is-embedded {
+  height: auto;
+  border-left: 0;
+  background: transparent;
+}
+
 .panel-title {
   font-size: 12px;
   color: var(--color-mut);
@@ -106,6 +121,10 @@ const branch = computed(() => "main");
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: var(--color-composer-surface);
+}
+
+.block:last-child {
+  margin-bottom: 0;
 }
 
 .block h3 {

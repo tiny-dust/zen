@@ -1,46 +1,25 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 
-import { useChatStore } from "@/stores/chat";
+import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import { useLayoutStore } from "@/stores/layout";
 
 const layoutStore = useLayoutStore();
-const chatStore = useChatStore();
 const { infoOpen } = storeToRefs(layoutStore);
-const { sessionName, workspaceRoot, sessionId, statusText } = storeToRefs(chatStore);
 </script>
 
 <template>
   <div v-if="infoOpen" class="overlay" @click.self="layoutStore.toggleInfo()">
-    <div class="popup" role="dialog" aria-modal="true" aria-label="基础信息">
+    <div class="popup" role="dialog" aria-modal="true" aria-label="会话信息">
       <header class="header">
-        <h2>基础信息</h2>
+        <h2>会话信息</h2>
         <button type="button" class="close" aria-label="关闭" @click="layoutStore.toggleInfo()">
           ×
         </button>
       </header>
-      <dl class="list">
-        <div class="row">
-          <dt>会话</dt>
-          <dd>{{ sessionName }}</dd>
-        </div>
-        <div class="row">
-          <dt>会话 ID</dt>
-          <dd class="mono">{{ sessionId }}</dd>
-        </div>
-        <div class="row">
-          <dt>工作区</dt>
-          <dd class="mono">{{ workspaceRoot || "未选择" }}</dd>
-        </div>
-        <div class="row">
-          <dt>状态</dt>
-          <dd>{{ statusText || "空闲" }}</dd>
-        </div>
-        <div class="row">
-          <dt>应用</dt>
-          <dd>Zen 0.1.0</dd>
-        </div>
-      </dl>
+      <div class="body">
+        <SessionInfoPanel embedded />
+      </div>
     </div>
   </div>
 </template>
@@ -57,6 +36,9 @@ const { sessionName, workspaceRoot, sessionId, statusText } = storeToRefs(chatSt
 
 .popup {
   width: min(420px, calc(100vw - 48px));
+  max-height: min(720px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-line);
   background: var(--color-set-card);
@@ -92,31 +74,8 @@ const { sessionName, workspaceRoot, sessionId, statusText } = storeToRefs(chatSt
   color: var(--color-txt-strong);
 }
 
-.list {
-  margin: 0;
-  padding: 8px 0;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  gap: 12px;
-  padding: 10px 16px;
-}
-
-.row dt {
-  color: var(--color-mut);
-  font-size: 12px;
-}
-
-.row dd {
-  margin: 0;
-  color: var(--color-txt);
-  font-size: 12px;
-  word-break: break-all;
-}
-
-.mono {
-  font-family: var(--font-mono);
+.body {
+  overflow: auto;
+  min-height: 0;
 }
 </style>

@@ -16,27 +16,23 @@ function onKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <section class="input-panel" aria-label="输入">
-    <div class="panel-title">输入</div>
+  <div class="composer">
+    <p v-if="isRunning || statusText" class="status">{{ statusText || "Agent 思考中…" }}</p>
     <div class="composer-card">
-      <label class="sr-only" for="side-chat-input">消息输入</label>
+      <label class="sr-only" for="chat-input">消息输入</label>
       <textarea
-        id="side-chat-input"
+        id="chat-input"
         v-model="input"
         class="input"
-        rows="12"
-        placeholder="描述你想让 Agent 做的事…"
+        rows="3"
+        placeholder="描述你想让 Agent 做的事…（Enter 发送，Shift+Enter 换行）"
         :disabled="isRunning"
         @keydown="onKeydown"
       />
       <div class="actions">
-        <span class="status">{{ statusText || "Enter 发送" }}</span>
+        <span class="hint">Enter 发送</span>
         <div class="btns">
-          <BaseButton
-            v-if="isRunning"
-            variant="ghost"
-            @click="chatStore.cancel()"
-          >
+          <BaseButton v-if="isRunning" variant="ghost" @click="chatStore.cancel()">
             停止
           </BaseButton>
           <BaseButton variant="primary" :disabled="!canSend" @click="chatStore.send()">
@@ -45,33 +41,27 @@ function onKeydown(event: KeyboardEvent) {
         </div>
       </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>
-.input-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  height: 100%;
-  padding: 12px;
-  background: var(--color-side);
-  border-right: 1px solid var(--color-line);
+.composer {
+  flex: none;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-composer-tray-bg);
 }
 
-.panel-title {
+.status {
+  max-width: 860px;
+  margin: 0 auto 8px;
   font-size: 12px;
   color: var(--color-mut);
-  padding: 0 2px;
 }
 
 .composer-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  max-width: 860px;
+  margin: 0 auto;
   padding: 12px;
   border-radius: var(--radius);
   border: 1px solid var(--color-input-border);
@@ -80,9 +70,10 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 .input {
-  flex: 1;
+  display: block;
   width: 100%;
-  min-height: 0;
+  min-height: 64px;
+  max-height: 180px;
   resize: none;
   border: 0;
   outline: none;
@@ -100,6 +91,7 @@ function onKeydown(event: KeyboardEvent) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .btns {
@@ -107,13 +99,9 @@ function onKeydown(event: KeyboardEvent) {
   gap: 8px;
 }
 
-.status {
+.hint {
   font-size: 11px;
-  color: var(--color-mut);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--color-dim);
 }
 
 .sr-only {

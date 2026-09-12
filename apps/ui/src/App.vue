@@ -2,7 +2,7 @@
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted } from "vue";
 
-import ChatInputPanel from "@/components/chat/ChatInputPanel.vue";
+import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
@@ -10,22 +10,20 @@ import RightPanel from "@/components/right/RightPanel.vue";
 import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTopbar from "@/components/topbar/AppTopbar.vue";
+import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 
 const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
-const {
-  leftWidth,
-  rightWidth,
-  sessionWidth,
-  inputWidth,
-  rightCollapsed,
-  bottomCollapsed,
-} = storeToRefs(layoutStore);
+const { leftWidth, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
+  storeToRefs(layoutStore);
 
-const centerStyle = computed(() => ({
-  gridTemplateColumns: `${inputWidth.value}px 5px minmax(0, 1fr) 5px ${sessionWidth.value}px`,
+const isWide = useMediaQuery("(min-width: 1100px)");
+const showSessionColumn = computed(() => isWide.value && sessionOpen.value);
+
+const centerClass = computed(() => ({
+  "center--wide": showSessionColumn.value,
 }));
 
 let dispose: (() => void) | undefined;
@@ -45,14 +43,6 @@ function onLeftDrag(delta: number) {
 function onRightDrag(delta: number) {
   layoutStore.setRightWidth(rightWidth.value - delta);
 }
-
-function onInputDrag(delta: number) {
-  layoutStore.setInputWidth(inputWidth.value + delta);
-}
-
-function onSessionDrag(delta: number) {
-  layoutStore.setSessionWidth(sessionWidth.value - delta);
-}
 </script>
 
 <template>
@@ -65,21 +55,19 @@ function onSessionDrag(delta: number) {
       <ResizeHandle orientation="vertical" @drag="onLeftDrag" />
 
       <div class="main">
-        <AppTopbar />
+        <AppTopbar :is-wide="isWide" />
         <div class="main-body">
-          <div class="center" :style="centerStyle">
-            <ChatInputPanel />
-            <ResizeHandle orientation="vertical" @drag="onInputDrag" />
-            <ChatTimeline />
-            <ResizeHandle orientation="vertical" invert @drag="onSessionDrag" />
-            <SessionInfoPanel />
+          <div class="center" :class="centerClass">
+            <div class="chat-column">
+              <ChatTimeline />
+              <ChatComposer />
+            </div>
+            <SessionInfoPanel v-if="showSessionColumn" />
           </div>
 
-          <template v-if="!bottomCollapsed">
-            <div class="bottom-bar">
-              <span>底部面板 · 任务进度 / 终端占位</span>
-            </div>
-          </template>
+          <div v-if="!bottomCollapsed" class="bottom-bar">
+            <span>底部面板 · 任务进度 / 终端占位</span>
+          </div>
         </div>
       </div>
 
@@ -134,7 +122,19 @@ function onSessionDrag(delta: number) {
   flex: 1;
   min-height: 0;
   display: grid;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.center--wide {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.chat-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .bottom-bar {

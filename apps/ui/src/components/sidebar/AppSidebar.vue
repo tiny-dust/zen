@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import BaseButton from "@/components/base/BaseButton.vue";
+import IconButton from "@/components/base/IconButton.vue";
 
 const appVersion = "0.1.0";
 
@@ -27,11 +28,27 @@ const emit = defineEmits<{
 
 <template>
   <aside class="sidebar" aria-label="侧边栏">
-    <div class="brand">
-      <div class="logo" aria-hidden="true">Z</div>
-      <div class="brand-text">
-        <div class="brand-name">Zen</div>
-        <div class="brand-version">v{{ appVersion }}</div>
+    <div class="top-row">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">Z</div>
+        <div class="brand-text">
+          <div class="brand-name">Zen</div>
+          <div class="brand-version">v{{ appVersion }}</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <IconButton label="搜索">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6" />
+            <path d="m16 16 4 4" />
+          </svg>
+        </IconButton>
+        <IconButton label="通知">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5 1.5 5H4.5S6 13 6 9Z" />
+            <path d="M10 19a2 2 0 0 0 4 0" />
+          </svg>
+        </IconButton>
       </div>
     </div>
 
@@ -98,13 +115,20 @@ const emit = defineEmits<{
   color: var(--color-txt);
 }
 
+.top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 12px 10px;
+  padding-top: 44px;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 14px 12px;
-  /* macOS traffic lights */
-  padding-top: 44px;
+  min-width: 0;
 }
 
 .logo {
@@ -117,6 +141,7 @@ const emit = defineEmits<{
   color: var(--color-send-fg);
   font-weight: 700;
   font-size: 13px;
+  flex: none;
 }
 
 .brand-text {
@@ -134,6 +159,13 @@ const emit = defineEmits<{
   font-size: 11px;
   color: var(--color-mut);
   font-family: var(--font-mono);
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
 }
 
 .section {
