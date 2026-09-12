@@ -38,9 +38,7 @@ const bubbleClass = computed(() => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  max-width: 900px;
   width: 100%;
-  margin: 0 auto;
 }
 
 .row--user {
@@ -49,9 +47,9 @@ const bubbleClass = computed(() => {
 
 .avatar {
   flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
   background: var(--color-side-sel);
@@ -62,7 +60,7 @@ const bubbleClass = computed(() => {
 }
 
 .bubble {
-  max-width: min(720px, 78%);
+  max-width: min(760px, 82%);
   padding: 10px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--color-line);

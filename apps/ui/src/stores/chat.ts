@@ -14,6 +14,7 @@ export const useChatStore = defineStore("chat", () => {
   const statusText = ref("");
   const lastError = ref("");
   const sessionId = ref(uuid());
+  const sessionName = ref("新会话");
   const appInfo = ref<AppInfo | null>(null);
 
   const isRunning = computed(() => status.value === "running");
@@ -81,6 +82,10 @@ export const useChatStore = defineStore("chat", () => {
 
     lastError.value = "";
     input.value = "";
+    if (sessionName.value === "新会话") {
+      sessionName.value = text.slice(0, 24) + (text.length > 24 ? "…" : "");
+    }
+
     appendMessage({
       id: uuid(),
       role: "user",
@@ -119,6 +124,7 @@ export const useChatStore = defineStore("chat", () => {
     statusText,
     lastError,
     sessionId,
+    sessionName,
     appInfo,
     isRunning,
     hasMessages,
