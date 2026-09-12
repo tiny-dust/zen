@@ -6,11 +6,13 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 const dirname = fileURLToPath(new URL(".", import.meta.url));
 const uiRoot = resolve(dirname, "../ui");
-const sharedSrc = resolve(dirname, "../../packages/shared/src/index.ts");
-const agentCoreSrc = resolve(dirname, "../../packages/agent-core/src/index.ts");
+const packagesRoot = resolve(dirname, "../../packages");
+const sharedSrc = resolve(packagesRoot, "shared/src/index.ts");
+const agentCoreSrc = resolve(packagesRoot, "agent-core/src/index.ts");
 
 export default defineConfig({
   main: {
+    clearScreen: false,
     plugins: [externalizeDepsPlugin({ exclude: ["@zen/shared", "@zen/agent-core"] })],
     resolve: {
       alias: {
@@ -18,22 +20,46 @@ export default defineConfig({
         "@zen/agent-core": agentCoreSrc,
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(dirname, "src/main/index.ts"),
+        },
+      },
+      watch: {},
+    },
   },
   preload: {
+    clearScreen: false,
     plugins: [externalizeDepsPlugin({ exclude: ["@zen/shared"] })],
     resolve: {
       alias: {
         "@zen/shared": sharedSrc,
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(dirname, "src/preload/index.ts"),
+        },
+      },
+      watch: {},
+    },
   },
   renderer: {
     root: uiRoot,
+    clearScreen: false,
     plugins: [vue()],
     resolve: {
       alias: {
         "@": resolve(uiRoot, "src"),
         "@zen/shared": sharedSrc,
+      },
+    },
+    server: {
+      watch: {
+        // monorepo packages live outside apps/ui; still hot-update on their edits
+        ignored: ["**/node_modules/**", "**/dist/**", "**/out/**", "**/.git/**"],
       },
     },
     build: {
