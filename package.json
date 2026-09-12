@@ -1,0 +1,21 @@
+{
+  "name": "zen-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zen — 极致精简，专注编程的 AI Agent 桌面端",
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @zen/desktop dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "package": "pnpm --filter @zen/desktop package"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

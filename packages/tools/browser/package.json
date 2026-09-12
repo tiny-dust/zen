@@ -1,0 +1,19 @@
+{
+  "name": "@zen/tools-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@zen/shared": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "electron": ">=44.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2"
+  }
+}

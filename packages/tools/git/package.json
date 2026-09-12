@@ -1,0 +1,17 @@
+{
+  "name": "@zen/tools-git",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@zen/shared": "workspace:*",
+    "simple-git": "3.36.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2"
+  }
+}

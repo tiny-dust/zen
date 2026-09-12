@@ -1,0 +1,59 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d0c;
+  --bg-soft: #121614;
+  --bg-elevated: #161b18;
+  --border: #273029;
+  --text: #e8ebe7;
+  --text-muted: #8d968f;
+  --accent: #7ddea2;
+  --accent-soft: rgba(125, 222, 162, 0.16);
+  --danger: #f07178;
+  --user-bubble: rgba(125, 222, 162, 0.12);
+  --assistant-bubble: #151a17;
+  --radius: 12px;
+  --mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

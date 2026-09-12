@@ -1,0 +1,16 @@
+{
+  "name": "@zen/tools-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@zen/shared": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2"
+  }
+}

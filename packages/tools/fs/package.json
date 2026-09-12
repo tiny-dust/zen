@@ -1,0 +1,18 @@
+{
+  "name": "@zen/tools-fs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@zen/shared": "workspace:*",
+    "chokidar": "5.0.0",
+    "rattail": "2.2.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2"
+  }
+}
