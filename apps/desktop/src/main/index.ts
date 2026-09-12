@@ -21,7 +21,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#0b0d0c",
+    backgroundColor: "#181818",
     title: "Zen",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),

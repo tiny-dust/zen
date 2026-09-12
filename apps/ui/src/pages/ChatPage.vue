@@ -35,9 +35,11 @@ watch(messages, () => {
 <template>
   <div class="chat-page">
     <header class="topbar">
-      <div>
-        <h1 class="title">Zen</h1>
-        <p class="subtitle">极致精简 · 专注编程</p>
+      <div class="brand">
+        <div>
+          <h1 class="title">Zen</h1>
+          <p class="subtitle">极致精简 · 专注编程</p>
+        </div>
       </div>
       <div class="workspace">
         <span class="workspace-label">工作区</span>
@@ -57,7 +59,7 @@ watch(messages, () => {
       <p v-if="lastError" class="error" role="alert">
         {{ lastError }}
       </p>
-      <div class="composer-row">
+      <div class="composer-card">
         <label class="sr-only" for="chat-input">消息输入</label>
         <textarea
           id="chat-input"
@@ -68,16 +70,18 @@ watch(messages, () => {
           :disabled="isRunning"
           @keydown="onKeydown"
         />
-        <div class="actions">
+        <div class="composer-actions">
           <span class="status" :class="{ 'status-running': isRunning }">
             {{ statusText || "Enter 发送 · Shift+Enter 换行" }}
           </span>
-          <BaseButton variant="ghost" :disabled="!isRunning" @click="chatStore.cancel()">
-            停止
-          </BaseButton>
-          <BaseButton variant="primary" :disabled="!canSend" @click="chatStore.send()">
-            发送
-          </BaseButton>
+          <div class="btns">
+            <BaseButton variant="ghost" :disabled="!isRunning" @click="chatStore.cancel()">
+              停止
+            </BaseButton>
+            <BaseButton variant="primary" :disabled="!canSend" @click="chatStore.send()">
+              发送
+            </BaseButton>
+          </div>
         </div>
       </div>
     </footer>
@@ -89,31 +93,39 @@ watch(messages, () => {
   height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background:
-    radial-gradient(circle at top left, rgba(125, 222, 162, 0.08), transparent 32%),
-    var(--bg);
+  background: var(--color-main-bg);
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 16px;
-  align-items: flex-start;
-  padding: 18px 22px 12px;
-  border-bottom: 1px solid var(--border);
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-side);
+  color: var(--color-topbar-icon);
+}
+
+.brand {
+  min-width: 0;
 }
 
 .title {
   margin: 0;
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+  color: var(--color-txt-strong);
+  line-height: 1.2;
 }
 
 .subtitle {
-  margin: 4px 0 0;
-  color: var(--text-muted);
+  margin: 2px 0 0;
+  color: var(--color-mut);
   font-size: 12px;
+  line-height: 1.2;
 }
 
 .workspace {
@@ -125,7 +137,7 @@ watch(messages, () => {
 }
 
 .workspace-label {
-  color: var(--text-muted);
+  color: var(--color-mut);
   font-size: 12px;
   flex: none;
 }
@@ -135,85 +147,113 @@ watch(messages, () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  color: var(--color-txt);
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
 }
 
 .message-list {
   overflow: auto;
-  padding: 20px 22px;
+  padding: 24px 20px 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  background: var(--color-main-bg);
 }
 
 .empty {
   margin: auto;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--color-mut);
+}
+
+.empty p {
+  margin: 0;
 }
 
 .empty-hint {
-  margin-top: 8px;
+  margin-top: 8px !important;
   font-size: 12px;
-  opacity: 0.8;
+  color: var(--color-dim);
 }
 
 .composer {
-  border-top: 1px solid var(--border);
-  padding: 14px 22px 18px;
-  background: rgba(11, 13, 12, 0.92);
+  padding: 12px 20px 18px;
+  background: var(--color-composer-tray-bg);
 }
 
 .error {
-  margin: 0 0 10px;
-  color: var(--danger);
+  max-width: 900px;
+  margin: 0 auto 10px;
+  color: var(--color-danger-fg);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-notice-danger-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
   font-size: 12px;
 }
 
-.composer-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  align-items: end;
+.composer-card {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-input-border);
+  background: var(--color-composer-surface);
+  box-shadow: var(--shadow-composer);
+  transition: border-color var(--motion-fast) var(--ease-enter);
+}
+
+.composer-card:focus-within {
+  border-color: color-mix(in srgb, var(--color-txt-strong) 18%, var(--color-input-border));
 }
 
 .input {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 200px;
   resize: none;
-  min-height: 78px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text);
-  padding: 12px 14px;
+  border: 0;
   outline: none;
+  background: transparent;
+  color: var(--color-txt-strong);
+  line-height: 1.5;
+  padding: 0;
 }
 
-.input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+.input::placeholder {
+  color: var(--color-composer-placeholder);
 }
 
-.actions {
+.input:disabled {
+  opacity: 0.7;
+}
+
+.composer-actions {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.btns {
+  display: flex;
   gap: 8px;
-  align-items: stretch;
 }
 
 .status {
-  color: var(--text-muted);
+  color: var(--color-mut);
   font-size: 12px;
-  white-space: nowrap;
 }
 
 .status-running {
-  color: var(--accent);
+  color: var(--color-accent);
 }
 
 .sr-only {

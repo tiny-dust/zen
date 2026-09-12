@@ -1,25 +1,207 @@
+/* Zen global tokens — aligned with Xiaomi MiMo Desktop */
+
 :root {
-  color-scheme: dark;
-  --bg: #0b0d0c;
-  --bg-soft: #121614;
-  --bg-elevated: #161b18;
-  --border: #273029;
-  --text: #e8ebe7;
-  --text-muted: #8d968f;
-  --accent: #7ddea2;
-  --accent-soft: rgba(125, 222, 162, 0.16);
-  --danger: #f07178;
-  --user-bubble: rgba(125, 222, 162, 0.12);
-  --assistant-bubble: #151a17;
+  --motion-fast: 0.12s;
+  --motion-base: 0.18s;
+  --motion-slow: 0.2s;
+  --ease-enter: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-emph: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Inter, sans-serif;
+  --font-mono:
+    "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Noto Sans Mono",
+    "Liberation Mono", "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace;
+
   --radius: 12px;
-  --mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
-  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --radius-shell: 20px;
+
+  --shadow-composer: 0 1px 2px #0000000d, 0 6px 18px #0000001b;
+  --shadow-menu: 0 8px 30px #0000002e, 0 1px 3px #0000001a;
+  --shadow-pop: 0 12px 40px #00000024;
+  --shadow-tip: 0 2px 8px #0000000d, 0 1px 2px #0000000a;
+
+  /* light */
+  --color-bg: #fffefd;
+  --color-panel: #fff;
+  --color-main-bg: #fff;
+  --color-side: #fff;
+  --color-side-glass: #f8f7f5;
+  --color-side-hover: #f1f0ec;
+  --color-side-active: #f1f0ec;
+  --color-side-sel: #eeedec;
+  --color-side-item: #4a4a4a;
+  --color-sunken: var(--color-side-glass);
+  --color-set-card: #fff;
+  --color-line: #f1f1f1;
+  --color-line-soft: #0000000d;
+  --color-line-warm: #f0ebe5;
+  --color-line-strong: #dcdcd8;
+  --color-input-bg: #fff;
+  --color-input-border: #151c130f;
+  --color-btn-border: #e3e3e0;
+  --color-composer-surface: var(--color-input-bg);
+  --color-composer-fg: #151c13;
+  --color-composer-placeholder: #151c1399;
+  --color-composer-tray-bg: var(--color-sunken);
+  --color-txt: #151c13cc;
+  --color-txt-strong: #151c13;
+  --color-mut: #151c1399;
+  --color-dim: #151c1366;
+  --color-icon: #5c5c57;
+  --color-topbar-icon: #151c1399;
+  --color-send: #151c13;
+  --color-send-fg: #fff;
+  --color-send-empty: #bbbbb6;
+  --color-accent: #ff6a2b;
+  --color-accent-2: #ffb02e;
+  --color-link: #3295fb;
+  --color-blue: #2f6fed;
+  --color-ok: #1a9e5f;
+  --color-err: #d23f3f;
+  --color-add: #1a7f37;
+  --color-del: #e5484d;
+  --color-danger-bg: #fdecea;
+  --color-danger-fg: #d93025;
+  --color-code-bg: #f0f0f2;
+  --color-code-fg: #3a3a38;
+  --color-menu-hover: #f1f0ec;
+  --color-menu-active: #f1f1f2;
+  --color-chip-bg: #0000000d;
+  --color-chip-text: #137a3f;
+  --color-scrollbar-thumb: #0000002e;
+  --color-scrollbar-thumb-hover: #0000004d;
+  --color-selection: #b3d7ff;
+  --color-notice-bg: #fff;
+  --color-notice-border: #ececec;
+  --color-notice-danger-bg: #ffd9d9;
+  --color-notice-danger-border: #ffbdbd;
 }
 
-* {
+/* MiMo dark */
+[data-theme="dark"] {
+  --color-bg: #181818;
+  --color-panel: #181818;
+  --color-main-bg: #181818;
+  --color-side: #141414;
+  --color-side-glass: var(--color-side);
+  --color-side-hover: #ffffff0f;
+  --color-side-active: #ffffff1a;
+  --color-side-sel: #ffffff1a;
+  --color-side-item: #ccc;
+  --color-sunken: #2e2e2e;
+  --color-set-card: #1a1a1a;
+  --color-line: #2e2e2e;
+  --color-line-soft: #ffffff12;
+  --color-line-warm: #2e2e2e;
+  --color-line-strong: var(--color-line);
+  --color-input-bg: #181818;
+  --color-input-border: #2e2e2e;
+  --color-btn-border: #3a3a3a;
+  --color-composer-surface: #1f1f1f;
+  --color-composer-fg: #a0a0a0;
+  --color-composer-placeholder: var(--color-composer-fg);
+  --color-composer-tray-bg: #151515;
+  --color-txt: #f4f4f5;
+  --color-txt-strong: #fff;
+  --color-mut: #b8b8b8;
+  --color-dim: #777;
+  --color-icon: #d0d0d0;
+  --color-topbar-icon: #f4f4f5;
+  --color-send: #ececec;
+  --color-send-fg: #0d0d0d;
+  --color-send-empty: #5a5a5a;
+  --color-link: #3295fb;
+  --color-blue: #5a9cff;
+  --color-ok: #1a9e5f;
+  --color-add: #3fb950;
+  --color-danger-bg: #3a2320;
+  --color-danger-fg: #ff9b7f;
+  --color-code-bg: #2e2e2e;
+  --color-code-fg: #e6e6e6;
+  --color-menu-hover: #ffffff0f;
+  --color-menu-active: #ffffff1a;
+  --color-chip-bg: #ffffff14;
+  --color-chip-text: #4ade80;
+  --color-scrollbar-thumb: #ffffff2e;
+  --color-scrollbar-thumb-hover: #ffffff4d;
+  --color-selection: #33518a;
+  --color-notice-bg: #2e2e2e;
+  --color-notice-border: #3a3a3a;
+  --color-notice-danger-bg: #4d100e;
+  --color-notice-danger-border: #711a16;
+
+  --shadow-composer: 0 1px 3px #0006;
+  --shadow-menu: 0 8px 30px #0009, 0 1px 3px #0006;
+  --shadow-pop: 0 12px 40px #00000080;
+  --shadow-tip: 0 2px 8px #0000004d, 0 1px 2px #00000040;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #181818;
+    --color-panel: #181818;
+    --color-main-bg: #181818;
+    --color-side: #141414;
+    --color-side-glass: var(--color-side);
+    --color-side-hover: #ffffff0f;
+    --color-side-active: #ffffff1a;
+    --color-side-sel: #ffffff1a;
+    --color-side-item: #ccc;
+    --color-sunken: #2e2e2e;
+    --color-set-card: #1a1a1a;
+    --color-line: #2e2e2e;
+    --color-line-soft: #ffffff12;
+    --color-line-warm: #2e2e2e;
+    --color-line-strong: var(--color-line);
+    --color-input-bg: #181818;
+    --color-input-border: #2e2e2e;
+    --color-btn-border: #3a3a3a;
+    --color-composer-surface: #1f1f1f;
+    --color-composer-fg: #a0a0a0;
+    --color-composer-placeholder: var(--color-composer-fg);
+    --color-composer-tray-bg: #151515;
+    --color-txt: #f4f4f5;
+    --color-txt-strong: #fff;
+    --color-mut: #b8b8b8;
+    --color-dim: #777;
+    --color-icon: #d0d0d0;
+    --color-topbar-icon: #f4f4f5;
+    --color-send: #ececec;
+    --color-send-fg: #0d0d0d;
+    --color-send-empty: #5a5a5a;
+    --color-blue: #5a9cff;
+    --color-add: #3fb950;
+    --color-danger-bg: #3a2320;
+    --color-danger-fg: #ff9b7f;
+    --color-code-bg: #2e2e2e;
+    --color-code-fg: #e6e6e6;
+    --color-menu-hover: #ffffff0f;
+    --color-menu-active: #ffffff1a;
+    --color-chip-bg: #ffffff14;
+    --color-chip-text: #4ade80;
+    --color-scrollbar-thumb: #ffffff2e;
+    --color-scrollbar-thumb-hover: #ffffff4d;
+    --color-selection: #33518a;
+    --color-notice-bg: #2e2e2e;
+    --color-notice-border: #3a3a3a;
+    --color-notice-danger-bg: #4d100e;
+    --color-notice-danger-border: #711a16;
+
+    --shadow-composer: 0 1px 3px #0006;
+    --shadow-menu: 0 8px 30px #0009, 0 1px 3px #0006;
+    --shadow-pop: 0 12px 40px #00000080;
+    --shadow-tip: 0 2px 8px #0000004d, 0 1px 2px #00000040;
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -31,22 +213,44 @@ body,
   margin: 0;
 }
 
+html {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
+}
+
 body {
   overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-txt);
+  font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
-textarea {
+input,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
 
 button {
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
 }
 
 button:disabled {
@@ -54,6 +258,39 @@ button:disabled {
   opacity: 0.45;
 }
 
+a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
+}
+
 ::selection {
-  background: var(--accent-soft);
+  background: var(--color-selection);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

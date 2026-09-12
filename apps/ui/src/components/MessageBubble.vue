@@ -17,6 +17,7 @@ const bubbleClass = computed(() => {
     "bubble",
     [props.message.role === "user", "bubble--user"],
     [props.message.role === "assistant", "bubble--assistant"],
+    [props.message.role === "system", "bubble--system"],
     [props.message.role === "assistant" && !props.message.content, "bubble--empty"],
   );
 });
@@ -37,6 +38,9 @@ const bubbleClass = computed(() => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .row--user {
@@ -45,34 +49,44 @@ const bubbleClass = computed(() => {
 
 .avatar {
   flex: none;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   display: grid;
   place-items: center;
-  background: var(--bg-soft);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 12px;
+  background: var(--color-side-sel);
+  border: 1px solid var(--color-line);
+  color: var(--color-mut);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .bubble {
   max-width: min(720px, 78%);
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: var(--radius);
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-line);
+  color: var(--color-txt);
+  background: var(--color-panel);
 }
 
 .bubble--user {
-  background: var(--user-bubble);
+  background: var(--color-side-sel);
+  color: var(--color-txt-strong);
 }
 
 .bubble--assistant {
-  background: var(--assistant-bubble);
+  background: var(--color-composer-surface);
+}
+
+.bubble--system {
+  border-color: var(--color-notice-danger-border);
+  background: var(--color-notice-danger-bg);
+  color: var(--color-danger-fg);
 }
 
 .bubble--empty {
-  color: var(--text-muted);
+  color: var(--color-mut);
 }
 
 .text,
@@ -83,6 +97,6 @@ const bubbleClass = computed(() => {
 }
 
 .placeholder {
-  color: var(--text-muted);
+  color: var(--color-mut);
 }
 </style>
