@@ -4,11 +4,19 @@ import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
+const srcDir = resolve(__dirname, "src");
+
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    tailwindcss({
+      // monorepo: ensure scan root is the UI package
+      base: __dirname,
+    }),
+  ],
   resolve: {
     alias: {
-      "@": resolve(__dirname, "src"),
+      "@": srcDir,
     },
   },
 });

@@ -1,27 +1,15 @@
 <script setup lang="ts">
-import {
-  Keyboard,
-  Settings2,
-  UserRound,
-  Boxes,
-} from "@lucide/vue";
+import { Boxes, Keyboard, Settings2, UserRound } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
+import AppIcon from "@/components/base/AppIcon.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
-import AppIcon from "@/components/base/AppIcon.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
@@ -59,14 +47,35 @@ const filteredGroups = computed(() => {
     .filter((group) => group.items.length > 0);
 });
 
-const tab = computed({
-  get: () => activeTab.value,
-  set: (value: SettingsTab) => {
-    settingsStore.openSettings(value);
-  },
+const paneTitle = computed(() => {
+  switch (activeTab.value) {
+    case "models":
+      return "模型";
+    case "profile":
+      return "个人资料";
+    case "shortcuts":
+      return "键盘快捷键";
+    default:
+      return "常规";
+  }
 });
 
-const showAppearance = computed(() => activeTab.value === "general");
+function selectTab(next: SettingsTab) {
+  settingsStore.openSettings(next);
+  const hash = `#settings/${next}`;
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+  }
+}
+
+watch(
+  () => settingsOpen.value,
+  (open) => {
+    if (!open && window.location.hash.startsWith("#settings")) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  },
+);
 
 function onCaptureKey(event: KeyboardEvent, id: string) {
   event.preventDefault();
@@ -100,9 +109,9 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
     <div class="sheet" role="dialog" aria-modal="true" aria-label="设置">
       <aside class="nav">
         <div class="nav-title">设置</div>
-        <Input v-model="search" class="nav-search" placeholder="搜索设置" />
+        <Input v-model="search" class="nav-search !h-8 !text-sm" placeholder="搜索设置" />
 
-        <ScrollArea class="nav-scroll">
+        <div class="nav-scroll">
           <div class="nav-groups">
             <div v-for="group in filteredGroups" :key="group.title" class="nav-group">
               <div class="nav-group-title">{{ group.title }}</div>
@@ -111,55 +120,61 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
                 :key="item.id"
                 type="button"
                 class="nav-item"
-                :class="{ 'is-active': tab === item.id }"
-                @click="tab = item.id as SettingsTab"
+                :class="{ 'is-active': activeTab === item.id }"
+                @click="selectTab(item.id)"
               >
                 <component :is="item.icon" />
                 <span>{{ item.label }}</span>
               </button>
             </div>
           </div>
-        </ScrollArea>
+        </div>
       </aside>
 
       <main class="pane">
         <header class="pane-head">
-          <h2>{{ activeTab === "models" ? "模型" : activeTab === "profile" ? "个人资料" : activeTab === "shortcuts" ? "键盘快捷键" : "常规" }}</h2>
-          <Button variant="ghost" size="icon" class="close" aria-label="关闭" @click="settingsStore.closeSettings()">
+          <h2>{{ paneTitle }}</h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="close-btn"
+            aria-label="关闭"
+            @click="settingsStore.closeSettings()"
+          >
             ×
           </Button>
         </header>
 
-        <ScrollArea class="pane-body">
+        <div class="pane-body">
           <div class="pane-inner">
             <template v-if="activeTab === 'general'">
               <section class="section">
                 <h3>常规</h3>
-                <Card>
-                  <CardContent class="divide-y divide-border p-0">
+                <Card size="sm" class="settings-card">
+                  <CardContent class="p-0">
                     <div class="row">
-                      <div>
+                      <div class="row-text">
                         <div class="row-title">默认打开目标</div>
                         <div class="row-desc">默认用哪个程序打开文件夹/位置</div>
                       </div>
                       <Badge variant="secondary">Finder</Badge>
                     </div>
                     <div class="row">
-                      <div>
+                      <div class="row-text">
                         <div class="row-title">默认新建项目位置</div>
                         <div class="row-desc">新建空白项目默认落盘位置</div>
                       </div>
                       <Button variant="ghost" size="sm">选择目录</Button>
                     </div>
                     <div class="row">
-                      <div>
+                      <div class="row-text">
                         <div class="row-title">语言</div>
                         <div class="row-desc">应用 UI 语言</div>
                       </div>
                       <Badge variant="outline">简体中文</Badge>
                     </div>
                     <div class="row">
-                      <div>
+                      <div class="row-text">
                         <div class="row-title">在菜单栏中显示</div>
                         <div class="row-desc">在 macOS 菜单栏显示 Zen 图标</div>
                       </div>
@@ -169,14 +184,16 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
                 </Card>
               </section>
 
-              <section v-if="showAppearance" class="section">
+              <section class="section">
                 <h3>软件图标</h3>
-                <Card>
+                <Card size="sm" class="settings-card">
                   <CardHeader>
                     <CardTitle class="text-sm">应用图标</CardTitle>
-                    <CardDescription>切换后窗口 / Dock 图标会立即更新。</CardDescription>
                   </CardHeader>
-                  <CardContent class="flex flex-col gap-3">
+                  <CardContent class="flex flex-col gap-3 pt-0">
+                    <p class="mt-[-8px] text-xs text-muted-foreground">
+                      切换后窗口 / Dock 图标会立即更新。
+                    </p>
                     <div class="icon-grid">
                       <button
                         v-for="item in BUILTIN_APP_ICONS"
@@ -195,11 +212,20 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
                         :class="{ 'is-active': settings.iconId === 'custom' }"
                         @click="settingsStore.pickCustomIcon()"
                       >
-                        <AppIcon id="custom-preview" :size="40" :custom-path="settings.customIconPath" />
+                        <AppIcon
+                          id="custom-preview"
+                          :size="40"
+                          :custom-path="settings.customIconPath"
+                        />
                         <span>自定义</span>
                       </button>
                     </div>
-                    <Button variant="outline" size="sm" class="w-fit" @click="settingsStore.pickCustomIcon()">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      class="w-fit"
+                      @click="settingsStore.pickCustomIcon()"
+                    >
                       上传图标…
                     </Button>
                   </CardContent>
@@ -213,36 +239,38 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 
             <section v-else-if="activeTab === 'shortcuts'" class="section">
               <h3>键盘快捷键</h3>
-              <Card>
+              <Card size="sm" class="settings-card">
                 <CardContent class="p-0">
-                  <table class="shortcut-table">
-                    <thead>
-                      <tr>
-                        <th>功能</th>
-                        <th>命令</th>
-                        <th>快捷键</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="item in settings.shortcuts" :key="item.id">
-                        <td>{{ item.label }}</td>
-                        <td class="command">{{ item.command }}</td>
-                        <td>
-                          <Input
-                            class="key-input"
-                            :model-value="item.key"
-                            readonly
-                            @keydown="onCaptureKey($event, item.id)"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <div class="shortcut-table-wrap">
+                    <table class="shortcut-table">
+                      <thead>
+                        <tr>
+                          <th>功能</th>
+                          <th>命令</th>
+                          <th>快捷键</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="item in settings.shortcuts" :key="item.id">
+                          <td>{{ item.label }}</td>
+                          <td class="command">{{ item.command }}</td>
+                          <td>
+                            <Input
+                              class="key-input !h-7 !text-xs"
+                              :model-value="item.key"
+                              readonly
+                              @keydown="onCaptureKey($event, item.id)"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </section>
           </div>
-        </ScrollArea>
+        </div>
       </main>
     </div>
   </div>
@@ -259,8 +287,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 }
 
 .sheet {
-  width: min(980px, calc(100vw - 40px));
-  height: min(720px, calc(100vh - 48px));
+  width: min(960px, calc(100vw - 40px));
+  height: min(700px, calc(100vh - 48px));
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   border-radius: 16px;
@@ -277,8 +305,9 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   gap: 10px;
   padding: 16px 12px;
   border-right: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-side) 92%, transparent);
+  background: #141414;
   min-height: 0;
+  overflow: hidden;
 }
 
 .nav-title {
@@ -290,11 +319,14 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 
 .nav-search {
   width: 100%;
+  flex: none;
 }
 
 .nav-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .nav-groups {
@@ -313,6 +345,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 .nav-item {
   width: 100%;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 10px;
   min-height: 34px;
@@ -323,10 +356,10 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   text-align: left;
 }
 
-.nav-item svg {
+.nav-item :deep(svg) {
   width: 15px;
   height: 15px;
-  flex: none;
+  flex: 0 0 auto;
 }
 
 .nav-item:hover {
@@ -335,7 +368,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 }
 
 .nav-item.is-active {
-  background: var(--color-side-sel);
+  background: #2a2a2a;
   color: var(--color-txt-strong);
   font-weight: 500;
 }
@@ -345,13 +378,15 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .pane-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px 8px;
+  padding: 18px 22px 10px;
 }
 
 .pane-head h2 {
@@ -361,21 +396,30 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   color: var(--color-txt-strong);
 }
 
-.close {
+.close-btn {
   color: var(--color-mut);
-  font-size: 18px;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .pane-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .pane-inner {
-  padding: 8px 22px 24px;
+  padding: 4px 22px 28px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .section h3 {
@@ -385,12 +429,25 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   color: var(--color-txt-strong);
 }
 
+.settings-card {
+  border-color: var(--color-line);
+  background: #1f1f1f;
+}
+
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.row-text {
+  min-width: 0;
 }
 
 .row-title {
@@ -419,14 +476,24 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   padding: 12px 8px;
   border-radius: 12px;
   border: 1px solid var(--color-line);
-  background: var(--color-composer-surface);
+  background: #181818;
   color: var(--color-mut);
   font-size: 12px;
+}
+
+.icon-card:hover {
+  border-color: var(--color-btn-border);
+  color: var(--color-txt);
 }
 
 .icon-card.is-active {
   border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
   color: var(--color-txt-strong);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+
+.shortcut-table-wrap {
+  overflow-x: auto;
 }
 
 .shortcut-table {
@@ -440,6 +507,12 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   text-align: left;
   padding: 10px 14px;
   border-bottom: 1px solid var(--color-line-soft);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.shortcut-table tr:last-child td {
+  border-bottom: 0;
 }
 
 .shortcut-table th {

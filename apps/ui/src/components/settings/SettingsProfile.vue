@@ -77,7 +77,7 @@ function onOpenBlog() {
     <h3>个人资料</h3>
     <p class="hint">GitHub 账号信息，登录后自动获取头像与公开资料。</p>
 
-    <Card v-if="auth.loggedIn && user">
+    <Card v-if="auth.loggedIn && user" size="sm" class="settings-card">
       <CardContent class="flex flex-col gap-4 p-4">
         <div class="profile-main">
           <Avatar class="size-16 rounded-2xl">
@@ -124,7 +124,7 @@ function onOpenBlog() {
       </CardContent>
     </Card>
 
-    <Card v-else>
+    <Card v-else size="sm" class="settings-card">
       <CardContent class="flex flex-col items-start gap-2 p-4">
         <div class="guest-title">未登录</div>
         <p class="guest-desc">

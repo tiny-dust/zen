@@ -126,7 +126,7 @@ async function onSelectModel(modelId: string) {
 
     <p v-if="error" class="m-0 text-xs text-destructive">{{ error }}</p>
 
-    <Card v-if="showAddProvider">
+    <Card v-if="showAddProvider" size="sm" class="settings-card">
       <CardHeader>
         <CardTitle class="text-sm">新增供应商</CardTitle>
         <CardDescription>选择消息协议，填写 Base URL 与 API Key。</CardDescription>
@@ -136,7 +136,13 @@ async function onSelectModel(modelId: string) {
           <FieldGroup>
             <Field>
               <FieldLabel for="provider-name">名称</FieldLabel>
-              <Input id="provider-name" v-model="providerForm.name" placeholder="OpenAI / DeepSeek / 本地" required />
+                <Input
+                  id="provider-name"
+                  v-model="providerForm.name"
+                  class="!h-8 !text-sm"
+                  placeholder="OpenAI / DeepSeek / 本地"
+                  required
+                />
             </Field>
             <Field>
               <FieldLabel>消息协议</FieldLabel>
@@ -159,11 +165,24 @@ async function onSelectModel(modelId: string) {
             </Field>
             <Field>
               <FieldLabel for="provider-base">Base URL</FieldLabel>
-              <Input id="provider-base" v-model="providerForm.baseUrl" placeholder="https://api.openai.com/v1" required />
+                <Input
+                  id="provider-base"
+                  v-model="providerForm.baseUrl"
+                  class="!h-8 !text-sm"
+                  placeholder="https://api.openai.com/v1"
+                  required
+                />
             </Field>
             <Field>
               <FieldLabel for="provider-key">API Key</FieldLabel>
-              <Input id="provider-key" v-model="providerForm.apiKey" type="password" placeholder="sk-..." required />
+                <Input
+                  id="provider-key"
+                  v-model="providerForm.apiKey"
+                  class="!h-8 !text-sm"
+                  type="password"
+                  placeholder="sk-..."
+                  required
+                />
             </Field>
           </FieldGroup>
           <div class="flex justify-end">
@@ -173,7 +192,7 @@ async function onSelectModel(modelId: string) {
       </CardContent>
     </Card>
 
-    <Card v-if="!providers.length && !showAddProvider">
+    <Card v-if="!providers.length && !showAddProvider" size="sm" class="settings-card">
       <CardContent class="py-8 text-center text-xs text-muted-foreground">
         还没有供应商。点击「添加供应商」开始配置。
       </CardContent>
@@ -196,7 +215,7 @@ async function onSelectModel(modelId: string) {
         </button>
       </div>
 
-      <Card v-if="activeProvider">
+      <Card v-if="activeProvider" size="sm" class="settings-card">
         <CardHeader>
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -247,11 +266,22 @@ async function onSelectModel(modelId: string) {
             <FieldGroup>
               <Field>
                 <FieldLabel for="model-id">模型 ID</FieldLabel>
-                <Input id="model-id" v-model="modelForm.id" placeholder="gpt-4o / claude-sonnet-4-20250514" required />
+                <Input
+                  id="model-id"
+                  v-model="modelForm.id"
+                  class="!h-8 !text-sm"
+                  placeholder="gpt-4o / claude-sonnet-4-20250514"
+                  required
+                />
               </Field>
               <Field>
                 <FieldLabel for="model-name">显示名称（可选）</FieldLabel>
-                <Input id="model-name" v-model="modelForm.name" placeholder="留空则根据 ID 推断" />
+                <Input
+                  id="model-name"
+                  v-model="modelForm.name"
+                  class="!h-8 !text-sm"
+                  placeholder="留空则根据 ID 推断"
+                />
               </Field>
             </FieldGroup>
             <p class="m-0 text-[11px] text-muted-foreground">

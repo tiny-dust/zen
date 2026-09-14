@@ -26,19 +26,40 @@ export const useSettingsStore = defineStore("settings", () => {
     settingsOpen.value = false;
   }
 
+  function syncFromHash() {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#settings")) {
+      return;
+    }
+    const parts = hash.slice(1).split("/");
+    const tab = (parts[1] || "general") as SettingsTab;
+    const allowed: SettingsTab[] = ["general", "profile", "models", "shortcuts"];
+    openSettings(allowed.includes(tab) ? tab : "general");
+  }
+
   function bootstrap(): () => void {
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+
     const zen = window.zen;
     if (!zen) {
-      return () => undefined;
+      return () => {
+        window.removeEventListener("hashchange", syncFromHash);
+      };
     }
 
     void zen.settings.get().then((value) => {
       settings.value = value;
     });
 
-    return zen.settings.onChanged((value) => {
+    const offChanged = zen.settings.onChanged((value) => {
       settings.value = value;
     });
+
+    return () => {
+      offChanged();
+      window.removeEventListener("hashchange", syncFromHash);
+    };
   }
 
   async function setIcon(iconId: Exclude<AppIconId, "custom">) {
@@ -78,6 +99,7 @@ export const useSettingsStore = defineStore("settings", () => {
     activeTab,
     openSettings,
     closeSettings,
+    syncFromHash,
     bootstrap,
     setIcon,
     pickCustomIcon,
