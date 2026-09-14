@@ -7,15 +7,20 @@ import ChatTimeline from "@/components/chat/ChatTimeline.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import RightPanel from "@/components/right/RightPanel.vue";
+import SettingsPage from "@/components/settings/SettingsPage.vue";
 import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTopbar from "@/components/topbar/AppTopbar.vue";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
+import { useSettingsStore } from "@/stores/settings";
+import { useUserStore } from "@/stores/user";
 
 const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
+const userStore = useUserStore();
+const settingsStore = useSettingsStore();
 const { leftWidth, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
   storeToRefs(layoutStore);
 
@@ -26,14 +31,20 @@ const centerClass = computed(() => ({
   "center--wide": showSessionColumn.value,
 }));
 
-let dispose: (() => void) | undefined;
+let disposeChat: (() => void) | undefined;
+let disposeUser: (() => void) | undefined;
+let disposeSettings: (() => void) | undefined;
 
 onMounted(() => {
-  dispose = chatStore.bootstrap();
+  disposeChat = chatStore.bootstrap();
+  disposeUser = userStore.bootstrap();
+  disposeSettings = settingsStore.bootstrap();
 });
 
 onUnmounted(() => {
-  dispose?.();
+  disposeChat?.();
+  disposeUser?.();
+  disposeSettings?.();
 });
 
 function onLeftDrag(delta: number) {
@@ -80,6 +91,7 @@ function onRightDrag(delta: number) {
     </div>
 
     <InfoPopup />
+    <SettingsPage />
   </div>
 </template>
 

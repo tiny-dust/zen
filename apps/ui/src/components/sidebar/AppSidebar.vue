@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import BaseButton from "@/components/base/BaseButton.vue";
 import IconButton from "@/components/base/IconButton.vue";
+import UserBlock from "@/components/sidebar/UserBlock.vue";
 
 const appVersion = "0.1.0";
 
@@ -94,12 +94,7 @@ const emit = defineEmits<{
     </div>
 
     <footer class="user">
-      <div class="avatar">R</div>
-      <div class="user-meta">
-        <div class="user-name">Reynold</div>
-        <div class="user-sub">本地工作区</div>
-      </div>
-      <BaseButton variant="ghost" class="user-settings">设置</BaseButton>
+      <UserBlock />
     </footer>
   </aside>
 </template>
@@ -235,46 +230,7 @@ const emit = defineEmits<{
 }
 
 .user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 12px 14px;
+  padding: 8px;
   border-top: 1px solid var(--color-line-soft);
-}
-
-.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: var(--color-side-sel);
-  color: var(--color-txt-strong);
-  font-size: 12px;
-  font-weight: 600;
-  flex: none;
-}
-
-.user-meta {
-  min-width: 0;
-  flex: 1;
-}
-
-.user-name {
-  font-size: 13px;
-  color: var(--color-txt-strong);
-  line-height: 1.2;
-}
-
-.user-sub {
-  font-size: 11px;
-  color: var(--color-mut);
-}
-
-.user-settings {
-  min-width: auto;
-  min-height: 28px;
-  padding: 0 8px;
-  font-size: 12px;
 }
 </style>
