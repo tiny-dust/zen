@@ -1,0 +1,101 @@
+- generic [ref=e4]:
+  - complementary "侧边栏" [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Z
+        - generic [ref=e10]:
+          - generic [ref=e11]: Zen
+          - generic [ref=e12]: v0.1.0
+      - generic [ref=e13]:
+        - button "搜索" [ref=e14] [cursor=pointer]
+        - button "通知" [ref=e18] [cursor=pointer]
+    - generic [ref=e22]:
+      - button "新建任务" [ref=e23] [cursor=pointer]
+      - button "技能" [ref=e26] [cursor=pointer]
+      - button "MCP" [ref=e29] [cursor=pointer]
+    - generic [ref=e32]:
+      - generic [ref=e33]: 公共
+      - button "收件箱" [ref=e34] [cursor=pointer]
+      - button "自动化" [ref=e37] [cursor=pointer]
+      - button "产物" [ref=e40] [cursor=pointer]
+    - generic [ref=e43]:
+      - generic [ref=e44]: 项目
+      - button "zen" [ref=e45] [cursor=pointer]
+      - button "demo-workspace" [ref=e48] [cursor=pointer]
+    - button "? 未登录 点击进行 GitHub 授权" [ref=e53]:
+      - generic [ref=e54]: "?"
+      - generic [ref=e57]:
+        - generic [ref=e58]: 未登录
+        - generic [ref=e59]: 点击进行 GitHub 授权
+  - separator [ref=e60]
+  - generic [ref=e61]:
+    - banner [ref=e62]:
+      - generic [ref=e63]: 新会话
+      - generic [ref=e65]:
+        - button "会话信息" [ref=e66] [cursor=pointer]
+        - button "底部面板" [ref=e69] [cursor=pointer]
+        - button "右侧面板" [ref=e72] [cursor=pointer]
+    - generic [ref=e75]:
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - region "对话" [ref=e78]:
+            - generic [ref=e80]:
+              - paragraph [ref=e81]: 开始一段对话
+              - paragraph [ref=e82]: 左侧输入后发送，Agent 将流式回复。
+          - generic [ref=e83]:
+            - paragraph [ref=e84]: preload bridge 未注入
+            - generic [ref=e85]:
+              - generic [ref=e86]: 消息输入
+              - textbox "消息输入" [ref=e87]:
+                - /placeholder: 描述你想让 Agent 做的事…（Enter 发送，Shift+Enter 换行）
+              - generic [ref=e88]:
+                - button "未配置模型" [disabled] [ref=e90] [cursor=pointer]:
+                  - generic [ref=e92]: ▾
+                - button "发送" [disabled] [ref=e94] [cursor=pointer]
+        - complementary "会话信息" [ref=e95]:
+          - generic [ref=e97]:
+            - heading "任务清单" [level=3] [ref=e98]
+            - list [ref=e99]:
+              - listitem [ref=e100]: 初始化 monorepo 骨架
+              - listitem [ref=e102]: 接入流式 Agent 回复
+              - listitem [ref=e104]: 接入真实模型工具链
+          - generic [ref=e106]:
+            - heading "产物" [level=3] [ref=e107]
+            - list [ref=e108]:
+              - listitem [ref=e109]:
+                - generic [ref=e110]: doc
+                - text: README.md
+              - listitem [ref=e111]:
+                - generic [ref=e112]: code
+                - text: styles.css
+          - generic [ref=e113]:
+            - heading "参考文件" [level=3] [ref=e114]
+            - list [ref=e115]:
+              - listitem [ref=e116]: docs/architecture/ARCHITECTURE.md
+              - listitem [ref=e117]: docs/architecture/NEXT_STEPS.md
+          - generic [ref=e118]:
+            - heading "调用技能" [level=3] [ref=e119]
+            - generic [ref=e120]:
+              - generic [ref=e121]: coder
+              - generic [ref=e122]: rattail
+          - generic [ref=e123]:
+            - heading "变更文件" [level=3] [ref=e124]
+            - list [ref=e125]:
+              - listitem [ref=e126]: apps/ui/src/App.vue
+              - listitem [ref=e127]: apps/ui/src/styles.css
+              - listitem [ref=e128]: apps/desktop/src/main/index.ts
+          - generic [ref=e129]:
+            - heading "分支" [level=3] [ref=e130]
+            - code [ref=e131]: main
+      - generic [ref=e132]: 底部面板 · 任务进度 / 终端占位
+  - separator [ref=e134]
+  - complementary "插件区" [ref=e136]:
+    - tablist "插件" [ref=e137]:
+      - tab "代码" [selected] [ref=e138] [cursor=pointer]
+      - tab "Git" [ref=e139] [cursor=pointer]
+      - tab "浏览器" [ref=e140] [cursor=pointer]
+    - generic [ref=e142]:
+      - paragraph [ref=e143]: 代码文件
+      - paragraph [ref=e144]: 打开项目文件后将在此预览（P1：CodeMirror）。
+      - generic [ref=e145]: apps/ui/src/App.vue apps/desktop/src/main/index.ts
+    - generic [ref=e146]: 代码 面板

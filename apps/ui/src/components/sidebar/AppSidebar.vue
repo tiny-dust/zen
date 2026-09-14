@@ -230,7 +230,7 @@ const emit = defineEmits<{
 }
 
 .user {
-  padding: 8px;
+  padding: 10px 8px 12px;
   border-top: 1px solid var(--color-line-soft);
 }
 </style>

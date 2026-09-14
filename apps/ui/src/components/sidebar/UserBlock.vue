@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Settings, UserRound, LogOut, Power, HelpCircle, Gauge } from "@lucide/vue";
+import { Gauge, HelpCircle, LogOut, Power, Settings, UserRound } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 
@@ -38,9 +38,7 @@ const displayName = computed(() => {
 
 const displaySub = computed(() => {
   if (loading.value) {
-    return deviceCode.value
-      ? `设备码 ${deviceCode.value.userCode}`
-      : "即将打开 GitHub 授权页";
+    return deviceCode.value ? `设备码 ${deviceCode.value.userCode}` : "即将打开 GitHub 授权页";
   }
   if (auth.value.loggedIn && auth.value.user) {
     return "已登录";
@@ -50,10 +48,7 @@ const displaySub = computed(() => {
 
 const initials = computed(() => {
   const login = auth.value.user?.login;
-  if (!login) {
-    return "?";
-  }
-  return login.slice(0, 1).toUpperCase();
+  return login ? login.slice(0, 1).toUpperCase() : "?";
 });
 
 function onTriggerClick(event: MouseEvent) {
@@ -90,7 +85,6 @@ function onLogout() {
 
 function onQuit() {
   open.value = false;
-  void window.zen?.app.openExternal?.("about:blank");
 }
 
 async function copyDeviceCode() {
@@ -110,99 +104,88 @@ async function copyDeviceCode() {
   <div class="user-block">
     <DropdownMenu v-model:open="open">
       <DropdownMenuTrigger as-child>
-        <Button
-          variant="ghost"
-          class="user-trigger h-auto w-full justify-start gap-2.5 px-2.5 py-2"
+        <button
+          type="button"
+          class="user-trigger"
           :disabled="loading"
+          :aria-expanded="open"
           @click="onTriggerClick"
         >
-          <Avatar class="size-8 shrink-0">
-            <AvatarImage
-              v-if="auth.user?.avatarUrl"
-              :src="auth.user.avatarUrl"
-              :alt="auth.user.login"
-            />
-            <AvatarFallback class="text-xs font-semibold">{{ initials }}</AvatarFallback>
-          </Avatar>
-          <span class="min-w-0 flex-1 text-left">
-            <span class="block truncate text-[13px] font-medium text-foreground">
-              {{ displayName }}
-            </span>
-            <span class="block truncate text-[11px] text-muted-foreground">
-              {{ displaySub }}
-            </span>
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        class="user-menu w-[260px] rounded-xl border-border bg-popover p-1.5"
-      >
-        <DropdownMenuLabel class="px-2.5 py-2">
-          <div class="flex items-center gap-2.5">
-            <Avatar class="size-9">
+          <span class="user-avatar">
+            <Avatar class="user-avatar-el">
               <AvatarImage
                 v-if="auth.user?.avatarUrl"
                 :src="auth.user.avatarUrl"
                 :alt="auth.user.login"
               />
-              <AvatarFallback class="text-sm">{{ initials }}</AvatarFallback>
+              <AvatarFallback class="user-avatar-fb">{{ initials }}</AvatarFallback>
             </Avatar>
-            <div class="min-w-0">
-              <div class="truncate text-sm font-semibold text-foreground">
-                {{ auth.user?.name || auth.user?.login }}
-              </div>
-              <div class="truncate text-[11px] text-muted-foreground">已登录</div>
-            </div>
-          </div>
+          </span>
+          <span class="user-meta">
+            <span class="user-name">{{ displayName }}</span>
+            <span class="user-sub">{{ displaySub }}</span>
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        :side-offset="8"
+        class="user-menu w-[268px] rounded-xl border border-border bg-popover p-1.5 shadow-menu"
+      >
+        <DropdownMenuLabel class="user-menu-head">
+          <Avatar class="user-menu-avatar">
+            <AvatarImage
+              v-if="auth.user?.avatarUrl"
+              :src="auth.user.avatarUrl"
+              :alt="auth.user.login"
+            />
+            <AvatarFallback>{{ initials }}</AvatarFallback>
+          </Avatar>
+          <span class="user-menu-id">
+            <span class="user-menu-name">{{ auth.user?.name || auth.user?.login }}</span>
+            <span class="user-menu-status">已登录</span>
+          </span>
         </DropdownMenuLabel>
 
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator class="mx-1" />
 
-        <DropdownMenuItem class="menu-row" @select="openProfile">
+        <DropdownMenuItem class="user-menu-item" @select="openProfile">
           <UserRound />
-          个人资料
+          <span>个人资料</span>
         </DropdownMenuItem>
-        <DropdownMenuItem class="menu-row" @select="openGeneral">
+        <DropdownMenuItem class="user-menu-item" @select="openGeneral">
           <Settings />
-          设置
-          <span class="ml-auto text-[11px] text-muted-foreground">⌘,</span>
+          <span>设置</span>
+          <span class="user-menu-kbd">⌘,</span>
         </DropdownMenuItem>
-        <DropdownMenuItem class="menu-row" @select="openModels">
+        <DropdownMenuItem class="user-menu-item" @select="openModels">
           <Gauge />
-          模型供应
+          <span>模型供应</span>
         </DropdownMenuItem>
-        <DropdownMenuItem class="menu-row" disabled>
+        <DropdownMenuItem class="user-menu-item" disabled>
           <HelpCircle />
-          帮助与反馈
+          <span>帮助与反馈</span>
         </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator class="mx-1" />
 
-        <DropdownMenuItem class="menu-row text-destructive" @select="onLogout">
+        <DropdownMenuItem class="user-menu-item user-menu-item--danger" @select="onLogout">
           <LogOut />
-          退出登录
+          <span>退出登录</span>
         </DropdownMenuItem>
-        <DropdownMenuItem class="menu-row text-destructive" @select="onQuit">
+        <DropdownMenuItem class="user-menu-item user-menu-item--danger" @select="onQuit">
           <Power />
-          退出应用
+          <span>退出应用</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
 
     <div v-if="deviceCode && loading" class="device-code" role="status">
-      <div class="text-[10px] uppercase tracking-wide text-muted-foreground">设备码</div>
-      <code class="text-base font-semibold tracking-[0.12em] text-foreground">
-        {{ deviceCode.userCode }}
-      </code>
-      <Button
-        size="xs"
-        variant="outline"
-        class="mt-1 w-fit"
-        @click="copyDeviceCode"
-      >
+      <div class="device-code-label">设备码</div>
+      <code class="device-code-value">{{ deviceCode.userCode }}</code>
+      <Button size="sm" variant="outline" class="mt-2 w-fit" @click="copyDeviceCode">
         复制
       </Button>
     </div>
@@ -210,47 +193,177 @@ async function copyDeviceCode() {
   </div>
 </template>
 
+<style>
+.user-menu-head {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 8px !important;
+}
+
+.user-menu-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex: none;
+}
+
+.user-menu-id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.user-menu-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-txt-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-status {
+  font-size: 11px;
+  color: var(--color-mut);
+}
+
+.user-menu-item {
+  min-height: 36px;
+  border-radius: 10px;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-txt) !important;
+}
+
+.user-menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  opacity: 0.95;
+}
+
+.user-menu-item[data-disabled] {
+  opacity: 0.45;
+}
+
+.user-menu-item--danger,
+.user-menu-item--danger[data-highlighted] {
+  color: var(--color-danger-fg) !important;
+}
+
+.user-menu-kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-mut);
+}
+
+.shadow-menu {
+  box-shadow: var(--shadow-menu);
+}
+</style>
+
 <style scoped>
 .user-block {
   width: 100%;
 }
 
 .user-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-side-sel) 80%, transparent);
+  text-align: left;
+  background: color-mix(in srgb, var(--color-side-sel) 70%, transparent);
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--ease-enter);
 }
 
-.user-trigger:hover {
+.user-trigger:hover:not(:disabled) {
   background: var(--color-side-hover);
 }
 
+.user-trigger:disabled {
+  opacity: 0.75;
+}
+
+.user-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
+.user-avatar-el {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+}
+
+.user-avatar-fb {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.user-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-txt-strong);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-sub {
+  font-size: 11px;
+  color: var(--color-mut);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .device-code {
-  margin: 8px 10px 0;
-  padding: 8px 10px;
-  border-radius: 10px;
+  margin: 8px 4px 0;
+  padding: 10px;
+  border-radius: 12px;
   border: 1px solid var(--color-line);
   background: var(--color-set-card);
 }
 
+.device-code-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-mut);
+}
+
+.device-code-value {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-txt-strong);
+}
+
 .login-error {
-  margin: 8px 10px 0;
+  margin: 8px 4px 0;
   font-size: 11px;
   color: var(--color-danger-fg);
-}
-
-:deep(.menu-row) {
-  min-height: 36px;
-  border-radius: 10px;
-  padding-left: 10px;
-  padding-right: 10px;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--color-txt);
-}
-
-:deep(.menu-row svg) {
-  width: 16px;
-  height: 16px;
-  opacity: 0.9;
 }
 </style>
