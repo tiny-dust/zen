@@ -2,7 +2,9 @@
 import { storeToRefs } from "pinia";
 import { computed, watch } from "vue";
 
-import BaseButton from "@/components/base/BaseButton.vue";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
 
@@ -75,57 +77,69 @@ function onOpenBlog() {
     <h3>个人资料</h3>
     <p class="hint">GitHub 账号信息，登录后自动获取头像与公开资料。</p>
 
-    <div v-if="auth.loggedIn && user" class="profile-card">
-      <div class="profile-main">
-        <div class="avatar">
-          <img v-if="user.avatarUrl" :src="user.avatarUrl" :alt="user.login" />
-          <span v-else>{{ user.login.slice(0, 1).toUpperCase() }}</span>
-        </div>
-        <div class="identity">
-          <div class="display-name">{{ user.name || user.login }}</div>
-          <div class="login-row">
-            <span class="login">@{{ user.login }}</span>
-            <button type="button" class="linkish" @click="onOpenProfile">GitHub ↗</button>
+    <Card v-if="auth.loggedIn && user">
+      <CardContent class="flex flex-col gap-4 p-4">
+        <div class="profile-main">
+          <Avatar class="size-16 rounded-2xl">
+            <AvatarImage v-if="user.avatarUrl" :src="user.avatarUrl" :alt="user.login" />
+            <AvatarFallback class="text-lg">{{ user.login.slice(0, 1).toUpperCase() }}</AvatarFallback>
+          </Avatar>
+          <div class="identity">
+            <div class="display-name">{{ user.name || user.login }}</div>
+            <div class="login-row">
+              <span class="login">@{{ user.login }}</span>
+              <Button variant="link" size="sm" class="h-auto p-0 text-xs" @click="onOpenProfile">
+                GitHub ↗
+              </Button>
+            </div>
+            <p v-if="user.bio" class="bio">{{ user.bio }}</p>
+            <ul v-if="metaLines.length" class="meta">
+              <li v-for="line in metaLines" :key="line">{{ line }}</li>
+            </ul>
+            <Button
+              v-if="user.blog"
+              variant="link"
+              size="sm"
+              class="h-auto w-fit max-w-full p-0 text-xs"
+              @click="onOpenBlog"
+            >
+              <span class="truncate">{{ user.blog.replace(/^https?:\/\//, "") }} ↗</span>
+            </Button>
           </div>
-          <p v-if="user.bio" class="bio">{{ user.bio }}</p>
-          <ul v-if="metaLines.length" class="meta">
-            <li v-for="line in metaLines" :key="line">{{ line }}</li>
-          </ul>
-          <button v-if="user.blog" type="button" class="linkish blog" @click="onOpenBlog">
-            {{ user.blog.replace(/^https?:\/\//, "") }} ↗
-          </button>
         </div>
-      </div>
 
-      <div class="stats">
-        <div v-for="item in stats" :key="item.label" class="stat">
-          <div class="stat-value">{{ item.value }}</div>
-          <div class="stat-label">{{ item.label }}</div>
+        <div class="stats">
+          <div v-for="item in stats" :key="item.label" class="stat">
+            <div class="stat-value">{{ item.value }}</div>
+            <div class="stat-label">{{ item.label }}</div>
+          </div>
         </div>
-      </div>
 
-      <div class="actions">
-        <BaseButton variant="ghost" :disabled="refreshing" @click="userStore.refreshProfile()">
-          {{ refreshing ? "刷新中…" : "刷新资料" }}
-        </BaseButton>
-        <BaseButton variant="ghost" @click="userStore.logout()">退出登录</BaseButton>
-      </div>
-    </div>
+        <div class="actions">
+          <Button variant="outline" :disabled="refreshing" @click="userStore.refreshProfile()">
+            {{ refreshing ? "刷新中…" : "刷新资料" }}
+          </Button>
+          <Button variant="destructive" @click="userStore.logout()">退出登录</Button>
+        </div>
+      </CardContent>
+    </Card>
 
-    <div v-else class="profile-card profile-card--guest">
-      <div class="guest-title">未登录</div>
-      <p class="guest-desc">
-        使用 GitHub Device Flow 登录后，这里会显示头像、简介与仓库统计。
-      </p>
-      <div v-if="deviceCode && loading" class="device-hint">
-        浏览器若未预填，请输入设备码
-        <code>{{ deviceCode.userCode }}</code>
-      </div>
-      <p v-if="loginError" class="error">{{ loginError }}</p>
-      <BaseButton :disabled="loading" @click="userStore.login()">
-        {{ loading ? "等待授权…" : "使用 GitHub 登录" }}
-      </BaseButton>
-    </div>
+    <Card v-else>
+      <CardContent class="flex flex-col items-start gap-2 p-4">
+        <div class="guest-title">未登录</div>
+        <p class="guest-desc">
+          使用 GitHub Device Flow 登录后，这里会显示头像、简介与仓库统计。
+        </p>
+        <div v-if="deviceCode && loading" class="device-hint">
+          浏览器若未预填，请输入设备码
+          <code>{{ deviceCode.userCode }}</code>
+        </div>
+        <p v-if="loginError" class="error">{{ loginError }}</p>
+        <Button :disabled="loading" @click="userStore.login()">
+          {{ loading ? "等待授权…" : "使用 GitHub 登录" }}
+        </Button>
+      </CardContent>
+    </Card>
   </section>
 </template>
 

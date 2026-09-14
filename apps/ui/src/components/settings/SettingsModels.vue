@@ -1,22 +1,40 @@
 <script setup lang="ts">
+import { Download, Plus, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 
-import BaseButton from "@/components/base/BaseButton.vue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { useModelsStore } from "@/stores/models";
 import { PROVIDER_PROTOCOLS } from "@zen/shared";
 
 import type { ProviderProtocol } from "@zen/shared";
 
 const modelsStore = useModelsStore();
-const {
-  providers,
-  activeProvider,
-  activeProviderId,
-  selection,
-  error,
-  fetching,
-} = storeToRefs(modelsStore);
+const { providers, activeProvider, activeProviderId, selection, error, fetching } =
+  storeToRefs(modelsStore);
 
 const showAddProvider = ref(false);
 const showAddModel = ref(false);
@@ -32,6 +50,11 @@ const providerForm = reactive({
 const modelForm = reactive({
   id: "",
   name: "",
+});
+
+const canOperateModels = computed(() => {
+  const p = activeProvider.value;
+  return Boolean(p?.baseUrl && p?.hasApiKey);
 });
 
 function protocolLabel(id: string) {
@@ -54,7 +77,7 @@ async function onAddProvider() {
 
 async function onAddModel() {
   const providerId = activeProviderId.value;
-  if (!providerId) {
+  if (!providerId || !canOperateModels.value) {
     return;
   }
   const created = await modelsStore.addModel(providerId, modelForm.id, modelForm.name || undefined);
@@ -67,7 +90,7 @@ async function onAddModel() {
 
 async function onLoadModels() {
   const providerId = activeProviderId.value;
-  if (!providerId) {
+  if (!providerId || !canOperateModels.value) {
     return;
   }
   loadMessage.value = "";
@@ -87,392 +110,199 @@ async function onSelectModel(modelId: string) {
 </script>
 
 <template>
-  <section class="section models-section">
-    <div class="section-head">
+  <section class="flex flex-col gap-4">
+    <div class="flex items-start justify-between gap-3">
       <div>
-        <h3>模型供应</h3>
-        <p class="hint">自定义 OpenAI / Anthropic 兼容供应商，拉取或手动添加模型。</p>
+        <h3 class="mb-1 text-[13px] font-semibold text-foreground">模型供应</h3>
+        <p class="m-0 text-xs text-muted-foreground">
+          自定义 OpenAI / Anthropic 兼容供应商；配置 Base URL 与 API Key 后才能加载或添加模型。
+        </p>
       </div>
-      <BaseButton variant="ghost" @click="showAddProvider = !showAddProvider">
+      <Button variant="outline" size="sm" @click="showAddProvider = !showAddProvider">
+        <Plus data-icon="inline-start" />
         {{ showAddProvider ? "取消" : "添加供应商" }}
-      </BaseButton>
+      </Button>
     </div>
 
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="m-0 text-xs text-destructive">{{ error }}</p>
 
-    <form v-if="showAddProvider" class="card form" @submit.prevent="onAddProvider">
-      <label class="field">
-        <span>名称</span>
-        <input v-model="providerForm.name" placeholder="例如 OpenAI / DeepSeek / 本地" required />
-      </label>
-      <label class="field">
-        <span>消息协议</span>
-        <select v-model="providerForm.protocol">
-          <option v-for="item in PROVIDER_PROTOCOLS" :key="item.id" :value="item.id">
-            {{ item.label }}
-          </option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Base URL</span>
-        <input
-          v-model="providerForm.baseUrl"
-          placeholder="https://api.openai.com/v1"
-          required
-        />
-      </label>
-      <label class="field">
-        <span>API Key</span>
-        <input v-model="providerForm.apiKey" type="password" placeholder="sk-..." required />
-      </label>
-      <div class="form-actions">
-        <BaseButton type="submit">保存供应商</BaseButton>
-      </div>
-    </form>
+    <Card v-if="showAddProvider">
+      <CardHeader>
+        <CardTitle class="text-sm">新增供应商</CardTitle>
+        <CardDescription>选择消息协议，填写 Base URL 与 API Key。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form class="flex flex-col gap-3" @submit.prevent="onAddProvider">
+          <FieldGroup>
+            <Field>
+              <FieldLabel for="provider-name">名称</FieldLabel>
+              <Input id="provider-name" v-model="providerForm.name" placeholder="OpenAI / DeepSeek / 本地" required />
+            </Field>
+            <Field>
+              <FieldLabel>消息协议</FieldLabel>
+              <Select v-model="providerForm.protocol">
+                <SelectTrigger class="w-full">
+                  <SelectValue placeholder="选择协议" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem
+                      v-for="item in PROVIDER_PROTOCOLS"
+                      :key="item.id"
+                      :value="item.id"
+                    >
+                      {{ item.label }}
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel for="provider-base">Base URL</FieldLabel>
+              <Input id="provider-base" v-model="providerForm.baseUrl" placeholder="https://api.openai.com/v1" required />
+            </Field>
+            <Field>
+              <FieldLabel for="provider-key">API Key</FieldLabel>
+              <Input id="provider-key" v-model="providerForm.apiKey" type="password" placeholder="sk-..." required />
+            </Field>
+          </FieldGroup>
+          <div class="flex justify-end">
+            <Button type="submit">保存供应商</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
 
-    <div v-if="!providers.length" class="empty">
-      还没有供应商。点击「添加供应商」，填写协议、Base URL 与 Key。
-    </div>
+    <Card v-if="!providers.length && !showAddProvider">
+      <CardContent class="py-8 text-center text-xs text-muted-foreground">
+        还没有供应商。点击「添加供应商」开始配置。
+      </CardContent>
+    </Card>
 
-    <div v-else class="layout">
-      <aside class="provider-list" aria-label="供应商列表">
+    <div v-else-if="providers.length" class="grid gap-3 md:grid-cols-[200px_minmax(0,1fr)]">
+      <div class="flex flex-col gap-1.5">
         <button
           v-for="provider in providers"
           :key="provider.id"
           type="button"
-          class="provider-item"
-          :class="{ 'is-active': provider.id === activeProviderId }"
+          class="rounded-xl border border-border bg-card px-3 py-2.5 text-left"
+          :class="provider.id === activeProviderId ? 'ring-1 ring-ring' : ''"
           @click="modelsStore.setActiveProvider(provider.id)"
         >
-          <span class="provider-name">{{ provider.name }}</span>
-          <span class="provider-meta">
+          <div class="truncate text-[13px] font-medium text-foreground">{{ provider.name }}</div>
+          <div class="truncate text-[11px] text-muted-foreground">
             {{ protocolLabel(provider.protocol) }} · {{ provider.models.length }} 模型
-          </span>
+          </div>
         </button>
-      </aside>
-
-      <div v-if="activeProvider" class="detail">
-        <div class="detail-head">
-          <div>
-            <div class="detail-title">{{ activeProvider.name }}</div>
-            <div class="detail-sub">
-              {{ protocolLabel(activeProvider.protocol) }}
-            </div>
-            <div class="detail-sub mono">{{ activeProvider.baseUrl }}</div>
-            <div class="detail-sub">Key：{{ activeProvider.apiKeyMask || "未配置" }}</div>
-          </div>
-          <div class="detail-actions">
-            <BaseButton variant="ghost" :disabled="fetching" @click="onLoadModels">
-              {{ fetching ? "拉取中…" : "模型加载" }}
-            </BaseButton>
-            <BaseButton variant="ghost" @click="showAddModel = !showAddModel">添加模型</BaseButton>
-            <BaseButton variant="ghost" @click="modelsStore.removeProvider(activeProvider.id)">
-              删除供应商
-            </BaseButton>
-          </div>
-        </div>
-
-        <p v-if="loadMessage" class="ok">{{ loadMessage }}</p>
-
-        <form v-if="showAddModel" class="card form" @submit.prevent="onAddModel">
-          <label class="field">
-            <span>模型 ID</span>
-            <input v-model="modelForm.id" placeholder="例如 gpt-4o / claude-sonnet-4-20250514" required />
-          </label>
-          <label class="field">
-            <span>显示名称（可选）</span>
-            <input v-model="modelForm.name" placeholder="留空则根据 ID 推断" />
-          </label>
-          <p class="hint">保存时会按官方目录/启发式自动填充推理、上下文等能力。</p>
-          <div class="form-actions">
-            <BaseButton type="submit">保存模型</BaseButton>
-          </div>
-        </form>
-
-        <ul class="model-list">
-          <li
-            v-for="model in activeProvider.models"
-            :key="model.id"
-            class="model-item"
-            :class="{ 'is-active': selection.modelId === model.id && selection.providerId === activeProvider.id }"
-          >
-            <button type="button" class="model-main" @click="onSelectModel(model.id)">
-              <div class="model-name">{{ model.name }}</div>
-              <div class="model-id mono">{{ model.id }}</div>
-              <div class="caps">
-                <span v-if="model.capabilities?.reasoning" class="chip">推理</span>
-                <span v-if="model.capabilities?.vision" class="chip">视觉</span>
-                <span v-if="model.capabilities?.toolCall" class="chip">工具</span>
-                <span v-if="model.capabilities?.contextWindow" class="chip">
-                  {{ Math.round(model.capabilities.contextWindow / 1000) }}K 上下文
-                </span>
-                <span v-if="model.capabilities?.source" class="chip chip--dim">
-                  {{ model.capabilities.source }}
-                </span>
-              </div>
-            </button>
-            <button
-              type="button"
-              class="model-del"
-              aria-label="删除模型"
-              @click="modelsStore.removeModel(activeProvider.id, model.id)"
-            >
-              ×
-            </button>
-          </li>
-          <li v-if="!activeProvider.models.length" class="empty-line">
-            暂无模型。可「模型加载」从 API 同步，或「添加模型」手动录入。
-          </li>
-        </ul>
       </div>
+
+      <Card v-if="activeProvider">
+        <CardHeader>
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <CardTitle class="text-base">{{ activeProvider.name }}</CardTitle>
+              <CardDescription class="mt-1">{{ protocolLabel(activeProvider.protocol) }}</CardDescription>
+              <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                {{ activeProvider.baseUrl }}
+              </p>
+              <p class="mt-0.5 text-[11px] text-muted-foreground">
+                Key：{{ activeProvider.apiKeyMask || "未配置" }}
+              </p>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="!canOperateModels || fetching"
+                :title="canOperateModels ? '从 API 拉取模型列表' : '请先配置 Base URL 与 API Key'"
+                @click="onLoadModels"
+              >
+                <Download data-icon="inline-start" />
+                {{ fetching ? "拉取中…" : "模型加载" }}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="!canOperateModels"
+                :title="canOperateModels ? '手动添加模型' : '请先配置 Base URL 与 API Key'"
+                @click="showAddModel = !showAddModel"
+              >
+                <Plus data-icon="inline-start" />
+                添加模型
+              </Button>
+              <Button variant="ghost" size="sm" @click="modelsStore.removeProvider(activeProvider.id)">
+                <Trash2 data-icon="inline-start" />
+                删除
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <p v-if="!canOperateModels" class="m-0 text-xs text-muted-foreground">
+            Base URL 与 API Key 配置完成后，才能使用「模型加载」和「添加模型」。
+          </p>
+          <p v-if="loadMessage" class="m-0 text-xs text-muted-foreground">{{ loadMessage }}</p>
+
+          <form v-if="showAddModel && canOperateModels" class="flex flex-col gap-3 rounded-xl border border-border p-3" @submit.prevent="onAddModel">
+            <FieldGroup>
+              <Field>
+                <FieldLabel for="model-id">模型 ID</FieldLabel>
+                <Input id="model-id" v-model="modelForm.id" placeholder="gpt-4o / claude-sonnet-4-20250514" required />
+              </Field>
+              <Field>
+                <FieldLabel for="model-name">显示名称（可选）</FieldLabel>
+                <Input id="model-name" v-model="modelForm.name" placeholder="留空则根据 ID 推断" />
+              </Field>
+            </FieldGroup>
+            <p class="m-0 text-[11px] text-muted-foreground">
+              保存时会按官方目录/启发式自动填充推理、上下文等能力。
+            </p>
+            <div class="flex justify-end">
+              <Button type="submit" size="sm">保存模型</Button>
+            </div>
+          </form>
+
+          <Separator />
+
+          <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
+            <li
+              v-for="model in activeProvider.models"
+              :key="model.id"
+              class="flex items-stretch overflow-hidden rounded-xl border border-border"
+              :class="
+                selection.modelId === model.id && selection.providerId === activeProvider.id
+                  ? 'ring-1 ring-ring'
+                  : ''
+              "
+            >
+              <button type="button" class="min-w-0 flex-1 px-3 py-2.5 text-left" @click="onSelectModel(model.id)">
+                <div class="text-[13px] font-medium text-foreground">{{ model.name }}</div>
+                <div class="truncate font-mono text-[11px] text-muted-foreground">{{ model.id }}</div>
+                <div class="mt-1.5 flex flex-wrap gap-1">
+                  <Badge v-if="model.capabilities?.reasoning" variant="secondary">推理</Badge>
+                  <Badge v-if="model.capabilities?.vision" variant="secondary">视觉</Badge>
+                  <Badge v-if="model.capabilities?.toolCall" variant="secondary">工具</Badge>
+                  <Badge v-if="model.capabilities?.contextWindow" variant="outline">
+                    {{ Math.round(model.capabilities.contextWindow / 1000) }}K
+                  </Badge>
+                </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="border-l border-border"
+                aria-label="删除模型"
+                @click="modelsStore.removeModel(activeProvider.id, model.id)"
+              >
+                <Trash2 />
+              </Button>
+            </li>
+            <li v-if="!activeProvider.models.length" class="rounded-xl border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+              暂无模型。配置完成后可「模型加载」或「添加模型」。
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
   </section>
 </template>
-
-<style scoped>
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.section h3 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: var(--color-txt-strong);
-}
-
-.hint {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--color-mut);
-  line-height: 1.5;
-}
-
-.error {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--color-danger-fg);
-}
-
-.ok {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--color-ok);
-}
-
-.empty {
-  padding: 16px;
-  border-radius: var(--radius-sm);
-  border: 1px dashed var(--color-btn-border);
-  color: var(--color-mut);
-  font-size: 12px;
-}
-
-.card {
-  margin-bottom: 12px;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-line);
-  background: var(--color-composer-surface);
-}
-
-.form {
-  display: grid;
-  gap: 10px;
-}
-
-.field {
-  display: grid;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--color-mut);
-}
-
-.field input,
-.field select {
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
-  border: 1px solid var(--color-line);
-  background: var(--color-input-bg);
-  color: var(--color-txt-strong);
-  font-size: 13px;
-}
-
-.field input:focus,
-.field select:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 12px;
-  min-height: 220px;
-}
-
-.provider-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.provider-item {
-  text-align: left;
-  padding: 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-line);
-  background: var(--color-composer-surface);
-  color: var(--color-txt);
-}
-
-.provider-item:hover {
-  background: var(--color-menu-hover);
-}
-
-.provider-item.is-active {
-  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-composer-surface));
-}
-
-.provider-name {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-txt-strong);
-}
-
-.provider-meta {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--color-mut);
-}
-
-.detail {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.detail-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.detail-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-txt-strong);
-}
-
-.detail-sub {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--color-mut);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.model-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.model-item {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-line);
-  background: var(--color-composer-surface);
-  overflow: hidden;
-}
-
-.model-item.is-active {
-  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
-}
-
-.model-main {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  padding: 10px 12px;
-}
-
-.model-name {
-  font-size: 13px;
-  color: var(--color-txt-strong);
-  font-weight: 500;
-}
-
-.model-id {
-  margin-top: 2px;
-  color: var(--color-dim);
-}
-
-.caps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.chip {
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--color-chip-bg);
-  color: var(--color-chip-text);
-  font-size: 10px;
-}
-
-.chip--dim {
-  color: var(--color-mut);
-}
-
-.model-del {
-  width: 36px;
-  border-left: 1px solid var(--color-line);
-  color: var(--color-mut);
-  font-size: 16px;
-}
-
-.model-del:hover {
-  background: var(--color-danger-bg);
-  color: var(--color-danger-fg);
-}
-
-.empty-line {
-  padding: 12px;
-  font-size: 12px;
-  color: var(--color-mut);
-  border: 1px dashed var(--color-btn-border);
-  border-radius: var(--radius-sm);
-}
-</style>

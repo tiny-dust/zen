@@ -1,24 +1,72 @@
 <script setup lang="ts">
+import {
+  Keyboard,
+  Settings2,
+  UserRound,
+  Boxes,
+} from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
-import AppIcon from "@/components/base/AppIcon.vue";
-import BaseButton from "@/components/base/BaseButton.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
+import AppIcon from "@/components/base/AppIcon.vue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
+
+import type { SettingsTab } from "@/stores/settings";
 
 const settingsStore = useSettingsStore();
 const { settings, settingsOpen, activeTab } = storeToRefs(settingsStore);
 
-type TabId = "general" | "models";
+const search = ref("");
+const menuBarVisible = ref(true);
+
+const navGroups = computed(() => [
+  {
+    title: "个人",
+    items: [
+      { id: "general" as const, label: "常规", icon: Settings2 },
+      { id: "profile" as const, label: "个人资料", icon: UserRound },
+      { id: "models" as const, label: "模型", icon: Boxes },
+      { id: "shortcuts" as const, label: "键盘快捷键", icon: Keyboard },
+    ],
+  },
+]);
+
+const filteredGroups = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) {
+    return navGroups.value;
+  }
+  return navGroups.value
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.label.toLowerCase().includes(q)),
+    }))
+    .filter((group) => group.items.length > 0);
+});
+
 const tab = computed({
-  get: () => activeTab.value as TabId,
-  set: (value: TabId) => {
+  get: () => activeTab.value,
+  set: (value: SettingsTab) => {
     settingsStore.openSettings(value);
   },
 });
+
+const showAppearance = computed(() => activeTab.value === "general");
 
 function onCaptureKey(event: KeyboardEvent, id: string) {
   event.preventDefault();
@@ -50,103 +98,152 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 <template>
   <div v-if="settingsOpen" class="overlay" @click.self="settingsStore.closeSettings()">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="设置">
-      <header class="header">
-        <h2>设置</h2>
-        <nav class="tabs" aria-label="设置分区">
-          <button
-            type="button"
-            class="tab"
-            :class="{ 'is-active': tab === 'general' }"
-            @click="tab = 'general'"
-          >
-            常规
-          </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ 'is-active': tab === 'models' }"
-            @click="tab = 'models'"
-          >
-            模型供应
-          </button>
-        </nav>
-        <button type="button" class="close" aria-label="关闭" @click="settingsStore.closeSettings()">
-          ×
-        </button>
-      </header>
+      <aside class="nav">
+        <div class="nav-title">设置</div>
+        <Input v-model="search" class="nav-search" placeholder="搜索设置" />
 
-      <div class="content">
-        <template v-if="tab === 'general'">
-          <SettingsProfile />
-
-          <section class="section">
-            <h3>软件图标</h3>
-            <p class="hint">选择内置图标，或上传本地图标。切换后窗口 / Dock 图标会立即更新。</p>
-            <div class="icon-grid">
+        <ScrollArea class="nav-scroll">
+          <div class="nav-groups">
+            <div v-for="group in filteredGroups" :key="group.title" class="nav-group">
+              <div class="nav-group-title">{{ group.title }}</div>
               <button
-                v-for="item in BUILTIN_APP_ICONS"
+                v-for="item in group.items"
                 :key="item.id"
                 type="button"
-                class="icon-card"
-                :class="{ 'is-active': settings.iconId === item.id }"
-                @click="settingsStore.setIcon(item.id)"
+                class="nav-item"
+                :class="{ 'is-active': tab === item.id }"
+                @click="tab = item.id as SettingsTab"
               >
-                <AppIcon :id="item.id" :size="48" />
+                <component :is="item.icon" />
                 <span>{{ item.label }}</span>
               </button>
-
-              <button
-                type="button"
-                class="icon-card"
-                :class="{ 'is-active': settings.iconId === 'custom' }"
-                @click="settingsStore.pickCustomIcon()"
-              >
-                <AppIcon
-                  id="custom-preview"
-                  :size="48"
-                  :custom-path="settings.customIconPath"
-                />
-                <span>自定义</span>
-              </button>
             </div>
-            <BaseButton variant="ghost" @click="settingsStore.pickCustomIcon()">
-              上传图标…
-            </BaseButton>
-          </section>
+          </div>
+        </ScrollArea>
+      </aside>
 
-          <section class="section">
-            <h3>快捷键</h3>
-            <p class="hint">
-              默认对齐 VS Code 快捷键体系（命令 ID + 键位）。点击键位后直接按下新的组合键即可修改。
-            </p>
-            <table class="shortcut-table">
-              <thead>
-                <tr>
-                  <th>功能</th>
-                  <th>命令</th>
-                  <th>快捷键</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in settings.shortcuts" :key="item.id">
-                  <td>{{ item.label }}</td>
-                  <td class="command">{{ item.command }}</td>
-                  <td>
-                    <input
-                      class="key-input"
-                      :value="item.key"
-                      readonly
-                      @keydown="onCaptureKey($event, item.id)"
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-        </template>
+      <main class="pane">
+        <header class="pane-head">
+          <h2>{{ activeTab === "models" ? "模型" : activeTab === "profile" ? "个人资料" : activeTab === "shortcuts" ? "键盘快捷键" : "常规" }}</h2>
+          <Button variant="ghost" size="icon" class="close" aria-label="关闭" @click="settingsStore.closeSettings()">
+            ×
+          </Button>
+        </header>
 
-        <SettingsModels v-else />
-      </div>
+        <ScrollArea class="pane-body">
+          <div class="pane-inner">
+            <template v-if="activeTab === 'general'">
+              <section class="section">
+                <h3>常规</h3>
+                <Card>
+                  <CardContent class="divide-y divide-border p-0">
+                    <div class="row">
+                      <div>
+                        <div class="row-title">默认打开目标</div>
+                        <div class="row-desc">默认用哪个程序打开文件夹/位置</div>
+                      </div>
+                      <Badge variant="secondary">Finder</Badge>
+                    </div>
+                    <div class="row">
+                      <div>
+                        <div class="row-title">默认新建项目位置</div>
+                        <div class="row-desc">新建空白项目默认落盘位置</div>
+                      </div>
+                      <Button variant="ghost" size="sm">选择目录</Button>
+                    </div>
+                    <div class="row">
+                      <div>
+                        <div class="row-title">语言</div>
+                        <div class="row-desc">应用 UI 语言</div>
+                      </div>
+                      <Badge variant="outline">简体中文</Badge>
+                    </div>
+                    <div class="row">
+                      <div>
+                        <div class="row-title">在菜单栏中显示</div>
+                        <div class="row-desc">在 macOS 菜单栏显示 Zen 图标</div>
+                      </div>
+                      <Switch v-model="menuBarVisible" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+
+              <section v-if="showAppearance" class="section">
+                <h3>软件图标</h3>
+                <Card>
+                  <CardHeader>
+                    <CardTitle class="text-sm">应用图标</CardTitle>
+                    <CardDescription>切换后窗口 / Dock 图标会立即更新。</CardDescription>
+                  </CardHeader>
+                  <CardContent class="flex flex-col gap-3">
+                    <div class="icon-grid">
+                      <button
+                        v-for="item in BUILTIN_APP_ICONS"
+                        :key="item.id"
+                        type="button"
+                        class="icon-card"
+                        :class="{ 'is-active': settings.iconId === item.id }"
+                        @click="settingsStore.setIcon(item.id)"
+                      >
+                        <AppIcon :id="item.id" :size="40" />
+                        <span>{{ item.label }}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-card"
+                        :class="{ 'is-active': settings.iconId === 'custom' }"
+                        @click="settingsStore.pickCustomIcon()"
+                      >
+                        <AppIcon id="custom-preview" :size="40" :custom-path="settings.customIconPath" />
+                        <span>自定义</span>
+                      </button>
+                    </div>
+                    <Button variant="outline" size="sm" class="w-fit" @click="settingsStore.pickCustomIcon()">
+                      上传图标…
+                    </Button>
+                  </CardContent>
+                </Card>
+              </section>
+            </template>
+
+            <SettingsProfile v-else-if="activeTab === 'profile'" />
+
+            <SettingsModels v-else-if="activeTab === 'models'" />
+
+            <section v-else-if="activeTab === 'shortcuts'" class="section">
+              <h3>键盘快捷键</h3>
+              <Card>
+                <CardContent class="p-0">
+                  <table class="shortcut-table">
+                    <thead>
+                      <tr>
+                        <th>功能</th>
+                        <th>命令</th>
+                        <th>快捷键</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in settings.shortcuts" :key="item.id">
+                        <td>{{ item.label }}</td>
+                        <td class="command">{{ item.command }}</td>
+                        <td>
+                          <Input
+                            class="key-input"
+                            :model-value="item.key"
+                            readonly
+                            @keydown="onCaptureKey($event, item.id)"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </section>
+          </div>
+        </ScrollArea>
+      </main>
     </div>
   </div>
 </template>
@@ -156,106 +253,162 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: var(--color-scrim, #00000061);
+  background: var(--color-scrim);
   display: grid;
   place-items: center;
 }
 
 .sheet {
-  width: min(860px, calc(100vw - 48px));
-  max-height: min(780px, calc(100vh - 64px));
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-lg);
+  width: min(980px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 48px));
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border-radius: 16px;
   border: 1px solid var(--color-line);
   background: var(--color-set-card);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
+  color: var(--color-txt);
 }
 
-.header {
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-side) 92%, transparent);
+  min-height: 0;
+}
+
+.nav-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-txt-strong);
+  padding: 0 4px;
+}
+
+.nav-search {
+  width: 100%;
+}
+
+.nav-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.nav-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 12px;
+}
+
+.nav-group-title {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  color: var(--color-mut);
+}
+
+.nav-item {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-line);
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--color-mut);
+  font-size: 13px;
+  text-align: left;
 }
 
-.header h2 {
-  margin: 0;
-  font-size: 14px;
-  color: var(--color-txt-strong);
+.nav-item svg {
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-}
-
-.tab {
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  color: var(--color-mut);
-  font-size: 12px;
-}
-
-.tab:hover {
+.nav-item:hover {
   background: var(--color-menu-hover);
   color: var(--color-txt);
 }
 
-.tab.is-active {
+.nav-item.is-active {
   background: var(--color-side-sel);
   color: var(--color-txt-strong);
-  border-color: var(--color-line);
+  font-weight: 500;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 8px;
+}
+
+.pane-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-txt-strong);
 }
 
 .close {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
   color: var(--color-mut);
   font-size: 18px;
-  line-height: 1;
-  flex: none;
 }
 
-.close:hover {
-  background: var(--color-menu-hover);
-  color: var(--color-txt-strong);
+.pane-body {
+  flex: 1;
+  min-height: 0;
 }
 
-.content {
-  overflow: auto;
-  padding: 16px;
+.pane-inner {
+  padding: 8px 22px 24px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
 }
 
 .section h3 {
-  margin: 0 0 6px;
+  margin: 0 0 10px;
   font-size: 13px;
+  font-weight: 600;
   color: var(--color-txt-strong);
 }
 
-.hint {
-  margin: 0 0 12px;
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-txt-strong);
+}
+
+.row-desc {
+  margin-top: 2px;
   font-size: 12px;
   color: var(--color-mut);
-  line-height: 1.5;
 }
 
 .icon-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 12px;
 }
 
 .icon-card {
@@ -264,22 +417,16 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   align-items: center;
   gap: 8px;
   padding: 12px 8px;
-  border-radius: var(--radius-sm);
+  border-radius: 12px;
   border: 1px solid var(--color-line);
   background: var(--color-composer-surface);
   color: var(--color-mut);
   font-size: 12px;
 }
 
-.icon-card:hover {
-  border-color: var(--color-btn-border);
-  color: var(--color-txt);
-}
-
 .icon-card.is-active {
-  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
   color: var(--color-txt-strong);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
 .shortcut-table {
@@ -291,9 +438,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 .shortcut-table th,
 .shortcut-table td {
   text-align: left;
-  padding: 8px 6px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--color-line-soft);
-  vertical-align: middle;
 }
 
 .shortcut-table th {
@@ -309,19 +455,5 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 
 .key-input {
   width: 140px;
-  min-height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 1px solid var(--color-line);
-  background: var(--color-input-bg);
-  color: var(--color-txt-strong);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.key-input:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
 }
 </style>
