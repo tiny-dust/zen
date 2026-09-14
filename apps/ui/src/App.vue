@@ -14,6 +14,7 @@ import AppTopbar from "@/components/topbar/AppTopbar.vue";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
+import { useModelsStore } from "@/stores/models";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
 
@@ -21,6 +22,7 @@ const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
+const modelsStore = useModelsStore();
 const { leftWidth, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
   storeToRefs(layoutStore);
 
@@ -34,17 +36,20 @@ const centerClass = computed(() => ({
 let disposeChat: (() => void) | undefined;
 let disposeUser: (() => void) | undefined;
 let disposeSettings: (() => void) | undefined;
+let disposeModels: (() => void) | undefined;
 
 onMounted(() => {
   disposeChat = chatStore.bootstrap();
   disposeUser = userStore.bootstrap();
   disposeSettings = settingsStore.bootstrap();
+  disposeModels = modelsStore.bootstrap();
 });
 
 onUnmounted(() => {
   disposeChat?.();
   disposeUser?.();
   disposeSettings?.();
+  disposeModels?.();
 });
 
 function onLeftDrag(delta: number) {

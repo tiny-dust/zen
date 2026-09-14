@@ -1,14 +1,24 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { computed } from "vue";
 
 import AppIcon from "@/components/base/AppIcon.vue";
 import BaseButton from "@/components/base/BaseButton.vue";
+import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
 
 const settingsStore = useSettingsStore();
-const { settings, settingsOpen } = storeToRefs(settingsStore);
+const { settings, settingsOpen, activeTab } = storeToRefs(settingsStore);
+
+type TabId = "general" | "models";
+const tab = computed({
+  get: () => activeTab.value as TabId,
+  set: (value: TabId) => {
+    settingsStore.openSettings(value);
+  },
+});
 
 function onCaptureKey(event: KeyboardEvent, id: string) {
   event.preventDefault();
@@ -42,78 +52,100 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
     <div class="sheet" role="dialog" aria-modal="true" aria-label="设置">
       <header class="header">
         <h2>设置</h2>
+        <nav class="tabs" aria-label="设置分区">
+          <button
+            type="button"
+            class="tab"
+            :class="{ 'is-active': tab === 'general' }"
+            @click="tab = 'general'"
+          >
+            常规
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{ 'is-active': tab === 'models' }"
+            @click="tab = 'models'"
+          >
+            模型供应
+          </button>
+        </nav>
         <button type="button" class="close" aria-label="关闭" @click="settingsStore.closeSettings()">
           ×
         </button>
       </header>
 
       <div class="content">
-        <SettingsProfile />
+        <template v-if="tab === 'general'">
+          <SettingsProfile />
 
-        <section class="section">
-          <h3>软件图标</h3>
-          <p class="hint">选择内置图标，或上传本地图标。切换后窗口 / Dock 图标会立即更新。</p>
-          <div class="icon-grid">
-            <button
-              v-for="item in BUILTIN_APP_ICONS"
-              :key="item.id"
-              type="button"
-              class="icon-card"
-              :class="{ 'is-active': settings.iconId === item.id }"
-              @click="settingsStore.setIcon(item.id)"
-            >
-              <AppIcon :id="item.id" :size="48" />
-              <span>{{ item.label }}</span>
-            </button>
+          <section class="section">
+            <h3>软件图标</h3>
+            <p class="hint">选择内置图标，或上传本地图标。切换后窗口 / Dock 图标会立即更新。</p>
+            <div class="icon-grid">
+              <button
+                v-for="item in BUILTIN_APP_ICONS"
+                :key="item.id"
+                type="button"
+                class="icon-card"
+                :class="{ 'is-active': settings.iconId === item.id }"
+                @click="settingsStore.setIcon(item.id)"
+              >
+                <AppIcon :id="item.id" :size="48" />
+                <span>{{ item.label }}</span>
+              </button>
 
-            <button
-              type="button"
-              class="icon-card"
-              :class="{ 'is-active': settings.iconId === 'custom' }"
-              @click="settingsStore.pickCustomIcon()"
-            >
-              <AppIcon
-                id="custom-preview"
-                :size="48"
-                :custom-path="settings.customIconPath"
-              />
-              <span>自定义</span>
-            </button>
-          </div>
-          <BaseButton variant="ghost" @click="settingsStore.pickCustomIcon()">
-            上传图标…
-          </BaseButton>
-        </section>
+              <button
+                type="button"
+                class="icon-card"
+                :class="{ 'is-active': settings.iconId === 'custom' }"
+                @click="settingsStore.pickCustomIcon()"
+              >
+                <AppIcon
+                  id="custom-preview"
+                  :size="48"
+                  :custom-path="settings.customIconPath"
+                />
+                <span>自定义</span>
+              </button>
+            </div>
+            <BaseButton variant="ghost" @click="settingsStore.pickCustomIcon()">
+              上传图标…
+            </BaseButton>
+          </section>
 
-        <section class="section">
-          <h3>快捷键</h3>
-          <p class="hint">
-            默认对齐 VS Code 快捷键体系（命令 ID + 键位）。点击键位后直接按下新的组合键即可修改。
-          </p>
-          <table class="shortcut-table">
-            <thead>
-              <tr>
-                <th>功能</th>
-                <th>命令</th>
-                <th>快捷键</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in settings.shortcuts" :key="item.id">
-                <td>{{ item.label }}</td>
-                <td class="command">{{ item.command }}</td>
-                <td>
-                  <input
-                    class="key-input"
-                    :value="item.key"
-                    readonly
-                    @keydown="onCaptureKey($event, item.id)"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+          <section class="section">
+            <h3>快捷键</h3>
+            <p class="hint">
+              默认对齐 VS Code 快捷键体系（命令 ID + 键位）。点击键位后直接按下新的组合键即可修改。
+            </p>
+            <table class="shortcut-table">
+              <thead>
+                <tr>
+                  <th>功能</th>
+                  <th>命令</th>
+                  <th>快捷键</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in settings.shortcuts" :key="item.id">
+                  <td>{{ item.label }}</td>
+                  <td class="command">{{ item.command }}</td>
+                  <td>
+                    <input
+                      class="key-input"
+                      :value="item.key"
+                      readonly
+                      @keydown="onCaptureKey($event, item.id)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </template>
+
+        <SettingsModels v-else />
       </div>
     </div>
   </div>
@@ -130,8 +162,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 }
 
 .sheet {
-  width: min(720px, calc(100vw - 48px));
-  max-height: min(760px, calc(100vh - 64px));
+  width: min(860px, calc(100vw - 48px));
+  max-height: min(780px, calc(100vh - 64px));
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-lg);
@@ -144,8 +176,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
+  gap: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--color-line);
 }
 
@@ -153,6 +185,34 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   margin: 0;
   font-size: 14px;
   color: var(--color-txt-strong);
+  flex: none;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: var(--color-mut);
+  font-size: 12px;
+}
+
+.tab:hover {
+  background: var(--color-menu-hover);
+  color: var(--color-txt);
+}
+
+.tab.is-active {
+  background: var(--color-side-sel);
+  color: var(--color-txt-strong);
+  border-color: var(--color-line);
 }
 
 .close {
@@ -162,6 +222,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
   color: var(--color-mut);
   font-size: 18px;
   line-height: 1;
+  flex: none;
 }
 
 .close:hover {

@@ -37,7 +37,13 @@ function onAvatarClick(event: MouseEvent) {
 
 function onOpenSettings() {
   menuOpen.value = false;
-  settingsStore.openSettings();
+  settingsStore.openSettings("general");
+  emit("openSettings");
+}
+
+function onOpenModels() {
+  menuOpen.value = false;
+  settingsStore.openSettings("models");
   emit("openSettings");
 }
 
@@ -105,6 +111,10 @@ async function copyDeviceCode() {
       <button type="button" class="menu-item" role="menuitem" @click="onOpenSettings">
         <span class="menu-icon" aria-hidden="true" />
         设置
+      </button>
+      <button type="button" class="menu-item" role="menuitem" @click="onOpenModels">
+        <span class="menu-icon" aria-hidden="true" />
+        模型供应
       </button>
       <button type="button" class="menu-item menu-item--danger" role="menuitem" @click="onLogout">
         <span class="menu-icon menu-icon--danger" aria-hidden="true" />

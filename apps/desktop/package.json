@@ -8,15 +8,18 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "electron-builder",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@zen/shared": "workspace:*",
     "@zen/agent-core": "workspace:*",
+    "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.0",
+    "@types/better-sqlite3": "7.6.13",
     "@types/node": "22.20.2",
     "@vitejs/plugin-vue": "6.0.8",
     "electron": "44.3.0",

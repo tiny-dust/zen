@@ -4,6 +4,7 @@ import { runMockAgent } from "@zen/agent-core";
 import { BrowserWindow, app, ipcMain, shell } from "electron";
 
 import { initUserState, registerUserIpc } from "./user-ipc";
+import { registerModelIpc } from "./model-ipc";
 
 import type { AgentRunRequest, AgentStreamEvent } from "@zen/shared";
 
@@ -102,6 +103,7 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   registerIpc();
   registerUserIpc();
+  registerModelIpc();
   createWindow();
   void initUserState();
 

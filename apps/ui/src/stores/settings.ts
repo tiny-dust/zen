@@ -10,11 +10,15 @@ const fallbackSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
 };
 
+export type SettingsTab = "general" | "models";
+
 export const useSettingsStore = defineStore("settings", () => {
   const settings = ref<AppSettings>({ ...fallbackSettings });
   const settingsOpen = ref(false);
+  const activeTab = ref<SettingsTab>("general");
 
-  function openSettings() {
+  function openSettings(tab: SettingsTab = "general") {
+    activeTab.value = tab;
     settingsOpen.value = true;
   }
 
@@ -71,6 +75,7 @@ export const useSettingsStore = defineStore("settings", () => {
   return {
     settings,
     settingsOpen,
+    activeTab,
     openSettings,
     closeSettings,
     bootstrap,

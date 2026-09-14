@@ -2,6 +2,7 @@
 import { storeToRefs } from "pinia";
 
 import BaseButton from "@/components/base/BaseButton.vue";
+import ModelPicker from "@/components/chat/ModelPicker.vue";
 import { useChatStore } from "@/stores/chat";
 
 const chatStore = useChatStore();
@@ -30,7 +31,7 @@ function onKeydown(event: KeyboardEvent) {
         @keydown="onKeydown"
       />
       <div class="actions">
-        <span class="hint">Enter 发送</span>
+        <ModelPicker />
         <div class="btns">
           <BaseButton v-if="isRunning" variant="ghost" @click="chatStore.cancel()">
             停止
@@ -92,6 +93,7 @@ function onKeydown(event: KeyboardEvent) {
   justify-content: space-between;
   gap: 8px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .btns {

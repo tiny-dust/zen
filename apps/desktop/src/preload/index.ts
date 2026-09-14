@@ -6,6 +6,13 @@ import type {
   AppSettings,
   AuthState,
   DeviceCodeInfo,
+  FetchModelsResult,
+  ModelCapabilities,
+  ModelSelection,
+  ProviderInput,
+  ProviderModel,
+  ProviderSummary,
+  AddModelInput,
 } from "@zen/shared";
 
 export interface AppInfo {
@@ -79,6 +86,41 @@ const zen = {
       return () => {
         ipcRenderer.removeListener("settings:changed", listener);
       };
+    },
+  },
+  models: {
+    list(): Promise<ProviderSummary[]> {
+      return ipcRenderer.invoke("models:list");
+    },
+    selection(): Promise<ModelSelection & { provider?: ProviderSummary; model?: ProviderModel }> {
+      return ipcRenderer.invoke("models:selection");
+    },
+    select(
+      providerId: string | null,
+      modelId: string | null,
+    ): Promise<ModelSelection & { provider?: ProviderSummary; model?: ProviderModel }> {
+      return ipcRenderer.invoke("models:select", providerId, modelId);
+    },
+    addProvider(input: ProviderInput): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:add-provider", input);
+    },
+    updateProvider(id: string, patch: Partial<ProviderInput>): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:update-provider", id, patch);
+    },
+    removeProvider(id: string): Promise<ProviderSummary[]> {
+      return ipcRenderer.invoke("models:remove-provider", id);
+    },
+    addModel(input: AddModelInput): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:add-model", input);
+    },
+    removeModel(providerId: string, modelId: string): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:remove-model", providerId, modelId);
+    },
+    fetchFromProvider(providerId: string): Promise<FetchModelsResult> {
+      return ipcRenderer.invoke("models:fetch-from-provider", providerId);
+    },
+    inspect(providerId: string, modelId: string): Promise<ModelCapabilities> {
+      return ipcRenderer.invoke("models:inspect", providerId, modelId);
     },
   },
   agent: {

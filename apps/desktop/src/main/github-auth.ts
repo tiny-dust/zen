@@ -1,6 +1,8 @@
-import { safeStorage, shell } from "electron";
+import { shell } from "electron";
 
 import type { DeviceCodeInfo, GitHubUser } from "@zen/shared";
+
+import { decryptSecret, encryptSecret } from "./secret";
 
 export interface GitHubTokens {
   accessToken: string;
@@ -46,33 +48,11 @@ function requireClientId(): string {
   return clientId;
 }
 
-async function encryptToken(plain: string): Promise<string> {
-  if (safeStorage.isEncryptionAvailable()) {
-    const buf = await safeStorage.encryptStringAsync(plain);
-    return buf.toString("base64");
-  }
-  return Buffer.from(`plain:${plain}`, "utf8").toString("base64");
-}
-
-async function decryptToken(encoded: string): Promise<string> {
-  const raw = Buffer.from(encoded, "base64");
-  if (safeStorage.isEncryptionAvailable()) {
-    try {
-      const { result } = await safeStorage.decryptStringAsync(raw);
-      return result;
-    } catch {
-      // plain-prefixed fallback
-    }
-  }
-  const text = raw.toString("utf8");
-  return text.startsWith("plain:") ? text.slice("plain:".length) : text;
-}
-
 export async function encryptTokens(tokens: GitHubTokens): Promise<EncryptedTokens> {
-  const accessTokenEnc = await encryptToken(tokens.accessToken);
+  const accessTokenEnc = await encryptSecret(tokens.accessToken);
   const encrypted: EncryptedTokens = { accessTokenEnc };
   if (tokens.refreshToken) {
-    encrypted.refreshTokenEnc = await encryptToken(tokens.refreshToken);
+    encrypted.refreshTokenEnc = await encryptSecret(tokens.refreshToken);
   }
   if (tokens.expiresAt) {
     encrypted.expiresAt = tokens.expiresAt;
@@ -81,10 +61,10 @@ export async function encryptTokens(tokens: GitHubTokens): Promise<EncryptedToke
 }
 
 export async function decryptTokens(encrypted: EncryptedTokens): Promise<GitHubTokens> {
-  const accessToken = await decryptToken(encrypted.accessTokenEnc);
+  const accessToken = await decryptSecret(encrypted.accessTokenEnc);
   const tokens: GitHubTokens = { accessToken };
   if (encrypted.refreshTokenEnc) {
-    tokens.refreshToken = await decryptToken(encrypted.refreshTokenEnc);
+    tokens.refreshToken = await decryptSecret(encrypted.refreshTokenEnc);
   }
   if (encrypted.expiresAt) {
     tokens.expiresAt = encrypted.expiresAt;
