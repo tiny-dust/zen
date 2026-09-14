@@ -2,7 +2,8 @@ import { defineStore } from "pinia";
 import { uuid } from "rattail";
 import { computed, ref } from "vue";
 
-import type { AgentStreamEvent, ChatMessage } from "@zen/shared";
+import type { AgentStreamEvent, ChatMessage, ChatTurn } from "@zen/shared";
+import { useModelsStore } from "@/stores/models";
 import type { AppInfo } from "@/types/zen-api";
 
 type RunStatus = "idle" | "running" | "error";
@@ -73,11 +74,25 @@ export const useChatStore = defineStore("chat", () => {
     return zen.agent.onEvent(handleStreamEvent);
   }
 
+  function buildHistory(): ChatTurn[] {
+    return messages.value
+      .filter((item) => item.role === "user" || item.role === "assistant")
+      .map((item) => ({
+        role: item.role as "user" | "assistant",
+        content: item.content,
+      }));
+  }
+
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
     if (!zen || !text || isRunning.value) {
       return;
+    }
+
+    const modelsStore = useModelsStore();
+    if (!modelsStore.selection.providerId || !modelsStore.selection.modelId) {
+      await modelsStore.refresh();
     }
 
     lastError.value = "";
@@ -100,6 +115,9 @@ export const useChatStore = defineStore("chat", () => {
       sessionId: sessionId.value,
       userMessage: text,
       workspaceRoot: workspaceRoot.value,
+      providerId: modelsStore.selection.providerId ?? undefined,
+      model: modelsStore.selection.modelId ?? undefined,
+      history: buildHistory().slice(0, -1),
     });
 
     if (!result.ok) {

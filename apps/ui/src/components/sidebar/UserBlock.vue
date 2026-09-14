@@ -51,13 +51,17 @@ const initials = computed(() => {
   return login ? login.slice(0, 1).toUpperCase() : "?";
 });
 
-function onTriggerClick(event: MouseEvent) {
-  event.stopPropagation();
-  if (!auth.value.loggedIn) {
+function onOpenChange(next: boolean) {
+  if (next && !auth.value.loggedIn) {
     void userStore.login();
+    open.value = false;
     return;
   }
-  open.value = !open.value;
+  if (next && loading.value) {
+    open.value = false;
+    return;
+  }
+  open.value = next;
 }
 
 function openGeneral() {
@@ -102,14 +106,13 @@ async function copyDeviceCode() {
 
 <template>
   <div class="user-block">
-    <DropdownMenu v-model:open="open">
+    <DropdownMenu :open="open" @update:open="onOpenChange">
       <DropdownMenuTrigger as-child>
         <button
           type="button"
           class="user-trigger"
-          :disabled="loading"
           :aria-expanded="open"
-          @click="onTriggerClick"
+          :aria-haspopup="auth.loggedIn ? 'menu' : undefined"
         >
           <span class="user-avatar">
             <Avatar class="user-avatar-el">
@@ -290,6 +293,11 @@ async function copyDeviceCode() {
 
 .user-trigger:disabled {
   opacity: 0.75;
+}
+
+.user-trigger:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 
 .user-avatar {

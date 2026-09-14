@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { runMockAgent } from "@zen/agent-core";
 import { BrowserWindow, app, ipcMain, shell } from "electron";
 
+import { runChatAgent } from "./chat-runner";
+import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerModelIpc } from "./model-ipc";
 
-import type { AgentRunRequest, AgentStreamEvent } from "@zen/shared";
+import type { AgentRunRequest, AgentStreamEvent, ChatTurn } from "@zen/shared";
 
 const abortControllers = new Map<string, AbortController>();
 
@@ -74,14 +76,36 @@ function registerIpc(): void {
     const controller = new AbortController();
     abortControllers.set(request.sessionId, controller);
 
+    const emitTo = (streamEvent: AgentStreamEvent) => emit(event.sender, streamEvent);
+
     try {
-      await runMockAgent(request, controller.signal, (streamEvent) => {
-        emit(event.sender, streamEvent);
-      });
+      const selection = await getSelection();
+      const providerId = request.providerId || selection.providerId;
+      const modelId = request.model || selection.modelId;
+      const provider = (await listProviders()).find((item) => item.id === providerId);
+
+      if (provider && modelId) {
+        const apiKey = await loadProviderApiKey(provider.id);
+        const history: ChatTurn[] = [
+          ...(request.history ?? []),
+          { role: "user", content: request.userMessage },
+        ];
+        await runChatAgent({
+          protocol: provider.protocol,
+          baseUrl: provider.baseUrl,
+          apiKey,
+          model: modelId,
+          messages: history,
+          signal: controller.signal,
+          emit: emitTo,
+        });
+      } else {
+        await runMockAgent(request, controller.signal, emitTo);
+      }
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "agent run failed";
-      emit(event.sender, { type: "error", message });
+      emitTo({ type: "error", message });
       return { ok: false, error: message };
     } finally {
       if (abortControllers.get(request.sessionId) === controller) {

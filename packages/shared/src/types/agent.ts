@@ -25,11 +25,18 @@ export interface ToolProgressEvent {
   percent?: number;
 }
 
+export interface ChatTurn {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
 export interface AgentRunRequest {
   sessionId: string;
   userMessage: string;
   workspaceRoot: string;
   model?: string;
+  providerId?: string;
+  history?: ChatTurn[];
 }
 
 export type AgentStreamEvent =
