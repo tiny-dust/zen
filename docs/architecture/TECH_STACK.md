@@ -27,7 +27,7 @@
 | 校验 | **zod 4.6.2** | zod 3 |
 | 浏览器 | **WebContentsView** + CDP | Playwright 产品路径 |
 | Git | **simple-git 3.36.0** | isomorphic-git |
-| GitHub | **GitHub App Device Flow** + **octokit 5.0.5** | OAuth App；keytar |
+| GitHub | **Device Flow** + **safeStorage** | loopback web flow；keytar |
 | 密钥 | **safeStorage** async | keytar 已归档 |
 | Skills | **Agent Skills 标准** | 私有格式 |
 | 会话 | **JSONL** + **better-sqlite3 13.0.3** | 只存 SQLite |

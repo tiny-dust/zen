@@ -3,6 +3,14 @@ import { basename, dirname, join } from "node:path";
 
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
+import {
+  decryptTokens,
+  encryptTokens,
+  fetchGitHubUser,
+  loginWithGitHub,
+} from "./github-auth";
+
+import type { EncryptedTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
 import { DEFAULT_SHORTCUTS } from "@zen/shared";
 
@@ -16,8 +24,23 @@ const defaultSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
 };
 
+interface StoredAuth {
+  loggedIn: boolean;
+  user: GitHubUser | null;
+  tokens?: EncryptedTokens | null;
+}
+
 let cachedSettings: AppSettings | null = null;
-let cachedAuth: AuthState | null = null;
+let cachedAuth: StoredAuth | null = null;
+let loginInFlight: Promise<AuthState> | null = null;
+
+function toPublicAuth(stored: StoredAuth): AuthState {
+  return {
+    loggedIn: stored.loggedIn,
+    user: stored.user,
+    error: null,
+  };
+}
 
 async function ensureDir(dir: string) {
   await mkdir(dir, { recursive: true });
@@ -52,12 +75,68 @@ async function loadSettings(): Promise<AppSettings> {
   return cachedSettings;
 }
 
-async function loadAuth(): Promise<AuthState> {
+async function loadStoredAuth(): Promise<StoredAuth> {
   if (cachedAuth) {
     return cachedAuth;
   }
-  cachedAuth = await readJson<AuthState>(authFile(), { loggedIn: false, user: null });
+  const stored = await readJson<StoredAuth>(authFile(), { loggedIn: false, user: null });
+  cachedAuth = {
+    loggedIn: stored.loggedIn === true && Boolean(stored.user),
+    user: stored.user ?? null,
+    tokens: stored.tokens ?? null,
+  };
   return cachedAuth;
+}
+
+async function loadAuth(): Promise<AuthState> {
+  return toPublicAuth(await loadStoredAuth());
+}
+
+async function persistAuth(stored: StoredAuth): Promise<AuthState> {
+  cachedAuth = stored;
+  await writeJson(authFile(), stored);
+  const next = toPublicAuth(stored);
+  broadcast("auth:changed", next);
+  return next;
+}
+
+async function performLogin(): Promise<AuthState> {
+  try {
+    const { user, tokens } = await loginWithGitHub({
+      onDeviceCode: (info) => {
+        broadcast("auth:device-code", info);
+      },
+    });
+    const encrypted = await encryptTokens(tokens);
+    return await persistAuth({ loggedIn: true, user, tokens: encrypted });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "GitHub 登录失败";
+    const current = await loadStoredAuth();
+    return {
+      loggedIn: current.loggedIn,
+      user: current.user,
+      error: message,
+    };
+  }
+}
+
+async function refreshProfile(): Promise<AuthState> {
+  const stored = await loadStoredAuth();
+  if (!stored.loggedIn || !stored.tokens) {
+    return loadAuth();
+  }
+  try {
+    const tokens = await decryptTokens(stored.tokens);
+    const user = await fetchGitHubUser(tokens.accessToken);
+    return await persistAuth({ ...stored, user });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "刷新资料失败";
+    return {
+      loggedIn: stored.loggedIn,
+      user: stored.user,
+      error: message,
+    };
+  }
 }
 
 function broadcast(channel: string, payload: unknown) {
@@ -96,25 +175,27 @@ export function registerUserIpc(): void {
   ipcMain.handle("auth:state", async () => loadAuth());
 
   ipcMain.handle("auth:login", async () => {
-    // Device-flow placeholder. Replace with real GitHub Device Flow + safeStorage in P1.
-    await shell.openExternal("https://github.com/login/device");
-    const user: GitHubUser = {
-      login: "zen-user",
-      name: "Zen User",
-      avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
-      htmlUrl: "https://github.com/zen-user",
-    };
-    cachedAuth = { loggedIn: true, user };
-    await writeJson(authFile(), cachedAuth);
-    broadcast("auth:changed", cachedAuth);
-    return cachedAuth;
+    if (loginInFlight) {
+      return loginInFlight;
+    }
+    loginInFlight = performLogin().finally(() => {
+      loginInFlight = null;
+    });
+    return loginInFlight;
   });
 
   ipcMain.handle("auth:logout", async () => {
-    cachedAuth = { loggedIn: false, user: null };
-    await writeJson(authFile(), cachedAuth);
-    broadcast("auth:changed", cachedAuth);
-    return cachedAuth;
+    return persistAuth({ loggedIn: false, user: null, tokens: null });
+  });
+
+  ipcMain.handle("auth:refresh-profile", async () => refreshProfile());
+
+  ipcMain.handle("app:open-external", async (_event, url: string) => {
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+      return { ok: false };
+    }
+    await shell.openExternal(url);
+    return { ok: true };
   });
 
   ipcMain.handle("settings:get", async () => loadSettings());
@@ -135,21 +216,22 @@ export function registerUserIpc(): void {
   });
 
   ipcMain.handle("settings:pick-icon", async (event) => {
-    const result = await dialog.showOpenDialog(
-      BrowserWindow.fromWebContents(event.sender) ?? undefined,
-      {
-        title: "选择应用图标",
-        properties: ["openFile"],
-        filters: [
-          { name: "Images", extensions: ["png", "icns", "ico", "jpg", "jpeg", "webp", "svg"] },
-        ],
-      },
-    );
-    if (result.canceled || result.filePaths.length === 0) {
+    const options: Electron.OpenDialogOptions = {
+      title: "选择应用图标",
+      properties: ["openFile"],
+      filters: [
+        { name: "Images", extensions: ["png", "icns", "ico", "jpg", "jpeg", "webp", "svg"] },
+      ],
+    };
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    const source = result.canceled ? undefined : result.filePaths[0];
+    if (!source) {
       return loadSettings();
     }
 
-    const source = result.filePaths[0];
     const dir = customIconDir();
     await ensureDir(dir);
     const target = join(dir, `custom-${Date.now()}-${basename(source)}`);

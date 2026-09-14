@@ -8,7 +8,7 @@
 | 4 | MCP | `mcp-client` | @modelcontextprotocol/client v2, @ai-sdk/mcp | `mcp.<server>.<tool>` | MCPManager |
 | 5 | Skills | `skills` | Agent Skills 标准（SKILL.md） | `skills.list` `skills.load` | SkillsPage |
 | 6 | 系统能力 | `tools/system` | Electron clipboard/notification | `system.clipboard` `system.notify` `system.open_path` `system.os_info` | — |
-| 7 | GitHub 认证 | `tools/github` + desktop | octokit, safeStorage, Device Flow | `github.auth_status` | AuthSettings |
+| 7 | GitHub 认证 | desktop `github-auth` | Device Flow, safeStorage | `auth:login` | AuthState |
 | 8 | Git 操作 | `tools/git` | simple-git | `git.status` `git.diff` `git.commit` `git.branch` `git.log` | GitPanel |
 | 9 | Agent 循环 | `agent-core` | ai v7 ToolLoopAgent | （编排层） | ChatStream |
 | 10 | 会话持久化 | `session` | better-sqlite3 + JSONL | — | SessionList |

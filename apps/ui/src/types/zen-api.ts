@@ -3,6 +3,7 @@ import type {
   AgentStreamEvent,
   AppSettings,
   AuthState,
+  DeviceCodeInfo,
 } from "@zen/shared";
 
 export interface AppInfo {
@@ -17,12 +18,15 @@ export interface AppInfo {
 export interface ZenApi {
   app: {
     info(): Promise<AppInfo>;
+    openExternal(url: string): Promise<{ ok: boolean }>;
   };
   auth: {
     state(): Promise<AuthState>;
     login(): Promise<AuthState>;
     logout(): Promise<AuthState>;
+    refreshProfile(): Promise<AuthState>;
     onChanged(handler: (state: AuthState) => void): () => void;
+    onDeviceCode(handler: (info: DeviceCodeInfo) => void): () => void;
   };
   settings: {
     get(): Promise<AppSettings>;

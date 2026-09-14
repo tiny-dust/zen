@@ -12,7 +12,7 @@ Zen — 极致精简，专注编程。面向代码编程场景的 AI Agent 桌�
 | MCP | 官方 TS SDK v2，stdio / Streamable HTTP |
 | Skills | Agent Skills 开放标准（SKILL.md） |
 | 系统能力 | 剪贴板、通知、路径、系统信息 |
-| GitHub 认证 | GitHub App Device Flow + safeStorage |
+| GitHub 认证 | Device Flow + safeStorage |
 | Git 操作 | simple-git：status / diff / commit / branch |
 
 ## 技术栈（已敲定 · 全 latest 稳定版）

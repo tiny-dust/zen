@@ -44,7 +44,7 @@ export const useSettingsStore = defineStore("settings", () => {
     }
     settings.value = await zen.settings.set({
       iconId,
-      customIconPath: iconId === "custom" ? settings.value.customIconPath : null,
+      customIconPath: null,
     });
     await zen.settings.applyIcon();
   }

@@ -11,7 +11,7 @@ const emit = defineEmits<{
 
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
-const { auth } = storeToRefs(userStore);
+const { auth, loading, loginError, deviceCode } = storeToRefs(userStore);
 
 const menuOpen = ref(false);
 const menuEl = ref<HTMLElement | null>(null);
@@ -45,25 +45,61 @@ function onLogout() {
   menuOpen.value = false;
   void userStore.logout();
 }
+
+async function copyDeviceCode() {
+  const code = deviceCode.value?.userCode;
+  if (!code) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    // ignore
+  }
+}
 </script>
 
 <template>
   <div ref="menuEl" class="user-block">
-    <button type="button" class="user-trigger" @click="onAvatarClick">
+    <button type="button" class="user-trigger" :disabled="loading" @click="onAvatarClick">
       <div v-if="auth.loggedIn && auth.user" class="avatar">
         <img v-if="auth.user.avatarUrl" :src="auth.user.avatarUrl" alt="" />
         <span v-else>{{ auth.user.login.slice(0, 1).toUpperCase() }}</span>
       </div>
-      <div v-else class="avatar avatar--guest">?</div>
+      <div v-else class="avatar avatar--guest">{{ loading ? "…" : "?" }}</div>
       <div class="user-meta">
         <div class="user-name">
-          {{ auth.loggedIn && auth.user ? auth.user.name || auth.user.login : "未登录" }}
+          {{
+            loading
+              ? deviceCode
+                ? "在浏览器确认设备码"
+                : "正在申请登录…"
+              : auth.loggedIn && auth.user
+                ? auth.user.name || auth.user.login
+                : "未登录"
+          }}
         </div>
         <div class="user-sub">
-          {{ auth.loggedIn && auth.user ? `@${auth.user.login}` : "点击进行 GitHub 授权" }}
+          {{
+            loading
+              ? deviceCode
+                ? `若未自动填写，请输入 ${deviceCode.userCode}`
+                : "即将打开 GitHub 授权页"
+              : auth.loggedIn && auth.user
+                ? `@${auth.user.login}`
+                : "点击进行 GitHub 授权"
+          }}
         </div>
       </div>
     </button>
+    <div v-if="deviceCode && loading" class="device-code" role="status">
+      <div class="device-code-label">设备码</div>
+      <code class="device-code-value">{{ deviceCode.userCode }}</code>
+      <button type="button" class="device-code-copy" @click="copyDeviceCode">复制</button>
+    </div>
+    <div v-if="loginError" class="login-error" role="alert">
+      {{ loginError }}
+    </div>
 
     <div v-if="menuOpen && auth.loggedIn" class="menu" role="menu">
       <button type="button" class="menu-item" role="menuitem" @click="onOpenSettings">
@@ -94,8 +130,65 @@ function onLogout() {
   transition: background var(--motion-fast) var(--ease-enter);
 }
 
-.user-trigger:hover {
+.user-trigger:hover:not(:disabled) {
   background: var(--color-side-hover);
+}
+
+.user-trigger:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.login-error {
+  margin: 0 10px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-danger-fg) 35%, transparent);
+  background: color-mix(in srgb, var(--color-danger-fg) 12%, transparent);
+  color: var(--color-danger-fg);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.device-code {
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  background: var(--color-set-card);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.device-code-label {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--color-mut);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.device-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-txt-strong);
+}
+
+.device-code-copy {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-btn-border);
+  background: transparent;
+  color: var(--color-txt);
+  font-size: 11px;
+}
+
+.device-code-copy:hover {
+  background: var(--color-menu-hover);
 }
 
 .avatar {

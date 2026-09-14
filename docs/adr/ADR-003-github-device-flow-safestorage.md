@@ -1,6 +1,6 @@
 # ADR-003: GitHub 认证使用 App Device Flow + safeStorage
 
-- 状态: Accepted
+- 状态: Accepted（2026-09-14 再确认为 Device Flow）
 - 日期: 2026-09-12
 
 ## 背景
@@ -23,3 +23,9 @@
 
 - 企业客户要求 GitHub Enterprise Server 多实例。
 - 必须使用带 client_secret 的 loopback web flow 作为唯一路径。
+
+## 2026-09-14 修订记录
+
+- 先因 VS Code 式 UX 短暂切到 loopback Web flow；随后确认桌面场景仍采用 **GitHub 官方推荐的 Device Flow**（仅 Client ID，无 secret）。
+- 实现：`apps/desktop/src/main/github-auth.ts`；配置：`docs/auth/github-oauth-setup.md`。
+- UI 通过 `auth:device-code` 展示 `user_code`，并打开 `verification_uri_complete` 以尽量预填。

@@ -5,6 +5,7 @@ import type {
   AgentStreamEvent,
   AppSettings,
   AuthState,
+  DeviceCodeInfo,
 } from "@zen/shared";
 
 export interface AppInfo {
@@ -21,6 +22,9 @@ const zen = {
     info(): Promise<AppInfo> {
       return ipcRenderer.invoke("app:info");
     },
+    openExternal(url: string): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("app:open-external", url);
+    },
   },
   auth: {
     state(): Promise<AuthState> {
@@ -32,6 +36,9 @@ const zen = {
     logout(): Promise<AuthState> {
       return ipcRenderer.invoke("auth:logout");
     },
+    refreshProfile(): Promise<AuthState> {
+      return ipcRenderer.invoke("auth:refresh-profile");
+    },
     onChanged(handler: (state: AuthState) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, state: AuthState) => {
         handler(state);
@@ -39,6 +46,15 @@ const zen = {
       ipcRenderer.on("auth:changed", listener);
       return () => {
         ipcRenderer.removeListener("auth:changed", listener);
+      };
+    },
+    onDeviceCode(handler: (info: DeviceCodeInfo) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, info: DeviceCodeInfo) => {
+        handler(info);
+      };
+      ipcRenderer.on("auth:device-code", listener);
+      return () => {
+        ipcRenderer.removeListener("auth:device-code", listener);
       };
     },
   },

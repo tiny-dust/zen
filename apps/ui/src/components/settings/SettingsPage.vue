@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 
 import AppIcon from "@/components/base/AppIcon.vue";
 import BaseButton from "@/components/base/BaseButton.vue";
+import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
 
@@ -47,6 +48,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
       </header>
 
       <div class="content">
+        <SettingsProfile />
+
         <section class="section">
           <h3>软件图标</h3>
           <p class="hint">选择内置图标，或上传本地图标。切换后窗口 / Dock 图标会立即更新。</p>

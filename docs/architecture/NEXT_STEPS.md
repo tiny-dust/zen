@@ -23,7 +23,7 @@
 
 - [ ] MCP client v2（stdio 本地 / HTTP 远程）
 - [ ] Agent Skills 加载（含 `.claude/skills` 兼容）
-- [ ] GitHub App Device Flow + safeStorage
+- [x] GitHub Device Flow + safeStorage（见 `docs/auth/github-oauth-setup.md`）
 - [ ] WebContentsView 浏览器理解
 
 ## 5. 发布（P4）

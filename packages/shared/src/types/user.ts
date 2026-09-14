@@ -3,6 +3,16 @@ export interface GitHubUser {
   name: string;
   avatarUrl: string;
   htmlUrl: string;
+  bio?: string | null;
+  company?: string | null;
+  location?: string | null;
+  blog?: string | null;
+  email?: string | null;
+  followers?: number;
+  following?: number;
+  publicRepos?: number;
+  publicGists?: number;
+  updatedAt?: string | null;
 }
 
 export type AppIconId = "zen-ink" | "zen-mint" | "zen-ember" | "zen-mono" | "custom";
@@ -24,6 +34,13 @@ export interface AppSettings {
 export interface AuthState {
   loggedIn: boolean;
   user: GitHubUser | null;
+  error?: string | null;
+}
+
+export interface DeviceCodeInfo {
+  userCode: string;
+  verificationUri: string;
+  expiresAt: number;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
