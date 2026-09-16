@@ -25,9 +25,6 @@ fi
   || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Zen" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Zen" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Zen" "$PLIST"
-# 换用独立 Bundle ID：com.github.Electron 的旧注册（名称/图标）被系统缓存，
-# 全新身份会触发全新的 LaunchServices 注册，彻底摆脱 Electron 残留
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.zen.desktop.dev" "$PLIST"
 
 # 终端直接 exec 的进程，Dock 会回退显示可执行文件名：把 MacOS/Electron 改名 Zen，
 # 同步 CFBundleExecutable 与 electron 启动器依赖的 path.txt（无换行）
@@ -40,6 +37,13 @@ if [ -f "node_modules/electron/path.txt" ]; then
 fi
 
 cp "$ICNS_SRC" "$ICNS_DST"
+
+# 名称与图标都会被 icon services 按「bundle 身份」缓存：把 Bundle ID 与 CFBundleVersion
+# 绑定到 icns 指纹——改名或换图标都会形成全新身份，系统缓存必然重建，不会发旧图标。
+# dev 的 userData 路径在代码里显式指定，身份变化不影响数据。
+ICNS_STAMP=$(stat -f %m "$ICNS_SRC")
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.zen.desktop.dev.$ICNS_STAMP" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 44.3.$ICNS_STAMP" "$PLIST"
 
 # 改动 bundle 后 ad-hoc 签名失效，必须重签，否则 Apple Silicon 上无法启动
 codesign --force --deep --sign - "$APP"
