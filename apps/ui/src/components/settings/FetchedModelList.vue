@@ -24,7 +24,7 @@ function isKnown(id: string) {
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)]">
+  <div class="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)]">
     <div class="flex items-center justify-between gap-2 border-b border-[var(--color-line-soft)] px-2.5 py-2 text-[11px] text-[var(--color-mut)]">
       <span>已拉取 {{ rows.length }} 个模型，勾选后添加</span>
       <span class="flex gap-2.5">

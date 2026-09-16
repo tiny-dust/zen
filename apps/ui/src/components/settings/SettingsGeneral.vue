@@ -62,7 +62,7 @@ const menuBarVisible = ref(true);
             v-for="item in BUILTIN_APP_ICONS"
             :key="item.id"
             type="button"
-            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
+            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
             :class="settings.iconId === item.id ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
             @click="settingsStore.setIcon(item.id)"
           >
@@ -71,7 +71,7 @@ const menuBarVisible = ref(true);
           </button>
           <button
             type="button"
-            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
+            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
             :class="settings.iconId === 'custom' ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
             @click="settingsStore.pickCustomIcon()"
           >

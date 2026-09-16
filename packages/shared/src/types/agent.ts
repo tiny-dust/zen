@@ -121,6 +121,8 @@ export type AgentStreamEvent =
   | { type: "status"; sessionId: string; status: AgentRunStatus }
   | { type: "step_start"; sessionId: string; step: number }
   | { type: "usage"; sessionId: string; inputTokens: number; outputTokens: number }
+  | { type: "tasks_updated"; sessionId: string; version: number; items: TaskItem[] }
+  | { type: "reference_found"; sessionId: string; reference: ReferenceItem }
   | { type: "done"; sessionId: string; reason: AgentDoneReason }
   | { type: "error"; sessionId: string; message: string };
 
@@ -163,6 +165,50 @@ export interface GitLogEntry {
   author: string;
   time: number;
   subject: string;
+}
+
+/** 本地/远程分支条目 */
+export interface GitBranchInfo {
+  name: string;
+  current: boolean;
+  /** 远程分支的 remote 名，如 origin */
+  remote?: string;
+}
+
+export interface GitBranches {
+  local: GitBranchInfo[];
+  remote: GitBranchInfo[];
+}
+
+/** 当前分支关联的 PR（无则为 null） */
+export interface GitPullRequest {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed" | "merged" | "draft";
+}
+
+/** 任务清单条目 */
+export interface TaskItem {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
+/** 一次会话中的一版任务清单（v1 / v2 …） */
+export interface TaskListVersion {
+  id: string;
+  version: number;
+  items: TaskItem[];
+  createdAt: number;
+}
+
+/** websearch 命中的参考链接 */
+export interface ReferenceItem {
+  id: string;
+  title: string;
+  url: string;
+  snippet?: string;
 }
 
 export const BUILTIN_SKILLS: Array<{ id: string; label: string; description: string }> = [

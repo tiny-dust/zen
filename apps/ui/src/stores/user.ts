@@ -18,6 +18,10 @@ export const useUserStore = defineStore("user", () => {
 
     void zen.auth.state().then((state) => {
       auth.value = state;
+      // 启动时补拉一次资料：历史登录可能缺 avatarUrl
+      if (state.loggedIn) {
+        void refreshProfile();
+      }
     });
 
     const offChanged = zen.auth.onChanged((state) => {

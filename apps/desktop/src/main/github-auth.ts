@@ -2,7 +2,7 @@ import { shell } from "electron";
 
 import type { DeviceCodeInfo, GitHubUser } from "@zen/shared";
 
-import { decryptSecret, encryptSecret } from "./secret";
+import { decryptSecret, encryptSecret, isByteSafeHeader } from "./secret";
 
 export interface GitHubTokens {
   accessToken: string;
@@ -181,9 +181,13 @@ async function pollForAccessToken(options: {
 }
 
 export async function fetchGitHubUser(accessToken: string): Promise<GitHubUser> {
+  const token = accessToken.trim();
+  if (!isByteSafeHeader(token)) {
+    throw new Error("GitHub 凭据无效（含非法字符），请退出后重新登录");
+  }
   const response = await fetch("https://api.github.com/user", {
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "User-Agent": "zen-desktop",
       "X-GitHub-Api-Version": "2022-11-28",

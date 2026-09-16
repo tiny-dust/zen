@@ -4,14 +4,26 @@ import { computed, ref } from "vue";
 import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 
 const ACTIVE_KEY = "zen.activeWorkspace";
+const COLLAPSED_KEY = "zen.collapsedWorkspaces";
 const COMMON_ID = "common";
 /** 每个工作区默认展示的会话条数，其余折叠进「展开显示」 */
 const PREVIEW_COUNT = 3;
+
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((item) => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
 
 export const useWorkspaceStore = defineStore("workspace", () => {
   const groups = ref<WorkspaceGroup[]>([]);
   const activeId = ref(localStorage.getItem(ACTIVE_KEY) || COMMON_ID);
   const expanded = ref(new Set<string>());
+  /** 工作区/公共区整组折叠（隐藏其下会话） */
+  const collapsed = ref(loadCollapsed());
 
   const active = computed(() => groups.value.find((item) => item.id === activeId.value) ?? null);
   const activePath = computed(() => active.value?.path ?? undefined);
@@ -20,6 +32,25 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   function setActive(id: string) {
     activeId.value = id;
     localStorage.setItem(ACTIVE_KEY, id);
+    // 切到该工作区时自动展开，便于立刻看到会话
+    if (collapsed.value.has(id)) {
+      toggleCollapsed(id);
+    }
+  }
+
+  function isCollapsed(id: string) {
+    return collapsed.value.has(id);
+  }
+
+  function toggleCollapsed(id: string) {
+    const next = new Set(collapsed.value);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    collapsed.value = next;
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
   }
 
   function toggleExpanded(id: string) {
@@ -128,6 +159,14 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return true;
   }
 
+  async function pin(id: string, pinned: boolean) {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    groups.value = await zen.workspace.pin(id, pinned);
+  }
+
   async function archive(id: string, archived: boolean) {
     const zen = window.zen;
     if (!zen) {
@@ -157,9 +196,12 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     activePath,
     archivedGroups,
     expanded,
+    collapsed,
     COMMON_ID,
     PREVIEW_COUNT,
     setActive,
+    isCollapsed,
+    toggleCollapsed,
     toggleExpanded,
     visibleSessions,
     pathOf,
@@ -170,6 +212,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     removeSessionLocal,
     refresh,
     create,
+    pin,
     archive,
     remove,
   };

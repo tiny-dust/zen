@@ -10,6 +10,7 @@ interface WorkspaceRow {
   name: string;
   path: string | null;
   kind: "workspace" | "common";
+  pinned: number;
   archived: number;
   created_at: number;
 }
@@ -43,6 +44,7 @@ function toWorkspace(row: WorkspaceRow): Workspace {
     name: row.name,
     path: row.path,
     kind: row.kind,
+    pinned: row.pinned === 1,
     archived: row.archived === 1,
     createdAt: row.created_at,
   };
@@ -76,7 +78,9 @@ function toMessage(row: MessageRow): ChatMessage {
 /** 侧栏数据源：全部工作区（含归档与公共区）+ 各自会话，置顶优先、按更新时间倒序 */
 export function listWorkspaceGroups(): WorkspaceGroup[] {
   const db = getDb();
-  const workspaces = db.prepare("SELECT * FROM workspaces ORDER BY created_at ASC").all() as WorkspaceRow[];
+  const workspaces = db
+    .prepare("SELECT * FROM workspaces ORDER BY pinned DESC, created_at ASC")
+    .all() as WorkspaceRow[];
   const sessions = db
     .prepare("SELECT * FROM chat_sessions ORDER BY pinned DESC, updated_at DESC")
     .all() as SessionRow[];
@@ -100,13 +104,23 @@ export function createWorkspace(path: string): Workspace {
     name: basename(path),
     path,
     kind: "workspace",
+    pinned: 0,
     archived: 0,
     created_at: Date.now(),
   };
   db.prepare(
-    "INSERT INTO workspaces (id, name, path, kind, archived, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+    "INSERT INTO workspaces (id, name, path, kind, pinned, archived, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)",
   ).run(row.id, row.name, row.path, row.kind, row.created_at);
   return toWorkspace(row);
+}
+
+export function setWorkspacePinned(id: string, pinned: boolean): void {
+  if (id === COMMON_ID) {
+    return;
+  }
+  getDb()
+    .prepare("UPDATE workspaces SET pinned = ? WHERE id = ? AND kind = 'workspace'")
+    .run(pinned ? 1 : 0, id);
 }
 
 export function setWorkspaceArchived(id: string, archived: boolean): void {

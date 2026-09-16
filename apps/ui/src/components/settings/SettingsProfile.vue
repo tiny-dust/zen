@@ -121,7 +121,7 @@ function onOpenBlog() {
           <div
             v-for="item in stats"
             :key="item.label"
-            class="rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-input-bg)] px-2 py-2.5 text-center"
+            class="rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] px-2 py-2.5 text-center"
           >
             <div class="text-[16px] font-semibold tabular-nums text-[var(--color-txt-strong)]">
               {{ item.value }}
@@ -148,7 +148,7 @@ function onOpenBlog() {
         <div v-if="deviceCode && loading" class="text-[12px] text-[var(--color-txt)]">
           浏览器若未预填，请输入设备码
           <code
-            class="ml-1 rounded bg-[var(--color-input-bg)] px-1.5 py-0.5 font-[family-name:var(--font-mono)] tracking-[0.08em]"
+            class="ml-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 font-[family-name:var(--font-mono)] tracking-[0.08em]"
           >
             {{ deviceCode.userCode }}
           </code>

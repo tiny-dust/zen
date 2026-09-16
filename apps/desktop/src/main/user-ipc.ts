@@ -130,11 +130,15 @@ async function refreshProfile(): Promise<AuthState> {
     const user = await fetchGitHubUser(tokens.accessToken);
     return await persistAuth({ ...stored, user });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "刷新资料失败";
+    const raw = error instanceof Error ? error.message : "刷新资料失败";
+    // 本地密钥失效 / token 损坏：清掉凭据，引导重新登录，避免一直弹 ByteString
+    if (/解密|凭据无效|ByteString/i.test(raw)) {
+      return await persistAuth({ loggedIn: false, user: null, tokens: null });
+    }
     return {
       loggedIn: stored.loggedIn,
       user: stored.user,
-      error: message,
+      error: raw,
     };
   }
 }

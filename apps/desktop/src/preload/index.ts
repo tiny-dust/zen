@@ -13,7 +13,9 @@ import type {
   DeviceCodeInfo,
   DirEntry,
   FetchModelsResult,
+  GitBranches,
   GitLogEntry,
+  GitPullRequest,
   GitStatus,
   ModelCapabilities,
   ModelSelection,
@@ -49,6 +51,30 @@ const zen = {
       return ipcRenderer.invoke("app:open-external", url);
     },
   },
+  shell: {
+    listOpeners(): Promise<Array<{ id: string; label: string; icon: string }>> {
+      return ipcRenderer.invoke("shell:list-openers");
+    },
+    openWith(
+      openerId: string,
+      path: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("shell:open-with", openerId, path);
+    },
+    showInFolder(path: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("shell:show-in-folder", path);
+    },
+    openPath(path: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("shell:open-path", path);
+    },
+    platformInfo(): Promise<{
+      platform: "darwin" | "win32" | "linux";
+      showInFolderLabel: string;
+      openFolderLabel: string;
+    }> {
+      return ipcRenderer.invoke("shell:platform-info");
+    },
+  },
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }> {
       return ipcRenderer.invoke("git:info", cwd);
@@ -63,9 +89,9 @@ const zen = {
       cwd: string | undefined,
       message: string,
       files: string[],
-      push = false,
-    ): Promise<{ ok: boolean; error?: string; output?: string }> {
-      return ipcRenderer.invoke("git:commit", cwd, message, files, push);
+      options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
+    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> {
+      return ipcRenderer.invoke("git:commit", cwd, message, files, options);
     },
     log(cwd?: string): Promise<GitLogEntry[]> {
       return ipcRenderer.invoke("git:log", cwd);
@@ -75,6 +101,21 @@ const zen = {
     },
     createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("git:create-branch", cwd, name);
+    },
+    push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }> {
+      return ipcRenderer.invoke("git:push", cwd);
+    },
+    branches(cwd?: string): Promise<GitBranches> {
+      return ipcRenderer.invoke("git:branches", cwd);
+    },
+    checkout(
+      cwd: string | undefined,
+      name: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("git:checkout", cwd, name);
+    },
+    pr(cwd?: string): Promise<GitPullRequest | null> {
+      return ipcRenderer.invoke("git:pr", cwd);
     },
   },
   auth: {
@@ -232,6 +273,9 @@ const zen = {
     },
     create(): Promise<Workspace | null> {
       return ipcRenderer.invoke("workspace:create");
+    },
+    pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:pin", id, pinned);
     },
     archive(id: string, archived: boolean): Promise<WorkspaceGroup[]> {
       return ipcRenderer.invoke("workspace:archive", id, archived);

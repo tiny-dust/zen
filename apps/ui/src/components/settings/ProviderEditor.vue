@@ -222,14 +222,14 @@ async function confirmRemoveModel() {
 
     <form
       v-if="showManualAdd"
-      class="mx-3.5 mb-2.5 flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2.5 py-2"
+      class="mx-3.5 mb-2.5 flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-2"
       @submit.prevent="onManualAdd"
     >
       <label class="shrink-0 text-[11.5px] text-[var(--color-mut)]" for="manual-id">ID</label>
       <Input
         id="manual-id"
         v-model="manualForm.id"
-        class="h-7 flex-1 text-[12.5px]"
+        class="h-7 flex-1 border-0 bg-transparent text-[12.5px]"
         placeholder="gpt-4o / VW2TTQCH/deepseek-v4-flash"
         required
       />
@@ -237,7 +237,7 @@ async function confirmRemoveModel() {
       <Input
         id="manual-name"
         v-model="manualForm.name"
-        class="h-7 flex-1 text-[12.5px]"
+        class="h-7 flex-1 border-0 bg-transparent text-[12.5px]"
         placeholder="留空则自动推断"
       />
       <Button type="submit" size="sm">添加</Button>

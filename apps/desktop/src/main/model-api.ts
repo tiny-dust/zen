@@ -7,6 +7,7 @@ import {
   normalizeBaseUrl,
   resolveAnthropicModelsUrl,
   resolveOpenAiModelsUrl,
+  sanitizeUserAgent,
 } from "./model-db";
 
 import type {
@@ -22,7 +23,18 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Pr
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
+    let response: Response;
+    try {
+      response = await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("ByteString")) {
+        throw new Error(
+          "请求头含非法字符（如中文 User-Agent）。请到设置中改为纯 ASCII 后重试。",
+        );
+      }
+      throw error;
+    }
     const text = await response.text();
     let data: unknown = null;
     try {
@@ -93,7 +105,7 @@ export async function fetchModelsByCredentials(input: {
   userAgent?: string;
 }): Promise<FetchModelsResult> {
   const protocol = input.protocol;
-  const userAgent = input.userAgent?.trim() || DEFAULT_UA;
+  const userAgent = sanitizeUserAgent(input.userAgent) || DEFAULT_UA;
 
   if (protocol === "anthropic-messages") {
     const url = resolveAnthropicModelsUrl(input.baseUrl);
@@ -166,7 +178,9 @@ export async function completeOnce(
     throw new Error("未配置模型，无法生成");
   }
   const apiKey = await loadProviderApiKey(provider.id);
-  const userAgent = (await loadProviderUserAgent(provider.id)) || provider.userAgent || DEFAULT_UA;
+  const userAgent =
+    sanitizeUserAgent((await loadProviderUserAgent(provider.id)) || provider.userAgent) ||
+    DEFAULT_UA;
   const maxTokens = options?.maxTokens ?? 300;
 
   if (provider.protocol === "anthropic-messages") {

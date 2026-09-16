@@ -60,7 +60,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
               {{ item.command }}
             </span>
             <Input
-              class="h-7 font-[family-name:var(--font-mono)] text-[12px]"
+              class="h-7 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
               :model-value="item.key"
               readonly
               aria-label="快捷键"

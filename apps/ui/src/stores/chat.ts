@@ -12,8 +12,10 @@ import type {
   ToolApprovalDecision,
 } from "@zen/shared";
 import { buildHistory } from "@/stores/chat-types";
+import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
+import { useSessionInfoStore } from "@/stores/session-info";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
@@ -222,6 +224,13 @@ export const useChatStore = defineStore("chat", () => {
         pendingApproval.value = null;
         statusText.value = event.reason === "cancelled" ? "已取消" : "";
         void refreshGit();
+        void useGitStore().refreshStatus();
+        break;
+      case "tasks_updated":
+        useSessionInfoStore().applyTasksUpdated(event.sessionId, event.version, event.items);
+        break;
+      case "reference_found":
+        useSessionInfoStore().addReference(event.sessionId, event.reference);
         break;
     }
   }
@@ -239,6 +248,8 @@ export const useChatStore = defineStore("chat", () => {
       appInfo.value = info;
     });
     void refreshGit();
+    void useGitStore().refreshStatus();
+    useSessionInfoStore().ensureSession(sessionId.value);
 
     return zen.agent.onEvent(handleStreamEvent);
   }
@@ -397,6 +408,7 @@ export const useChatStore = defineStore("chat", () => {
     lastError.value = "";
     lastInputTokens.value = null;
     sessionName.value = "新会话";
+    useSessionInfoStore().clear();
 
     sessionWorkspaceId.value = target;
     if (record) {
@@ -405,7 +417,9 @@ export const useChatStore = defineStore("chat", () => {
     } else {
       sessionId.value = uuid();
     }
+    useSessionInfoStore().ensureSession(sessionId.value);
     void refreshGit();
+    void useGitStore().refreshStatus();
   }
 
   /** 打开历史会话：运行中的先取消，事件按 sessionId 过滤不会串流 */
@@ -440,7 +454,11 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
+    useSessionInfoStore().clear();
+    useSessionInfoStore().ensureSession(sessionId.value);
+    useGitStore().reset();
     void refreshGit();
+    void useGitStore().refreshStatus();
   }
 
   return {

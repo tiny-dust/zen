@@ -1,10 +1,9 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
-const LEFT_MIN = 220;
-const LEFT_MAX = 360;
-const RIGHT_MIN = 280;
-const RIGHT_MAX = 480;
+/** 左右侧栏同宽约束：最小 220 / 最大 480 */
+const SIDE_MIN = 220;
+const SIDE_MAX = 480;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -21,11 +20,11 @@ export const useLayoutStore = defineStore("layout", () => {
   const infoOpen = ref(false);
 
   function setLeftWidth(value: number) {
-    leftWidth.value = clamp(value, LEFT_MIN, LEFT_MAX);
+    leftWidth.value = clamp(value, SIDE_MIN, SIDE_MAX);
   }
 
   function setRightWidth(value: number) {
-    rightWidth.value = clamp(value, RIGHT_MIN, RIGHT_MAX);
+    rightWidth.value = clamp(value, SIDE_MIN, SIDE_MAX);
   }
 
   function toggleLeft() {
