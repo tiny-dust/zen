@@ -246,12 +246,14 @@ process.title = "Zen";
 // 品牌名改了，但 userData 保持原路径，避免已有登录态/数据库/设置丢失
 app.setPath("userData", join(app.getPath("appData"), "@zen/desktop"));
 
-// macOS Dock 图标（dev 下 Electron 可执行文件名仍显示 Electron，需显式设置）
+// macOS Dock 图标（dev 下 Electron 可执行文件名仍显示 Electron，需显式设置）。
+// nativeImage 只支持 PNG/JPEG，不支持 icns：运行时用 build/icon.png，
+// 打包后的 Dock 图标由 electron-builder 注入 build/icon.icns，无需运行时设置。
 function applyDockBrand() {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" || app.isPackaged) {
     return;
   }
-  const iconPath = join(__dirname, "../../build/icon.icns");
+  const iconPath = join(__dirname, "../../build/icon.png");
   const icon = nativeImage.createFromPath(iconPath);
   if (icon.isEmpty()) {
     console.warn("[zen] Dock 图标缺失：", iconPath);
