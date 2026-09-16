@@ -247,8 +247,6 @@ export const useChatStore = defineStore("chat", () => {
         statusText.value = event.reason === "cancelled" ? "已取消" : "";
         void refreshGit();
         break;
-      default:
-        break;
     }
   }
 
