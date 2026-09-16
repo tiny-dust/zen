@@ -1,103 +1,97 @@
 <script setup lang="ts">
-import { Download, Plus, Trash2 } from "@lucide/vue";
+import { computed, ref } from "vue";
+import { Plus } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, reactive, ref } from "vue";
+import { classes } from "rattail";
 
-import { Badge } from "@/components/ui/badge";
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import VendorLogo from "@/components/brand/VendorLogo.vue";
+import ProviderDetail from "@/components/settings/ProviderDetail.vue";
+import ProviderEditor from "@/components/settings/ProviderEditor.vue";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { useModelsStore } from "@/stores/models";
-import { PROVIDER_PROTOCOLS } from "@zen/shared";
 
-import type { ProviderProtocol } from "@zen/shared";
+import type {
+  ModelCapabilities,
+  ProviderModel,
+  ProviderProtocol,
+  ProviderSummary,
+} from "@zen/shared";
+
+type Mode = "view" | "add";
 
 const modelsStore = useModelsStore();
 const { providers, activeProvider, activeProviderId, selection, error, fetching } =
   storeToRefs(modelsStore);
 
-const showAddProvider = ref(false);
-const showAddModel = ref(false);
-const loadMessage = ref("");
+const mode = ref<Mode>("view");
+const providerToRemove = ref(false);
+const removing = ref(false);
 
-const providerForm = reactive({
-  name: "",
-  protocol: "openai-chat" as ProviderProtocol,
-  baseUrl: "https://api.openai.com/v1",
-  apiKey: "",
-});
-
-const modelForm = reactive({
-  id: "",
-  name: "",
-});
-
-const canOperateModels = computed(() => {
-  const p = activeProvider.value;
-  return Boolean(p?.baseUrl && p?.hasApiKey);
-});
-
-function protocolLabel(id: string) {
-  return PROVIDER_PROTOCOLS.find((item) => item.id === id)?.label || id;
-}
-
-async function onAddProvider() {
-  const created = await modelsStore.addProvider({
-    name: providerForm.name,
-    protocol: providerForm.protocol,
-    baseUrl: providerForm.baseUrl,
-    apiKey: providerForm.apiKey,
-  });
-  if (created) {
-    showAddProvider.value = false;
-    providerForm.name = "";
-    providerForm.apiKey = "";
+const providerRemoveDesc = computed(() => {
+  const provider = activeProvider.value;
+  if (!provider) {
+    return "";
   }
+  const tail = provider.models.length ? `及其 ${provider.models.length} 个模型` : "";
+  return `将从本地数据库移除「${provider.name}」${tail}，操作不可撤销。`;
+});
+
+function startAdd() {
+  mode.value = "add";
 }
 
-async function onAddModel() {
+function selectProvider(provider: ProviderSummary) {
+  modelsStore.setActiveProvider(provider.id);
+  mode.value = "view";
+}
+
+function railClass(id: string) {
+  return classes(
+    "flex min-h-[var(--control-h)] items-center gap-2 rounded-[var(--radius-sm)] px-2 text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]",
+    [id === activeProviderId.value && mode.value === "view", "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"],
+    [!providers.value.find((p) => p.id === id)?.enabled, "opacity-55"],
+  );
+}
+
+async function onSaveProvider(patch: {
+  name: string;
+  protocol: ProviderProtocol;
+  baseUrl: string;
+  apiKey?: string;
+  userAgent?: string;
+  enabled: boolean;
+}) {
   const providerId = activeProviderId.value;
-  if (!providerId || !canOperateModels.value) {
+  if (!providerId) {
     return;
   }
-  const created = await modelsStore.addModel(providerId, modelForm.id, modelForm.name || undefined);
-  if (created) {
-    showAddModel.value = false;
-    modelForm.id = "";
-    modelForm.name = "";
-  }
+  await modelsStore.updateProvider(providerId, patch);
 }
 
-async function onLoadModels() {
+async function onRefreshModels() {
   const providerId = activeProviderId.value;
-  if (!providerId || !canOperateModels.value) {
+  if (!providerId) {
     return;
   }
-  loadMessage.value = "";
-  const result = await modelsStore.fetchModels(providerId);
-  if (result) {
-    loadMessage.value = `已同步 ${result.models.length} 个模型`;
+  const result = await modelsStore.refreshFromProvider(providerId);
+  if (!result || !activeProvider.value) {
+    return;
   }
+  const known = new Set(activeProvider.value.models.map((item) => item.id));
+  for (const item of result.models) {
+    if (!known.has(item.id)) {
+      await modelsStore.addModel({
+        providerId,
+        id: item.id,
+        name: item.name || undefined,
+        enabled: true,
+        custom: false,
+        capabilities: item.capabilities,
+      });
+    }
+  }
+  await modelsStore.refresh();
 }
 
 async function onSelectModel(modelId: string) {
@@ -107,232 +101,140 @@ async function onSelectModel(modelId: string) {
   }
   await modelsStore.select(providerId, modelId);
 }
+
+async function onToggleModelEnabled(model: ProviderModel, next: boolean) {
+  const providerId = activeProviderId.value;
+  if (!providerId) {
+    return;
+  }
+  await modelsStore.updateModel({
+    providerId,
+    id: model.id,
+    enabled: next,
+    name: model.name,
+    capabilities: model.capabilities,
+  });
+}
+
+async function onAddModel(payload: {
+  id: string;
+  name: string;
+  custom: boolean;
+  capabilities: ModelCapabilities;
+}) {
+  const providerId = activeProviderId.value;
+  if (!providerId) {
+    return;
+  }
+  await modelsStore.addModel({
+    providerId,
+    id: payload.id,
+    name: payload.name,
+    enabled: true,
+    custom: payload.custom,
+    capabilities: payload.capabilities,
+  });
+}
+
+async function onUpdateModel(payload: {
+  id: string;
+  name: string;
+  capabilities: ModelCapabilities;
+}) {
+  const providerId = activeProviderId.value;
+  if (!providerId) {
+    return;
+  }
+  await modelsStore.updateModel({
+    providerId,
+    id: payload.id,
+    name: payload.name,
+    capabilities: payload.capabilities,
+  });
+}
+
+async function confirmRemoveProvider() {
+  const providerId = activeProviderId.value;
+  if (!providerId) {
+    return;
+  }
+  removing.value = true;
+  await modelsStore.removeProvider(providerId);
+  removing.value = false;
+  providerToRemove.value = false;
+  mode.value = "view";
+}
 </script>
 
 <template>
-  <section class="flex flex-col gap-4">
-    <div class="flex items-start justify-between gap-3">
-      <div>
-        <h3 class="mb-1 text-[13px] font-semibold text-foreground">模型供应</h3>
-        <p class="m-0 text-xs text-muted-foreground">
-          自定义 OpenAI / Anthropic 兼容供应商；配置 Base URL 与 API Key 后才能加载或添加模型。
-        </p>
+  <section class="grid items-start gap-3.5 grid-cols-[208px_minmax(0,1fr)] max-[720px]:grid-cols-[minmax(0,1fr)]">
+    <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" aria-label="供应商列表">
+      <div class="flex h-[var(--panel-head-h)] items-center justify-between gap-1.5 border-b border-[var(--color-line)] px-[5px] pl-2.5">
+        <span class="text-[12px] text-[var(--color-mut)]">供应商</span>
+        <Button variant="ghost" size="icon-sm" aria-label="添加供应商" title="添加供应商" @click="startAdd">
+          <Plus />
+        </Button>
       </div>
-      <Button variant="outline" size="sm" @click="showAddProvider = !showAddProvider">
-        <Plus data-icon="inline-start" />
-        {{ showAddProvider ? "取消" : "添加供应商" }}
-      </Button>
-    </div>
-
-    <p v-if="error" class="m-0 text-xs text-destructive">{{ error }}</p>
-
-    <Card v-if="showAddProvider" size="sm" class="settings-card">
-      <CardHeader>
-        <CardTitle class="text-sm">新增供应商</CardTitle>
-        <CardDescription>选择消息协议，填写 Base URL 与 API Key。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form class="flex flex-col gap-3" @submit.prevent="onAddProvider">
-          <FieldGroup>
-            <Field>
-              <FieldLabel for="provider-name">名称</FieldLabel>
-                <Input
-                  id="provider-name"
-                  v-model="providerForm.name"
-                  class="!h-8 !text-sm"
-                  placeholder="OpenAI / DeepSeek / 本地"
-                  required
-                />
-            </Field>
-            <Field>
-              <FieldLabel>消息协议</FieldLabel>
-              <Select v-model="providerForm.protocol">
-                <SelectTrigger class="w-full">
-                  <SelectValue placeholder="选择协议" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem
-                      v-for="item in PROVIDER_PROTOCOLS"
-                      :key="item.id"
-                      :value="item.id"
-                    >
-                      {{ item.label }}
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel for="provider-base">Base URL</FieldLabel>
-                <Input
-                  id="provider-base"
-                  v-model="providerForm.baseUrl"
-                  class="!h-8 !text-sm"
-                  placeholder="https://api.openai.com/v1"
-                  required
-                />
-            </Field>
-            <Field>
-              <FieldLabel for="provider-key">API Key</FieldLabel>
-                <Input
-                  id="provider-key"
-                  v-model="providerForm.apiKey"
-                  class="!h-8 !text-sm"
-                  type="password"
-                  placeholder="sk-..."
-                  required
-                />
-            </Field>
-          </FieldGroup>
-          <div class="flex justify-end">
-            <Button type="submit">保存供应商</Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-
-    <Card v-if="!providers.length && !showAddProvider" size="sm" class="settings-card">
-      <CardContent class="py-8 text-center text-xs text-muted-foreground">
-        还没有供应商。点击「添加供应商」开始配置。
-      </CardContent>
-    </Card>
-
-    <div v-else-if="providers.length" class="grid gap-3 md:grid-cols-[200px_minmax(0,1fr)]">
-      <div class="flex flex-col gap-1.5">
+      <div class="flex flex-col gap-0.5 p-[5px]">
         <button
           v-for="provider in providers"
           :key="provider.id"
           type="button"
-          class="rounded-xl border border-border bg-card px-3 py-2.5 text-left"
-          :class="provider.id === activeProviderId ? 'ring-1 ring-ring' : ''"
-          @click="modelsStore.setActiveProvider(provider.id)"
+          :class="railClass(provider.id)"
+          :title="provider.name"
+          @click="selectProvider(provider)"
         >
-          <div class="truncate text-[13px] font-medium text-foreground">{{ provider.name }}</div>
-          <div class="truncate text-[11px] text-muted-foreground">
-            {{ protocolLabel(provider.protocol) }} · {{ provider.models.length }} 模型
-          </div>
+          <VendorLogo :vendor="provider.name" :size="16" />
+          <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ provider.name }}</span>
+          <span class="shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
+            {{ provider.models.filter((m) => m.enabled).length }}/{{ provider.models.length }}
+          </span>
         </button>
+        <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">暂无供应商</p>
+      </div>
+    </aside>
+
+    <div class="flex min-w-0 flex-col gap-2.5">
+      <p v-if="error" class="m-0 text-[12px] text-[var(--color-err)]" role="alert">{{ error }}</p>
+
+      <ProviderEditor
+        v-if="mode === 'add'"
+        :provider="null"
+        @saved="mode = 'view'"
+        @cancel="mode = 'view'"
+      />
+
+      <div v-else-if="activeProvider" class="min-w-0 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)] p-3.5">
+        <ProviderDetail
+          :provider="activeProvider"
+          :fetching="fetching"
+          :selection-provider-id="selection.providerId"
+          :selection-model-id="selection.modelId"
+          @save="onSaveProvider"
+          @refresh-models="onRefreshModels"
+          @remove-provider="providerToRemove = true"
+          @select-model="onSelectModel"
+          @toggle-model-enabled="onToggleModelEnabled"
+          @add-model="onAddModel"
+          @update-model="onUpdateModel"
+        />
       </div>
 
-      <Card v-if="activeProvider" size="sm" class="settings-card">
-        <CardHeader>
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <CardTitle class="text-base">{{ activeProvider.name }}</CardTitle>
-              <CardDescription class="mt-1">{{ protocolLabel(activeProvider.protocol) }}</CardDescription>
-              <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                {{ activeProvider.baseUrl }}
-              </p>
-              <p class="mt-0.5 text-[11px] text-muted-foreground">
-                Key：{{ activeProvider.apiKeyMask || "未配置" }}
-              </p>
-            </div>
-            <div class="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="!canOperateModels || fetching"
-                :title="canOperateModels ? '从 API 拉取模型列表' : '请先配置 Base URL 与 API Key'"
-                @click="onLoadModels"
-              >
-                <Download data-icon="inline-start" />
-                {{ fetching ? "拉取中…" : "模型加载" }}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="!canOperateModels"
-                :title="canOperateModels ? '手动添加模型' : '请先配置 Base URL 与 API Key'"
-                @click="showAddModel = !showAddModel"
-              >
-                <Plus data-icon="inline-start" />
-                添加模型
-              </Button>
-              <Button variant="ghost" size="sm" @click="modelsStore.removeProvider(activeProvider.id)">
-                <Trash2 data-icon="inline-start" />
-                删除
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-3">
-          <p v-if="!canOperateModels" class="m-0 text-xs text-muted-foreground">
-            Base URL 与 API Key 配置完成后，才能使用「模型加载」和「添加模型」。
-          </p>
-          <p v-if="loadMessage" class="m-0 text-xs text-muted-foreground">{{ loadMessage }}</p>
-
-          <form v-if="showAddModel && canOperateModels" class="flex flex-col gap-3 rounded-xl border border-border p-3" @submit.prevent="onAddModel">
-            <FieldGroup>
-              <Field>
-                <FieldLabel for="model-id">模型 ID</FieldLabel>
-                <Input
-                  id="model-id"
-                  v-model="modelForm.id"
-                  class="!h-8 !text-sm"
-                  placeholder="gpt-4o / claude-sonnet-4-20250514"
-                  required
-                />
-              </Field>
-              <Field>
-                <FieldLabel for="model-name">显示名称（可选）</FieldLabel>
-                <Input
-                  id="model-name"
-                  v-model="modelForm.name"
-                  class="!h-8 !text-sm"
-                  placeholder="留空则根据 ID 推断"
-                />
-              </Field>
-            </FieldGroup>
-            <p class="m-0 text-[11px] text-muted-foreground">
-              保存时会按官方目录/启发式自动填充推理、上下文等能力。
-            </p>
-            <div class="flex justify-end">
-              <Button type="submit" size="sm">保存模型</Button>
-            </div>
-          </form>
-
-          <Separator />
-
-          <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
-            <li
-              v-for="model in activeProvider.models"
-              :key="model.id"
-              class="flex items-stretch overflow-hidden rounded-xl border border-border"
-              :class="
-                selection.modelId === model.id && selection.providerId === activeProvider.id
-                  ? 'ring-1 ring-ring'
-                  : ''
-              "
-            >
-              <button type="button" class="min-w-0 flex-1 px-3 py-2.5 text-left" @click="onSelectModel(model.id)">
-                <div class="text-[13px] font-medium text-foreground">{{ model.name }}</div>
-                <div class="truncate font-mono text-[11px] text-muted-foreground">{{ model.id }}</div>
-                <div class="mt-1.5 flex flex-wrap gap-1">
-                  <Badge v-if="model.capabilities?.reasoning" variant="secondary">推理</Badge>
-                  <Badge v-if="model.capabilities?.vision" variant="secondary">视觉</Badge>
-                  <Badge v-if="model.capabilities?.toolCall" variant="secondary">工具</Badge>
-                  <Badge v-if="model.capabilities?.contextWindow" variant="outline">
-                    {{ Math.round(model.capabilities.contextWindow / 1000) }}K
-                  </Badge>
-                </div>
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="border-l border-border"
-                aria-label="删除模型"
-                @click="modelsStore.removeModel(activeProvider.id, model.id)"
-              >
-                <Trash2 />
-              </Button>
-            </li>
-            <li v-if="!activeProvider.models.length" class="rounded-xl border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-              暂无模型。配置完成后可「模型加载」或「添加模型」。
-            </li>
-          </ul>
-        </CardContent>
-      </Card>
+      <div v-else class="min-w-0 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)] p-3.5">
+        <p class="m-0 px-2 py-2.5 text-[12px] text-[var(--color-mut)]">
+          还没有供应商。点击左侧「+」新建一个，填写连接信息后即可拉取模型列表。
+        </p>
+      </div>
     </div>
+
+    <ConfirmDialog
+      :open="providerToRemove"
+      title="删除供应商？"
+      :description="providerRemoveDesc"
+      confirm-label="删除供应商"
+      :pending="removing"
+      @update:open="providerToRemove = $event"
+      @confirm="confirmRemoveProvider"
+    />
   </section>
 </template>

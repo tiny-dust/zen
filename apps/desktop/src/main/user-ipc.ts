@@ -153,21 +153,33 @@ async function applyAppIcon(settings: AppSettings) {
     return;
   }
 
-  const iconPath =
+  const fileName =
     settings.iconId === "custom" && settings.customIconPath
-      ? settings.customIconPath
-      : join(__dirname, "../renderer/assets", `app-icon-${settings.iconId}.png`);
+      ? null
+      : `app-icon-${settings.iconId}.png`;
+  const candidates = fileName
+    ? [
+        join(__dirname, "../renderer/assets", fileName),
+        join(__dirname, "../../ui/public/assets", fileName),
+      ]
+    : [];
+  if (settings.iconId === "custom" && settings.customIconPath) {
+    candidates.push(settings.customIconPath);
+  }
 
-  try {
-    const image = nativeImage.createFromPath(iconPath);
-    if (!image.isEmpty()) {
-      win.setIcon(image);
-      if (process.platform === "darwin" && app.dock) {
-        app.dock.setIcon(image);
+  for (const iconPath of candidates) {
+    try {
+      const image = nativeImage.createFromPath(iconPath);
+      if (!image.isEmpty()) {
+        win.setIcon(image);
+        if (process.platform === "darwin" && app.dock) {
+          await app.dock.setIcon(image);
+        }
+        return;
       }
+    } catch {
+      // try next candidate
     }
-  } catch {
-    // keep default icon when asset missing
   }
 }
 

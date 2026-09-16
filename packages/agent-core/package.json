@@ -5,16 +5,19 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@zen/shared": "workspace:*",
-    "@zen/tools-fs": "workspace:*",
-    "@zen/tools-terminal": "workspace:*",
-    "@zen/tools-git": "workspace:*",
-    "@zen/tools-browser": "workspace:*",
-    "@zen/tools-system": "workspace:*",
-    "@zen/tools-github": "workspace:*",
+    "@ai-sdk/anthropic": "4.0.53",
+    "@ai-sdk/openai": "4.0.66",
+    "@ai-sdk/openai-compatible": "3.0.48",
     "@zen/mcp-client": "workspace:*",
-    "@zen/skills": "workspace:*",
     "@zen/session": "workspace:*",
+    "@zen/shared": "workspace:*",
+    "@zen/skills": "workspace:*",
+    "@zen/tools-browser": "workspace:*",
+    "@zen/tools-fs": "workspace:*",
+    "@zen/tools-git": "workspace:*",
+    "@zen/tools-github": "workspace:*",
+    "@zen/tools-system": "workspace:*",
+    "@zen/tools-terminal": "workspace:*",
     "ai": "7.0.99",
     "rattail": "2.2.0",
     "zod": "4.6.2"
@@ -24,6 +27,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@types/node": "22.20.2"
+    "@types/node": "22.20.2",
+    "vitest": "5.0.0"
   }
 }

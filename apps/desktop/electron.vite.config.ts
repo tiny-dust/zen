@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
@@ -49,7 +50,11 @@ export default defineConfig({
   renderer: {
     root: uiRoot,
     clearScreen: false,
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      // monorepo: electron-vite renderer root is apps/ui; keep Tailwind scan base there
+      tailwindcss({ base: uiRoot } as never),
+    ],
     resolve: {
       alias: {
         "@": resolve(uiRoot, "src"),
@@ -57,6 +62,8 @@ export default defineConfig({
       },
     },
     server: {
+      port: 10011,
+      strictPort: true,
       watch: {
         // monorepo packages live outside apps/ui; still hot-update on their edits
         ignored: ["**/node_modules/**", "**/dist/**", "**/out/**", "**/.git/**"],

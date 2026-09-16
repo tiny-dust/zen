@@ -1,23 +1,40 @@
 import { ipcMain } from "electron";
 
-import { fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
+import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
+import { getDb } from "./model-db-connection";
+import {
+  listCatalogModels,
+  listCatalogVendors,
+  matchCatalogModel,
+  seedCatalogIfEmpty,
+} from "./model-catalog";
 import {
   addModel,
   addProvider,
   getSelection,
-  getDb,
   listProviders,
+  loadProviderApiKey,
+  loadProviderUserAgent,
+  normalizeBaseUrl,
   removeModel,
   removeProvider,
+  setModelsEnabled,
   setSelection,
+  updateModel,
   updateProvider,
 } from "./model-db";
 
-import type { AddModelInput, ProviderInput } from "@zen/shared";
+import type {
+  AddModelInput,
+  PreviewModelsInput,
+  ProviderInput,
+  SetModelsEnabledInput,
+  UpdateModelInput,
+} from "@zen/shared";
 
 export function registerModelIpc(): void {
-  // 确保 DB 在应用启动时初始化
   getDb();
+  seedCatalogIfEmpty();
 
   ipcMain.handle("models:list", async () => listProviders());
 
@@ -44,6 +61,14 @@ export function registerModelIpc(): void {
     return addModel(input);
   });
 
+  ipcMain.handle("models:update-model", async (_event, input: UpdateModelInput) => {
+    return updateModel(input);
+  });
+
+  ipcMain.handle("models:set-enabled", async (_event, input: SetModelsEnabledInput) => {
+    return setModelsEnabled(input);
+  });
+
   ipcMain.handle("models:remove-model", async (_event, providerId: string, modelId: string) => {
     return removeModel(providerId, modelId);
   });
@@ -57,7 +82,41 @@ export function registerModelIpc(): void {
     return fetchModelsFromProvider(provider);
   });
 
+  ipcMain.handle("models:preview-models", async (_event, input: PreviewModelsInput) => {
+    const baseUrl = normalizeBaseUrl(input.baseUrl);
+    if (!baseUrl) {
+      throw new Error("请填写 Base URL");
+    }
+    let apiKey = input.apiKey?.trim() ?? "";
+    if (!apiKey && input.providerId) {
+      apiKey = await loadProviderApiKey(input.providerId);
+    }
+    if (!apiKey) {
+      throw new Error("请填写 API Key");
+    }
+    let userAgent = input.userAgent?.trim() || "";
+    if (!userAgent && input.providerId) {
+      userAgent = (await loadProviderUserAgent(input.providerId)) || "";
+    }
+    return fetchModelsByCredentials({
+      protocol: input.protocol,
+      baseUrl,
+      apiKey,
+      userAgent: userAgent || undefined,
+    });
+  });
+
   ipcMain.handle("models:inspect", async (_event, providerId: string, modelId: string) => {
     return inspectRemoteModel(providerId, modelId);
   });
+
+  ipcMain.handle("models:catalog-vendors", async () => listCatalogVendors());
+
+  ipcMain.handle("models:catalog-list", async (_event, vendor?: string) =>
+    listCatalogModels(vendor),
+  );
+
+  ipcMain.handle("models:catalog-match", async (_event, modelId: string) =>
+    matchCatalogModel(modelId),
+  );
 }

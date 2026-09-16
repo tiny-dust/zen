@@ -14,6 +14,7 @@ export const useLayoutStore = defineStore("layout", () => {
   const leftWidth = ref(260);
   const rightWidth = ref(320);
 
+  const leftCollapsed = ref(false);
   const rightCollapsed = ref(false);
   const bottomCollapsed = ref(false);
   const sessionOpen = ref(true);
@@ -25,6 +26,10 @@ export const useLayoutStore = defineStore("layout", () => {
 
   function setRightWidth(value: number) {
     rightWidth.value = clamp(value, RIGHT_MIN, RIGHT_MAX);
+  }
+
+  function toggleLeft() {
+    leftCollapsed.value = !leftCollapsed.value;
   }
 
   function toggleRight() {
@@ -46,12 +51,14 @@ export const useLayoutStore = defineStore("layout", () => {
   return {
     leftWidth,
     rightWidth,
+    leftCollapsed,
     rightCollapsed,
     bottomCollapsed,
     sessionOpen,
     infoOpen,
     setLeftWidth,
     setRightWidth,
+    toggleLeft,
     toggleRight,
     toggleBottom,
     toggleSession,

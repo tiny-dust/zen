@@ -1,9 +1,3 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-
-import Database from "better-sqlite3";
-import { app } from "electron";
-
 import type {
   AddModelInput,
   ModelCapabilities,
@@ -12,9 +6,15 @@ import type {
   ProviderModel,
   ProviderProtocol,
   ProviderSummary,
+  SetModelsEnabledInput,
+  UpdateModelInput,
 } from "@zen/shared";
 
-import { inspectModelCapabilities, prettyModelName } from "./model-capabilities";
+import { getDb } from "./model-db-connection";
+import {
+  prettyModelName,
+  resolveModelCapabilities,
+} from "./model-capabilities";
 import { decryptSecret, encryptSecret, maskSecret } from "./secret";
 
 interface ProviderRow {
@@ -24,6 +24,8 @@ interface ProviderRow {
   base_url: string;
   api_key_enc: string;
   api_key_mask: string;
+  user_agent: string | null;
+  enabled: number;
   created_at: number;
   updated_at: number;
 }
@@ -32,67 +34,11 @@ interface ModelRow {
   provider_id: string;
   id: string;
   name: string;
+  enabled: number;
+  custom: number;
   capabilities_json: string | null;
   created_at: number;
   updated_at: number;
-}
-
-let db: Database.Database | null = null;
-
-function dbPath(): string {
-  const dir = join(app.getPath("userData"), "db");
-  mkdirSync(dir, { recursive: true });
-  return join(dir, "zen.sqlite");
-}
-
-export function getDb(): Database.Database {
-  if (db) {
-    return db;
-  }
-  db = new Database(dbPath());
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  migrate(db);
-  return db;
-}
-
-function migrate(conn: Database.Database) {
-  conn.exec(`
-    CREATE TABLE IF NOT EXISTS model_providers (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      protocol TEXT NOT NULL,
-      base_url TEXT NOT NULL,
-      api_key_enc TEXT NOT NULL,
-      api_key_mask TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS provider_models (
-      provider_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      capabilities_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (provider_id, id),
-      FOREIGN KEY (provider_id) REFERENCES model_providers(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS model_selection (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      provider_id TEXT,
-      model_id TEXT
-    );
-  `);
-
-  const columns = conn.prepare(`PRAGMA table_info(model_providers)`).all() as Array<{
-    name: string;
-  }>;
-  if (!columns.some((col) => col.name === "api_key_mask")) {
-    conn.exec(`ALTER TABLE model_providers ADD COLUMN api_key_mask TEXT NOT NULL DEFAULT ''`);
-  }
 }
 
 function parseCapabilities(json: string | null): ModelCapabilities | undefined {
@@ -112,6 +58,8 @@ function toProviderSummary(row: ProviderRow, models: ProviderModel[]): ProviderS
     name: row.name,
     protocol: row.protocol as ProviderProtocol,
     baseUrl: row.base_url,
+    userAgent: row.user_agent || undefined,
+    enabled: row.enabled !== 0,
     hasApiKey: Boolean(row.api_key_enc),
     apiKeyMask: row.api_key_mask || "••••",
     models,
@@ -129,6 +77,8 @@ function listModels(providerId: string): ProviderModel[] {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
+    enabled: row.enabled !== 0,
+    custom: row.custom !== 0,
     capabilities: parseCapabilities(row.capabilities_json),
   }));
 }
@@ -175,11 +125,15 @@ export async function getSelection(): Promise<
     .get() as { provider_id: string | null; model_id: string | null } | undefined;
 
   const providers = await listProviders();
-  const provider = providers.find((p) => p.id === row?.provider_id) ?? providers[0];
+  const provider = providers.find((p) => p.id === row?.provider_id) ?? providers.find((p) => p.enabled) ?? providers[0];
   if (!provider) {
     return { providerId: null, modelId: null };
   }
-  const model = provider.models.find((m) => m.id === row?.model_id) ?? provider.models[0];
+  const enabledModels = provider.models.filter((m) => m.enabled);
+  const model =
+    provider.models.find((m) => m.id === row?.model_id && m.enabled) ??
+    enabledModels[0] ??
+    provider.models[0];
   return {
     providerId: provider.id,
     modelId: model?.id ?? null,
@@ -216,17 +170,43 @@ export async function addProvider(input: ProviderInput): Promise<ProviderSummary
   const plainKey = input.apiKey.trim();
   const apiKeyEnc = await encryptSecret(plainKey);
   const apiKeyMask = maskSecret(plainKey);
+  const userAgent = input.userAgent?.trim() || null;
+  const enabled = input.enabled === false ? 0 : 1;
 
   getDb()
     .prepare(
       `INSERT INTO model_providers
-        (id, name, protocol, base_url, api_key_enc, api_key_mask, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, protocol, base_url, api_key_enc, api_key_mask, user_agent, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, name, input.protocol, baseUrl, apiKeyEnc, apiKeyMask, now, now);
+    .run(id, name, input.protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, enabled, now, now);
+
+  const insertModel = getDb().prepare(
+    `INSERT INTO provider_models (provider_id, id, name, enabled, custom, capabilities_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider_id, id) DO NOTHING`,
+  );
+  for (const model of input.models ?? []) {
+    const modelId = model.id.trim();
+    if (!modelId) {
+      continue;
+    }
+    const capabilities = resolveModelCapabilities(modelId, model.capabilities);
+    const modelName = model.name?.trim() || prettyModelName(modelId);
+    insertModel.run(
+      id,
+      modelId,
+      modelName,
+      model.enabled === false ? 0 : 1,
+      model.custom ? 1 : 0,
+      JSON.stringify(capabilities),
+      now,
+      now,
+    );
+  }
 
   const rows = getDb().prepare(`SELECT * FROM model_providers WHERE id = ?`).all(id) as ProviderRow[];
-  return toProviderSummary(rows[0]!, []);
+  return toProviderSummary(rows[0]!, listModels(id));
 }
 
 export async function updateProvider(
@@ -243,6 +223,9 @@ export async function updateProvider(
   const name = patch.name?.trim() || row.name;
   const baseUrl = patch.baseUrl ? normalizeBaseUrl(patch.baseUrl) : row.base_url;
   const protocol = patch.protocol || (row.protocol as ProviderProtocol);
+  const userAgent =
+    patch.userAgent !== undefined ? patch.userAgent?.trim() || null : row.user_agent;
+  const enabled = patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : row.enabled;
   let apiKeyEnc = row.api_key_enc;
   let apiKeyMask = row.api_key_mask;
   if (patch.apiKey?.trim()) {
@@ -255,10 +238,10 @@ export async function updateProvider(
   getDb()
     .prepare(
       `UPDATE model_providers
-       SET name = ?, protocol = ?, base_url = ?, api_key_enc = ?, api_key_mask = ?, updated_at = ?
+       SET name = ?, protocol = ?, base_url = ?, api_key_enc = ?, api_key_mask = ?, user_agent = ?, enabled = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(name, protocol, baseUrl, apiKeyEnc, apiKeyMask, now, id);
+    .run(name, protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, enabled, now, id);
 
   return toProviderSummary(
     {
@@ -268,6 +251,8 @@ export async function updateProvider(
       base_url: baseUrl,
       api_key_enc: apiKeyEnc,
       api_key_mask: apiKeyMask,
+      user_agent: userAgent,
+      enabled,
       updated_at: now,
     },
     listModels(id),
@@ -296,24 +281,103 @@ export async function addModel(input: AddModelInput): Promise<ProviderSummary> {
     throw new Error("供应商不存在");
   }
 
-  const capabilities = input.capabilities || inspectModelCapabilities(modelId);
+  const capabilities = resolveModelCapabilities(modelId, input.capabilities);
   const name = input.name?.trim() || prettyModelName(modelId);
   const now = Date.now();
 
   getDb()
     .prepare(
-      `INSERT INTO provider_models (provider_id, id, name, capabilities_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO provider_models (provider_id, id, name, enabled, custom, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(provider_id, id) DO UPDATE SET
          name = excluded.name,
+         enabled = excluded.enabled,
+         custom = excluded.custom,
          capabilities_json = excluded.capabilities_json,
          updated_at = excluded.updated_at`,
     )
-    .run(input.providerId, modelId, name, JSON.stringify(capabilities), now, now);
+    .run(
+      input.providerId,
+      modelId,
+      name,
+      input.enabled === false ? 0 : 1,
+      input.custom ? 1 : 0,
+      JSON.stringify(capabilities),
+      now,
+      now,
+    );
 
   const selection = await getSelection();
   if (!selection.modelId || selection.providerId !== input.providerId) {
     await setSelection(input.providerId, modelId);
+  }
+
+  const providers = await listProviders();
+  return providers.find((p) => p.id === input.providerId)!;
+}
+
+export async function updateModel(input: UpdateModelInput): Promise<ProviderSummary> {
+  const row = getDb()
+    .prepare(`SELECT * FROM provider_models WHERE provider_id = ? AND id = ?`)
+    .get(input.providerId, input.id) as ModelRow | undefined;
+  if (!row) {
+    throw new Error("模型不存在");
+  }
+
+  const now = Date.now();
+  const name = input.name?.trim() || row.name;
+  const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : row.enabled;
+  const capabilitiesJson =
+    input.capabilities !== undefined ? JSON.stringify(input.capabilities) : row.capabilities_json;
+
+  getDb()
+    .prepare(
+      `UPDATE provider_models
+       SET name = ?, enabled = ?, capabilities_json = ?, updated_at = ?
+       WHERE provider_id = ? AND id = ?`,
+    )
+    .run(name, enabled, capabilitiesJson, now, input.providerId, input.id);
+
+  if (!enabled) {
+    const selection = getDb()
+      .prepare(`SELECT provider_id, model_id FROM model_selection WHERE id = 1`)
+      .get() as { provider_id: string | null; model_id: string | null } | undefined;
+    if (selection?.provider_id === input.providerId && selection?.model_id === input.id) {
+      await setSelection(input.providerId, null);
+    }
+  }
+
+  const providers = await listProviders();
+  return providers.find((p) => p.id === input.providerId)!;
+}
+
+export async function setModelsEnabled(input: SetModelsEnabledInput): Promise<ProviderSummary> {
+  if (!input.modelIds.length) {
+    const providers = await listProviders();
+    return providers.find((p) => p.id === input.providerId)!;
+  }
+  const stmt = getDb().prepare(
+    `UPDATE provider_models SET enabled = ?, updated_at = ? WHERE provider_id = ? AND id = ?`,
+  );
+  const now = Date.now();
+  const tx = getDb().transaction(() => {
+    for (const modelId of input.modelIds) {
+      stmt.run(input.enabled ? 1 : 0, now, input.providerId, modelId);
+    }
+  });
+  tx();
+
+  if (!input.enabled) {
+    const selection = getDb()
+      .prepare(`SELECT provider_id, model_id FROM model_selection WHERE id = 1`)
+      .get() as { provider_id: string | null; model_id: string | null } | undefined;
+    if (
+      selection?.provider_id === input.providerId &&
+      selection?.model_id &&
+      input.modelIds.includes(selection.model_id)
+    ) {
+      await setSelection(input.providerId, null);
+    }
   }
 
   const providers = await listProviders();
@@ -342,4 +406,11 @@ export async function loadProviderApiKey(providerId: string): Promise<string> {
     throw new Error("供应商未配置 API Key");
   }
   return decryptSecret(row.api_key_enc);
+}
+
+export async function loadProviderUserAgent(providerId: string): Promise<string | undefined> {
+  const row = getDb()
+    .prepare(`SELECT user_agent FROM model_providers WHERE id = ?`)
+    .get(providerId) as { user_agent: string | null } | undefined;
+  return row?.user_agent || undefined;
 }

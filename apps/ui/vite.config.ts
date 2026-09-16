@@ -7,6 +7,10 @@ import { defineConfig } from "vite";
 const srcDir = resolve(__dirname, "src");
 
 export default defineConfig({
+  server: {
+    port: 10011,
+    strictPort: true,
+  },
   plugins: [
     vue(),
     tailwindcss({

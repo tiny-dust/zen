@@ -45,12 +45,20 @@ function onPointerMove(event: PointerEvent) {
 function onPointerUp() {
   dragging.value = false;
 }
+
+const rootClass =
+  "group relative z-5 flex-none touch-none bg-transparent after:absolute after:inset-0 after:bg-transparent after:transition-colors after:duration-[var(--motion-fast)] after:ease-[var(--ease-enter)] hover:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]";
 </script>
 
 <template>
   <div
-    class="resize-handle"
-    :class="[`resize-handle--${orientation}`, { 'is-dragging': dragging }]"
+    :class="[
+      rootClass,
+      orientation === 'vertical'
+        ? 'w-[5px] -mx-0.5 cursor-col-resize'
+        : 'h-[5px] -my-0.5 cursor-row-resize',
+      dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]' : '',
+    ]"
     role="separator"
     :aria-orientation="orientation"
     @pointerdown="onPointerDown"
@@ -59,38 +67,3 @@ function onPointerUp() {
     @pointercancel="onPointerUp"
   />
 </template>
-
-<style scoped>
-.resize-handle {
-  position: relative;
-  flex: none;
-  z-index: 5;
-  touch-action: none;
-  background: transparent;
-}
-
-.resize-handle--vertical {
-  width: 5px;
-  cursor: col-resize;
-  margin: 0 -2px;
-}
-
-.resize-handle--horizontal {
-  height: 5px;
-  cursor: row-resize;
-  margin: -2px 0;
-}
-
-.resize-handle::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: transparent;
-  transition: background var(--motion-fast) var(--ease-enter);
-}
-
-.resize-handle:hover::after,
-.resize-handle.is-dragging::after {
-  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
-}
-</style>

@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 import type { AppIconId, AppSettings, ShortcutBinding } from "@zen/shared";
-import { DEFAULT_SHORTCUTS } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, normalizeShortcutKey } from "@zen/shared";
 
 const fallbackSettings: AppSettings = {
   iconId: "zen-ink",
@@ -37,6 +37,16 @@ export const useSettingsStore = defineStore("settings", () => {
     openSettings(allowed.includes(tab) ? tab : "general");
   }
 
+  function normalizeSettings(value: AppSettings): AppSettings {
+    return {
+      ...value,
+      shortcuts: value.shortcuts.map((item) => ({
+        ...item,
+        key: normalizeShortcutKey(item.key),
+      })),
+    };
+  }
+
   function bootstrap(): () => void {
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
@@ -49,11 +59,11 @@ export const useSettingsStore = defineStore("settings", () => {
     }
 
     void zen.settings.get().then((value) => {
-      settings.value = value;
+      settings.value = normalizeSettings(value);
     });
 
     const offChanged = zen.settings.onChanged((value) => {
-      settings.value = value;
+      settings.value = normalizeSettings(value);
     });
 
     return () => {
@@ -87,8 +97,12 @@ export const useSettingsStore = defineStore("settings", () => {
     if (!zen) {
       return;
     }
+    const normalizedKey = normalizeShortcutKey(key);
+    if (!normalizedKey) {
+      return;
+    }
     const shortcuts: ShortcutBinding[] = settings.value.shortcuts.map((item) =>
-      item.id === id ? { ...item, key } : item,
+      item.id === id ? { ...item, key: normalizedKey } : item,
     );
     settings.value = await zen.settings.set({ shortcuts });
   }

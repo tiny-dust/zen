@@ -34,6 +34,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "codemirror": "6.0.2",
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.13",
     "pinia": "4.0.3",
     "rattail": "2.2.0",
     "reka-ui": "^2.10.4",

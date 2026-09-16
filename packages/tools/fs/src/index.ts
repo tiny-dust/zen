@@ -1,11 +1,17 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 
-import { isEmpty, slash } from "rattail";
-
 export interface ReadFileResult {
   path: string;
   content: string;
+}
+
+function isEmpty(value: unknown): boolean {
+  return value == null || (typeof value === "string" && value.length === 0);
+}
+
+function toSlash(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 function toErrorMessage(error: unknown): string {
@@ -19,8 +25,8 @@ export function resolveWorkspacePath(workspaceRoot: string, relativePath: string
   if (isAbsolute(relativePath)) {
     throw new Error(`absolute path is not allowed: ${relativePath}`);
   }
-  const root = slash(normalize(workspaceRoot));
-  const full = slash(normalize(join(workspaceRoot, relativePath)));
+  const root = toSlash(normalize(workspaceRoot));
+  const full = toSlash(normalize(join(workspaceRoot, relativePath)));
   if (full !== root && !full.startsWith(`${root}/`)) {
     throw new Error(`path escapes workspace: ${relativePath}`);
   }
