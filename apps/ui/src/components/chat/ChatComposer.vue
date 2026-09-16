@@ -198,7 +198,7 @@ function removeAttachment(id: string) {
             <input ref="fileInputEl" type="file" multiple class="hidden" @change="onPickFiles" />
             <button
               type="button"
-              class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+              class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
               aria-label="添加文件"
               title="添加文件"
               @click="openFilePicker"
@@ -216,7 +216,7 @@ function removeAttachment(id: string) {
             <ModelPicker />
             <button
               type="button"
-              class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+              class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
               aria-label="语音"
               title="语音（占位）"
               disabled

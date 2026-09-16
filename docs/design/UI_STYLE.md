@@ -42,13 +42,15 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 4. **图标统一 `@lucide/vue`**，16px 基准；线宽不走组件参数，由 `--icon-stroke`（1.5）在 `styles.css` 里全局覆盖 lucide 的 `stroke-width=2`，组件内不要再逐个传 `stroke-width`；自绘 SVG 需显式 `fill="none" stroke="currentColor"`，否则一律用 lucide。
 5. **浮层（dropdown/dialog/popover）一律走 reka-ui**（shadcn 封装），自带焦点圈、Esc、外点关闭；不要再写 `document.addEventListener("click")` 式手稿浮层。
 6. **破坏性操作必须危险色 + 二次确认**（`base/ConfirmDialog.vue` + `base/DangerIconButton.vue`）：
-   - 不可撤销的删除，主按钮用 `Button variant="destructive"`，行内删除图标用 `DangerIconButton`（常态即 `--color-del`，悬停 `--color-danger-bg`，覆写 ghost 的 hover 底色）；
+   - 不可撤销的删除，主按钮用 `Button variant="destructive"`，行内删除图标用 `DangerIconButton`（常态即 `--color-del`，悬停提亮为 `--color-danger-fg`，不出现底色）；
    - 点击后一律先过 `ConfirmDialog`：标题写动作（`删除供应商？`），描述写清「删谁 + 删掉什么 + 不可撤销」，确认按钮写具体动作（`删除供应商`）而不是「确定」；取消在左、默认聚焦，取消文案可写 `继续当前会话` 这类明确语义；
    - 只对**会落库**的删除加确认；尚未保存的本地行（如新增供应商表单里的待添加模型）用危险色图标直接移除，不打扰；
    - 清空类动作同样算破坏性：标题栏「新对话」在有消息时才拦一道。
 7. **聚焦/选中态只做颜色反馈，禁止粗圈**：`focus-visible` / `aria-invalid` 一律不加 `ring-*` / `outline-*` 描边，只允许边框或底色变化一档（边框走 `focus-visible:border-ring`，`--ring` 即聚焦线色，light `#8a8a85` / dark `#6a6a6a`）；shadcn-vue 原语的 `focus-visible:ring-3` 已全局移除，新增/升级原语时照此收敛。ChatComposer 壳面使用 `--color-composer-surface`（#202020）+ `--shadow-composer`，无边框（拖拽文件悬停时才亮边）。
 
 8. **消息区无气泡（assistant）**：assistant 内容为裸 markdown 直接铺在背板上（无卡片壳、无头像、无角色标签）；user 消息右对齐弱气泡（`--color-side-sel`）。离底 >80px 时 composer 上方出现圆形「回到底部」浮动按钮。composer 底部为居中的「内容由 AI 生成，请注意核实」免责声明行；仓库/分支/上下文用量移入会话信息卡的「环境信息」节。
+
+9. **按钮无聚焦样式；图标按钮 hover 不上底色**：所有 `button` 一律不显示聚焦反馈（`button:focus-visible { outline: none }`，Button 原语也已移除 `focus-visible:border-*`）——聚焦边框只保留给输入类控件（Input/Textarea/Select 触发器）。**图标按钮**（Button 的 `icon-*` 尺寸，以及 `<button>` 自绘的纯图标按钮：标题栏/侧栏图标、会话行 +/置顶/归档/删除、composer +/麦克风、回底按钮等）hover 只高亮图标本身（`hover:text-*`），**不出现任何底色**；Button 原语通过 `compoundVariants` 对 icon 尺寸强制 `hover:bg-transparent!`。行式按钮与菜单项（导航行、列表行、DropdownMenuItem）保留 hover 底色；破坏性图标按钮 hover 用更亮的危险色取代红色底。
 
 ## 4. 布局骨架
 

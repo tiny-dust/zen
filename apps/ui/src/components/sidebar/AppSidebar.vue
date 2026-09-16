@@ -6,9 +6,12 @@ import {
   ChevronDown,
   CircleDot,
   Folder,
+  FolderOpen,
   Globe,
   MoreHorizontal,
   PanelLeft,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Sparkles,
@@ -49,11 +52,14 @@ const navCls =
   "flex h-9 w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)]";
 const sectionCls = "flex flex-col gap-0.5 px-2";
 const headCls =
-  "flex items-center gap-1 px-3.5 pt-4 pb-1.5 text-[11.5px] text-[var(--color-dim)]";
+  "group/head flex items-center gap-1 px-3.5 pt-4 pb-1.5 text-[11.5px] text-[var(--color-dim)]";
 const headerBtnCls =
-  "text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]";
+  "text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]";
 const groupRowCls =
-  "group/row flex h-9 items-center gap-2.5 rounded-[var(--radius-sm)] pr-1 hover:bg-[var(--color-side-hover)]";
+  "group/row flex h-9 items-center gap-1 rounded-[var(--radius-sm)] pr-1 hover:bg-[var(--color-side-hover)]";
+/** 行内操作：默认隐藏，悬停行时淡入；尺寸统一 icon-sm */
+const addActionCls =
+  "text-[var(--color-mut)] opacity-0 hover:text-[var(--color-txt-strong)] group-hover/row:opacity-100 group-hover/head:opacity-100 focus-visible:opacity-100";
 
 const pendingDelete = ref<WorkspaceGroup | null>(null);
 const pendingSessionDelete = ref<SessionRecord | null>(null);
@@ -86,6 +92,20 @@ function toggleArchived(groupId: string) {
     next.add(groupId);
   }
   archivedOpen.value = next;
+}
+
+/** 目录是否展开（未折叠时才显示会话列表） */
+function groupOpen(id: string) {
+  return !workspaceStore.isCollapsed(id);
+}
+
+/** 点整行：折叠态则展开并设为当前；已展开则折叠 */
+function onGroupRowClick(id: string) {
+  const willOpen = workspaceStore.isCollapsed(id);
+  workspaceStore.toggleCollapsed(id);
+  if (willOpen) {
+    workspaceStore.setActive(id);
+  }
 }
 
 function iconCls(active: boolean) {
@@ -159,7 +179,7 @@ function confirmWorkspaceDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+        class="text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]"
         aria-label="收起侧栏"
         title="收起侧栏"
         @click="layoutStore.toggleLeft()"
@@ -169,7 +189,7 @@ function confirmWorkspaceDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+        class="text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]"
         aria-label="搜索"
         title="搜索"
       >
@@ -178,7 +198,7 @@ function confirmWorkspaceDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+        class="text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]"
         aria-label="通知"
         title="通知"
       >
@@ -215,13 +235,12 @@ function confirmWorkspaceDelete() {
 
       <!-- 公共区：顶级项，与工作区同级 -->
       <div v-if="commonGroup" :class="sectionCls" class="pt-3">
-        <div
-          :class="cn(groupRowCls, workspaceStore.activeId === 'common' && 'bg-[var(--color-side-sel)]')"
-        >
+        <div :class="groupRowCls">
           <button
             type="button"
             class="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:text-[var(--color-txt-strong)]"
-            @click="workspaceStore.setActive('common')"
+            :aria-expanded="groupOpen('common')"
+            @click="onGroupRowClick('common')"
           >
             <Globe
               :class="iconCls(workspaceStore.activeId === 'common')"
@@ -231,122 +250,18 @@ function confirmWorkspaceDelete() {
           </button>
           <Button
             variant="ghost"
-            size="icon-xs"
-            class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
+            size="icon-sm"
+            :class="addActionCls"
             aria-label="在公共区新建会话"
             title="新建会话"
-            @click="onNewSessionIn('common')"
+            @click.stop="onNewSessionIn('common')"
           >
-            <Plus />
+            <Plus class="size-4" />
           </Button>
         </div>
-        <SessionRow
-          v-for="session in activeSessions(commonGroup)"
-          :key="session.id"
-          :session="session"
-          :active="chatStore.sessionId === session.id"
-          @open="openSession(session.id)"
-          @pin="onPinSession(session)"
-          @archive="onArchiveSession(session, $event)"
-          @remove="pendingSessionDelete = session"
-        />
-        <button
-          v-if="archivedSessions(commonGroup).length"
-          type="button"
-          class="flex h-7 w-full items-center gap-1 rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
-          @click="toggleArchived('common')"
-        >
-          <ChevronDown
-            class="size-3"
-            :class="archivedOpen.has('common') ? '' : '-rotate-90'"
-            aria-hidden="true"
-          />
-          已归档会话 {{ archivedSessions(commonGroup).length }}
-        </button>
-        <template v-if="archivedOpen.has('common')">
+        <template v-if="groupOpen('common')">
           <SessionRow
-            v-for="session in archivedSessions(commonGroup)"
-            :key="session.id"
-            :session="session"
-            :active="chatStore.sessionId === session.id"
-            :depth="2"
-            @open="openSession(session.id)"
-            @pin="onPinSession(session)"
-            @archive="onArchiveSession(session, $event)"
-            @remove="pendingSessionDelete = session"
-          />
-        </template>
-      </div>
-
-      <div :class="headCls">
-        工作区
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          class="ml-auto text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-          aria-label="新建工作区"
-          title="新建工作区（选择目录）"
-          @click="workspaceStore.create()"
-        >
-          <Plus />
-        </Button>
-      </div>
-
-      <div :class="sectionCls">
-        <div v-for="group in workspaceGroups" :key="group.id" class="flex flex-col gap-0.5">
-          <div
-            :class="cn(groupRowCls, workspaceStore.activeId === group.id && 'bg-[var(--color-side-sel)]')"
-          >
-            <button
-              type="button"
-              class="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:text-[var(--color-txt-strong)]"
-              @click="workspaceStore.setActive(group.id)"
-            >
-              <Folder
-                :class="iconCls(workspaceStore.activeId === group.id)"
-                aria-hidden="true"
-              />
-              <span class="truncate">{{ group.name }}</span>
-            </button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="`在 ${group.name} 新建会话`"
-              title="新建会话"
-              @click="onNewSessionIn(group.id)"
-            >
-              <Plus />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger as-child>
-                <button
-                  type="button"
-                  class="flex size-6 flex-none items-center justify-center rounded text-[var(--color-dim)] opacity-0 hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)] group-hover/row:opacity-100"
-                  aria-label="工作区操作"
-                >
-                  <MoreHorizontal class="size-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" class="min-w-[140px]">
-                <DropdownMenuItem @select="workspaceStore.setActive(group.id)">
-                  指定为当前
-                </DropdownMenuItem>
-                <DropdownMenuItem @select="workspaceStore.archive(group.id, true)">
-                  归档
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  class="text-[var(--color-danger-fg)]"
-                  @select="pendingDelete = group"
-                >
-                  删除
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <SessionRow
-            v-for="session in activeSessions(group)"
+            v-for="session in activeSessions(commonGroup)"
             :key="session.id"
             :session="session"
             :active="chatStore.sessionId === session.id"
@@ -356,29 +271,21 @@ function confirmWorkspaceDelete() {
             @remove="pendingSessionDelete = session"
           />
           <button
-            v-if="group.sessions.filter((item) => !item.archived).length > workspaceStore.PREVIEW_COUNT"
-            type="button"
-            class="flex h-7 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
-            @click="workspaceStore.toggleExpanded(group.id)"
-          >
-            {{ workspaceStore.expanded.has(group.id) ? "收起" : "展开显示" }}
-          </button>
-          <button
-            v-if="archivedSessions(group).length"
+            v-if="archivedSessions(commonGroup).length"
             type="button"
             class="flex h-7 w-full items-center gap-1 rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
-            @click="toggleArchived(group.id)"
+            @click="toggleArchived('common')"
           >
             <ChevronDown
               class="size-3"
-              :class="archivedOpen.has(group.id) ? '' : '-rotate-90'"
+              :class="archivedOpen.has('common') ? '' : '-rotate-90'"
               aria-hidden="true"
             />
-            已归档会话 {{ archivedSessions(group).length }}
+            已归档会话 {{ archivedSessions(commonGroup).length }}
           </button>
-          <template v-if="archivedOpen.has(group.id)">
+          <template v-if="archivedOpen.has('common')">
             <SessionRow
-              v-for="session in archivedSessions(group)"
+              v-for="session in archivedSessions(commonGroup)"
               :key="session.id"
               :session="session"
               :active="chatStore.sessionId === session.id"
@@ -388,6 +295,138 @@ function confirmWorkspaceDelete() {
               @archive="onArchiveSession(session, $event)"
               @remove="pendingSessionDelete = session"
             />
+          </template>
+        </template>
+      </div>
+
+      <div :class="headCls">
+        工作区
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="ml-auto"
+          :class="addActionCls"
+          aria-label="新建工作区"
+          title="新建工作区（选择目录）"
+          @click="workspaceStore.create()"
+        >
+          <Plus class="size-4" />
+        </Button>
+      </div>
+
+      <div :class="sectionCls">
+        <div v-for="group in workspaceGroups" :key="group.id" class="flex flex-col gap-0.5">
+          <div :class="groupRowCls">
+            <button
+              type="button"
+              class="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:text-[var(--color-txt-strong)]"
+              :aria-expanded="groupOpen(group.id)"
+              :aria-label="`${group.name}，${groupOpen(group.id) ? '折叠' : '展开'}会话`"
+              @click="onGroupRowClick(group.id)"
+            >
+              <FolderOpen
+                v-if="groupOpen(group.id)"
+                :class="iconCls(workspaceStore.activeId === group.id)"
+                aria-hidden="true"
+              />
+              <Folder
+                v-else
+                :class="iconCls(workspaceStore.activeId === group.id)"
+                aria-hidden="true"
+              />
+              <span class="truncate">{{ group.name }}</span>
+              <Pin
+                v-if="group.pinned"
+                class="size-3 flex-none -rotate-45 text-[var(--color-accent)]"
+                aria-hidden="true"
+              />
+            </button>
+            <div class="flex flex-none items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :class="addActionCls"
+                :aria-label="`在 ${group.name} 新建会话`"
+                title="新建会话"
+                @click="onNewSessionIn(group.id)"
+              >
+                <Plus class="size-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <button
+                    type="button"
+                    class="flex size-7 flex-none items-center justify-center rounded text-[var(--color-mut)] opacity-0 hover:text-[var(--color-txt)] group-hover/row:opacity-100 focus-visible:opacity-100"
+                    aria-label="工作区操作"
+                  >
+                    <MoreHorizontal class="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" class="min-w-[140px]">
+                  <DropdownMenuItem @select="workspaceStore.pin(group.id, !group.pinned)">
+                    <Pin v-if="!group.pinned" class="size-3.5" />
+                    <PinOff v-else class="size-3.5" />
+                    {{ group.pinned ? "取消置顶" : "置顶" }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="workspaceStore.archive(group.id, true)">
+                    归档
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    class="text-[var(--color-danger-fg)]"
+                    @select="pendingDelete = group"
+                  >
+                    删除
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+
+          <template v-if="groupOpen(group.id)">
+            <SessionRow
+              v-for="session in activeSessions(group)"
+              :key="session.id"
+              :session="session"
+              :active="chatStore.sessionId === session.id"
+              @open="openSession(session.id)"
+              @pin="onPinSession(session)"
+              @archive="onArchiveSession(session, $event)"
+              @remove="pendingSessionDelete = session"
+            />
+            <button
+              v-if="group.sessions.filter((item) => !item.archived).length > workspaceStore.PREVIEW_COUNT"
+              type="button"
+              class="flex h-7 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+              @click="workspaceStore.toggleExpanded(group.id)"
+            >
+              {{ workspaceStore.expanded.has(group.id) ? "收起" : "展开显示" }}
+            </button>
+            <button
+              v-if="archivedSessions(group).length"
+              type="button"
+              class="flex h-7 w-full items-center gap-1 rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+              @click="toggleArchived(group.id)"
+            >
+              <ChevronDown
+                class="size-3"
+                :class="archivedOpen.has(group.id) ? '' : '-rotate-90'"
+                aria-hidden="true"
+              />
+              已归档会话 {{ archivedSessions(group).length }}
+            </button>
+            <template v-if="archivedOpen.has(group.id)">
+              <SessionRow
+                v-for="session in archivedSessions(group)"
+                :key="session.id"
+                :session="session"
+                :active="chatStore.sessionId === session.id"
+                :depth="2"
+                @open="openSession(session.id)"
+                @pin="onPinSession(session)"
+                @archive="onArchiveSession(session, $event)"
+                @remove="pendingSessionDelete = session"
+              />
+            </template>
           </template>
         </div>
       </div>
@@ -411,7 +450,7 @@ function confirmWorkspaceDelete() {
               <DropdownMenuTrigger as-child>
                 <button
                   type="button"
-                  class="mr-1 flex size-6 flex-none items-center justify-center rounded text-[var(--color-dim)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]"
+                  class="mr-1 flex size-6 flex-none items-center justify-center rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
                   aria-label="归档工作区操作"
                 >
                   <MoreHorizontal class="size-3.5" />

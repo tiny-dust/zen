@@ -36,7 +36,7 @@ function confirmNewTask() {
 
 function toggleButtonClass(active: boolean) {
   return cn(
-    "text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]",
+    "text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]",
     active && "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]",
   );
 }

@@ -1,13 +1,9 @@
 <script setup lang="ts">
-import { MoreHorizontal, Pin, PinOff } from "@lucide/vue";
+import { Archive, ArchiveRestore, Pin, Trash2 } from "@lucide/vue";
 import { classes } from "rattail";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import DangerIconButton from "@/components/base/DangerIconButton.vue";
+import { Button } from "@/components/ui/button";
 
 import type { SessionRecord } from "@zen/shared";
 
@@ -25,64 +21,81 @@ const emit = defineEmits<{
 }>();
 
 const rowCls = classes(
-  "group/session flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1 text-left text-[12.5px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
+  "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-0.5 text-left text-[12.5px] text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)]",
+  "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
   [
     props.active,
     "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] hover:bg-[var(--color-side-sel)]",
   ],
 );
 
-function indent() {
-  return (props.depth ?? 1) * 12 + 4;
-}
+/** 左右图标按钮同规格，保证与标题光学对齐 */
+const slotCls = "flex size-7 flex-none items-center justify-center rounded-[6px]";
+const ghostActionCls = classes(
+  slotCls,
+  "text-[var(--color-mut)] opacity-0 transition-opacity duration-[var(--motion-fast)]",
+  "hover:text-[var(--color-txt-strong)]",
+  "group-hover/session:opacity-100 focus-visible:opacity-100",
+);
 </script>
 
 <template>
   <div :class="rowCls">
+    <!-- 置顶：固定最左槽位，已置顶常显，未置顶悬停出现 -->
     <button
       type="button"
-      class="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
-      :style="{ paddingLeft: `${indent()}px` }"
-      @click="emit('open')"
+      :class="[
+        slotCls,
+        'ml-0.5 flex-none',
+        session.pinned
+          ? 'text-[var(--color-accent)]'
+          : [
+              'text-[var(--color-mut)] opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 hover:text-[var(--color-txt-strong)]',
+            ],
+      ]"
+      :aria-label="session.pinned ? '取消置顶' : '置顶'"
+      :title="session.pinned ? '取消置顶' : '置顶'"
+      @click.stop="emit('pin')"
     >
       <Pin
-        v-if="session.pinned"
-        class="size-3 flex-none -rotate-45 text-[var(--color-accent)]"
+        class="size-[13px] shrink-0"
+        :class="session.pinned ? '-rotate-45' : ''"
         aria-hidden="true"
       />
-      <span class="min-w-0 flex-1 truncate" :class="session.archived ? 'text-[var(--color-dim)]' : ''">
+    </button>
+
+    <button
+      type="button"
+      class="flex h-8 min-w-0 flex-1 items-center pl-0.5 text-left"
+      @click="emit('open')"
+    >
+      <span
+        class="min-w-0 flex-1 truncate"
+        :class="session.archived ? 'text-[var(--color-dim)]' : ''"
+      >
         {{ session.title }}
       </span>
     </button>
-    <DropdownMenu>
-      <DropdownMenuTrigger as-child>
-        <button
-          type="button"
-          class="flex size-6 flex-none items-center justify-center rounded text-[var(--color-dim)] opacity-0 hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)] group-hover/session:opacity-100"
-          aria-label="会话操作"
-        >
-          <MoreHorizontal class="size-3.5" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" class="min-w-[132px]">
-        <DropdownMenuItem @select="emit('pin')">
-          <Pin v-if="!session.pinned" class="size-3.5" />
-          <PinOff v-else class="size-3.5" />
-          {{ session.pinned ? "取消置顶" : "置顶" }}
-        </DropdownMenuItem>
-        <DropdownMenuItem v-if="!session.archived" @select="emit('archive', true)">
-          归档
-        </DropdownMenuItem>
-        <DropdownMenuItem v-else @select="emit('archive', false)">
-          取消归档
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          class="text-[var(--color-danger-fg)]"
-          @select="emit('remove')"
-        >
-          删除
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+
+    <div class="flex flex-none items-center gap-px pr-0.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        :class="ghostActionCls"
+        :aria-label="session.archived ? '取消归档' : '归档'"
+        :title="session.archived ? '取消归档' : '归档'"
+        @click="emit('archive', !session.archived)"
+      >
+        <ArchiveRestore v-if="session.archived" class="size-[13px] shrink-0" />
+        <Archive v-else class="size-[13px] shrink-0" />
+      </Button>
+      <DangerIconButton
+        class="size-7! rounded-[6px]! opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover/session:opacity-100 focus-visible:opacity-100"
+        label="删除会话"
+        @click="emit('remove')"
+      >
+        <Trash2 class="size-[13px] shrink-0" />
+      </DangerIconButton>
+    </div>
   </div>
 </template>

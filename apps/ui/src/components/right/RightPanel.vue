@@ -55,7 +55,7 @@ function navItemCls(id: PluginId | "terminal") {
       <Button
         variant="ghost"
         size="icon-sm"
-        class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)]"
+        class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
         aria-label="收起面板"
         title="收起面板"
         @click="layoutStore.toggleRight()"

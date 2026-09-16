@@ -71,6 +71,8 @@
   --color-input-bg: #fff;
   --color-input-border: #151c130f;
   --color-btn-border: #e3e3e0;
+  /* 次级按钮底色：对齐 MiMo .np-btn */
+  --color-np-btn-bg: var(--color-bg);
   --color-composer-surface: #fff;
   --color-composer-fg: #151c13;
   --color-composer-placeholder: #151c1399;
@@ -192,6 +194,7 @@
   --color-input-bg: #181818;
   --color-input-border: #2e2e2e;
   --color-btn-border: #3a3a3a;
+  --color-np-btn-bg: #1a1a1a;
   --color-composer-surface: #202020;
   --color-composer-fg: #a0a0a0;
   --color-composer-placeholder: #a0a0a099;
@@ -383,6 +386,11 @@
   button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
+  }
+
+  /* 按钮一律不显示聚焦样式（图标高亮/底色变化足够）；输入类控件保留聚焦边框 */
+  button:focus-visible {
+    outline: none;
   }
 
   a {

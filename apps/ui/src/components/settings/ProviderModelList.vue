@@ -45,7 +45,7 @@ function rowClass(model: ProviderModel) {
   const selected =
     props.selectionProviderId === props.providerId && props.selectionModelId === model.id;
   return classes(
-    "flex items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2.5 py-2 hover:border-[var(--color-line-strong)]",
+    "flex items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-2 hover:border-[var(--color-line-strong)]",
     [selected, "border-[color-mix(in_srgb,var(--color-accent)_40%,var(--color-line))]"],
     [!model.enabled, "opacity-55"],
   );
@@ -82,7 +82,7 @@ function onSelect(model: ProviderModel) {
       </div>
     </div>
 
-    <div class="flex h-9 items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-3">
+    <div class="flex h-9 items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3">
       <Search class="size-3.5 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
       <Input
         v-model="query"
@@ -121,7 +121,7 @@ function onSelect(model: ProviderModel) {
         />
         <button
           type="button"
-          class="flex size-7 shrink-0 items-center justify-center rounded-lg text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+          class="flex size-7 shrink-0 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
           aria-label="编辑模型"
           title="编辑模型"
           @click="emit('edit', model)"

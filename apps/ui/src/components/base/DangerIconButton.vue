@@ -2,7 +2,7 @@
 import { Button } from "@/components/ui/button";
 
 /**
- * 行内删除图标按钮：常态即危险色，悬停加深危险底色（覆写 ghost 的 hover 底色）。
+ * 行内删除图标按钮：常态即危险色，悬停只提亮图标（不出现底色）。
  * 会落库的删除必须再经 ConfirmDialog 二次确认。
  */
 withDefaults(
@@ -22,7 +22,7 @@ withDefaults(
   <Button
     variant="ghost"
     size="icon-sm"
-    class="text-[var(--color-del)] hover:bg-[var(--color-danger-bg)]! hover:text-[var(--color-del)]!"
+    class="text-[var(--color-del)] hover:bg-transparent! hover:text-[var(--color-danger-fg)]!"
     :aria-label="label"
     :title="title ?? label"
     :disabled="disabled"
