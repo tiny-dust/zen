@@ -9,6 +9,7 @@ import type {
   CatalogVendor,
   ChatMessage,
   DeviceCodeInfo,
+  DirEntry,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
@@ -16,6 +17,7 @@ import type {
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
   ToolApprovalDecision,
@@ -93,6 +95,8 @@ export interface ZenApi {
   };
   workspace: {
     listFiles(cwd?: string): Promise<WorkspaceFile[]>;
+    readDir(cwd: string | undefined, relPath: string): Promise<DirEntry[] | null>;
+    readFile(cwd: string | undefined, relPath: string): Promise<ReadFileResult | null>;
     list(): Promise<WorkspaceGroup[]>;
     create(): Promise<Workspace | null>;
     archive(id: string, archived: boolean): Promise<WorkspaceGroup[]>;

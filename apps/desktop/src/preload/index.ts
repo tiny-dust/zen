@@ -11,6 +11,7 @@ import type {
   CatalogVendor,
   ChatMessage,
   DeviceCodeInfo,
+  DirEntry,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
@@ -18,6 +19,7 @@ import type {
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
   ToolApprovalDecision,
@@ -190,6 +192,15 @@ const zen = {
   workspace: {
     listFiles(cwd?: string): Promise<WorkspaceFile[]> {
       return ipcRenderer.invoke("workspace:list-files", cwd);
+    },
+    readDir(cwd: string | undefined, relPath: string): Promise<DirEntry[] | null> {
+      return ipcRenderer.invoke("workspace:read-dir", cwd, relPath);
+    },
+    readFile(
+      cwd: string | undefined,
+      relPath: string,
+    ): Promise<ReadFileResult | null> {
+      return ipcRenderer.invoke("workspace:read-file", cwd, relPath);
     },
     list(): Promise<WorkspaceGroup[]> {
       return ipcRenderer.invoke("workspace:list");

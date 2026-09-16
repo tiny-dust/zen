@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { FolderOpen, GitBranch, Globe, PanelRight, SquareTerminal } from "@lucide/vue";
 import { classes } from "rattail";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
+import FileTree from "@/components/right/FileTree.vue";
+import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
+import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 type PluginId = "code" | "git" | "browser";
 
 const layoutStore = useLayoutStore();
+const workspaceStore = useWorkspaceStore();
+const chatStore = useChatStore();
 
 const plugins: Array<{ id: PluginId; label: string; icon: typeof FolderOpen }> = [
   { id: "code", label: "文件", icon: FolderOpen },
@@ -17,6 +23,12 @@ const plugins: Array<{ id: PluginId; label: string; icon: typeof FolderOpen }> =
 ];
 
 const active = ref<PluginId>("code");
+const selectedFile = ref("");
+
+/** 当前会话绑定的工作区目录；公共区为空 */
+const treeRoot = computed(() =>
+  workspaceStore.pathOf(chatStore.sessionWorkspaceId),
+);
 
 const navCls =
   "flex h-10 w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]";
@@ -77,21 +89,26 @@ const mockBlock =
       </button>
     </nav>
 
-    <div class="min-h-0 flex-1 overflow-auto p-3.5">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden p-3.5">
       <template v-if="active === 'code'">
-        <div class="text-[var(--color-mut)]">
-          <p class="mb-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">代码文件</p>
-          <p class="mb-3 text-[12px] leading-normal">打开项目文件后将在此预览（P1：CodeMirror）。</p>
-          <pre :class="mockBlock">apps/ui/src/App.vue
-apps/desktop/src/main/index.ts</pre>
+        <div class="flex min-h-0 flex-1 flex-col gap-2">
+          <div class="max-h-[45%] flex-none overflow-auto">
+            <FileTree :key="treeRoot ?? 'common'" :root="treeRoot" @select="selectedFile = $event" />
+          </div>
+          <div class="h-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
+          <FileViewer
+            :key="`viewer-${treeRoot ?? 'common'}`"
+            :path="selectedFile"
+            :root="treeRoot"
+          />
         </div>
       </template>
 
       <template v-else-if="active === 'git'">
         <div class="text-[var(--color-mut)]">
           <p class="mb-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">Git 信息</p>
-          <p class="mb-3 text-[12px] leading-normal">分支、diff 与提交记录（P1：simple-git）。</p>
-          <code :class="mockBlock">main · clean</code>
+          <p class="mb-3 text-[12px] leading-normal">分支、diff 与提交记录。</p>
+          <code :class="mockBlock">{{ chatStore.branch || "未绑定 git 目录" }} · {{ chatStore.repo || "—" }}</code>
         </div>
       </template>
 

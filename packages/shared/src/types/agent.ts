@@ -130,6 +130,18 @@ export interface WorkspaceFile {
   isDir: boolean;
 }
 
+/** 文件树懒加载：单层目录条目 */
+export interface DirEntry {
+  name: string;
+  isDir: boolean;
+}
+
+export interface ReadFileResult {
+  content: string;
+  size: number;
+  truncated: boolean;
+}
+
 export const BUILTIN_SKILLS: Array<{ id: string; label: string; description: string }> = [
   { id: "commit-helper", label: "Commit Helper", description: "按仓库规范生成提交信息" },
 ];
