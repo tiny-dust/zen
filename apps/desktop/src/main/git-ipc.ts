@@ -347,7 +347,7 @@ async function generateAiMessage(workdir: string): Promise<string> {
     "统计摘要：",
     diffStat || "（无变更）",
   ].join("\n");
-  return completeOnce(prompt, { maxTokens: 160 });
+  return completeOnce(prompt, { maxTokens: 400 });
 }
 
 /** AI 不可用时的确定性兜底 commit message，保证提交链路不会因空 message 失败 */

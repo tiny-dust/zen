@@ -162,6 +162,62 @@ function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   return `${base}/v1${path}`;
 }
 
+/** 从多种 chat/completions 响应形态里抽出最终文本 */
+function extractChatText(data: unknown): string {
+  const payload = data as {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+        reasoning_content?: string;
+        reasoning?: string;
+        text?: string;
+      };
+      text?: string;
+    }>;
+    output_text?: string;
+  };
+
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  const choice = payload?.choices?.[0];
+  const message = choice?.message;
+  if (!message) {
+    return typeof choice?.text === "string" ? choice.text.trim() : "";
+  }
+
+  // content 可能是 string，或 OpenAI 多模态数组 [{type:'text', text:'...'}]
+  if (typeof message.content === "string" && message.content.trim()) {
+    return message.content.trim();
+  }
+  if (Array.isArray(message.content)) {
+    const text = message.content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        const p = part as { type?: string; text?: string };
+        return p?.type === "text" || typeof p?.text === "string" ? (p.text ?? "") : "";
+      })
+      .join("")
+      .trim();
+    if (text) {
+      return text;
+    }
+  }
+  if (typeof message.text === "string" && message.text.trim()) {
+    return message.text.trim();
+  }
+
+  // 部分 reasoning 模型 content 为空时，正文可能落在 reasoning_content
+  const reasoning = message.reasoning_content || message.reasoning;
+  if (typeof reasoning === "string" && reasoning.trim()) {
+    return reasoning.trim();
+  }
+  return "";
+}
+
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
 export async function completeOnce(
   prompt: string,
@@ -181,10 +237,11 @@ export async function completeOnce(
   const userAgent =
     sanitizeUserAgent((await loadProviderUserAgent(provider.id)) || provider.userAgent) ||
     DEFAULT_UA;
-  const maxTokens = options?.maxTokens ?? 300;
+  // reasoning 模型可能先耗 token 思考；过小的 max_tokens 会导致 content 为空
+  const maxTokens = options?.maxTokens ?? 512;
 
   if (provider.protocol === "anthropic-messages") {
-    const data = (await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
+    const data = await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -197,15 +254,22 @@ export async function completeOnce(
         max_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }],
       }),
-    })) as { content?: Array<{ type?: string; text?: string }> };
-    const text = (data.content ?? [])
-      .filter((block) => block.type === "text")
+    });
+    const payload = data as {
+      content?: Array<{ type?: string; text?: string }>;
+    };
+    const text = (payload.content ?? [])
+      .filter((block) => block.type === "text" || typeof block?.text === "string")
       .map((block) => block.text ?? "")
-      .join("");
-    return text.trim();
+      .join("")
+      .trim();
+    if (!text) {
+      throw new Error("模型未返回文本内容");
+    }
+    return text;
   }
 
-  const data = (await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
+  const data = await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -215,10 +279,15 @@ export async function completeOnce(
     body: JSON.stringify({
       model: modelId,
       max_tokens: maxTokens,
+      stream: false,
       messages: [{ role: "user", content: prompt }],
     }),
-  })) as { choices?: Array<{ message?: { content?: string } }> };
-  return (data.choices?.[0]?.message?.content ?? "").trim();
+  });
+  const text = extractChatText(data);
+  if (!text) {
+    throw new Error("模型未返回文本内容");
+  }
+  return text;
 }
 
 export { normalizeBaseUrl };
