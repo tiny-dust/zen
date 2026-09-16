@@ -29,6 +29,16 @@ fi
 # 全新身份会触发全新的 LaunchServices 注册，彻底摆脱 Electron 残留
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.zen.desktop.dev" "$PLIST"
 
+# 终端直接 exec 的进程，Dock 会回退显示可执行文件名：把 MacOS/Electron 改名 Zen，
+# 同步 CFBundleExecutable 与 electron 启动器依赖的 path.txt（无换行）
+if [ -f "$APP/Contents/MacOS/Electron" ]; then
+  mv "$APP/Contents/MacOS/Electron" "$APP/Contents/MacOS/Zen"
+fi
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Zen" "$PLIST"
+if [ -f "node_modules/electron/path.txt" ]; then
+  printf '%s' "Electron.app/Contents/MacOS/Zen" > "node_modules/electron/path.txt"
+fi
+
 cp "$ICNS_SRC" "$ICNS_DST"
 
 # 改动 bundle 后 ad-hoc 签名失效，必须重签，否则 Apple Silicon 上无法启动
