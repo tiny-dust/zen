@@ -45,7 +45,7 @@ const remoteBranches = computed(() =>
 );
 
 const messagePlaceholder = computed(() =>
-  generating.value ? "正在分析变更并生成提交信息…" : "提交信息（留空将自动生成）…",
+  generating.value ? "正在分析变更并生成提交信息…" : "提交信息（留空则提交时自动生成）…",
 );
 
 function canSubmit() {
@@ -157,12 +157,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
-  void gitStore.refreshStatus().then(() => {
-    // 打开面板即按当前模型分析变更并填充 message
-    if (gitStore.hasChanges && !message.value.trim()) {
-      void generateMessage();
-    }
-  });
+  void gitStore.refreshStatus();
   void ensureBranches();
   window.addEventListener("keydown", onKeydown);
 });
@@ -244,11 +239,11 @@ const rowCls = cn(
           type="button"
           class="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-[var(--color-dim)] hover:text-[var(--color-txt)] disabled:pointer-events-none disabled:opacity-40"
           :disabled="generating || !gitStore.hasChanges"
-          title="重新生成提交信息"
+          title="AI 生成提交信息"
           @click="generateMessage"
         >
           <RefreshCw class="size-3" :class="generating ? 'animate-spin' : ''" aria-hidden="true" />
-          {{ generating ? "生成中" : "重新生成" }}
+          {{ generating ? "生成中" : "AI 生成" }}
         </button>
       </div>
     </div>

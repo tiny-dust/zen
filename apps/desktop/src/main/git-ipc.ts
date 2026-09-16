@@ -319,12 +319,73 @@ export function registerGitIpc(): void {
   );
 }
 
+const AI_DIFF_LIMIT = 12 * 1024;
+const HISTORY_LIMIT = 4 * 1024;
+const SUBJECT_LIMIT = 72;
+const BODY_LIMIT = 600;
+const CONVENTIONAL_RE =
+  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?:\s/i;
+
+/** 历史提交大多遵循 Conventional Commits 时返回 true，决定沿用历史风格还是标准模板 */
+function historyIsConventional(commits: string[]): boolean {
+  const subjects = commits
+    .map((block) => (block.split("\n").find((line) => line.trim()) ?? "").trim())
+    .filter(Boolean);
+  if (!subjects.length) {
+    return false;
+  }
+  const hits = subjects.filter((subject) => CONVENTIONAL_RE.test(subject)).length;
+  return hits / subjects.length >= 0.5;
+}
+
+/** 正文超长时按行边界截断，避免 commit message 失控 */
+function capBody(body: string): string {
+  if (body.length <= BODY_LIMIT) {
+    return body;
+  }
+  const cut = body.slice(0, BODY_LIMIT);
+  const nl = cut.lastIndexOf("\n");
+  return (nl > 0 ? cut.slice(0, nl) : cut).trimEnd();
+}
+
+/** 把模型原始输出净化成 commit message：首个非列表行为主题，其余为正文；剥离代码围栏/引号/说明前缀 */
+function toCommitMessage(raw: string): string {
+  const lines = raw
+    .split("\n")
+    .filter((line) => !/^\s*```/.test(line))
+    .map((line) => line.trimEnd());
+  const subjectIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed && !/^[-*#>]/.test(trimmed);
+  });
+  if (subjectIndex < 0) {
+    return "";
+  }
+  const subject = (lines[subjectIndex] ?? "")
+    .trim()
+    .replace(/^(commit message|提交信息)\s*[:：]\s*/i, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const cappedSubject =
+    subject.length > SUBJECT_LIMIT ? subject.slice(0, SUBJECT_LIMIT).trimEnd() : subject;
+  const body = capBody(
+    lines
+      .slice(subjectIndex + 1)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  );
+  return body ? `${cappedSubject}\n\n${body}` : cappedSubject;
+}
+
 async function generateAiMessage(workdir: string): Promise<string> {
-  const [diffStat, numstat, subjects, status] = await Promise.all([
+  const [diffStat, numstat, status, diffBody, historyRaw] = await Promise.all([
     git(workdir, ["diff", "HEAD", "--stat"]).catch(() => ""),
     git(workdir, ["diff", "HEAD", "--numstat"]).catch(() => ""),
-    git(workdir, ["log", "--pretty=format:%s", "--max-count=5"]).catch(() => ""),
     git(workdir, ["status", "--porcelain"]).catch(() => ""),
+    git(workdir, ["diff", "HEAD", "--no-color", "-U1"]).catch(() => ""),
+    git(workdir, ["log", "-n", "5", "--pretty=format:---%n%B"]).catch(() => ""),
   ]);
   const files = status
     .split("\n")
@@ -332,11 +393,30 @@ async function generateAiMessage(workdir: string): Promise<string> {
     .filter(Boolean)
     .slice(0, 40)
     .join("\n");
+  const diff =
+    diffBody.length > AI_DIFF_LIMIT
+      ? `${diffBody.slice(0, AI_DIFF_LIMIT)}\n… diff 已截断`
+      : diffBody;
+  const historyRawTrimmed = historyRaw.trim();
+  const history =
+    historyRawTrimmed.length > HISTORY_LIMIT
+      ? `${historyRawTrimmed.slice(0, HISTORY_LIMIT)}\n… 历史已截断`
+      : historyRawTrimmed;
+  const commits = history
+    .split(/^---$/m)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const styleHint = historyIsConventional(commits)
+    ? "最近提交遵循 Conventional Commits：沿用其常用的 type 与 scope 习惯。"
+    : "最近提交缺失或不规范：忽略其风格，直接使用标准模板。";
   const prompt = [
-    "根据下面的 git 变更，写一条简洁的中文 commit 信息。",
-    "格式：一行动词开头的主题（不超过 50 字），不要输出其他解释、引号或列表。",
+    "根据下面的 git 变更，为本次变更写一条中文 commit message。",
+    "标准模板：第一行为 type(scope): 简短主题（不超过 50 字），type 从 feat/fix/docs/style/refactor/perf/test/chore 中选，scope 可选；空一行；正文用 1-3 行说明本次变更的动机与要点。",
+    styleHint,
+    "只输出 commit message 本身，不要输出思考过程、解释、markdown 代码块或引号。",
     "",
-    `最近提交风格参考：${subjects || "无"}`,
+    "最近提交（风格参考）：",
+    history || "（无）",
     "",
     "变更文件：",
     files || "（无）",
@@ -346,8 +426,11 @@ async function generateAiMessage(workdir: string): Promise<string> {
     "",
     "统计摘要：",
     diffStat || "（无变更）",
+    "",
+    "变更内容（diff）：",
+    diff || "（无）",
   ].join("\n");
-  return completeOnce(prompt, { maxTokens: 400 });
+  return toCommitMessage(await completeOnce(prompt));
 }
 
 /** AI 不可用时的确定性兜底 commit message，保证提交链路不会因空 message 失败 */

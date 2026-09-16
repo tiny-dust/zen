@@ -1,4 +1,4 @@
-import { resolveModelCapabilities } from "./model-capabilities";
+import { inspectModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
   listProviders,
@@ -162,7 +162,15 @@ function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   return `${base}/v1${path}`;
 }
 
-/** 从多种 chat/completions 响应形态里抽出最终文本 */
+/** 剥离 reasoning 模型内联在正文里的思考块：<think>…</think>，以及未闭合的前导 <think>… */
+function stripThinkBlocks(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/^\s*<think>[\s\S]*$/i, "")
+    .trim();
+}
+
+/** 从多种 chat/completions 响应形态里抽出最终文本（思考内容不算正文） */
 function extractChatText(data: unknown): string {
   const payload = data as {
     choices?: Array<{
@@ -178,18 +186,21 @@ function extractChatText(data: unknown): string {
   };
 
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text.trim();
+    return stripThinkBlocks(payload.output_text);
   }
 
   const choice = payload?.choices?.[0];
   const message = choice?.message;
   if (!message) {
-    return typeof choice?.text === "string" ? choice.text.trim() : "";
+    return typeof choice?.text === "string" ? stripThinkBlocks(choice.text) : "";
   }
 
-  // content 可能是 string，或 OpenAI 多模态数组 [{type:'text', text:'...'}]
-  if (typeof message.content === "string" && message.content.trim()) {
-    return message.content.trim();
+  // content 可能是 string，或 OpenAI 多模态数组 [{type:'text', text:'...'}]；内联 <think> 时剥离后为空则走兜底
+  if (typeof message.content === "string") {
+    const stripped = stripThinkBlocks(message.content);
+    if (stripped) {
+      return stripped;
+    }
   }
   if (Array.isArray(message.content)) {
     const text = message.content
@@ -207,13 +218,16 @@ function extractChatText(data: unknown): string {
     }
   }
   if (typeof message.text === "string" && message.text.trim()) {
-    return message.text.trim();
+    return stripThinkBlocks(message.text);
   }
 
   // 部分 reasoning 模型 content 为空时，正文可能落在 reasoning_content
   const reasoning = message.reasoning_content || message.reasoning;
-  if (typeof reasoning === "string" && reasoning.trim()) {
-    return reasoning.trim();
+  if (typeof reasoning === "string") {
+    const stripped = stripThinkBlocks(reasoning);
+    if (stripped) {
+      return stripped;
+    }
   }
   return "";
 }
@@ -237,8 +251,9 @@ export async function completeOnce(
   const userAgent =
     sanitizeUserAgent((await loadProviderUserAgent(provider.id)) || provider.userAgent) ||
     DEFAULT_UA;
-  // reasoning 模型可能先耗 token 思考；过小的 max_tokens 会导致 content 为空
-  const maxTokens = options?.maxTokens ?? 512;
+  // reasoning 模型会先耗大量 token 思考；预算太小会导致 content 为空、只剩思考内容
+  const caps = inspectModelCapabilities(modelId);
+  const maxTokens = options?.maxTokens ?? (caps.reasoning ? 2048 : 512);
 
   if (provider.protocol === "anthropic-messages") {
     const data = await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
