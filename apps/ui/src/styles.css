@@ -388,6 +388,25 @@
     opacity: 0.45;
   }
 
+  /* 可点击交互一律 pointer：Tailwind v4 把按钮默认光标改成了 default，
+     shadcn Button（data-slot）不在裸按钮 reset 的覆盖范围内，这里统一补齐。 */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="option"]:not([data-disabled]),
+  [role="tab"]:not(:disabled),
+  [role="switch"]:not(:disabled),
+  [role="checkbox"]:not(:disabled),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+
+  [data-disabled="true"],
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
   /* 按钮一律不显示聚焦样式（图标高亮/底色变化足够）；输入类控件保留聚焦边框 */
   button:focus-visible {
     outline: none;
