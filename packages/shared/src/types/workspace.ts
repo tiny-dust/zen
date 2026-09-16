@@ -14,6 +14,8 @@ export interface SessionRecord {
   title: string;
   /** null = 公共区会话 */
   workspaceId: string | null;
+  /** 未发送的输入草稿，切换会话后恢复 */
+  draft: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -162,7 +162,7 @@ function removeAttachment(id: string) {
       </div>
 
       <div
-        class="overflow-hidden rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
+        class="rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
         :class="
           dragging
             ? 'border border-[color-mix(in_srgb,var(--color-accent)_50%,var(--color-line))]'
@@ -174,7 +174,7 @@ function removeAttachment(id: string) {
           id="chat-input"
           ref="textareaEl"
           v-model="input"
-          class="min-h-[44px]! max-h-[220px] resize-none border-none! bg-transparent! px-0! py-0! text-[14px] leading-relaxed text-[var(--color-txt-strong)] placeholder:text-[var(--color-composer-placeholder)]"
+          class="max-h-[220px] min-h-[44px]! resize-none rounded-none! border-none! bg-transparent! px-0! py-0! text-[14px] leading-relaxed text-[var(--color-txt-strong)] placeholder:text-[var(--color-composer-placeholder)]"
           rows="2"
           placeholder="描述任务，输入/调用技能"
           :disabled="isRunning"

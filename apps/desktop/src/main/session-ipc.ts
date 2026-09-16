@@ -7,6 +7,7 @@ import {
   getSession,
   listWorkspaceGroups,
   renameSession,
+  setSessionDraft,
   setWorkspaceArchived,
 } from "./workspace-db";
 
@@ -44,6 +45,12 @@ export function registerSessionIpc(): void {
   ipcMain.handle("session:rename", (_event, id: string, title: string) => {
     if (typeof title === "string" && title.trim()) {
       renameSession(id, title.trim());
+    }
+  });
+
+  ipcMain.handle("session:set-draft", (_event, id: string, draft: string) => {
+    if (typeof draft === "string") {
+      setSessionDraft(id, draft);
     }
   });
 }

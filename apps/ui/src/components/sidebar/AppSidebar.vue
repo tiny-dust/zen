@@ -36,7 +36,6 @@ const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
 
 const actions = [
-  { id: "new-task", label: "新建任务", icon: CircleDot },
   { id: "skills", label: "技能", icon: Sparkles },
   { id: "mcp", label: "MCP", icon: Cable },
 ];
@@ -56,15 +55,20 @@ const sessionCls =
   "flex h-8 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[12.5px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]";
 const expandCls =
   "flex h-7 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]";
+const groupRowCls =
+  "group/row flex h-9 items-center gap-2.5 rounded-[var(--radius-sm)] pr-1 hover:bg-[var(--color-side-hover)]";
 
 const pendingDelete = ref<WorkspaceGroup | null>(null);
 
-/** 未归档分组（公共区排最前） */
-const visibleGroups = computed(() => {
-  const sorted = [...workspaceStore.groups.filter((item) => !item.archived)];
-  sorted.sort((a, b) => (a.kind === "common" ? -1 : b.kind === "common" ? 1 : 0));
-  return sorted;
-});
+/** 目录工作区（未归档） */
+const workspaceGroups = computed(() =>
+  workspaceStore.groups.filter((item) => !item.archived && item.kind === "workspace"),
+);
+
+/** 公共区作为顶级项，与工作区同级 */
+const commonGroup = computed(
+  () => workspaceStore.groups.find((item) => item.id === "common") ?? null,
+);
 
 function isSessionActive(id: string) {
   return chatStore.sessionId === id;
@@ -77,21 +81,8 @@ function sessionRowCls(id: string) {
   );
 }
 
-function groupRowCls(id: string) {
-  return classes(
-    navCls,
-    "group/row pr-1",
-    [workspaceStore.activeId === id, "text-[var(--color-txt-strong)]"],
-  );
-}
-
 function iconCls(active: boolean) {
   return cn("size-4 flex-none", active ? "text-[var(--color-mut)]" : "text-[var(--color-dim)]");
-}
-
-async function onNewTask() {
-  emit("action", "new-task");
-  await chatStore.newTask();
 }
 
 async function openSession(id: string) {
@@ -102,6 +93,11 @@ async function openSession(id: string) {
       return;
     }
   }
+}
+
+async function onNewSessionIn(workspaceId: string) {
+  workspaceStore.setActive(workspaceId);
+  await chatStore.newTask(workspaceId);
 }
 
 function confirmDelete() {
@@ -163,15 +159,65 @@ function confirmDelete() {
 
     <div class="min-h-0 flex-1 overflow-y-auto">
       <div :class="sectionCls" class="pt-1.5">
+        <button type="button" :class="navCls" @click="chatStore.newTask()">
+          <CircleDot :class="iconCls(false)" aria-hidden="true" />
+          <span>新建任务</span>
+        </button>
         <button
           v-for="item in actions"
           :key="item.id"
           type="button"
           :class="navCls"
-          @click="item.id === 'new-task' ? onNewTask() : emit('action', item.id)"
+          @click="emit('action', item.id)"
         >
           <component :is="item.icon" :class="iconCls(false)" aria-hidden="true" />
           <span>{{ item.label }}</span>
+        </button>
+      </div>
+
+      <!-- 公共区：顶级项，与工作区同级 -->
+      <div v-if="commonGroup" :class="sectionCls" class="pt-3">
+        <div
+          :class="cn(groupRowCls, workspaceStore.activeId === 'common' && 'bg-[var(--color-side-sel)]')"
+        >
+          <button
+            type="button"
+            class="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:text-[var(--color-txt-strong)]"
+            @click="workspaceStore.setActive('common')"
+          >
+            <Globe
+              :class="iconCls(workspaceStore.activeId === 'common')"
+              aria-hidden="true"
+            />
+            <span class="truncate">公共区</span>
+          </button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="flex-none text-[var(--color-dim)] opacity-0 hover:text-[var(--color-txt-strong)] group-hover/row:opacity-100"
+            aria-label="在公共区新建会话"
+            title="新建会话"
+            @click="onNewSessionIn('common')"
+          >
+            <Plus />
+          </Button>
+        </div>
+        <button
+          v-for="session in workspaceStore.visibleSessions(commonGroup)"
+          :key="session.id"
+          type="button"
+          :class="sessionRowCls(session.id)"
+          @click="openSession(session.id)"
+        >
+          <span class="truncate">{{ session.title }}</span>
+        </button>
+        <button
+          v-if="commonGroup.sessions.length > workspaceStore.PREVIEW_COUNT"
+          type="button"
+          :class="expandCls"
+          @click="workspaceStore.toggleExpanded('common')"
+        >
+          {{ workspaceStore.expanded.has('common') ? "收起" : "展开显示" }}
         </button>
       </div>
 
@@ -190,22 +236,32 @@ function confirmDelete() {
       </div>
 
       <div :class="sectionCls">
-        <div v-for="group in visibleGroups" :key="group.id" class="flex flex-col gap-0.5">
-          <div :class="cn('group/row flex h-9 items-center gap-2.5 rounded-[var(--radius-sm)] pr-1 hover:bg-[var(--color-side-hover)]', workspaceStore.activeId === group.id && 'bg-[var(--color-side-sel)]')">
+        <div v-for="group in workspaceGroups" :key="group.id" class="flex flex-col gap-0.5">
+          <div
+            :class="cn(groupRowCls, workspaceStore.activeId === group.id && 'bg-[var(--color-side-sel)]')"
+          >
             <button
               type="button"
               class="flex h-full min-w-0 flex-1 items-center gap-2.5 px-2.5 text-left text-[13.5px] text-[var(--color-side-item)] hover:text-[var(--color-txt-strong)]"
               @click="workspaceStore.setActive(group.id)"
             >
-              <Globe
-                v-if="group.kind === 'common'"
+              <Folder
                 :class="iconCls(workspaceStore.activeId === group.id)"
                 aria-hidden="true"
               />
-              <Folder v-else :class="iconCls(workspaceStore.activeId === group.id)" aria-hidden="true" />
               <span class="truncate">{{ group.name }}</span>
             </button>
-            <DropdownMenu v-if="group.kind === 'workspace'">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              class="flex-none text-[var(--color-dim)] opacity-0 hover:text-[var(--color-txt-strong)] group-hover/row:opacity-100"
+              :aria-label="`在 ${group.name} 新建会话`"
+              title="新建会话"
+              @click="onNewSessionIn(group.id)"
+            >
+              <Plus />
+            </Button>
+            <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
                   type="button"

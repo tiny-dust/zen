@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { uuid } from "rattail";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type {
   AgentRunStatus,
@@ -72,6 +72,27 @@ export const useChatStore = defineStore("chat", () => {
   const branch = ref("");
   const repo = ref("");
   const lastInputTokens = ref<number | null>(null);
+
+  /** 输入草稿防抖落库，切换会话回来可恢复 */
+  let draftTimer: ReturnType<typeof setTimeout> | undefined;
+  watch(input, (value) => {
+    const zen = window.zen;
+    if (!zen || !sessionId.value) {
+      return;
+    }
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      void zen.session.setDraft(sessionId.value, value);
+    }, 400);
+  });
+
+  function flushDraft() {
+    const zen = window.zen;
+    clearTimeout(draftTimer);
+    if (zen && sessionId.value) {
+      void zen.session.setDraft(sessionId.value, input.value);
+    }
+  }
 
   const isRunning = computed(() =>
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
@@ -395,11 +416,12 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "审批提示已收起";
   }
 
-  /** 新会话：在当前工作区（或公共区）建立持久会话 */
-  async function newTask() {
+  /** 新会话：在工作区（缺省为当前工作区）建立持久会话 */
+  async function newTask(workspaceId?: string) {
     if (isRunning.value) {
       await cancel();
     }
+    flushDraft();
     messages.value = [];
     input.value = "";
     attachments.value = [];
@@ -415,12 +437,12 @@ export const useChatStore = defineStore("chat", () => {
     sessionName.value = "新会话";
 
     const workspaceStore = useWorkspaceStore();
-    sessionWorkspaceId.value = workspaceStore.activeId;
+    sessionWorkspaceId.value = workspaceId || workspaceStore.activeId;
     const zen = window.zen;
     if (zen) {
-      const record = await zen.session.create(workspaceStore.activeId);
+      const record = await zen.session.create(sessionWorkspaceId.value);
       sessionId.value = record.id;
-      workspaceStore.appendSessionLocal(workspaceStore.activeId, record);
+      workspaceStore.appendSessionLocal(sessionWorkspaceId.value, record);
     } else {
       sessionId.value = uuid();
     }
@@ -433,6 +455,9 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen) {
       return;
     }
+    if (record.id === sessionId.value) {
+      return;
+    }
     if (isRunning.value) {
       await cancel();
     }
@@ -440,11 +465,12 @@ export const useChatStore = defineStore("chat", () => {
     if (!found) {
       return;
     }
+    flushDraft();
     sessionId.value = record.id;
     sessionName.value = found.session.title;
     sessionWorkspaceId.value = found.session.workspaceId ?? "common";
     messages.value = found.messages;
-    input.value = "";
+    input.value = found.session.draft ?? "";
     attachments.value = [];
     status.value = "idle";
     phase.value = "answering";

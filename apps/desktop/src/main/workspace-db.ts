@@ -18,6 +18,7 @@ interface SessionRow {
   id: string;
   title: string;
   workspace_id: string | null;
+  draft: string;
   created_at: number;
   updated_at: number;
 }
@@ -50,6 +51,7 @@ function toSession(row: SessionRow): SessionRecord {
     id: row.id,
     title: row.title,
     workspaceId: row.workspace_id,
+    draft: row.draft ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -135,12 +137,13 @@ export function createSession(workspaceId: string | null): SessionRecord {
     id: randomUUID(),
     title: "新会话",
     workspace_id: effective === COMMON_ID ? null : effective,
+    draft: "",
     created_at: Date.now(),
     updated_at: Date.now(),
   };
   db.prepare(
-    "INSERT INTO chat_sessions (id, title, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(row.id, row.title, row.workspace_id, row.created_at, row.updated_at);
+    "INSERT INTO chat_sessions (id, title, workspace_id, draft, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(row.id, row.title, row.workspace_id, row.draft, row.created_at, row.updated_at);
   return toSession(row);
 }
 
@@ -161,6 +164,15 @@ export function getSession(id: string): { session: SessionRecord; messages: Chat
 export function renameSession(id: string, title: string): void {
   getDb().prepare("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?").run(
     title,
+    Date.now(),
+    id,
+  );
+}
+
+/** 输入草稿随输随存（渲染层防抖调用），切会话回来可恢复 */
+export function setSessionDraft(id: string, draft: string): void {
+  getDb().prepare("UPDATE chat_sessions SET draft = ?, updated_at = ? WHERE id = ?").run(
+    draft,
     Date.now(),
     id,
   );

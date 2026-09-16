@@ -118,6 +118,7 @@ export interface ZenApi {
     create(workspaceId: string | null): Promise<SessionRecord>;
     open(id: string): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null>;
     rename(id: string, title: string): Promise<void>;
+    setDraft(id: string, draft: string): Promise<void>;
   };
   pathForFile(file: File): string;
 }

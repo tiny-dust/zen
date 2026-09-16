@@ -249,6 +249,9 @@ const zen = {
     rename(id: string, title: string): Promise<void> {
       return ipcRenderer.invoke("session:rename", id, title);
     },
+    setDraft(id: string, draft: string): Promise<void> {
+      return ipcRenderer.invoke("session:set-draft", id, draft);
+    },
   },
   pathForFile(file: File): string {
     return webUtils.getPathForFile(file);
