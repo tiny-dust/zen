@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 
 import { AgentSession, runMockAgent } from "@zen/agent-core";
-import { BrowserWindow, app, ipcMain, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeImage, shell } from "electron";
 
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { getWorkspace } from "./workspace-db";
@@ -252,10 +252,15 @@ function applyDockBrand() {
     return;
   }
   const iconPath = join(__dirname, "../../build/icon.icns");
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    console.warn("[zen] Dock 图标缺失：", iconPath);
+    return;
+  }
   try {
-    app.dock?.setIcon(iconPath);
-  } catch {
-    // icon 缺失不影响启动
+    app.dock?.setIcon(icon);
+  } catch (error) {
+    console.warn("[zen] Dock 图标设置失败：", error);
   }
 }
 
