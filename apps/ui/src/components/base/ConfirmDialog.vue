@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { nextTick, ref, watch } from "vue";
 
 /**
  * 不可撤销操作的二次确认：危险色主按钮 + 明确的删除对象与后果说明。
- * 打开时聚焦确认按钮：Enter = 确认，Esc / 点遮罩 = 取消；取消在左。
+ * Enter = 确认，Esc / 点遮罩 = 取消。
+ *
+ * reka 的 FocusScope 打开时自动聚焦 DOM 中第一个可聚焦元素，因此「确认」按钮
+ * 在模板里排在前面（视觉顺序由 order-* 保持为取消在左、确认在右）。
+ * 不要调换这里的 DOM 顺序，否则初始焦点会落在取消上。
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     open: boolean;
     title: string;
@@ -29,20 +32,6 @@ const emit = defineEmits<{
   "update:open": [value: boolean];
   confirm: [];
 }>();
-
-const confirmEl = ref<{ $el: HTMLButtonElement } | null>(null);
-
-watch(
-  () => props.open,
-  (open) => {
-    if (!open) {
-      return;
-    }
-    void nextTick(() => {
-      confirmEl.value?.$el?.focus?.();
-    });
-  },
-);
 </script>
 
 <template>
@@ -61,17 +50,23 @@ watch(
         {{ description }}
       </DialogDescription>
       <div class="mt-2 flex justify-end gap-1.5">
-        <Button variant="ghost" size="sm" :disabled="pending" @click="emit('update:open', false)">
-          {{ cancelLabel }}
-        </Button>
         <Button
-          ref="confirmEl"
           variant="destructive"
           size="sm"
+          class="order-2"
           :disabled="pending"
           @click="emit('confirm')"
         >
           {{ confirmLabel }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="order-1"
+          :disabled="pending"
+          @click="emit('update:open', false)"
+        >
+          {{ cancelLabel }}
         </Button>
       </div>
     </DialogContent>
