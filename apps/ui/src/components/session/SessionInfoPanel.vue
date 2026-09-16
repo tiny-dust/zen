@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { ChevronDown, Circle, CircleCheck, Gauge, GitBranch, Laptop } from "@lucide/vue";
+import { classes } from "rattail";
+import { computed, ref } from "vue";
 
 import { useChatStore } from "@/stores/chat";
 
@@ -30,182 +32,181 @@ const refs = computed(() => [
   { id: "r2", name: "docs/architecture/NEXT_STEPS.md" },
 ]);
 
-const skills = computed(() => ["coder", "rattail"]);
-
 const changedFiles = computed(() => [
   "apps/ui/src/App.vue",
   "apps/ui/src/styles.css",
   "apps/desktop/src/main/index.ts",
 ]);
 
-const branch = computed(() => "main");
+const branch = computed(() => chatStore.branch);
+const repo = computed(() => chatStore.repo);
+const contextUsage = computed(() => chatStore.contextUsage);
+
+const hasEnv = computed(() => Boolean(repo.value || branch.value || contextUsage.value != null));
+const doneCount = computed(() => tasks.value.filter((item) => item.done).length);
+
+const openSections = ref(new Set(["env", "tasks", "artifacts", "refs", "files"]));
+
+function toggleSection(id: string) {
+  const next = new Set(openSections.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  openSections.value = next;
+}
+
+const cardCls = classes(
+  "flex min-h-0 flex-1 flex-col",
+  // embedded（弹窗内）不带卡片壳，由宿主容器负责
+  "rounded-2xl border border-[var(--color-line-soft)] bg-[var(--color-raise)] p-3",
+);
+const sectionCls = "flex flex-col";
+const headCls =
+  "flex min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:text-[var(--color-txt)]";
+const badgeCls =
+  "ml-auto inline-flex h-5 items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10.5px] font-normal text-[var(--color-mut)]";
+const envRowCls = "flex h-8 items-center gap-2 text-[12.5px] text-[var(--color-txt)]";
+const envIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
+const listCls = "m-0 flex list-none flex-col gap-1 p-0 pb-1";
 </script>
 
 <template>
-  <aside class="session-panel" :class="{ 'is-embedded': embedded }" aria-label="会话信息">
-    <div v-if="!embedded" class="panel-title">会话信息</div>
+  <aside
+    :class="
+      embedded
+        ? 'flex min-w-0 flex-col bg-transparent'
+        : 'flex h-full min-w-0 flex-col overflow-hidden bg-transparent p-2'
+    "
+    aria-label="会话信息"
+  >
+    <div :class="embedded ? 'flex flex-col gap-5' : cardCls">
+      <section v-if="hasEnv" :class="sectionCls">
+        <button type="button" :class="headCls" @click="toggleSection('env')">
+          环境信息
+          <ChevronDown
+            class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="openSections.has('env') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+        </button>
+        <div v-if="openSections.has('env')" class="mt-1 flex flex-col">
+          <div v-if="repo" :class="envRowCls">
+            <Laptop :class="envIconCls" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate">{{ repo }}</span>
+          </div>
+          <div v-if="branch" :class="envRowCls">
+            <GitBranch :class="envIconCls" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[12px]">
+              {{ branch }}
+            </span>
+          </div>
+          <div v-if="contextUsage != null" :class="envRowCls">
+            <Gauge :class="envIconCls" aria-hidden="true" />
+            <span class="min-w-0 flex-1">上下文</span>
+            <span class="flex-none font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
+              {{ contextUsage }}%
+            </span>
+          </div>
+        </div>
+      </section>
 
-    <section class="block">
-      <h3>任务清单</h3>
-      <ul>
-        <li v-for="item in tasks" :key="item.id" :class="{ done: item.done }">
-          <span class="check" aria-hidden="true" />
-          {{ item.label }}
-        </li>
-      </ul>
-    </section>
+      <section :class="sectionCls">
+        <button type="button" :class="headCls" @click="toggleSection('tasks')">
+          任务清单
+          <ChevronDown
+            class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="openSections.has('tasks') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          <span :class="badgeCls">{{ doneCount }}/{{ tasks.length }}</span>
+        </button>
+        <ul v-if="openSections.has('tasks')" :class="listCls">
+          <li
+            v-for="item in tasks"
+            :key="item.id"
+            class="flex items-center gap-2 text-[12px]"
+            :class="item.done ? 'text-[var(--color-mut)] line-through' : 'text-[var(--color-txt)]'"
+          >
+            <CircleCheck
+              v-if="item.done"
+              class="size-3.5 flex-none text-[var(--color-add)]"
+              aria-hidden="true"
+            />
+            <Circle v-else class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+            <span class="min-w-0 flex-1">{{ item.label }}</span>
+          </li>
+        </ul>
+      </section>
 
-    <section class="block">
-      <h3>产物</h3>
-      <ul>
-        <li v-for="item in artifacts" :key="item.id">
-          <span class="chip">{{ item.kind }}</span>
-          {{ item.name }}
-        </li>
-      </ul>
-    </section>
+      <section :class="sectionCls">
+        <button type="button" :class="headCls" @click="toggleSection('artifacts')">
+          产物
+          <ChevronDown
+            class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="openSections.has('artifacts') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          <span :class="badgeCls">{{ artifacts.length }}</span>
+        </button>
+        <ul v-if="openSections.has('artifacts')" :class="listCls">
+          <li
+            v-for="item in artifacts"
+            :key="item.id"
+            class="flex items-center gap-2 text-[12px] text-[var(--color-txt)]"
+          >
+            <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+            <span
+              class="flex-none rounded-full bg-[var(--color-chip-bg)] px-1.5 py-px text-[10px] uppercase text-[var(--color-chip-text)]"
+            >
+              {{ item.kind }}
+            </span>
+          </li>
+        </ul>
+      </section>
 
-    <section class="block">
-      <h3>参考文件</h3>
-      <ul>
-        <li v-for="item in refs" :key="item.id" class="path">{{ item.name }}</li>
-      </ul>
-    </section>
+      <section :class="sectionCls">
+        <button type="button" :class="headCls" @click="toggleSection('refs')">
+          参考
+          <ChevronDown
+            class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="openSections.has('refs') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          <span :class="badgeCls">{{ refs.length }}</span>
+        </button>
+        <ul v-if="openSections.has('refs')" :class="listCls">
+          <li
+            v-for="item in refs"
+            :key="item.id"
+            class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
+          >
+            {{ item.name }}
+          </li>
+        </ul>
+      </section>
 
-    <section class="block">
-      <h3>调用技能</h3>
-      <div class="tags">
-        <span v-for="skill in skills" :key="skill" class="tag">{{ skill }}</span>
-      </div>
-    </section>
-
-    <section class="block">
-      <h3>变更文件</h3>
-      <ul>
-        <li v-for="file in changedFiles" :key="file" class="path">{{ file }}</li>
-      </ul>
-    </section>
-
-    <section class="block">
-      <h3>分支</h3>
-      <code class="branch">{{ branch }}</code>
-    </section>
+      <section :class="sectionCls">
+        <button type="button" :class="headCls" @click="toggleSection('files')">
+          项目文件
+          <ChevronDown
+            class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="openSections.has('files') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          <span :class="badgeCls">{{ changedFiles.length }}</span>
+        </button>
+        <ul v-if="openSections.has('files')" :class="listCls">
+          <li
+            v-for="file in changedFiles"
+            :key="file"
+            class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
+          >
+            {{ file }}
+          </li>
+        </ul>
+      </section>
+    </div>
   </aside>
 </template>
-
-<style scoped>
-.session-panel {
-  min-width: 0;
-  height: 100%;
-  overflow: auto;
-  padding: 12px;
-  background: var(--color-side);
-  border-left: 1px solid var(--color-line);
-}
-
-.session-panel.is-embedded {
-  height: auto;
-  border-left: 0;
-  background: transparent;
-}
-
-.panel-title {
-  font-size: 12px;
-  color: var(--color-mut);
-  margin-bottom: 10px;
-}
-
-.block {
-  margin-bottom: 14px;
-  padding: 10px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
-  background: var(--color-composer-surface);
-}
-
-.block:last-child {
-  margin-bottom: 0;
-}
-
-.block h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-txt-strong);
-}
-
-.block ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.block li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--color-txt);
-}
-
-.block li.done {
-  color: var(--color-mut);
-  text-decoration: line-through;
-}
-
-.check {
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  border: 1px solid var(--color-btn-border);
-  flex: none;
-}
-
-li.done .check {
-  background: var(--color-add);
-  border-color: var(--color-add);
-}
-
-.path {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-mut);
-  word-break: break-all;
-}
-
-.chip {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--color-chip-bg);
-  color: var(--color-chip-text);
-  text-transform: uppercase;
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tag {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--color-line);
-  background: var(--color-chip-bg);
-  color: var(--color-txt);
-}
-
-.branch {
-  display: inline-block;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--color-side-sel);
-  color: var(--color-txt-strong);
-}
-</style>

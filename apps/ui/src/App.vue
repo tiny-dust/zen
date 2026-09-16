@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { classes } from "rattail";
 import { computed, onMounted, onUnmounted } from "vue";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
@@ -10,7 +11,8 @@ import RightPanel from "@/components/right/RightPanel.vue";
 import SettingsPage from "@/components/settings/SettingsPage.vue";
 import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
-import AppTopbar from "@/components/topbar/AppTopbar.vue";
+import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
+import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
@@ -23,20 +25,46 @@ const layoutStore = useLayoutStore();
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const modelsStore = useModelsStore();
-const { leftWidth, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
+const { leftWidth, leftCollapsed, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
   storeToRefs(layoutStore);
 
 const isWide = useMediaQuery("(min-width: 1100px)");
 const showSessionColumn = computed(() => isWide.value && sessionOpen.value);
 
-const centerClass = computed(() => ({
-  "center--wide": showSessionColumn.value,
-}));
+const centerClass = computed(() =>
+  classes(
+    "flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)]",
+    [showSessionColumn.value, "grid-cols-[minmax(0,1fr)_250px]"],
+  ),
+);
 
 let disposeChat: (() => void) | undefined;
 let disposeUser: (() => void) | undefined;
 let disposeSettings: (() => void) | undefined;
 let disposeModels: (() => void) | undefined;
+
+useGlobalShortcuts({
+  shortcuts: () => settingsStore.settings.shortcuts,
+  onCommand: (command) => {
+    switch (command) {
+      case "zen.chat.send":
+        void chatStore.send();
+        break;
+      case "zen.action.newTask":
+        chatStore.newTask();
+        break;
+      case "workbench.action.openSettings":
+        settingsStore.openSettings();
+        break;
+      case "workbench.action.toggleSidebarVisibility":
+        layoutStore.toggleLeft();
+        break;
+      case "workbench.action.terminal.toggleTerminal":
+        layoutStore.toggleBottom();
+        break;
+    }
+  },
+});
 
 onMounted(() => {
   disposeChat = chatStore.bootstrap();
@@ -59,37 +87,55 @@ function onLeftDrag(delta: number) {
 function onRightDrag(delta: number) {
   layoutStore.setRightWidth(rightWidth.value - delta);
 }
+
+const sideRail =
+  "flex-none h-full min-w-0 overflow-hidden";
 </script>
 
 <template>
-  <div class="shell">
-    <div class="body">
-      <div class="left" :style="{ width: `${leftWidth}px` }">
+  <div class="flex h-full flex-col bg-[var(--color-bg)] text-[var(--color-txt)]">
+    <div class="flex min-h-0 flex-1">
+      <div v-if="!leftCollapsed" :class="sideRail" :style="{ width: `${leftWidth}px` }">
         <AppSidebar />
       </div>
 
       <ResizeHandle orientation="vertical" @drag="onLeftDrag" />
 
-      <div class="main">
-        <AppTopbar :is-wide="isWide" />
-        <div class="main-body">
-          <div class="center" :class="centerClass">
-            <div class="chat-column">
+      <div class="h-full min-h-0 min-w-0 flex-1">
+        <div class="flex h-full min-h-0 flex-col">
+          <AppTitlebar :is-wide="isWide" />
+
+          <div :class="centerClass">
+            <div class="flex h-full min-h-0 min-w-0 flex-col">
               <ChatTimeline />
               <ChatComposer />
             </div>
             <SessionInfoPanel v-if="showSessionColumn" />
           </div>
 
-          <div v-if="!bottomCollapsed" class="bottom-bar">
-            <span>底部面板 · 任务进度 / 终端占位</span>
+          <div
+            v-if="!bottomCollapsed"
+            class="flex h-24 flex-none flex-col bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
+          >
+            <div class="flex flex-none items-center gap-1 px-2 pt-1.5">
+              <span
+                class="inline-flex h-7 items-center rounded-t-lg border border-b-0 border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2.5 text-[12px] text-[var(--color-txt)]"
+              >
+                终端
+              </span>
+            </div>
+            <div
+              class="flex min-h-0 flex-1 items-start overflow-auto border-t border-[var(--color-line)] px-3 py-2 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-dim)]"
+            >
+              底部面板 · 任务进度 / 终端占位
+            </div>
           </div>
         </div>
       </div>
 
       <template v-if="!rightCollapsed">
         <ResizeHandle orientation="vertical" invert @drag="onRightDrag" />
-        <div class="right" :style="{ width: `${rightWidth}px` }">
+        <div :class="sideRail" :style="{ width: `${rightWidth}px` }">
           <RightPanel />
         </div>
       </template>
@@ -99,70 +145,3 @@ function onRightDrag(delta: number) {
     <SettingsPage />
   </div>
 </template>
-
-<style scoped>
-.shell {
-  height: 100%;
-  background: var(--color-bg);
-  color: var(--color-txt);
-}
-
-.body {
-  display: flex;
-  min-height: 0;
-  height: 100%;
-}
-
-.left,
-.right {
-  flex: none;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-.main {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-}
-
-.main-body {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.center {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.center--wide {
-  grid-template-columns: minmax(0, 1fr) 300px;
-}
-
-.chat-column {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.bottom-bar {
-  flex: none;
-  height: 96px;
-  border-top: 1px solid var(--color-line);
-  background: var(--color-side);
-  color: var(--color-mut);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-}
-</style>

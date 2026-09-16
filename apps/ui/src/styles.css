@@ -1,10 +1,9 @@
-/* Zen global tokens — aligned with Xiaomi MiMo Desktop */
+/* Zen design tokens — aligned with Xiaomi MiMo Desktop */
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "shadcn-vue/tailwind.css";
 
 @source "./**/*.{vue,ts}";
-@source "./**/*.vue";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,16 +22,29 @@
     "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Noto Sans Mono",
     "Liberation Mono", "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", monospace;
 
-  --radius: 0.625rem;
+  --radius: 12px;
   --radius-sm: 8px;
-  --radius-lg: 16px;
-  --radius-shell: 20px;
+  --radius-lg: 12px;
+  --radius-shell: 16px;
 
-  --shadow-composer: 0 1px 2px #0000000d, 0 6px 18px #0000001b;
-  --shadow-menu: 0 8px 30px #0000002e, 0 1px 3px #0000001a;
-  --shadow-pop: 0 12px 40px #00000024;
-  --shadow-tip: 0 2px 8px #0000000d, 0 1px 2px #0000000a;
+  /* 壳体尺寸：标题栏与各栏头行同高，窗口按钮与图标按钮垂直居中 */
+  --titlebar-h: 38px;
+  --titlebar-pad: 5px;
+  --titlebar-lead: 72px; /* macOS 交通灯（12px 起，3×12px + 2×8px 间隔）预留区 */
+  --panel-head-h: 38px;
+  --control-h: 28px;
+  /* 图标线宽：lucide 默认 2 偏粗，全局收到 1.5（CSS 覆盖 SVG 呈现属性） */
+  --icon-stroke: 1.5;
 
+  /* 层级刻度：弹窗遮罩 40 < reka 浮层 50 < 对话框 70 < 提示 90（后两档预留）；
+     壳体（标题栏/侧栏/面板）走正常文档流，不占层级。
+     铁律：遮罩必须低于浮层，否则弹窗里的下拉会被遮住。 */
+  --z-overlay: 40;
+  --z-popup: 50;
+  --z-modal: 70;
+  --z-toast: 90;
+
+  /* MiMo Desktop — light */
   --color-bg: #fffefd;
   --color-panel: #fff;
   --color-main-bg: #fff;
@@ -42,42 +54,55 @@
   --color-side-active: #f1f0ec;
   --color-side-sel: #eeedec;
   --color-side-item: #4a4a4a;
+  --color-raise: var(--color-panel); /* 悬浮信息卡（会话信息卡） */
   --color-sunken: var(--color-side-glass);
   --color-set-card: #fff;
+  --color-settings-nav: #f8f7f5;
+  --color-settings-content: var(--color-panel);
+  --color-settings-card: var(--color-set-card);
+  --color-settings-line: color-mix(in srgb, #f1f1f1 78%, transparent);
+  --color-popover: #fff;
+
   --color-line: #f1f1f1;
   --color-line-soft: #0000000d;
   --color-line-warm: #f0ebe5;
   --color-line-strong: #dcdcd8;
+
   --color-input-bg: #fff;
   --color-input-border: #151c130f;
   --color-btn-border: #e3e3e0;
-  --color-composer-surface: var(--color-input-bg);
+  --color-composer-surface: #fff;
   --color-composer-fg: #151c13;
   --color-composer-placeholder: #151c1399;
   --color-composer-tray-bg: var(--color-sunken);
+
   --color-txt: #151c13cc;
   --color-txt-strong: #151c13;
   --color-mut: #151c1399;
   --color-dim: #151c1366;
   --color-icon: #5c5c57;
   --color-topbar-icon: #151c1399;
+
   --color-send: #151c13;
   --color-send-fg: #fff;
   --color-send-empty: #bbbbb6;
   --color-accent: #ff6a2b;
+  --color-accent-fg: #fff;
   --color-accent-2: #ffb02e;
   --color-link: #3295fb;
   --color-blue: #2f6fed;
+
   --color-ok: #1a9e5f;
   --color-err: #d23f3f;
   --color-add: #1a7f37;
   --color-del: #e5484d;
   --color-danger-bg: #fdecea;
   --color-danger-fg: #d93025;
+
   --color-code-bg: #f0f0f2;
   --color-code-fg: #3a3a38;
   --color-menu-hover: #f1f0ec;
-  --color-menu-active: #f1f1f2;
+  --color-menu-active: #f1f0ec;
   --color-chip-bg: #0000000d;
   --color-chip-text: #137a3f;
   --color-scrollbar-thumb: #0000002e;
@@ -88,108 +113,109 @@
   --color-notice-border: #ececec;
   --color-notice-danger-bg: #ffd9d9;
   --color-notice-danger-border: #ffbdbd;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  --shadow-composer: 0 1px 2px #0000000d, 0 6px 18px #0000001b;
+  --shadow-menu: 0 8px 30px #0000002e, 0 1px 3px #0000001a;
+  --shadow-pop: 0 12px 40px #00000024;
+  --shadow-tip: 0 2px 8px #0000000d, 0 1px 2px #0000000a;
+  --shadow-edge-top: 0 -1px 2px #0000000a, 0 -6px 16px #00000007;
+  --shadow-edge-bottom: 0 1px 2px #0000000a, 0 6px 16px #00000007;
+  --shadow-edge-left: -1px 0 2px #0000000a, -6px 0 16px #00000007;
+  --shadow-edge-right: 1px 0 2px #0000000a, 6px 0 16px #00000007;
+  --shadow-raised: 0 1px 2px #0000000a, 0 3px 10px #0000000f;
+
+  /* shadcn — light (mapped from MiMo) */
+  --background: var(--color-bg);
+  --foreground: var(--color-txt);
+  --card: var(--color-bg);
+  --card-foreground: var(--color-txt);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-txt);
+  --primary: var(--color-send);
+  --primary-foreground: var(--color-send-fg);
+  --secondary: #f1f1f1;
+  --secondary-foreground: #151c13;
+  --muted: var(--color-side);
+  --muted-foreground: var(--color-mut);
+  --accent: var(--color-side-sel);
+  --accent-foreground: var(--color-txt-strong);
+  --destructive: var(--color-del);
+  --destructive-foreground: #fff;
+  --border: var(--color-line);
+  --input: var(--color-btn-border);
+  --ring: #8a8a85;
+  --chart-1: #dcdcd8;
+  --chart-2: #8a8a82;
+  --chart-3: #5c5c57;
+  --chart-4: #3a3a38;
+  --chart-5: #151c13;
+  --sidebar: var(--color-side);
+  --sidebar-foreground: var(--color-txt);
+  --sidebar-primary: var(--color-send);
+  --sidebar-primary-foreground: var(--color-send-fg);
+  --sidebar-accent: var(--color-side-sel);
+  --sidebar-accent-foreground: var(--color-txt-strong);
+  --sidebar-border: var(--color-line);
+  --sidebar-ring: #8a8a85;
+
+  color-scheme: light;
 }
 
-[data-theme="dark"],
-:root {
+/* MiMo Desktop — dark (project default) */
+.dark,
+[data-theme="dark"] {
   color-scheme: dark;
-  /* shadcn-vue tokens aligned with MiMo dark */
-  --background: #181818;
-  --foreground: #f4f4f5;
-  --card: #1a1a1a;
-  --card-foreground: #f4f4f5;
-  --popover: #222;
-  --popover-foreground: #f4f4f5;
-  --primary: #ececec;
-  --primary-foreground: #0d0d0d;
-  --secondary: #2a2a2a;
-  --secondary-foreground: #f4f4f5;
-  --muted: #2a2a2a;
-  --muted-foreground: #b8b8b8;
-  --accent: #2a2a2a;
-  --accent-foreground: #f4f4f5;
-  --destructive: #ff9b7f;
-  --destructive-foreground: #181818;
-  --border: #2e2e2e;
-  --input: #2e2e2e;
-  --ring: #666;
-  --sidebar: #141414;
-  --sidebar-foreground: #f4f4f5;
-  --sidebar-primary: #ececec;
-  --sidebar-primary-foreground: #0d0d0d;
-  --sidebar-accent: #2a2a2a;
-  --sidebar-accent-foreground: #f4f4f5;
-  --sidebar-border: #2e2e2e;
-  --sidebar-ring: #666;
 
   --color-bg: #181818;
   --color-panel: #181818;
   --color-main-bg: #181818;
   --color-side: #141414;
   --color-side-glass: var(--color-side);
-  --color-side-hover: #ffffff0f;
-  --color-side-active: #ffffff1a;
-  --color-side-sel: #ffffff1a;
-  --color-side-item: #ccc;
+  --color-side-hover: #ffffff14;
+  --color-side-active: #ffffff1f;
+  --color-side-sel: #ffffff1f;
+  --color-side-item: #e0e0e0;
+  --color-raise: #191919; /* 悬浮信息卡（会话信息卡） */
   --color-sunken: #2e2e2e;
   --color-set-card: #1a1a1a;
+  --color-settings-nav: var(--color-side);
+  --color-settings-content: #1f1f1f;
+  --color-settings-card: #282828;
+  --color-settings-line: #3d3d3d;
+  --color-popover: #1a1a1a;
+
   --color-line: #2e2e2e;
   --color-line-soft: #ffffff12;
   --color-line-warm: #2e2e2e;
   --color-line-strong: var(--color-line);
+
   --color-input-bg: #181818;
   --color-input-border: #2e2e2e;
   --color-btn-border: #3a3a3a;
-  --color-composer-surface: #1f1f1f;
+  --color-composer-surface: #202020;
   --color-composer-fg: #a0a0a0;
-  --color-composer-placeholder: var(--color-composer-fg);
+  --color-composer-placeholder: #a0a0a099;
   --color-composer-tray-bg: #151515;
+
   --color-txt: #f4f4f5;
   --color-txt-strong: #fff;
   --color-mut: #b8b8b8;
   --color-dim: #777;
   --color-icon: #d0d0d0;
   --color-topbar-icon: #f4f4f5;
+
   --color-send: #ececec;
-  --color-send-fg: #0d0d0d;
+  --color-send-fg: #151c13;
   --color-send-empty: #5a5a5a;
   --color-link: #3295fb;
   --color-blue: #5a9cff;
+
   --color-ok: #1a9e5f;
   --color-add: #3fb950;
+  --color-del: #e5484d;
   --color-danger-bg: #3a2320;
   --color-danger-fg: #ff9b7f;
+
   --color-code-bg: #2e2e2e;
   --color-code-fg: #e6e6e6;
   --color-menu-hover: #ffffff0f;
@@ -209,161 +235,417 @@
   --shadow-menu: 0 8px 30px #0009, 0 1px 3px #0006;
   --shadow-pop: 0 12px 40px #00000080;
   --shadow-tip: 0 2px 8px #0000004d, 0 1px 2px #00000040;
-}
+  --shadow-edge-top: 0 -1px 2px #0006, 0 -6px 16px #0005;
+  --shadow-edge-bottom: 0 1px 2px #0006, 0 6px 16px #0005;
+  --shadow-edge-left: -1px 0 2px #0006, -6px 0 16px #0005;
+  --shadow-edge-right: 1px 0 2px #0006, 6px 0 16px #0005;
+  --shadow-raised: 0 1px 2px #0006, 0 3px 10px #0008;
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#app {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  overflow: hidden;
-  background: var(--color-bg);
-  color: var(--color-txt);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  user-select: none;
-}
-
-button,
-input,
-textarea,
-select {
-  font: inherit;
-  color: inherit;
-}
-
-/* 仅重置「无 shadcn data-slot」的原生按钮，避免打掉 Button/Trigger 样式 */
-button:not([data-slot="button"]):not([role="menuitem"]):not([data-slot]) {
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-a {
-  color: var(--color-link);
-  text-decoration: none;
-}
-
-code,
-pre,
-kbd,
-samp {
-  font-family: var(--font-mono);
-}
-
-::selection {
-  background: var(--color-selection);
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar-thumb);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--color-scrollbar-thumb-hover);
-  background-clip: content-box;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-textarea,
-input {
-  user-select: text;
-}
-
-.settings-card {
-  border-color: var(--color-line) !important;
-  background: #1f1f1f !important;
-  color: var(--color-txt);
-}
-
-.settings-card [data-slot="card-title"],
-.settings-card [data-slot="card-description"] {
-  color: inherit;
-}
-
-.settings-card [data-slot="card-title"] {
-  color: var(--color-txt-strong);
-}
-
-.settings-card [data-slot="card-description"] {
-  color: var(--color-mut);
+  /* shadcn — dark */
+  --background: var(--color-bg);
+  --foreground: var(--color-txt);
+  --card: var(--color-settings-card);
+  --card-foreground: var(--color-txt);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-txt);
+  --primary: var(--color-send);
+  --primary-foreground: var(--color-send-fg);
+  --secondary: #2e2e2e;
+  --secondary-foreground: var(--color-txt-strong);
+  --muted: var(--color-sunken);
+  --muted-foreground: var(--color-mut);
+  --accent: var(--color-side-sel);
+  --accent-foreground: var(--color-txt-strong);
+  --destructive: var(--color-del);
+  --destructive-foreground: #fff;
+  --border: var(--color-line);
+  --input: var(--color-btn-border);
+  --ring: #6a6a6a;
+  --chart-1: #3a3a3a;
+  --chart-2: #5a5a5a;
+  --chart-3: #777;
+  --chart-4: #b8b8b8;
+  --chart-5: #f4f4f5;
+  --sidebar: var(--color-side);
+  --sidebar-foreground: var(--color-txt);
+  --sidebar-primary: var(--color-send);
+  --sidebar-primary-foreground: var(--color-send-fg);
+  --sidebar-accent: var(--color-side-sel);
+  --sidebar-accent-foreground: var(--color-txt-strong);
+  --sidebar-border: var(--color-line);
+  --sidebar-ring: #6a6a6a;
 }
 
 @theme inline {
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--color-accent);
-  --color-muted-foreground: var(--color-mut);
-  --color-muted: var(--color-side-sel);
-  --color-secondary-foreground: var(--color-txt-strong);
-  --color-secondary: var(--color-side-sel);
-  --color-primary-foreground: var(--color-send-fg);
-  --color-primary: var(--color-send);
-  --color-popover-foreground: var(--color-txt);
-  --color-popover: var(--color-set-card);
-  --color-card-foreground: var(--color-txt);
-  --color-card: var(--color-set-card);
-  --color-foreground: var(--color-txt);
-  --color-background: var(--color-bg);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
+  --radius-lg: var(--radius-lg);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
 @layer base {
-  * {
-    border-color: var(--color-line);
+  /* 图标线宽统一收细：lucide 把 stroke-width=2 写在 SVG 呈现属性上，
+     CSS 规则优先级高于呈现属性，一处即可全局收细（含浮层内的箭头/勾选等子图标）。 */
+  svg.lucide,
+  svg.lucide * {
+    stroke-width: var(--icon-stroke);
   }
+
+  /* reka 浮层把 z-index 写在行内（50），此处用 !important 让它回到 --z-popup 刻度上，
+     避免任何新遮罩又把下拉/菜单盖住（详见 docs/design/UI_STYLE.md 第 4 节）。 */
+  [data-reka-popper-content-wrapper] {
+    z-index: var(--z-popup) !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+
   body {
+    overflow: hidden;
     background: var(--color-bg);
     color: var(--color-txt);
     font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    user-select: none;
   }
+
+  * {
+    border-color: var(--color-line);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Reset native buttons that shadcn does not style */
+  button:not([data-slot]) {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  a {
+    color: var(--color-link);
+    text-decoration: none;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  ::selection {
+    background: var(--color-selection);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-scrollbar-thumb);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scrollbar-thumb-hover);
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  textarea,
+  input {
+    user-select: text;
+  }
+
+  /* shadcn Card closer to MiMo hairline surfaces */
+  [data-slot="card"] {
+    box-shadow: none;
+    border: 1px solid var(--color-line);
+    background: var(--color-set-card);
+  }
+}
+
+@layer components {
+  .settings-card {
+    background: var(--color-settings-card);
+    border-color: var(--color-line);
+    color: var(--color-txt);
+  }
+
+  .settings-card [data-slot="card-title"] {
+    color: var(--color-txt-strong);
+  }
+
+  .settings-card [data-slot="card-description"] {
+    color: var(--color-mut);
+  }
+
+  .settings-section-title {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-txt-strong);
+  }
+
+  .settings-hint {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--color-mut);
+    line-height: 1.5;
+  }
+
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 14px;
+  }
+
+  .settings-row + .settings-row {
+    border-top: 1px solid var(--color-line-soft);
+  }
+
+  .settings-row-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-txt-strong);
+  }
+
+  .settings-row-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-mut);
+  }
+
+  /* 设置表单/详情：label 与控件（或值）同行，左标签定宽，右内容自适应 */
+  .field-row {
+    display: grid;
+    grid-template-columns: var(--field-label-w, 88px) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 30px;
+    padding: 4px 0;
+  }
+
+  .field-row + .field-row {
+    border-top: 1px solid var(--color-line-soft);
+  }
+
+  .field-row-label {
+    font-size: 12px;
+    color: var(--color-mut);
+  }
+
+  .field-row-value {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--color-txt);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 紧凑列表行：标题 + 次要信息 + 行尾操作，单行 30px */
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+
+  .list-row-title {
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--color-txt-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .list-row-meta {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-mut);
+  }
+}
+
+/* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点） */
+.md-content p {
+  margin: 0 0 8px;
+}
+
+.md-content p:last-child {
+  margin-bottom: 0;
+}
+
+.md-content code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--color-code-bg);
+  color: var(--color-code-fg);
+  border-radius: 5px;
+  padding: 1.5px 5px;
+}
+
+.md-content pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  background: var(--color-code-bg);
+  color: var(--color-code-fg);
+  overflow: auto;
+}
+
+.md-content pre code {
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+.md-content ul,
+.md-content ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+/* Tailwind preflight 会清掉列表标记，这里恢复 markdown 语义的圆点/编号 */
+.md-content ul {
+  list-style: disc;
+}
+
+.md-content ol {
+  list-style: decimal;
+}
+
+.md-content li {
+  margin: 2px 0;
+}
+
+.md-content a {
+  color: var(--color-link);
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-txt-strong);
+  margin: 10px 0 6px;
+}
+
+.md-content blockquote {
+  margin: 8px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--color-line-strong);
+  color: var(--color-mut);
+}
+
+.md-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.md-content th,
+.md-content td {
+  border: 1px solid var(--color-line);
+  padding: 4px 8px;
+}
+
+/* range 滑杆 thumb：伪元素，Tailwind 不适用 */
+.slider-range {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-accent) 35%, var(--color-sunken)),
+    var(--color-accent)
+  );
+}
+
+.slider-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--color-line-strong);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  cursor: pointer;
 }
