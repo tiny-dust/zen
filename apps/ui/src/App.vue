@@ -87,7 +87,8 @@ function onLeftDrag(delta: number) {
 }
 
 function onRightDrag(delta: number) {
-  layoutStore.setRightWidth(rightWidth.value - delta);
+  // 手柄在中央与右栏之间：左拖（delta 负）应加宽右栏
+  layoutStore.setRightWidth(rightWidth.value + delta);
 }
 
 const sideRail =
@@ -136,7 +137,7 @@ const sideRail =
       </div>
 
       <template v-if="!rightCollapsed">
-        <ResizeHandle orientation="vertical" invert @drag="onRightDrag" />
+        <ResizeHandle orientation="vertical" @drag="onRightDrag" />
         <div :class="sideRail" :style="{ width: `${rightWidth}px` }">
           <RightPanel />
         </div>

@@ -112,7 +112,7 @@ watch(
         <div class="px-2 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">设置</div>
         <Input
           v-model="search"
-          class="h-[30px] w-full flex-none text-[13px]"
+          class="h-[30px] w-full flex-none bg-[var(--color-np-btn-bg)] text-[13px]"
           placeholder="搜索设置"
         />
 

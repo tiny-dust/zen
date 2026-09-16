@@ -12,6 +12,7 @@ import {
   setSessionDraft,
   setSessionPinned,
   setWorkspaceArchived,
+  setWorkspacePinned,
 } from "./workspace-db";
 
 export function registerSessionIpc(): void {
@@ -27,6 +28,11 @@ export function registerSessionIpc(): void {
       return null;
     }
     return createWorkspace(dir);
+  });
+
+  ipcMain.handle("workspace:pin", (_event, id: string, pinned: boolean) => {
+    setWorkspacePinned(id, pinned === true);
+    return listWorkspaceGroups();
   });
 
   ipcMain.handle("workspace:archive", (_event, id: string, archived: boolean) => {

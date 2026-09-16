@@ -172,7 +172,7 @@ function onSaveModel(payload: {
 }
 
 const fieldLabel = "text-[12px] text-[var(--color-mut)]";
-const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-input-bg)]";
+const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
 </script>
 
 <template>

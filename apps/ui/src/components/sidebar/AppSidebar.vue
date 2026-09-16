@@ -3,10 +3,13 @@ import {
   Archive,
   Bell,
   Cable,
+  Check,
   ChevronDown,
   CircleDot,
+  Copy,
   Folder,
   FolderOpen,
+  FolderSearch,
   Globe,
   MoreHorizontal,
   PanelLeft,
@@ -16,7 +19,7 @@ import {
   Search,
   Sparkles,
 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import SessionRow from "@/components/sidebar/SessionRow.vue";
@@ -38,6 +41,50 @@ import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 const layoutStore = useLayoutStore();
 const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
+
+const platformLabels = ref({
+  platform: "darwin" as "darwin" | "win32" | "linux",
+  showInFolderLabel: "在 Finder 中显示",
+  openFolderLabel: "打开文件夹",
+});
+const copiedPathId = ref("");
+
+onMounted(async () => {
+  const info = await window.zen?.shell?.platformInfo();
+  if (info) {
+    platformLabels.value = info;
+  }
+});
+
+async function copyPath(group: WorkspaceGroup) {
+  const path = group.path;
+  if (!path) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(path);
+    copiedPathId.value = group.id;
+    setTimeout(() => {
+      if (copiedPathId.value === group.id) {
+        copiedPathId.value = "";
+      }
+    }, 1200);
+  } catch {
+    // ignore
+  }
+}
+
+function showInFolder(group: WorkspaceGroup) {
+  if (group.path) {
+    void window.zen?.shell?.showInFolder(group.path);
+  }
+}
+
+function openFolder(group: WorkspaceGroup) {
+  if (group.path) {
+    void window.zen?.shell?.openPath(group.path);
+  }
+}
 
 const actions = [
   { id: "skills", label: "技能", icon: Sparkles },
@@ -362,7 +409,20 @@ function confirmWorkspaceDelete() {
                     <MoreHorizontal class="size-4" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" class="min-w-[140px]">
+                <DropdownMenuContent align="start" class="min-w-[180px]">
+                  <DropdownMenuItem @select="copyPath(group)">
+                    <Check v-if="copiedPathId === group.id" class="size-3.5" />
+                    <Copy v-else class="size-3.5" />
+                    {{ copiedPathId === group.id ? "已复制路径" : "复制路径" }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="showInFolder(group)">
+                    <FolderSearch class="size-3.5" />
+                    {{ platformLabels.showInFolderLabel }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="openFolder(group)">
+                    <FolderOpen class="size-3.5" />
+                    {{ platformLabels.openFolderLabel }}
+                  </DropdownMenuItem>
                   <DropdownMenuItem @select="workspaceStore.pin(group.id, !group.pinned)">
                     <Pin v-if="!group.pinned" class="size-3.5" />
                     <PinOff v-else class="size-3.5" />

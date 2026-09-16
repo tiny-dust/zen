@@ -5,6 +5,7 @@ export interface Workspace {
   /** null = 公共区（不绑定目录） */
   path: string | null;
   kind: "workspace" | "common";
+  pinned: boolean;
   archived: boolean;
   createdAt: number;
 }

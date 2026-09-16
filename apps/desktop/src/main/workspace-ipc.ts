@@ -15,7 +15,8 @@ const IGNORED_DIRS = new Set([
   ".playwright-mcp",
 ]);
 
-const MAX_FILES = 200;
+const MAX_FILES = 4000;
+const MAX_DEPTH = 10;
 
 export function registerWorkspaceIpc(): void {
   ipcMain.handle(
@@ -25,7 +26,7 @@ export function registerWorkspaceIpc(): void {
       const results: WorkspaceFile[] = [];
 
       async function walk(dir: string, depth: number): Promise<void> {
-        if (depth > 2 || results.length >= MAX_FILES) {
+        if (depth > MAX_DEPTH || results.length >= MAX_FILES) {
           return;
         }
         let entries;

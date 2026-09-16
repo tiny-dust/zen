@@ -213,7 +213,7 @@ function protocolOptions() {
             <Input
               id="mf-id"
               v-model="form.id"
-              class="h-9 rounded-[10px] bg-[var(--color-input-bg)] text-[13px]"
+              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
               placeholder="deepseek-v4-flash"
             />
           </div>
@@ -222,7 +222,7 @@ function protocolOptions() {
             <Input
               id="mf-name"
               v-model="form.name"
-              class="h-9 rounded-[10px] bg-[var(--color-input-bg)] text-[13px]"
+              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
               placeholder="DeepSeek V4 Flash"
             />
           </div>
@@ -237,7 +237,7 @@ function protocolOptions() {
               type="number"
               min="0"
               step="1000"
-              class="h-9 rounded-[10px] bg-[var(--color-input-bg)] text-[13px]"
+              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
             />
           </div>
           <div class="flex flex-col gap-1.5">
@@ -248,7 +248,7 @@ function protocolOptions() {
               type="number"
               min="0"
               step="1000"
-              class="h-9 rounded-[10px] bg-[var(--color-input-bg)] text-[13px]"
+              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
             />
           </div>
         </div>
@@ -256,7 +256,7 @@ function protocolOptions() {
         <div class="flex flex-col gap-1.5">
           <Label class="text-[12px] text-[var(--color-mut)]">对话端点</Label>
           <Select v-model="form.chatEndpoint">
-            <SelectTrigger class="h-9 rounded-[10px] bg-[var(--color-input-bg)] text-[13px]">
+            <SelectTrigger class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
               <SelectValue placeholder="自动" />
             </SelectTrigger>
             <SelectContent>
@@ -275,19 +275,19 @@ function protocolOptions() {
 
         <div class="grid grid-cols-2 gap-2.5">
           <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
+            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
           >
             <span>工具</span>
             <Switch v-model="form.toolCall" />
           </label>
           <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
+            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
           >
             <span>视觉</span>
             <Switch v-model="form.vision" />
           </label>
           <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
+            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
           >
             <span>推理</span>
             <Switch v-model="form.reasoning" />
@@ -295,7 +295,7 @@ function protocolOptions() {
         </div>
 
         <div
-          class="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-input-bg)] p-3"
+          class="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3"
         >
           <div>
             <div class="text-[13px] text-[var(--color-txt-strong)]">媒体能力</div>
@@ -317,7 +317,7 @@ function protocolOptions() {
               :class="
                 isEffortActive(opt.id)
                   ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-[var(--color-txt-strong)]'
-                  : 'border-[var(--color-line)] bg-[var(--color-input-bg)] text-[var(--color-txt)]'
+                  : 'border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[var(--color-txt)]'
               "
               @click="toggleEffort(opt.id)"
             >

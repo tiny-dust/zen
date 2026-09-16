@@ -11,7 +11,9 @@ import type {
   DeviceCodeInfo,
   DirEntry,
   FetchModelsResult,
+  GitBranches,
   GitLogEntry,
+  GitPullRequest,
   GitStatus,
   ModelCapabilities,
   ModelSelection,
@@ -43,10 +45,29 @@ export type ModelSelectionState = ModelSelection & {
   model?: ProviderModel;
 };
 
+export interface DesktopOpener {
+  id: string;
+  label: string;
+  icon: string;
+}
+
+export interface PlatformInfo {
+  platform: "darwin" | "win32" | "linux";
+  showInFolderLabel: string;
+  openFolderLabel: string;
+}
+
 export interface ZenApi {
   app: {
     info(): Promise<AppInfo>;
     openExternal(url: string): Promise<{ ok: boolean }>;
+  };
+  shell: {
+    listOpeners(): Promise<DesktopOpener[]>;
+    openWith(openerId: string, path: string): Promise<{ ok: boolean; error?: string }>;
+    showInFolder(path: string): Promise<{ ok: boolean; error?: string }>;
+    openPath(path: string): Promise<{ ok: boolean; error?: string }>;
+    platformInfo(): Promise<PlatformInfo>;
   };
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }>;
@@ -56,11 +77,15 @@ export interface ZenApi {
       cwd: string | undefined,
       message: string,
       files: string[],
-      push?: boolean,
-    ): Promise<{ ok: boolean; error?: string; output?: string }>;
+      options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
+    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
+    push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
     log(cwd?: string): Promise<GitLogEntry[]>;
     aiMessage(cwd?: string): Promise<string>;
     createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
+    branches(cwd?: string): Promise<GitBranches>;
+    checkout(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
+    pr(cwd?: string): Promise<GitPullRequest | null>;
   };
   auth: {
     state(): Promise<AuthState>;
@@ -112,6 +137,7 @@ export interface ZenApi {
     readFile(cwd: string | undefined, relPath: string): Promise<ReadFileResult | null>;
     list(): Promise<WorkspaceGroup[]>;
     create(): Promise<Workspace | null>;
+    pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]>;
     archive(id: string, archived: boolean): Promise<WorkspaceGroup[]>;
     remove(id: string): Promise<WorkspaceGroup[]>;
   };

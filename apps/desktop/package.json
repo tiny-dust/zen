@@ -15,6 +15,7 @@
     }
   },
   "scripts": {
+    "predev": "bash scripts/brand-dev-app.sh",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",

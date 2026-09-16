@@ -9,7 +9,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = defineProps<{
   /** 文件相对路径（含文件名，用于推断语言）；空表示未选择 */
@@ -67,6 +67,8 @@ function render() {
     view.destroy();
     view = null;
   }
+  failed.value = false;
+  truncated.value = false;
   if (!hostEl.value || !props.path || !props.root) {
     return;
   }
@@ -74,8 +76,13 @@ function render() {
   if (!zen) {
     return;
   }
+  const requestId = `${props.root}::${props.path}`;
   void zen.workspace.readFile(props.root, props.path).then((result) => {
-    if (!result || !hostEl.value) {
+    // 异步返回时组件可能已切换文件
+    if (requestId !== `${props.root}::${props.path}` || !hostEl.value) {
+      return;
+    }
+    if (!result) {
       failed.value = true;
       return;
     }
@@ -86,7 +93,7 @@ function render() {
       state: EditorState.create({
         doc: result.content,
         extensions: [
-          extensionList(props.path!),
+          ...extensionList(props.path!),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
         ],
@@ -95,10 +102,15 @@ function render() {
   });
 }
 
+// 首次挂载时 path 已就绪也必须渲染；后续切换 path/root 再刷
 watch(
-  () => [props.path, props.root],
+  () => [props.path, props.root] as const,
   () => render(),
 );
+
+onMounted(() => {
+  render();
+});
 
 onBeforeUnmount(() => {
   view?.destroy();

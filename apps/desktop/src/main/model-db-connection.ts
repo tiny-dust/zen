@@ -61,6 +61,7 @@ function migrate(conn: Database.Database) {
       name TEXT NOT NULL,
       path TEXT,
       kind TEXT NOT NULL DEFAULT 'workspace',
+      pinned INTEGER NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
@@ -117,6 +118,13 @@ function migrate(conn: Database.Database) {
   }
   if (!modelCols.some((col) => col.name === "custom")) {
     conn.exec(`ALTER TABLE provider_models ADD COLUMN custom INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const workspaceCols = conn.prepare(`PRAGMA table_info(workspaces)`).all() as Array<{
+    name: string;
+  }>;
+  if (!workspaceCols.some((col) => col.name === "pinned")) {
+    conn.exec(`ALTER TABLE workspaces ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
   }
 
   const sessionCols = conn.prepare(`PRAGMA table_info(chat_sessions)`).all() as Array<{

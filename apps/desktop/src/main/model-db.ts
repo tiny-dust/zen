@@ -17,6 +17,22 @@ import {
 } from "./model-capabilities";
 import { decryptSecret, encryptSecret, maskSecret } from "./secret";
 
+/** HTTP header 必须是 ByteString（0–255）；含中文/替换符会让 fetch 抛 TypeError */
+export function sanitizeUserAgent(value: string | undefined | null): string | null {
+  if (!value) {
+    return null;
+  }
+  let out = "";
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code > 0 && code <= 255 && ch !== "�") {
+      out += ch;
+    }
+  }
+  out = out.replace(/[\r\n\0]/g, "").trim();
+  return out || null;
+}
+
 interface ProviderRow {
   id: string;
   name: string;
@@ -170,7 +186,7 @@ export async function addProvider(input: ProviderInput): Promise<ProviderSummary
   const plainKey = input.apiKey.trim();
   const apiKeyEnc = await encryptSecret(plainKey);
   const apiKeyMask = maskSecret(plainKey);
-  const userAgent = input.userAgent?.trim() || null;
+  const userAgent = sanitizeUserAgent(input.userAgent);
   const enabled = input.enabled === false ? 0 : 1;
 
   getDb()
@@ -224,7 +240,7 @@ export async function updateProvider(
   const baseUrl = patch.baseUrl ? normalizeBaseUrl(patch.baseUrl) : row.base_url;
   const protocol = patch.protocol || (row.protocol as ProviderProtocol);
   const userAgent =
-    patch.userAgent !== undefined ? patch.userAgent?.trim() || null : row.user_agent;
+    patch.userAgent !== undefined ? sanitizeUserAgent(patch.userAgent) : row.user_agent;
   const enabled = patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : row.enabled;
   let apiKeyEnc = row.api_key_enc;
   let apiKeyMask = row.api_key_mask;

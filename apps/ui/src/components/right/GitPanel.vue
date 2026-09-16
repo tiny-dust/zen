@@ -146,7 +146,7 @@ async function submit(push: boolean) {
       props.root,
       message.value,
       checkedPaths.value.length ? checkedPaths.value : changeList.value.map((item) => item.path),
-      push,
+      { push, includeUnstaged: true },
     );
     if (result.ok) {
       feedback.value = push ? "已提交并推送" : "已提交";
