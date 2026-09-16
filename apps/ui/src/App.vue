@@ -87,8 +87,8 @@ function onLeftDrag(delta: number) {
 }
 
 function onRightDrag(delta: number) {
-  // 手柄在中央与右栏之间：左拖（delta 负）应加宽右栏
-  layoutStore.setRightWidth(rightWidth.value + delta);
+  // 手柄在中央与右栏之间：左拖（delta 负）让右栏变宽
+  layoutStore.setRightWidth(rightWidth.value - delta);
 }
 
 const sideRail =

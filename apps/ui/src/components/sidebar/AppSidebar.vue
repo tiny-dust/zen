@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Archive,
+  ArchiveRestore,
   Bell,
   Cable,
   Check,
@@ -18,6 +19,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
 } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 
@@ -429,12 +431,14 @@ function confirmWorkspaceDelete() {
                     {{ group.pinned ? "取消置顶" : "置顶" }}
                   </DropdownMenuItem>
                   <DropdownMenuItem @select="workspaceStore.archive(group.id, true)">
+                    <Archive class="size-3.5" />
                     归档
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     class="text-[var(--color-danger-fg)]"
                     @select="pendingDelete = group"
                   >
+                    <Trash2 class="size-3.5" />
                     删除
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -518,12 +522,14 @@ function confirmWorkspaceDelete() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="min-w-[140px]">
                 <DropdownMenuItem @select="workspaceStore.archive(group.id, false)">
+                  <ArchiveRestore class="size-3.5" />
                   取消归档
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   class="text-[var(--color-danger-fg)]"
                   @select="pendingDelete = group"
                 >
+                  <Trash2 class="size-3.5" />
                   删除
                 </DropdownMenuItem>
               </DropdownMenuContent>

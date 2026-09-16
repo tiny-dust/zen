@@ -157,6 +157,10 @@ export interface GitFileChange {
 export interface GitStatus {
   branch: string;
   files: GitFileChange[];
+  /** 待推送：本地领先上游的提交数；无上游分支时缺省 */
+  ahead?: number;
+  /** 落后远程：本地落后上游的提交数；无上游分支时缺省 */
+  behind?: number;
 }
 
 export interface GitLogEntry {

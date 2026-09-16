@@ -188,8 +188,20 @@ const rowCls = cn(
             @mouseenter="ensureBranches"
           >
             <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-            <span class="max-w-[140px] truncate font-[family-name:var(--font-mono)] text-[12.5px]">
+            <span class="max-w-[110px] truncate font-[family-name:var(--font-mono)] text-[12.5px]">
               {{ branchLabel }}
+            </span>
+            <span
+              v-if="gitStore.status?.ahead || gitStore.status?.behind"
+              class="flex-none font-[family-name:var(--font-mono)] text-[10px]"
+              title="与上游分支差异（↑ 待推送 / ↓ 落后）"
+            >
+              <span v-if="gitStore.status?.ahead" class="text-[var(--color-add)]">
+                ↑{{ gitStore.status.ahead }}
+              </span>
+              <span v-if="gitStore.status?.behind" class="text-[var(--color-err)]">
+                &nbsp;↓{{ gitStore.status.behind }}
+              </span>
             </span>
             <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
           </button>
