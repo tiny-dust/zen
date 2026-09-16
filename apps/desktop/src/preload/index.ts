@@ -13,6 +13,8 @@ import type {
   DeviceCodeInfo,
   DirEntry,
   FetchModelsResult,
+  GitLogEntry,
+  GitStatus,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
@@ -50,6 +52,26 @@ const zen = {
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }> {
       return ipcRenderer.invoke("git:info", cwd);
+    },
+    status(cwd?: string): Promise<GitStatus | null> {
+      return ipcRenderer.invoke("git:status", cwd);
+    },
+    diff(cwd: string | undefined, path: string, staged = false): Promise<string | null> {
+      return ipcRenderer.invoke("git:diff", cwd, path, staged);
+    },
+    commit(
+      cwd: string | undefined,
+      message: string,
+      files: string[],
+      push = false,
+    ): Promise<{ ok: boolean; error?: string; output?: string }> {
+      return ipcRenderer.invoke("git:commit", cwd, message, files, push);
+    },
+    log(cwd?: string): Promise<GitLogEntry[]> {
+      return ipcRenderer.invoke("git:log", cwd);
+    },
+    aiMessage(cwd?: string): Promise<string> {
+      return ipcRenderer.invoke("git:ai-message", cwd);
     },
   },
   auth: {

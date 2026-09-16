@@ -5,6 +5,7 @@ import { computed, ref } from "vue";
 
 import FileTree from "@/components/right/FileTree.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
+import GitPanel from "@/components/right/GitPanel.vue";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
@@ -40,9 +41,6 @@ function navItemCls(id: PluginId | "terminal") {
     [isActive, "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"],
   );
 }
-
-const mockBlock =
-  "block m-0 rounded-[var(--radius-sm)] bg-[var(--color-code-bg)] p-2.5 font-[family-name:var(--font-mono)] text-[11px] whitespace-pre-wrap text-[var(--color-code-fg)]";
 </script>
 
 <template>
@@ -105,11 +103,7 @@ const mockBlock =
       </template>
 
       <template v-else-if="active === 'git'">
-        <div class="text-[var(--color-mut)]">
-          <p class="mb-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">Git 信息</p>
-          <p class="mb-3 text-[12px] leading-normal">分支、diff 与提交记录。</p>
-          <code :class="mockBlock">{{ chatStore.branch || "未绑定 git 目录" }} · {{ chatStore.repo || "—" }}</code>
-        </div>
+        <GitPanel :root="treeRoot" />
       </template>
 
       <template v-else>

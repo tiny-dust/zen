@@ -142,6 +142,29 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
+/** git status --porcelain 的文件级变更（X=暂存区，Y=工作区） */
+export interface GitFileChange {
+  path: string;
+  x: string;
+  y: string;
+  add: number;
+  del: number;
+  untracked: boolean;
+}
+
+export interface GitStatus {
+  branch: string;
+  files: GitFileChange[];
+}
+
+export interface GitLogEntry {
+  hash: string;
+  parents: string[];
+  author: string;
+  time: number;
+  subject: string;
+}
+
 export const BUILTIN_SKILLS: Array<{ id: string; label: string; description: string }> = [
   { id: "commit-helper", label: "Commit Helper", description: "按仓库规范生成提交信息" },
 ];

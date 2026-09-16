@@ -11,6 +11,8 @@ import type {
   DeviceCodeInfo,
   DirEntry,
   FetchModelsResult,
+  GitLogEntry,
+  GitStatus,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
@@ -48,6 +50,16 @@ export interface ZenApi {
   };
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }>;
+    status(cwd?: string): Promise<GitStatus | null>;
+    diff(cwd: string | undefined, path: string, staged?: boolean): Promise<string | null>;
+    commit(
+      cwd: string | undefined,
+      message: string,
+      files: string[],
+      push?: boolean,
+    ): Promise<{ ok: boolean; error?: string; output?: string }>;
+    log(cwd?: string): Promise<GitLogEntry[]>;
+    aiMessage(cwd?: string): Promise<string>;
   };
   auth: {
     state(): Promise<AuthState>;

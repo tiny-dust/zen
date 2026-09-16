@@ -14,6 +14,7 @@ import {
   ensureSessionTitle,
   getSession as loadSessionRecord,
 } from "./workspace-db";
+import { registerGitIpc } from "./git-ipc";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
@@ -265,6 +266,7 @@ app.whenReady().then(() => {
   registerModelIpc();
   registerSessionIpc();
   registerWorkspaceIpc();
+  registerGitIpc();
   createWindow();
   void initUserState();
 
