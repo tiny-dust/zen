@@ -25,6 +25,9 @@ fi
   || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Zen" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Zen" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Zen" "$PLIST"
+# 换用独立 Bundle ID：com.github.Electron 的旧注册（名称/图标）被系统缓存，
+# 全新身份会触发全新的 LaunchServices 注册，彻底摆脱 Electron 残留
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.zen.desktop.dev" "$PLIST"
 
 cp "$ICNS_SRC" "$ICNS_DST"
 
