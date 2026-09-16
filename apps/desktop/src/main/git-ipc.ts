@@ -57,10 +57,12 @@ export function registerGitIpc(): void {
     const workdir = cwd || process.cwd();
     try {
       const branch = (await git(workdir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
-      const [porcelain, unstaged, staged] = await Promise.all([
+      const [porcelain, unstaged, staged, upstream] = await Promise.all([
         git(workdir, ["status", "--porcelain"]),
         git(workdir, ["diff", "--numstat"]),
         git(workdir, ["diff", "--cached", "--numstat"]),
+        // 左=上游独有（落后），右=本地独有（待推送）；无上游时为空
+        git(workdir, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).catch(() => ""),
       ]);
       const unstagedStat = parseNumstat(unstaged);
       const stagedStat = parseNumstat(staged);
@@ -88,7 +90,13 @@ export function registerGitIpc(): void {
         }
         files.push({ path, x, y, add, del, untracked });
       }
-      return { branch, files };
+      const [behind = "", ahead = ""] = upstream.trim().split("\t");
+      return {
+        branch,
+        files,
+        ahead: upstream ? Number(ahead) || 0 : undefined,
+        behind: upstream ? Number(behind) || 0 : undefined,
+      };
     } catch {
       return null;
     }

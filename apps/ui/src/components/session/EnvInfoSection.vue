@@ -119,6 +119,18 @@ const envIconCls = "mt-0.5 size-3.5 flex-none text-[var(--color-mut)]";
           <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[12px]">
             {{ branch || "—" }}
           </span>
+          <span
+            v-if="gitStore.status?.ahead || gitStore.status?.behind"
+            class="flex-none font-[family-name:var(--font-mono)] text-[11px]"
+            title="与上游分支差异（↑ 待推送 / ↓ 落后）"
+          >
+            <span v-if="gitStore.status?.ahead" class="text-[var(--color-add)]">
+              ↑{{ gitStore.status.ahead }}
+            </span>
+            <span v-if="gitStore.status?.behind" class="text-[var(--color-err)]">
+              &nbsp;↓{{ gitStore.status.behind }}
+            </span>
+          </span>
           <ChevronDown class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         </button>
         <div

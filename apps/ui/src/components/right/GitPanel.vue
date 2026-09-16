@@ -12,7 +12,10 @@ import { computed, ref, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { GitFileChange, GitLogEntry } from "@zen/shared";
+import { computeGraphRows } from "@/components/right/git-graph";
+
+import type { GitFileChange, GitLogEntry, GitStatus } from "@zen/shared";
+import type { GraphEdge } from "@/components/right/git-graph";
 
 const props = defineProps<{
   /** 会话绑定的工作区目录；空 = 公共区 */
@@ -22,7 +25,7 @@ const props = defineProps<{
 type ViewKind = "changes" | "graph";
 const view = ref<ViewKind>("changes");
 const loading = ref(false);
-const status = ref<{ branch: string; files: GitFileChange[] } | null>(null);
+const status = ref<GitStatus | null>(null);
 const checked = ref(new Set<string>());
 const selectedPath = ref("");
 const diff = ref("");
@@ -215,6 +218,53 @@ function fmtTime(ms: number) {
   const date = new Date(ms);
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
+
+/** 泳道图渲染参数；色板循环使用主题 token */
+const GRAPH_UNIT = 12;
+const GRAPH_ROW_H = 40;
+const GRAPH_DOT_R = 3.5;
+const LANE_COLORS = [
+  "var(--color-accent)",
+  "var(--color-blue)",
+  "var(--color-add)",
+  "var(--color-err)",
+  "var(--color-ok)",
+  "var(--color-link)",
+  "var(--color-mut)",
+];
+
+const graphRows = computed(() => computeGraphRows(log.value));
+
+function laneColor(lane: number): string {
+  return LANE_COLORS[lane % LANE_COLORS.length] ?? "var(--color-mut)";
+}
+
+function laneX(lane: number): number {
+  return lane * GRAPH_UNIT + 6;
+}
+
+/** 上一行 → 本行圆点的汇入线 */
+function inEdgePath(edge: GraphEdge, lane: number): string {
+  const fx = laneX(edge.from);
+  const tx = laneX(edge.to);
+  const mid = GRAPH_ROW_H / 2;
+  if (fx === tx) {
+    return `M ${fx} 0 L ${fx} ${mid}`;
+  }
+  return `M ${fx} 0 C ${fx} ${mid / 2}, ${tx} ${mid / 2}, ${tx} ${mid}`;
+}
+
+/** 本行圆点 → 下一行的延伸/分叉线 */
+function outEdgePath(edge: GraphEdge): string {
+  const fx = laneX(edge.from);
+  const tx = laneX(edge.to);
+  const mid = GRAPH_ROW_H / 2;
+  if (fx === tx) {
+    return `M ${fx} ${mid} L ${fx} ${GRAPH_ROW_H}`;
+  }
+  const bend = (mid + GRAPH_ROW_H) / 2;
+  return `M ${fx} ${mid} C ${fx} ${bend}, ${tx} ${bend}, ${tx} ${GRAPH_ROW_H}`;
+}
 </script>
 
 <template>
@@ -238,6 +288,14 @@ function fmtTime(ms: number) {
           >
             <GitBranch class="size-3 flex-none" aria-hidden="true" />
             <span class="truncate">{{ status?.branch || "—" }}</span>
+          </span>
+          <span
+            v-if="status?.ahead || status?.behind"
+            class="flex-none font-[family-name:var(--font-mono)] text-[10.5px]"
+            title="与上游分支差异（↑ 待推送 / ↓ 落后）"
+          >
+            <span v-if="status?.ahead" class="text-[var(--color-add)]">↑{{ status.ahead }}</span>
+            <span v-if="status?.behind" class="text-[var(--color-err)]">&nbsp;↓{{ status.behind }}</span>
           </span>
           <Button
             variant="ghost"
@@ -381,30 +439,55 @@ function fmtTime(ms: number) {
         </div>
       </template>
 
-      <!-- 图谱 -->
+      <!-- 图谱：泳道分支图 -->
       <div v-else class="min-h-0 flex-1 overflow-auto">
-        <p v-if="!log.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
+        <p v-if="!graphRows.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
           暂无提交记录
         </p>
         <div
-          v-for="(entry, index) in log"
-          :key="entry.hash"
-          class="relative flex min-h-[40px] gap-2 pl-1.5"
+          v-for="row in graphRows"
+          :key="row.entry.hash"
+          class="flex min-h-[40px] gap-2 pl-1.5"
         >
-          <span class="relative flex w-3 flex-none justify-center" aria-hidden="true">
-            <span
-              v-if="index < log.length - 1"
-              class="absolute inset-y-0 w-px bg-[var(--color-line-strong)]"
+          <svg
+            :width="GRAPH_UNIT * row.laneCount + 4"
+            :height="GRAPH_ROW_H"
+            class="flex-none"
+            aria-hidden="true"
+          >
+            <path
+              v-for="(edge, index) in row.inEdges"
+              :key="`in-${index}`"
+              :d="inEdgePath(edge, row.lane)"
+              :stroke="laneColor(edge.from)"
+              stroke-width="1.5"
+              fill="none"
             />
-            <span
-              class="relative z-10 mt-1.5 size-1.5 rounded-full"
-              :class="entry.parents.length > 1 ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-mut)]'"
+            <path
+              v-for="(edge, index) in row.outEdges"
+              :key="`out-${index}`"
+              :d="outEdgePath(edge)"
+              :stroke="laneColor(edge.from)"
+              stroke-width="1.5"
+              fill="none"
             />
-          </span>
-          <div class="min-w-0 flex-1 pb-2.5">
-            <p class="m-0 truncate text-[12px] text-[var(--color-txt)]">{{ entry.subject }}</p>
+            <!-- 合并提交画空心圆 -->
+            <circle
+              :cx="laneX(row.lane)"
+              :cy="GRAPH_ROW_H / 2"
+              :r="GRAPH_DOT_R"
+              :fill="row.entry.parents.length > 1 ? 'var(--color-bg)' : laneColor(row.lane)"
+              :stroke="laneColor(row.lane)"
+              stroke-width="1.5"
+            />
+          </svg>
+          <div class="min-w-0 flex-1 py-1.5">
+            <p class="m-0 truncate text-[12px] text-[var(--color-txt)]" :title="row.entry.subject">
+              {{ row.entry.subject }}
+            </p>
             <p class="m-0 truncate text-[10.5px] text-[var(--color-dim)]">
-              {{ entry.hash.slice(0, 7) }} · {{ entry.author }} · {{ fmtTime(entry.time) }}
+              {{ row.entry.hash.slice(0, 7) }} · {{ row.entry.author }} ·
+              {{ fmtTime(row.entry.time) }}
             </p>
           </div>
         </div>
