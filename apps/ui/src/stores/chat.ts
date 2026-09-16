@@ -1,55 +1,29 @@
 import { defineStore } from "pinia";
 import { uuid } from "rattail";
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 
 import type {
   AgentRunStatus,
   AgentStreamEvent,
   AttachmentRef,
   ChatMessage,
-  ChatTurn,
   ReasoningEffort,
   SessionRecord,
   ToolApprovalDecision,
-  ToolCallState,
 } from "@zen/shared";
+import { buildHistory } from "@/stores/chat-types";
 import { useModelsStore } from "@/stores/models";
+import { useSessionDraft } from "@/composables/useSessionDraft";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
-type RunPhase = "thinking" | "answering";
-
-export interface ActiveTool {
-  toolCallId: string;
-  toolName: string;
-  message: string;
-  state: ToolCallState;
-  percent?: number;
-}
-
-export interface ToolHistoryItem {
-  id: string;
-  toolName: string;
-  summary: string;
-  ok: boolean;
-  output?: unknown;
-}
-
-export interface PendingApproval {
-  approvalId: string;
-  toolCallId: string;
-  toolName: string;
-  prompt: string;
-  input?: unknown;
-}
-
-export interface ComposerAttachment {
-  id: string;
-  name: string;
-  path: string;
-  size: number;
-  isImage: boolean;
-}
+import type {
+  ActiveTool,
+  ComposerAttachment,
+  PendingApproval,
+  RunPhase,
+  ToolHistoryItem,
+} from "@/stores/chat-types";
 
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([]);
@@ -73,26 +47,7 @@ export const useChatStore = defineStore("chat", () => {
   const repo = ref("");
   const lastInputTokens = ref<number | null>(null);
 
-  /** 输入草稿防抖落库，切换会话回来可恢复 */
-  let draftTimer: ReturnType<typeof setTimeout> | undefined;
-  watch(input, (value) => {
-    const zen = window.zen;
-    if (!zen || !sessionId.value) {
-      return;
-    }
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => {
-      void zen.session.setDraft(sessionId.value, value);
-    }, 400);
-  });
-
-  function flushDraft() {
-    const zen = window.zen;
-    clearTimeout(draftTimer);
-    if (zen && sessionId.value) {
-      void zen.session.setDraft(sessionId.value, input.value);
-    }
-  }
+  const { flushDraft } = useSessionDraft(input, sessionId);
 
   const isRunning = computed(() =>
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
@@ -288,15 +243,6 @@ export const useChatStore = defineStore("chat", () => {
     return zen.agent.onEvent(handleStreamEvent);
   }
 
-  function buildHistory(): ChatTurn[] {
-    return messages.value
-      .filter((item) => item.role === "user" || item.role === "assistant")
-      .map((item) => ({
-        role: item.role as "user" | "assistant",
-        content: item.content,
-      }));
-  }
-
   function addAttachment(file: File, path: string) {
     attachments.value.push({
       id: uuid(),
@@ -364,7 +310,7 @@ export const useChatStore = defineStore("chat", () => {
       model: modelsStore.selection.modelId ?? undefined,
       reasoningEffort: effort.value,
       attachments: attachmentRefs.length ? attachmentRefs : undefined,
-      history: buildHistory().slice(0, -1),
+      history: buildHistory(messages.value).slice(0, -1),
     });
 
     if (!result.ok) {
