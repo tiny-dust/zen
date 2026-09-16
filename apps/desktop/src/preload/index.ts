@@ -1,18 +1,30 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import type {
+  AddModelInput,
   AgentRunRequest,
   AgentStreamEvent,
   AppSettings,
   AuthState,
+  CatalogMatch,
+  CatalogModel,
+  CatalogVendor,
+  ChatMessage,
   DeviceCodeInfo,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
+  PreviewModelsInput,
   ProviderInput,
   ProviderModel,
   ProviderSummary,
-  AddModelInput,
+  SessionRecord,
+  SetModelsEnabledInput,
+  ToolApprovalDecision,
+  UpdateModelInput,
+  WorkspaceFile,
+  Workspace,
+  WorkspaceGroup,
 } from "@zen/shared";
 
 export interface AppInfo {
@@ -31,6 +43,11 @@ const zen = {
     },
     openExternal(url: string): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("app:open-external", url);
+    },
+  },
+  git: {
+    info(cwd?: string): Promise<{ repo: string; branch: string }> {
+      return ipcRenderer.invoke("git:info", cwd);
     },
   },
   auth: {
@@ -113,14 +130,32 @@ const zen = {
     addModel(input: AddModelInput): Promise<ProviderSummary> {
       return ipcRenderer.invoke("models:add-model", input);
     },
+    updateModel(input: UpdateModelInput): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:update-model", input);
+    },
+    setEnabled(input: SetModelsEnabledInput): Promise<ProviderSummary> {
+      return ipcRenderer.invoke("models:set-enabled", input);
+    },
     removeModel(providerId: string, modelId: string): Promise<ProviderSummary> {
       return ipcRenderer.invoke("models:remove-model", providerId, modelId);
     },
     fetchFromProvider(providerId: string): Promise<FetchModelsResult> {
       return ipcRenderer.invoke("models:fetch-from-provider", providerId);
     },
+    previewModels(input: PreviewModelsInput): Promise<FetchModelsResult> {
+      return ipcRenderer.invoke("models:preview-models", input);
+    },
     inspect(providerId: string, modelId: string): Promise<ModelCapabilities> {
       return ipcRenderer.invoke("models:inspect", providerId, modelId);
+    },
+    catalogVendors(): Promise<CatalogVendor[]> {
+      return ipcRenderer.invoke("models:catalog-vendors");
+    },
+    catalogList(vendor?: string): Promise<CatalogModel[]> {
+      return ipcRenderer.invoke("models:catalog-list", vendor);
+    },
+    catalogMatch(modelId: string): Promise<CatalogMatch> {
+      return ipcRenderer.invoke("models:catalog-match", modelId);
     },
   },
   agent: {
@@ -129,6 +164,18 @@ const zen = {
     },
     cancel(sessionId: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:cancel", sessionId);
+    },
+    pause(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:pause", sessionId);
+    },
+    resume(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:resume", sessionId);
+    },
+    resolveApproval(
+      sessionId: string,
+      decision: ToolApprovalDecision,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:approval", sessionId, decision);
     },
     onEvent(handler: (event: AgentStreamEvent) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, event: AgentStreamEvent) => {
@@ -139,6 +186,39 @@ const zen = {
         ipcRenderer.removeListener("agent:event", listener);
       };
     },
+  },
+  workspace: {
+    listFiles(cwd?: string): Promise<WorkspaceFile[]> {
+      return ipcRenderer.invoke("workspace:list-files", cwd);
+    },
+    list(): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:list");
+    },
+    create(): Promise<Workspace | null> {
+      return ipcRenderer.invoke("workspace:create");
+    },
+    archive(id: string, archived: boolean): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:archive", id, archived);
+    },
+    remove(id: string): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:delete", id);
+    },
+  },
+  session: {
+    create(workspaceId: string | null): Promise<SessionRecord> {
+      return ipcRenderer.invoke("session:create", workspaceId);
+    },
+    open(
+      id: string,
+    ): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {
+      return ipcRenderer.invoke("session:open", id);
+    },
+    rename(id: string, title: string): Promise<void> {
+      return ipcRenderer.invoke("session:rename", id, title);
+    },
+  },
+  pathForFile(file: File): string {
+    return webUtils.getPathForFile(file);
   },
 };
 

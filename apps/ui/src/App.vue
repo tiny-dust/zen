@@ -19,6 +19,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
@@ -71,6 +72,7 @@ onMounted(() => {
   disposeUser = userStore.bootstrap();
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
+  void useWorkspaceStore().refresh();
 });
 
 onUnmounted(() => {

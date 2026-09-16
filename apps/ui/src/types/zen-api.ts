@@ -4,13 +4,25 @@ import type {
   AgentStreamEvent,
   AppSettings,
   AuthState,
+  CatalogMatch,
+  CatalogModel,
+  CatalogVendor,
+  ChatMessage,
   DeviceCodeInfo,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
+  PreviewModelsInput,
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  SessionRecord,
+  SetModelsEnabledInput,
+  ToolApprovalDecision,
+  UpdateModelInput,
+  WorkspaceFile,
+  Workspace,
+  WorkspaceGroup,
 } from "@zen/shared";
 
 export interface AppInfo {
@@ -31,6 +43,9 @@ export interface ZenApi {
   app: {
     info(): Promise<AppInfo>;
     openExternal(url: string): Promise<{ ok: boolean }>;
+  };
+  git: {
+    info(cwd?: string): Promise<{ repo: string; branch: string }>;
   };
   auth: {
     state(): Promise<AuthState>;
@@ -55,13 +70,38 @@ export interface ZenApi {
     updateProvider(id: string, patch: Partial<ProviderInput>): Promise<ProviderSummary>;
     removeProvider(id: string): Promise<ProviderSummary[]>;
     addModel(input: AddModelInput): Promise<ProviderSummary>;
+    updateModel(input: UpdateModelInput): Promise<ProviderSummary>;
+    setEnabled(input: SetModelsEnabledInput): Promise<ProviderSummary>;
     removeModel(providerId: string, modelId: string): Promise<ProviderSummary>;
     fetchFromProvider(providerId: string): Promise<FetchModelsResult>;
+    previewModels(input: PreviewModelsInput): Promise<FetchModelsResult>;
     inspect(providerId: string, modelId: string): Promise<ModelCapabilities>;
+    catalogVendors(): Promise<CatalogVendor[]>;
+    catalogList(vendor?: string): Promise<CatalogModel[]>;
+    catalogMatch(modelId: string): Promise<CatalogMatch>;
   };
   agent: {
     run(request: AgentRunRequest): Promise<{ ok: boolean; error?: string }>;
     cancel(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+    pause(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+    resume(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+    resolveApproval(
+      sessionId: string,
+      decision: ToolApprovalDecision,
+    ): Promise<{ ok: boolean; error?: string }>;
     onEvent(handler: (event: AgentStreamEvent) => void): () => void;
   };
+  workspace: {
+    listFiles(cwd?: string): Promise<WorkspaceFile[]>;
+    list(): Promise<WorkspaceGroup[]>;
+    create(): Promise<Workspace | null>;
+    archive(id: string, archived: boolean): Promise<WorkspaceGroup[]>;
+    remove(id: string): Promise<WorkspaceGroup[]>;
+  };
+  session: {
+    create(workspaceId: string | null): Promise<SessionRecord>;
+    open(id: string): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null>;
+    rename(id: string, title: string): Promise<void>;
+  };
+  pathForFile(file: File): string;
 }

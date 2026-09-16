@@ -18,12 +18,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { ReasoningEffort } from "@zen/shared";
 
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
-const { input, isRunning, canSend, effort, attachments } = storeToRefs(chatStore);
+const {
+  input,
+  isRunning,
+  canSend,
+  effort,
+  attachments,
+  sessionWorkspaceId,
+} = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
 
 const allowedEfforts = computed(() => {
@@ -49,6 +57,7 @@ const triggers = useComposerTriggers({
   setValue: (next) => {
     input.value = next;
   },
+  rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
 });
 
 function formatSize(bytes: number): string {

@@ -1,16 +1,29 @@
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import { promisify } from "node:util";
 
-import { runMockAgent } from "@zen/agent-core";
+import { AgentSession, runMockAgent } from "@zen/agent-core";
 import { BrowserWindow, app, ipcMain, shell } from "electron";
 
-import { runChatAgent } from "./chat-runner";
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
+import { getWorkspace } from "./workspace-db";
+import {
+  appendMessage,
+  ensureSessionTitle,
+  getSession as loadSessionRecord,
+} from "./workspace-db";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerModelIpc } from "./model-ipc";
+import { registerSessionIpc } from "./session-ipc";
+import { registerWorkspaceIpc } from "./workspace-ipc";
 
-import type { AgentRunRequest, AgentStreamEvent, ChatTurn } from "@zen/shared";
+import type { AgentRunRequest, AgentStreamEvent, ToolApprovalDecision } from "@zen/shared";
 
-const abortControllers = new Map<string, AbortController>();
+const sessions = new Map<string, AgentSession>();
+
+const execFileAsync = promisify(execFile);
 
 function emit(webContents: Electron.WebContents, event: AgentStreamEvent): void {
   if (!webContents.isDestroyed()) {
@@ -18,10 +31,28 @@ function emit(webContents: Electron.WebContents, event: AgentStreamEvent): void 
   }
 }
 
+/** 助手回复（含思考文本）在 run 结束后一次性落库 */
+function persistAssistant(
+  sessionId: string,
+  acc: { content: string; reasoning: string; reasoningMs?: number },
+): void {
+  if (!acc.content && !acc.reasoning) {
+    return;
+  }
+  appendMessage(sessionId, {
+    id: randomUUID(),
+    role: "assistant",
+    content: acc.content,
+    reasoning: acc.reasoning || undefined,
+    reasoningMs: acc.reasoningMs,
+    createdAt: Date.now(),
+  });
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1440,
+    height: 900,
     minWidth: 880,
     minHeight: 600,
     show: false,
@@ -29,7 +60,8 @@ function createWindow(): BrowserWindow {
     backgroundColor: "#181818",
     title: "Zen",
     titleBarStyle: "hidden",
-    trafficLightPosition: { x: 12, y: 12 },
+    // 交通灯在 38px 标题栏内垂直居中（--titlebar-h / --titlebar-lead 与之一致）
+    trafficLightPosition: { x: 12, y: 13 },
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: true,
@@ -40,6 +72,13 @@ function createWindow(): BrowserWindow {
 
   window.on("ready-to-show", () => {
     window.show();
+  });
+
+  // 渲染进程异常退出时自动恢复，避免整窗黑屏
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason !== "clean-exit") {
+      window.webContents.reload();
+    }
   });
 
   window.webContents.setWindowOpenHandler((details) => {
@@ -67,16 +106,57 @@ function registerIpc(): void {
     },
   }));
 
+  ipcMain.handle("git:info", async (_event, cwd?: string) => {
+    const workdir = cwd || process.cwd();
+    try {
+      const [{ stdout: branch }, { stdout: toplevel }] = await Promise.all([
+        execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: workdir }),
+        execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: workdir }),
+      ]);
+      return { repo: basename(toplevel.trim()), branch: branch.trim() };
+    } catch {
+      return { repo: "", branch: "" };
+    }
+  });
+
   ipcMain.handle("agent:run", async (event, request: AgentRunRequest) => {
     if (!request?.sessionId || !request.userMessage) {
       return { ok: false, error: "invalid agent run request" };
     }
+    // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
+    if (!loadSessionRecord(request.sessionId)) {
+      return { ok: false, error: "session not found" };
+    }
 
-    abortControllers.get(request.sessionId)?.abort();
-    const controller = new AbortController();
-    abortControllers.set(request.sessionId, controller);
+    // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
+    ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
+    appendMessage(request.sessionId, {
+      id: randomUUID(),
+      role: "user",
+      content: request.userMessage,
+      createdAt: Date.now(),
+      meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
+    });
 
-    const emitTo = (streamEvent: AgentStreamEvent) => emit(event.sender, streamEvent);
+    await sessions.get(request.sessionId)?.cancel();
+    sessions.delete(request.sessionId);
+
+    // 流式累积助手回复，run 结束后一次性落库
+    const acc = { content: "", reasoning: "", reasoningMs: undefined as number | undefined };
+    const emitTo = (streamEvent: AgentStreamEvent) => {
+      if (streamEvent.sessionId !== request.sessionId) {
+        emit(event.sender, streamEvent);
+        return;
+      }
+      if (streamEvent.type === "delta") {
+        acc.content += streamEvent.text;
+      } else if (streamEvent.type === "reasoning_delta") {
+        acc.reasoning += streamEvent.text;
+      } else if (streamEvent.type === "reasoning_end") {
+        acc.reasoningMs = streamEvent.durationMs;
+      }
+      emit(event.sender, streamEvent);
+    };
 
     try {
       const selection = await getSelection();
@@ -84,50 +164,107 @@ function registerIpc(): void {
       const modelId = request.model || selection.modelId;
       const provider = (await listProviders()).find((item) => item.id === providerId);
 
-      if (provider && modelId) {
-        const apiKey = await loadProviderApiKey(provider.id);
-        const history: ChatTurn[] = [
-          ...(request.history ?? []),
-          { role: "user", content: request.userMessage },
-        ];
-        await runChatAgent({
-          protocol: provider.protocol,
-          baseUrl: provider.baseUrl,
-          apiKey,
-          model: modelId,
-          messages: history,
-          signal: controller.signal,
-          emit: emitTo,
-        });
-      } else {
-        await runMockAgent(request, controller.signal, emitTo);
+      if (!provider || !modelId) {
+        const controller = new AbortController();
+        await runMockAgent(request.sessionId, request.userMessage, controller.signal, emitTo);
+        persistAssistant(request.sessionId, acc);
+        return { ok: true };
       }
+
+      const apiKey = await loadProviderApiKey(provider.id);
+      // 工作目录由 main 解析：绑定目录的工作区用其目录，公共区回退到用户主目录
+      const workspacePath = getWorkspace(request.workspaceId)?.path;
+      const session = new AgentSession({
+        sessionId: request.sessionId,
+        workspaceRoot: workspacePath || homedir(),
+        protocol: provider.protocol,
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: modelId,
+        reasoningEffort: request.reasoningEffort,
+        emit: emitTo,
+      });
+      sessions.set(request.sessionId, session);
+      await session.start(request.userMessage, request.history);
+      persistAssistant(request.sessionId, acc);
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "agent run failed";
-      emitTo({ type: "error", message });
+      emitTo({ type: "error", sessionId: request.sessionId, message });
+      persistAssistant(request.sessionId, acc);
       return { ok: false, error: message };
-    } finally {
-      if (abortControllers.get(request.sessionId) === controller) {
-        abortControllers.delete(request.sessionId);
-      }
     }
   });
 
-  ipcMain.handle("agent:cancel", (_event, sessionId: string) => {
-    const controller = abortControllers.get(sessionId);
-    if (!controller) {
+  ipcMain.handle("agent:cancel", async (_event, sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
       return { ok: false, error: "session not running" };
     }
-    controller.abort();
+    await session.cancel();
+    sessions.delete(sessionId);
     return { ok: true };
   });
+
+  ipcMain.handle("agent:pause", async (_event, sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return { ok: false, error: "session not running" };
+    }
+    await session.pause();
+    return { ok: true };
+  });
+
+  ipcMain.handle("agent:resume", async (_event, sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return { ok: false, error: "session not running" };
+    }
+    await session.resume();
+    return { ok: true };
+  });
+
+  ipcMain.handle(
+    "agent:approval",
+    async (_event, sessionId: string, decision: ToolApprovalDecision) => {
+      const session = sessions.get(sessionId);
+      if (!session) {
+        return { ok: false, error: "session not running" };
+      }
+      if (!decision?.approvalId || typeof decision.approved !== "boolean") {
+        return { ok: false, error: "invalid approval decision" };
+      }
+      await session.approve(decision);
+      return { ok: true };
+    },
+  );
+}
+
+app.setName("Zen");
+process.title = "Zen";
+// 品牌名改了，但 userData 保持原路径，避免已有登录态/数据库/设置丢失
+app.setPath("userData", join(app.getPath("appData"), "@zen/desktop"));
+
+// macOS Dock 图标（dev 下 Electron 可执行文件名仍显示 Electron，需显式设置）
+function applyDockBrand() {
+  if (process.platform !== "darwin") {
+    return;
+  }
+  const iconPath = join(__dirname, "../../build/icon.icns");
+  try {
+    app.dock?.setIcon(iconPath);
+  } catch {
+    // icon 缺失不影响启动
+  }
 }
 
 app.whenReady().then(() => {
+  applyDockBrand();
   registerIpc();
   registerUserIpc();
   registerModelIpc();
+  registerSessionIpc();
+  registerWorkspaceIpc();
   createWindow();
   void initUserState();
 

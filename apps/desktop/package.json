@@ -2,23 +2,37 @@
   "name": "@zen/desktop",
   "version": "0.1.0",
   "private": true,
+  "productName": "Zen",
   "main": "out/main/index.js",
+  "build": {
+    "appId": "com.zen.desktop",
+    "productName": "Zen",
+    "directories": { "output": "release" },
+    "files": ["out/**"],
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "build/icon.icns"
+    }
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "electron-builder",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "brand:dev": "bash scripts/brand-dev-app.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@zen/shared": "workspace:*",
     "@zen/agent-core": "workspace:*",
     "better-sqlite3": "13.0.3",
-    "electron-updater": "6.8.9"
+    "electron-updater": "6.8.9",
+    "rattail": "2.2.0"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "22.20.2",
     "@vitejs/plugin-vue": "6.0.8",

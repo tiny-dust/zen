@@ -31,6 +31,109 @@ export interface AppSettings {
   shortcuts: ShortcutBinding[];
 }
 
+const SHORTCUT_MODIFIERS = ["Cmd", "Ctrl", "Alt", "Shift"] as const;
+
+/** 多字符键的规范写法，与 shortcutKeyFromEvent 产出对齐（Arrow 前缀去除）。 */
+const CANONICAL_KEYS: Record<string, string> = {
+  enter: "Enter",
+  space: "Space",
+  escape: "Escape",
+  esc: "Escape",
+  tab: "Tab",
+  up: "Up",
+  down: "Down",
+  left: "Left",
+  right: "Right",
+  arrowup: "Up",
+  arrowdown: "Down",
+  arrowleft: "Left",
+  arrowright: "Right",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+  home: "Home",
+  end: "End",
+  backspace: "Backspace",
+  delete: "Delete",
+};
+
+/** 与 DOM KeyboardEvent 解耦，shared 包无需依赖 DOM lib。 */
+export interface ShortcutKeyEventLike {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}
+
+export function normalizeShortcutKey(value: string): string {
+  const parts = value
+    .split("+")
+    .map((part) => (part === " " ? "Space" : part.trim()))
+    .filter((part) => part.length > 0);
+  const modifiers = new Set<string>();
+  let key = "";
+
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    const modifier =
+      lower === "cmd" || lower === "command" || lower === "meta"
+        ? "Cmd"
+        : lower === "ctrl" || lower === "control"
+          ? "Ctrl"
+          : lower === "alt" || lower === "option"
+            ? "Alt"
+            : lower === "shift"
+              ? "Shift"
+              : undefined;
+    if (modifier) {
+      modifiers.add(modifier);
+      continue;
+    }
+    key =
+      part === " "
+        ? "Space"
+        : part.length === 1
+          ? part.toUpperCase()
+          : (CANONICAL_KEYS[lower] ?? lower);
+  }
+
+  return [
+    ...SHORTCUT_MODIFIERS.filter((modifier) => modifiers.has(modifier)),
+    key,
+  ]
+    .filter(Boolean)
+    .join("+");
+}
+
+export function shortcutKeyFromEvent(event: ShortcutKeyEventLike): string | null {
+  if (["Meta", "Control", "Alt", "Shift"].includes(event.key)) {
+    return null;
+  }
+  const key =
+    event.key === " "
+      ? "Space"
+      : event.key.startsWith("Arrow")
+        ? event.key.replace("Arrow", "")
+        : event.key.length === 1
+          ? event.key.toUpperCase()
+          : event.key;
+  return normalizeShortcutKey(
+    [
+      event.metaKey ? "Cmd" : "",
+      event.ctrlKey ? "Ctrl" : "",
+      event.altKey ? "Alt" : "",
+      event.shiftKey ? "Shift" : "",
+      key,
+    ]
+      .filter(Boolean)
+      .join("+"),
+  );
+}
+
+export function shortcutMatches(event: ShortcutKeyEventLike, shortcut: string): boolean {
+  return shortcutKeyFromEvent(event) === normalizeShortcutKey(shortcut);
+}
+
 export interface AuthState {
   loggedIn: boolean;
   user: GitHubUser | null;
