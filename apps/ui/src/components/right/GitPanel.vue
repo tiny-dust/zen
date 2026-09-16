@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { Loader2, RefreshCw, Sparkles } from "@lucide/vue";
+import {
+  ChevronDown,
+  GitBranch,
+  GitBranchPlus,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+} from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +31,10 @@ const generating = ref(false);
 const committing = ref(false);
 const feedback = ref("");
 const log = ref<GitLogEntry[]>([]);
+const branchCreating = ref(false);
+const branchName = ref("");
+const branchError = ref("");
+const diffOpen = ref(true);
 
 const changeList = computed(() => status.value?.files ?? []);
 const checkedPaths = computed(() =>
@@ -61,7 +72,7 @@ async function refresh() {
     const valid = new Set(changeList.value.map((item) => item.path));
     checked.value = new Set([...checked.value].filter((path) => valid.has(path)));
     if (!selectedPath.value && changeList.value.length) {
-      selectFile(changeList.value[0].path);
+      void selectFile(changeList.value[0].path);
     }
   } finally {
     loading.value = false;
@@ -78,6 +89,7 @@ async function refreshGraph() {
 
 async function selectFile(path: string) {
   selectedPath.value = path;
+  diffOpen.value = true;
   const zen = window.zen;
   if (!zen?.git) {
     return;
@@ -151,6 +163,23 @@ async function submit(push: boolean) {
   }
 }
 
+async function createBranch() {
+  const zen = window.zen;
+  if (!zen?.git || !branchName.value.trim()) {
+    return;
+  }
+  branchError.value = "";
+  const result = await zen.git.createBranch(props.root, branchName.value);
+  if (result.ok) {
+    feedback.value = `已创建并切换到 ${branchName.value.trim()}`;
+    branchName.value = "";
+    branchCreating.value = false;
+    await Promise.all([refresh(), refreshGraph()]);
+  } else {
+    branchError.value = result.error ?? "创建分支失败";
+  }
+}
+
 watch(
   () => props.root,
   () => {
@@ -158,6 +187,7 @@ watch(
     selectedPath.value = "";
     diff.value = "";
     message.value = "";
+    branchCreating.value = false;
     void refresh();
     void refreshGraph();
   },
@@ -169,6 +199,15 @@ function rowCls(active: boolean) {
     "flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[12px]",
     active ? "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]" : "text-[var(--color-txt)]",
     "hover:bg-[var(--color-menu-hover)]",
+  );
+}
+
+function segmentCls(active: boolean) {
+  return cn(
+    "h-6 rounded-md px-2 text-[12px]",
+    active
+      ? "bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]"
+      : "text-[var(--color-mut)] hover:text-[var(--color-txt)]",
   );
 }
 
@@ -184,15 +223,22 @@ function fmtTime(ms: number) {
       公共区会话未绑定目录，指定工作区后可使用 Git。
     </p>
     <template v-else>
-      <div class="flex flex-none items-center gap-1.5">
-        <Button variant="ghost" size="xs" @click="view = 'changes'">
-          <span :class="view === 'changes' ? 'font-semibold text-[var(--color-txt-strong)]' : ''">变更</span>
-        </Button>
-        <Button variant="ghost" size="xs" @click="view = 'graph'">
-          <span :class="view === 'graph' ? 'font-semibold text-[var(--color-txt-strong)]' : ''">图谱</span>
-        </Button>
-        <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-[var(--color-mut)]">
-          {{ status?.branch || "—" }}
+      <!-- 头部：视图切换 + 分支 + 刷新 -->
+      <div class="flex flex-none items-center gap-1">
+        <button type="button" :class="segmentCls(view === 'changes')" @click="view = 'changes'">
+          变更
+        </button>
+        <button type="button" :class="segmentCls(view === 'graph')" @click="view = 'graph'">
+          图谱
+        </button>
+        <span class="ml-auto flex items-center gap-1">
+          <span
+            class="inline-flex max-w-[110px] items-center gap-1 rounded-full bg-[var(--color-chip-bg)] px-2 py-0.5 text-[11px] text-[var(--color-txt)]"
+            :title="status?.branch"
+          >
+            <GitBranch class="size-3 flex-none" aria-hidden="true" />
+            <span class="truncate">{{ status?.branch || "—" }}</span>
+          </span>
           <Button
             variant="ghost"
             size="icon-xs"
@@ -206,10 +252,30 @@ function fmtTime(ms: number) {
       </div>
 
       <template v-if="view === 'changes'">
+        <!-- 新建分支 -->
+        <div v-if="branchCreating" class="flex flex-none items-center gap-1">
+          <input
+            v-model="branchName"
+            placeholder="新分支名称"
+            class="h-6 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
+            @keydown.enter="createBranch"
+            @keydown.escape="branchCreating = false"
+          />
+          <Button variant="secondary" size="xs" @click="createBranch">创建</Button>
+          <Button variant="ghost" size="xs" @click="branchCreating = false">取消</Button>
+        </div>
+        <div v-else class="flex flex-none items-center">
+          <Button variant="ghost" size="xs" @click="branchCreating = true">
+            <GitBranchPlus />
+            新建分支
+          </Button>
+        </div>
+        <p v-if="branchError" class="m-0 text-[11px] text-[var(--color-danger-fg)]" role="alert">
+          {{ branchError }}
+        </p>
+
+        <!-- 变更列表 -->
         <div class="min-h-0 flex-1 overflow-auto">
-          <p v-if="!changeList.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
-            {{ loading ? "读取中…" : "没有变更" }}
-          </p>
           <div class="flex items-center gap-2 px-1 pb-1">
             <input
               id="git-select-all"
@@ -223,6 +289,9 @@ function fmtTime(ms: number) {
               全选（{{ checkedPaths.length }}/{{ changeList.length }}）
             </label>
           </div>
+          <p v-if="!changeList.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
+            {{ loading ? "读取中…" : "没有变更" }}
+          </p>
           <button
             v-for="change in changeList"
             :key="change.path"
@@ -248,20 +317,34 @@ function fmtTime(ms: number) {
           </button>
         </div>
 
-        <pre
-          v-if="diff"
-          class="m-0 max-h-[30%] flex-none overflow-auto rounded-md border border-[var(--color-line-soft)] bg-[var(--color-code-bg)] p-2 font-[family-name:var(--font-mono)] text-[10.5px] leading-normal whitespace-pre-wrap text-[var(--color-code-fg)]"
-        >{{ diff }}</pre>
-
-        <div class="flex flex-none flex-col gap-1.5">
-          <div class="flex items-center gap-1">
-            <textarea
-              v-model="message"
-              rows="2"
-              placeholder="提交信息（留空不可提交）"
-              class="w-full resize-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 py-1.5 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
+        <!-- diff 折叠区 -->
+        <div v-if="selectedPath" class="flex-none">
+          <button
+            type="button"
+            class="flex w-full items-center gap-1 px-0.5 py-0.5 text-left text-[11px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+            @click="diffOpen = !diffOpen"
+          >
+            <ChevronDown
+              class="size-3"
+              :class="diffOpen ? '' : '-rotate-90'"
+              aria-hidden="true"
             />
-          </div>
+            <span class="min-w-0 truncate">{{ selectedPath }}</span>
+          </button>
+          <pre
+            v-if="diffOpen && diff"
+            class="m-0 max-h-[30%] overflow-auto rounded-md border border-[var(--color-line-soft)] bg-[var(--color-code-bg)] p-2 font-[family-name:var(--font-mono)] text-[10.5px] leading-normal whitespace-pre-wrap text-[var(--color-code-fg)]"
+          >{{ diff }}</pre>
+        </div>
+
+        <!-- 提交区 -->
+        <div class="flex flex-none flex-col gap-1.5">
+          <textarea
+            v-model="message"
+            rows="2"
+            placeholder="提交信息（留空不可提交）"
+            class="w-full resize-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 py-1.5 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
+          />
           <p v-if="feedback" class="m-0 text-[11px] text-[var(--color-mut)]" role="status">
             {{ feedback }}
           </p>
@@ -298,6 +381,7 @@ function fmtTime(ms: number) {
         </div>
       </template>
 
+      <!-- 图谱 -->
       <div v-else class="min-h-0 flex-1 overflow-auto">
         <p v-if="!log.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
           暂无提交记录
@@ -307,7 +391,6 @@ function fmtTime(ms: number) {
           :key="entry.hash"
           class="relative flex min-h-[40px] gap-2 pl-1.5"
         >
-          <!-- 图谱 gutters：竖线 + 提交点；合并提交显示双点 -->
           <span class="relative flex w-3 flex-none justify-center" aria-hidden="true">
             <span
               v-if="index < log.length - 1"

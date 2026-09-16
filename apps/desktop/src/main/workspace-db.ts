@@ -19,6 +19,8 @@ interface SessionRow {
   title: string;
   workspace_id: string | null;
   draft: string;
+  pinned: number;
+  archived: number;
   created_at: number;
   updated_at: number;
 }
@@ -52,6 +54,8 @@ function toSession(row: SessionRow): SessionRecord {
     title: row.title,
     workspaceId: row.workspace_id,
     draft: row.draft ?? "",
+    pinned: row.pinned === 1,
+    archived: row.archived === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -69,12 +73,12 @@ function toMessage(row: MessageRow): ChatMessage {
   };
 }
 
-/** 侧栏数据源：全部工作区（含归档与公共区）+ 各自未归档会话，按更新时间倒序 */
+/** 侧栏数据源：全部工作区（含归档与公共区）+ 各自会话，置顶优先、按更新时间倒序 */
 export function listWorkspaceGroups(): WorkspaceGroup[] {
   const db = getDb();
   const workspaces = db.prepare("SELECT * FROM workspaces ORDER BY created_at ASC").all() as WorkspaceRow[];
   const sessions = db
-    .prepare("SELECT * FROM chat_sessions ORDER BY updated_at DESC")
+    .prepare("SELECT * FROM chat_sessions ORDER BY pinned DESC, updated_at DESC")
     .all() as SessionRow[];
   return workspaces.map((row) => ({
     ...toWorkspace(row),
@@ -138,12 +142,14 @@ export function createSession(workspaceId: string | null): SessionRecord {
     title: "新会话",
     workspace_id: effective === COMMON_ID ? null : effective,
     draft: "",
+    pinned: 0,
+    archived: 0,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
   db.prepare(
-    "INSERT INTO chat_sessions (id, title, workspace_id, draft, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(row.id, row.title, row.workspace_id, row.draft, row.created_at, row.updated_at);
+    "INSERT INTO chat_sessions (id, title, workspace_id, draft, pinned, archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(row.id, row.title, row.workspace_id, row.draft, row.pinned, row.archived, row.created_at, row.updated_at);
   return toSession(row);
 }
 
@@ -176,6 +182,18 @@ export function setSessionDraft(id: string, draft: string): void {
     Date.now(),
     id,
   );
+}
+
+export function setSessionPinned(id: string, pinned: boolean): void {
+  getDb().prepare("UPDATE chat_sessions SET pinned = ? WHERE id = ?").run(pinned ? 1 : 0, id);
+}
+
+export function setSessionArchived(id: string, archived: boolean): void {
+  getDb().prepare("UPDATE chat_sessions SET archived = ? WHERE id = ?").run(archived ? 1 : 0, id);
+}
+
+export function deleteSession(id: string): void {
+  getDb().prepare("DELETE FROM chat_sessions WHERE id = ?").run(id);
 }
 
 /** 首条消息后把「新会话」改成消息摘要，作为侧栏标题 */

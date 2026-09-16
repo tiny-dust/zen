@@ -47,6 +47,13 @@ watch(selectedSupportsReasoning, (supports) => {
   }
 });
 
+// 模型切换后，当前档位若不在该模型配置的档位里，落到中间档
+watch(allowedEfforts, (list) => {
+  if (selectedSupportsReasoning.value && !list.includes(effort.value)) {
+    effort.value = list[Math.floor(list.length / 2)] ?? "off";
+  }
+}, { immediate: true });
+
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);

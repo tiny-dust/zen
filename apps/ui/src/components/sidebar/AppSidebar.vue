@@ -3,6 +3,7 @@ import {
   Archive,
   Bell,
   Cable,
+  ChevronDown,
   CircleDot,
   Folder,
   Globe,
@@ -12,10 +13,10 @@ import {
   Search,
   Sparkles,
 } from "@lucide/vue";
-import { classes } from "rattail";
 import { computed, ref } from "vue";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import SessionRow from "@/components/sidebar/SessionRow.vue";
 import UserBlock from "@/components/sidebar/UserBlock.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,7 @@ import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-import type { WorkspaceGroup } from "@zen/shared";
+import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 
 const layoutStore = useLayoutStore();
 const workspaceStore = useWorkspaceStore();
@@ -51,14 +52,13 @@ const headCls =
   "flex items-center gap-1 px-3.5 pt-4 pb-1.5 text-[11.5px] text-[var(--color-dim)]";
 const headerBtnCls =
   "text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]";
-const sessionCls =
-  "flex h-8 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[12.5px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]";
-const expandCls =
-  "flex h-7 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]";
 const groupRowCls =
   "group/row flex h-9 items-center gap-2.5 rounded-[var(--radius-sm)] pr-1 hover:bg-[var(--color-side-hover)]";
 
 const pendingDelete = ref<WorkspaceGroup | null>(null);
+const pendingSessionDelete = ref<SessionRecord | null>(null);
+/** 已归档会话分区展开状态（按组记录） */
+const archivedOpen = ref(new Set<string>());
 
 /** 目录工作区（未归档） */
 const workspaceGroups = computed(() =>
@@ -70,15 +70,22 @@ const commonGroup = computed(
   () => workspaceStore.groups.find((item) => item.id === "common") ?? null,
 );
 
-function isSessionActive(id: string) {
-  return chatStore.sessionId === id;
+function activeSessions(group: WorkspaceGroup) {
+  return workspaceStore.visibleSessions(group).filter((item) => !item.archived);
 }
 
-function sessionRowCls(id: string) {
-  return classes(
-    sessionCls,
-    [isSessionActive(id), "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)]"],
-  );
+function archivedSessions(group: WorkspaceGroup) {
+  return group.sessions.filter((item) => item.archived);
+}
+
+function toggleArchived(groupId: string) {
+  const next = new Set(archivedOpen.value);
+  if (next.has(groupId)) {
+    next.delete(groupId);
+  } else {
+    next.add(groupId);
+  }
+  archivedOpen.value = next;
 }
 
 function iconCls(active: boolean) {
@@ -100,7 +107,38 @@ async function onNewSessionIn(workspaceId: string) {
   await chatStore.newTask(workspaceId);
 }
 
-function confirmDelete() {
+async function onPinSession(session: SessionRecord) {
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  await zen.session.pin(session.id, !session.pinned);
+  workspaceStore.pinSessionLocal(session.id, !session.pinned);
+}
+
+async function onArchiveSession(session: SessionRecord, archived: boolean) {
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  await zen.session.archive(session.id, archived);
+  workspaceStore.archiveSessionLocal(session.id, archived);
+}
+
+async function onDeleteSession() {
+  const session = pendingSessionDelete.value;
+  pendingSessionDelete.value = null;
+  if (!session) {
+    return;
+  }
+  if (chatStore.sessionId === session.id) {
+    await chatStore.newTask();
+  }
+  await window.zen?.session.remove(session.id);
+  workspaceStore.removeSessionLocal(session.id);
+}
+
+function confirmWorkspaceDelete() {
   if (pendingDelete.value) {
     void workspaceStore.remove(pendingDelete.value.id);
   }
@@ -121,7 +159,7 @@ function confirmDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        :class="headerBtnCls"
+        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         aria-label="收起侧栏"
         title="收起侧栏"
         @click="layoutStore.toggleLeft()"
@@ -131,7 +169,7 @@ function confirmDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        :class="headerBtnCls"
+        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         aria-label="搜索"
         title="搜索"
       >
@@ -140,7 +178,7 @@ function confirmDelete() {
       <Button
         variant="ghost"
         size="icon-sm"
-        :class="headerBtnCls"
+        class="text-[var(--color-topbar-icon)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         aria-label="通知"
         title="通知"
       >
@@ -160,7 +198,7 @@ function confirmDelete() {
     <div class="min-h-0 flex-1 overflow-y-auto">
       <div :class="sectionCls" class="pt-1.5">
         <button type="button" :class="navCls" @click="chatStore.newTask()">
-          <CircleDot :class="iconCls(false)" aria-hidden="true" />
+          <CircleDot class="size-4 flex-none text-[var(--color-dim)]" aria-hidden="true" />
           <span>新建任务</span>
         </button>
         <button
@@ -170,7 +208,7 @@ function confirmDelete() {
           :class="navCls"
           @click="emit('action', item.id)"
         >
-          <component :is="item.icon" :class="iconCls(false)" aria-hidden="true" />
+          <component :is="item.icon" class="size-4 flex-none text-[var(--color-dim)]" aria-hidden="true" />
           <span>{{ item.label }}</span>
         </button>
       </div>
@@ -194,7 +232,7 @@ function confirmDelete() {
           <Button
             variant="ghost"
             size="icon-xs"
-            class="flex-none text-[var(--color-dim)] opacity-0 hover:text-[var(--color-txt-strong)] group-hover/row:opacity-100"
+            class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
             aria-label="在公共区新建会话"
             title="新建会话"
             @click="onNewSessionIn('common')"
@@ -202,23 +240,42 @@ function confirmDelete() {
             <Plus />
           </Button>
         </div>
-        <button
-          v-for="session in workspaceStore.visibleSessions(commonGroup)"
+        <SessionRow
+          v-for="session in activeSessions(commonGroup)"
           :key="session.id"
-          type="button"
-          :class="sessionRowCls(session.id)"
-          @click="openSession(session.id)"
-        >
-          <span class="truncate">{{ session.title }}</span>
-        </button>
+          :session="session"
+          :active="chatStore.sessionId === session.id"
+          @open="openSession(session.id)"
+          @pin="onPinSession(session)"
+          @archive="onArchiveSession(session, $event)"
+          @remove="pendingSessionDelete = session"
+        />
         <button
-          v-if="commonGroup.sessions.length > workspaceStore.PREVIEW_COUNT"
+          v-if="archivedSessions(commonGroup).length"
           type="button"
-          :class="expandCls"
-          @click="workspaceStore.toggleExpanded('common')"
+          class="flex h-7 w-full items-center gap-1 rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+          @click="toggleArchived('common')"
         >
-          {{ workspaceStore.expanded.has('common') ? "收起" : "展开显示" }}
+          <ChevronDown
+            class="size-3"
+            :class="archivedOpen.has('common') ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          已归档会话 {{ archivedSessions(commonGroup).length }}
         </button>
+        <template v-if="archivedOpen.has('common')">
+          <SessionRow
+            v-for="session in archivedSessions(commonGroup)"
+            :key="session.id"
+            :session="session"
+            :active="chatStore.sessionId === session.id"
+            :depth="2"
+            @open="openSession(session.id)"
+            @pin="onPinSession(session)"
+            @archive="onArchiveSession(session, $event)"
+            @remove="pendingSessionDelete = session"
+          />
+        </template>
       </div>
 
       <div :class="headCls">
@@ -254,7 +311,7 @@ function confirmDelete() {
             <Button
               variant="ghost"
               size="icon-xs"
-              class="flex-none text-[var(--color-dim)] opacity-0 hover:text-[var(--color-txt-strong)] group-hover/row:opacity-100"
+              class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
               :aria-label="`在 ${group.name} 新建会话`"
               title="新建会话"
               @click="onNewSessionIn(group.id)"
@@ -288,30 +345,57 @@ function confirmDelete() {
             </DropdownMenu>
           </div>
 
-          <button
-            v-for="session in workspaceStore.visibleSessions(group)"
+          <SessionRow
+            v-for="session in activeSessions(group)"
             :key="session.id"
-            type="button"
-            :class="sessionRowCls(session.id)"
-            @click="openSession(session.id)"
-          >
-            <span class="truncate">{{ session.title }}</span>
-          </button>
+            :session="session"
+            :active="chatStore.sessionId === session.id"
+            @open="openSession(session.id)"
+            @pin="onPinSession(session)"
+            @archive="onArchiveSession(session, $event)"
+            @remove="pendingSessionDelete = session"
+          />
           <button
-            v-if="group.sessions.length > workspaceStore.PREVIEW_COUNT"
+            v-if="group.sessions.filter((item) => !item.archived).length > workspaceStore.PREVIEW_COUNT"
             type="button"
-            :class="expandCls"
+            class="flex h-7 w-full items-center rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
             @click="workspaceStore.toggleExpanded(group.id)"
           >
             {{ workspaceStore.expanded.has(group.id) ? "收起" : "展开显示" }}
           </button>
+          <button
+            v-if="archivedSessions(group).length"
+            type="button"
+            class="flex h-7 w-full items-center gap-1 rounded-[var(--radius-sm)] pl-[38px] pr-2 text-left text-[11.5px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+            @click="toggleArchived(group.id)"
+          >
+            <ChevronDown
+              class="size-3"
+              :class="archivedOpen.has(group.id) ? '' : '-rotate-90'"
+              aria-hidden="true"
+            />
+            已归档会话 {{ archivedSessions(group).length }}
+          </button>
+          <template v-if="archivedOpen.has(group.id)">
+            <SessionRow
+              v-for="session in archivedSessions(group)"
+              :key="session.id"
+              :session="session"
+              :active="chatStore.sessionId === session.id"
+              :depth="2"
+              @open="openSession(session.id)"
+              @pin="onPinSession(session)"
+              @archive="onArchiveSession(session, $event)"
+              @remove="pendingSessionDelete = session"
+            />
+          </template>
         </div>
       </div>
 
       <template v-if="workspaceStore.archivedGroups.length">
         <div :class="headCls">
           <Archive class="size-3" aria-hidden="true" />
-          已归档
+          已归档工作区
         </div>
         <div :class="sectionCls">
           <div
@@ -357,7 +441,17 @@ function confirmDelete() {
       confirm-label="删除工作区"
       cancel-label="保留"
       @update:open="pendingDelete = null"
-      @confirm="confirmDelete"
+      @confirm="confirmWorkspaceDelete"
+    />
+
+    <ConfirmDialog
+      :open="!!pendingSessionDelete"
+      :title="`删除会话「${pendingSessionDelete?.title ?? ''}」？`"
+      description="会话的消息与记录会被一并删除，操作不可撤销。"
+      confirm-label="删除会话"
+      cancel-label="保留"
+      @update:open="pendingSessionDelete = null"
+      @confirm="onDeleteSession"
     />
 
     <div class="p-2">

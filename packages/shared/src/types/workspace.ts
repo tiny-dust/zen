@@ -16,6 +16,8 @@ export interface SessionRecord {
   workspaceId: string | null;
   /** 未发送的输入草稿，切换会话后恢复 */
   draft: string;
+  pinned: boolean;
+  archived: boolean;
   createdAt: number;
   updatedAt: number;
 }

@@ -18,22 +18,16 @@ const open = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
 
 const steps = computed(() => {
-  const base = REASONING_EFFORTS.filter((item) => item.id !== "off");
-  if (!props.allowed?.length) {
-    return ["off" as ReasoningEffort, ...base.map((item) => item.id)];
+  // 模型声明了推理档位时，直接展示配置的档位（不含「关闭」）
+  if (props.allowed?.length) {
+    return [...props.allowed];
   }
-  const list: ReasoningEffort[] = ["off"];
-  for (const item of base) {
-    if (props.allowed.includes(item.id)) {
-      list.push(item.id);
-    }
-  }
-  return list;
+  return ["off" as ReasoningEffort, ...REASONING_EFFORTS.filter((item) => item.id !== "off").map((item) => item.id)];
 });
 
 const index = computed(() => {
   const i = steps.value.indexOf(props.modelValue);
-  return i >= 0 ? i : 0;
+  return i >= 0 ? i : steps.value.length ? Math.floor(steps.value.length / 2) : 0;
 });
 
 const label = computed(() => {
@@ -43,12 +37,12 @@ const label = computed(() => {
 
 const sliderMax = computed(() => Math.max(steps.value.length - 1, 0));
 
-/** 信号条动态填充：off 不亮，其余按档位占比点亮 1–3 格（MiMo 同构） */
+/** 信号条动态填充：按当前档位在可选档位中的占比点亮 1–3 格（MiMo 同构） */
 const filledBars = computed(() => {
-  if (index.value <= 0 || sliderMax.value === 0) {
+  if (steps.value.length <= 1) {
     return 0;
   }
-  return Math.min(3, Math.max(1, Math.ceil((index.value / sliderMax.value) * 3)));
+  return Math.min(3, Math.max(1, Math.ceil(((index.value + 1) / steps.value.length) * 3)));
 });
 
 function onInput(event: Event) {

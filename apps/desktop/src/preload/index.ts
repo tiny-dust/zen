@@ -73,6 +73,9 @@ const zen = {
     aiMessage(cwd?: string): Promise<string> {
       return ipcRenderer.invoke("git:ai-message", cwd);
     },
+    createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("git:create-branch", cwd, name);
+    },
   },
   auth: {
     state(): Promise<AuthState> {
@@ -251,6 +254,15 @@ const zen = {
     },
     setDraft(id: string, draft: string): Promise<void> {
       return ipcRenderer.invoke("session:set-draft", id, draft);
+    },
+    pin(id: string, pinned: boolean): Promise<void> {
+      return ipcRenderer.invoke("session:pin", id, pinned);
+    },
+    archive(id: string, archived: boolean): Promise<void> {
+      return ipcRenderer.invoke("session:archive", id, archived);
+    },
+    remove(id: string): Promise<void> {
+      return ipcRenderer.invoke("session:delete", id);
     },
   },
   pathForFile(file: File): string {

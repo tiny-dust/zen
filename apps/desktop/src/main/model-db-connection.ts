@@ -122,8 +122,16 @@ function migrate(conn: Database.Database) {
   const sessionCols = conn.prepare(`PRAGMA table_info(chat_sessions)`).all() as Array<{
     name: string;
   }>;
-  if (sessionCols.length && !sessionCols.some((col) => col.name === "draft")) {
-    conn.exec(`ALTER TABLE chat_sessions ADD COLUMN draft TEXT NOT NULL DEFAULT ''`);
+  if (sessionCols.length) {
+    if (!sessionCols.some((col) => col.name === "draft")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN draft TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!sessionCols.some((col) => col.name === "pinned")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!sessionCols.some((col) => col.name === "archived")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 }
 

@@ -3,11 +3,14 @@ import { dialog, ipcMain } from "electron";
 import {
   createSession,
   createWorkspace,
+  deleteSession,
   deleteWorkspace,
   getSession,
   listWorkspaceGroups,
   renameSession,
+  setSessionArchived,
   setSessionDraft,
+  setSessionPinned,
   setWorkspaceArchived,
 } from "./workspace-db";
 
@@ -52,5 +55,17 @@ export function registerSessionIpc(): void {
     if (typeof draft === "string") {
       setSessionDraft(id, draft);
     }
+  });
+
+  ipcMain.handle("session:pin", (_event, id: string, pinned: boolean) => {
+    setSessionPinned(id, pinned === true);
+  });
+
+  ipcMain.handle("session:archive", (_event, id: string, archived: boolean) => {
+    setSessionArchived(id, archived === true);
+  });
+
+  ipcMain.handle("session:delete", (_event, id: string) => {
+    deleteSession(id);
   });
 }

@@ -161,4 +161,22 @@ export function registerGitIpc(): void {
     ].join("\n");
     return completeOnce(prompt, { maxTokens: 120 });
   });
+
+  ipcMain.handle(
+    "git:create-branch",
+    async (_event, cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }> => {
+      const branch = name.trim();
+      if (!branch || /[\s~^:?*[\\\u0000]/.test(branch)) {
+        return { ok: false, error: "分支名不合法" };
+      }
+      const workdir = cwd || process.cwd();
+      try {
+        await git(workdir, ["checkout", "-b", branch]);
+        return { ok: true };
+      } catch (error) {
+        const err = error as { stderr?: string; message?: string };
+        return { ok: false, error: err.stderr?.trim() || err.message || "创建分支失败" };
+      }
+    },
+  );
 }

@@ -60,6 +60,7 @@ export interface ZenApi {
     ): Promise<{ ok: boolean; error?: string; output?: string }>;
     log(cwd?: string): Promise<GitLogEntry[]>;
     aiMessage(cwd?: string): Promise<string>;
+    createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
   };
   auth: {
     state(): Promise<AuthState>;
@@ -119,6 +120,9 @@ export interface ZenApi {
     open(id: string): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null>;
     rename(id: string, title: string): Promise<void>;
     setDraft(id: string, draft: string): Promise<void>;
+    pin(id: string, pinned: boolean): Promise<void>;
+    archive(id: string, archived: boolean): Promise<void>;
+    remove(id: string): Promise<void>;
   };
   pathForFile(file: File): string;
 }

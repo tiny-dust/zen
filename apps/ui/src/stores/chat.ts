@@ -418,10 +418,26 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 新会话：在工作区（缺省为当前工作区）建立持久会话 */
   async function newTask(workspaceId?: string) {
+    const workspaceStore = useWorkspaceStore();
+    const target = workspaceId || workspaceStore.activeId;
+    const zen = window.zen;
     if (isRunning.value) {
       await cancel();
     }
     flushDraft();
+
+    // 先建库再切状态：创建失败时保留当前现场并提示
+    let record: SessionRecord | undefined;
+    if (zen) {
+      try {
+        record = await zen.session.create(target);
+      } catch (error) {
+        lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
+        statusText.value = lastError.value;
+        return;
+      }
+    }
+
     messages.value = [];
     input.value = "";
     attachments.value = [];
@@ -436,13 +452,10 @@ export const useChatStore = defineStore("chat", () => {
     lastInputTokens.value = null;
     sessionName.value = "新会话";
 
-    const workspaceStore = useWorkspaceStore();
-    sessionWorkspaceId.value = workspaceId || workspaceStore.activeId;
-    const zen = window.zen;
-    if (zen) {
-      const record = await zen.session.create(sessionWorkspaceId.value);
+    sessionWorkspaceId.value = target;
+    if (record) {
       sessionId.value = record.id;
-      workspaceStore.appendSessionLocal(sessionWorkspaceId.value, record);
+      workspaceStore.appendSessionLocal(target, record);
     } else {
       sessionId.value = uuid();
     }

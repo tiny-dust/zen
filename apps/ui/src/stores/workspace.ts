@@ -65,6 +65,40 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     }
   }
 
+  /** 置顶状态变更后重排：置顶优先，其余按更新时间 */
+  function pinSessionLocal(sessionId: string, pinned: boolean) {
+    for (const group of groups.value) {
+      const session = group.sessions.find((item) => item.id === sessionId);
+      if (session) {
+        session.pinned = pinned;
+        group.sessions.sort(
+          (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt,
+        );
+        return;
+      }
+    }
+  }
+
+  function archiveSessionLocal(sessionId: string, archived: boolean) {
+    for (const group of groups.value) {
+      const session = group.sessions.find((item) => item.id === sessionId);
+      if (session) {
+        session.archived = archived;
+        return;
+      }
+    }
+  }
+
+  function removeSessionLocal(sessionId: string) {
+    for (const group of groups.value) {
+      const index = group.sessions.findIndex((item) => item.id === sessionId);
+      if (index >= 0) {
+        group.sessions.splice(index, 1);
+        return;
+      }
+    }
+  }
+
   async function refresh() {
     const zen = window.zen;
     if (!zen) {
@@ -131,6 +165,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     pathOf,
     appendSessionLocal,
     renameSessionLocal,
+    pinSessionLocal,
+    archiveSessionLocal,
+    removeSessionLocal,
     refresh,
     create,
     archive,
