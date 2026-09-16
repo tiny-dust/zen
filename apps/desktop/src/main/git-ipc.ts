@@ -324,7 +324,12 @@ const HISTORY_LIMIT = 4 * 1024;
 const SUBJECT_LIMIT = 72;
 const BODY_LIMIT = 600;
 const CONVENTIONAL_RE =
-  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?:\s/i;
+  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?:\s?\S/i;
+const SYSTEM_PROMPT = [
+  "你是 Git commit message 生成器，全部输出就是一条 commit message 本身。",
+  "第一行为 type(scope): 简短主题（type 从 feat/fix/docs/style/refactor/perf/test/chore 中选，scope 可选），空一行后为 1-3 行正文。",
+  "禁止输出思考过程、任务复述、变更分析、解释、markdown 代码块或引号。",
+].join("\n");
 
 /** 历史提交大多遵循 Conventional Commits 时返回 true，决定沿用历史风格还是标准模板 */
 function historyIsConventional(commits: string[]): boolean {
@@ -348,27 +353,33 @@ function capBody(body: string): string {
   return (nl > 0 ? cut.slice(0, nl) : cut).trimEnd();
 }
 
-/** 把模型原始输出净化成 commit message：首个非列表行为主题，其余为正文；剥离代码围栏/引号/说明前缀 */
+/** 主题截断后去掉残缺的括号/引号，避免以半个「（」结尾 */
+function capSubject(subject: string): string {
+  if (subject.length <= SUBJECT_LIMIT) {
+    return subject;
+  }
+  return subject
+    .slice(0, SUBJECT_LIMIT)
+    .replace(/[\s（(【\[{《"'“”]+$/u, "")
+    .trimEnd();
+}
+
+/** 把模型原始输出净化成 commit message：定位首个符合 Conventional Commits 的行作主题，其后为正文。
+ *  找不到合格主题（如模型输出任务分析/思考内容）时返回空串，交给确定性兜底 */
 function toCommitMessage(raw: string): string {
   const lines = raw
     .split("\n")
     .filter((line) => !/^\s*```/.test(line))
     .map((line) => line.trimEnd());
-  const subjectIndex = lines.findIndex((line) => {
-    const trimmed = line.trim();
-    return trimmed && !/^[-*#>]/.test(trimmed);
-  });
+  const subjectIndex = lines.findIndex((line) => CONVENTIONAL_RE.test(line.trim()));
   if (subjectIndex < 0) {
     return "";
   }
   const subject = (lines[subjectIndex] ?? "")
     .trim()
-    .replace(/^(commit message|提交信息)\s*[:：]\s*/i, "")
     .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/\s+/g, " ")
     .trim();
-  const cappedSubject =
-    subject.length > SUBJECT_LIMIT ? subject.slice(0, SUBJECT_LIMIT).trimEnd() : subject;
+  const cappedSubject = capSubject(subject);
   const body = capBody(
     lines
       .slice(subjectIndex + 1)
@@ -430,7 +441,7 @@ async function generateAiMessage(workdir: string): Promise<string> {
     "变更内容（diff）：",
     diff || "（无）",
   ].join("\n");
-  return toCommitMessage(await completeOnce(prompt));
+  return toCommitMessage(await completeOnce(prompt, { maxTokens: 2048, system: SYSTEM_PROMPT }));
 }
 
 /** AI 不可用时的确定性兜底 commit message，保证提交链路不会因空 message 失败 */
