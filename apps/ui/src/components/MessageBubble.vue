@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { ChevronDown, Loader2 } from "@lucide/vue";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
-import { computed, ref } from "vue";
+import { computed } from "vue";
 
+import { Loader } from "@/components/ai-elements/loader";
+import {
+  Attachment,
+  Attachments,
+  AttachmentInfo,
+  AttachmentPreview,
+} from "@/components/ai-elements/attachments";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import { Response } from "@/components/ai-elements/response";
+
+import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { ChatMessage } from "@zen/shared";
 
 const props = defineProps<{
@@ -11,38 +23,33 @@ const props = defineProps<{
   streaming?: boolean;
 }>();
 
-const contentHtml = computed(() => {
-  if (props.message.role !== "assistant" || !props.message.content) {
-    return "";
-  }
-  const html = marked.parse(props.message.content, { async: false }) as string;
-  return DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
-});
+const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+
+/** 消息附件只有文件名：按扩展名给出媒体类型，供附件组件挑图标 */
+function mediaTypeOf(name: string): string {
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  return IMAGE_EXT.has(ext) ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream";
+}
 
 const reasoningActive = computed(
   () => props.streaming === true && !props.message.content && !!props.message.reasoning,
 );
 
-const autoOpen = computed(() => !!props.message.reasoning && !props.message.content);
-const manualOpen = ref<boolean | null>(null);
-const reasoningOpen = computed(() => manualOpen.value ?? autoOpen.value);
+/** 思考时长（秒）；流式未结束时保持 undefined，触发器显示「思考中…」 */
+const reasoningSeconds = computed(() =>
+  props.message.reasoningMs ? Math.ceil(props.message.reasoningMs / 1000) : undefined,
+);
 
-const reasoningDuration = computed(() => {
-  const ms = props.message.reasoningMs;
-  if (!ms) {
-    return "";
-  }
-  return `（${(ms / 1000).toFixed(1)}s）`;
-});
-
-const attachments = computed(() => {
+const attachmentParts = computed<AttachmentData[]>(() => {
   const meta = props.message.meta as { attachments?: Array<{ name: string }> } | undefined;
-  return meta?.attachments ?? [];
+  return (meta?.attachments ?? []).map((att, index) => ({
+    id: `${att.name}-${index}`,
+    type: "file" as const,
+    filename: att.name,
+    url: "",
+    mediaType: mediaTypeOf(att.name),
+  }));
 });
-
-function toggleReasoning() {
-  manualOpen.value = !reasoningOpen.value;
-}
 </script>
 
 <template>
@@ -52,15 +59,17 @@ function toggleReasoning() {
       class="max-w-[min(760px,85%)] rounded-2xl bg-[var(--color-side-sel)] px-3.5 py-2.5 text-[var(--color-txt-strong)]"
     >
       <div class="m-0 whitespace-pre-wrap break-words">{{ message.content }}</div>
-      <div v-if="attachments.length" class="mt-2 flex flex-wrap gap-1.5">
-        <span
-          v-for="att in attachments"
-          :key="att.name"
-          class="rounded-full bg-[var(--color-chip-bg)] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-chip-text)]"
+      <Attachments v-if="attachmentParts.length" variant="inline" class="mt-2 w-full">
+        <Attachment
+          v-for="att in attachmentParts"
+          :key="att.id"
+          :data="att"
+          class="max-w-[240px] bg-[var(--color-composer-surface)]"
         >
-          ${{ att.name }}
-        </span>
-      </div>
+          <AttachmentPreview />
+          <AttachmentInfo />
+        </Attachment>
+      </Attachments>
     </div>
   </div>
 
@@ -74,28 +83,23 @@ function toggleReasoning() {
   </div>
 
   <div v-else class="w-full">
-    <button
+    <Reasoning
       v-if="message.reasoning"
-      type="button"
-      class="mb-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--color-chip-bg)] px-2 py-[3px] text-[11px] text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-      @click="toggleReasoning"
+      class="w-full"
+      :is-streaming="reasoningActive"
+      :duration="reasoningSeconds"
+      :default-open="!message.content"
     >
-      <Loader2 v-if="reasoningActive" class="size-3 animate-spin" />
-      <span>{{ reasoningActive ? "推理中…" : "思考过程" }}</span>
-      <span class="text-[var(--color-dim)]">{{ reasoningDuration }}</span>
-      <ChevronDown
-        class="size-3 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-enter)]"
-        :class="reasoningOpen ? 'rotate-180' : ''"
-      />
-    </button>
-    <pre
-      v-if="reasoningOpen && message.reasoning"
-      class="mb-2 max-h-60 overflow-auto rounded-[var(--radius-sm)] bg-[var(--color-side-glass)] p-2.5 px-2.5 font-[family-name:var(--font-mono)] text-[11px] leading-normal whitespace-pre-wrap break-words text-[var(--color-mut)]"
-    >{{ message.reasoning }}</pre>
+      <ReasoningTrigger />
+      <ReasoningContent :content="message.reasoning" class="text-[12px]" />
+    </Reasoning>
 
-    <div v-if="message.content" class="md-content m-0 whitespace-pre-wrap break-words" v-html="contentHtml" />
-    <p v-else-if="!message.reasoning" class="m-0 break-words text-[var(--color-mut)]">
-      正在思考…
-    </p>
+    <!-- 流式 markdown（vue-stream-markdown 增量渲染） -->
+    <Response v-if="message.content" :content="message.content" class="md-content" />
+
+    <div v-else-if="!message.reasoning" class="flex items-center gap-1.5 text-[var(--color-mut)]">
+      <Loader :size="14" />
+      <span class="text-[13px]">正在思考…</span>
+    </div>
   </div>
 </template>

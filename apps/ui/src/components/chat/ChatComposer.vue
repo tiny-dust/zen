@@ -4,14 +4,19 @@ import {
   ArrowUp,
   CornerDownLeft,
   FileText,
-  Image as ImageIcon,
   Mic,
   Sparkles,
-  X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 
+import {
+  Attachment,
+  Attachments,
+  AttachmentInfo,
+  AttachmentPreview,
+  AttachmentRemove,
+} from "@/components/ai-elements/attachments";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +25,7 @@ import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 import { useWorkspaceStore } from "@/stores/workspace";
 
+import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { ReasoningEffort } from "@zen/shared";
 
 const chatStore = useChatStore();
@@ -75,6 +81,17 @@ function formatSize(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1024))}KB`;
   }
   return `${bytes}B`;
+}
+
+/** ComposerAttachment → ai-elements AttachmentData（媒体类型供选图标） */
+function attachmentData(att: { id: string; name: string; isImage: boolean }): AttachmentData {
+  return {
+    id: att.id,
+    type: "file",
+    filename: att.name,
+    url: "",
+    mediaType: att.isImage ? "image/*" : "application/octet-stream",
+  };
 }
 
 function onInput() {
@@ -144,29 +161,23 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
   <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
-      <div
-        v-if="attachments.length"
-        class="mb-2 flex flex-wrap gap-1.5"
-      >
-        <div
+      <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
+      <Attachments v-if="attachments.length" variant="inline" class="mb-2">
+        <Attachment
           v-for="att in attachments"
           :key="att.id"
-          class="inline-flex max-w-[240px] items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-side-glass)] px-2 py-1 text-[11px]"
+          :data="attachmentData(att)"
+          class="max-w-[240px] bg-[var(--color-side-glass)] border-[var(--color-line)]"
+          @remove="removeAttachment(att.id)"
         >
-          <ImageIcon v-if="att.isImage" class="size-[13px] shrink-0 text-[var(--color-mut)]" />
-          <FileText v-else class="size-[13px] shrink-0 text-[var(--color-mut)]" />
-          <span class="truncate text-[var(--color-txt-strong)]" :title="att.path">{{ att.name }}</span>
-          <span class="shrink-0 text-[var(--color-dim)]">{{ formatSize(att.size) }}</span>
-          <button
-            type="button"
-            class="inline-flex rounded text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            aria-label="移除附件"
-            @click="removeAttachment(att.id)"
-          >
-            <X class="size-3" />
-          </button>
-        </div>
-      </div>
+          <AttachmentPreview />
+          <AttachmentInfo />
+          <span class="shrink-0 text-[10.5px] text-[var(--color-dim)]">
+            {{ formatSize(att.size) }}
+          </span>
+          <AttachmentRemove label="移除附件" class="hover:bg-transparent!" />
+        </Attachment>
+      </Attachments>
 
       <div
         class="rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
