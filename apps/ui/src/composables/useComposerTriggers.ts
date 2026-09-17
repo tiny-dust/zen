@@ -21,6 +21,8 @@ export function useComposerTriggers(options: {
   setValue: (next: string) => void;
   /** @ 文件补全的根目录；不传则用 main 的默认目录 */
   rootPath?: () => string | undefined;
+  /** 技能项选中回调：不插入原文，由输入区渲染为 tag */
+  onSelectSkill?: (item: TriggerItem) => void;
 }) {
   const open = ref(false);
   const kind = ref<TriggerKind>("skill");
@@ -148,6 +150,15 @@ export function useComposerTriggers(options: {
     }
     const value = options.value();
     const cursor = el.selectionEnd ?? value.length;
+    // 技能不插入原文：去掉触发 token 后交给回调，由输入区在文本前方渲染 tag
+    if (target.icon === "skill" && options.onSelectSkill) {
+      options.setValue(value.slice(0, tokenStart.value) + value.slice(cursor));
+      options.onSelectSkill(target);
+      close();
+      el.focus();
+      el.setSelectionRange(tokenStart.value, tokenStart.value);
+      return true;
+    }
     const next = value.slice(0, tokenStart.value) + target.insert + value.slice(cursor);
     options.setValue(next);
     close();

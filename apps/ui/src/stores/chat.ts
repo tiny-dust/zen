@@ -45,6 +45,8 @@ export const useChatStore = defineStore("chat", () => {
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
   const attachments = ref<ComposerAttachment[]>([]);
+  /** 输入区已选技能 tag（文本前方展示；发送时拼回 /skill 前缀传给 agent） */
+  const skillMentions = ref<Array<{ label: string; insert: string }>>([]);
   const activeTool = ref<ActiveTool | null>(null);
   const toolHistory = ref<ToolHistoryItem[]>([]);
   /** tool_start 的入参缓存：tool_end 时写入消息 meta，供卡片展开 */
@@ -68,7 +70,11 @@ export const useChatStore = defineStore("chat", () => {
   );
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
-    () => (input.value.trim().length > 0 || attachments.value.length > 0) && !isRunning.value,
+    () =>
+      (input.value.trim().length > 0 ||
+        attachments.value.length > 0 ||
+        skillMentions.value.length > 0) &&
+      !isRunning.value,
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
@@ -372,9 +378,22 @@ export const useChatStore = defineStore("chat", () => {
     attachments.value = attachments.value.filter((item) => item.id !== id);
   }
 
+  function addSkillMention(item: { label: string; insert: string }) {
+    if (skillMentions.value.some((tag) => tag.insert === item.insert)) {
+      return;
+    }
+    skillMentions.value.push({ label: item.label, insert: item.insert });
+  }
+
+  function removeSkillMention(insert: string) {
+    skillMentions.value = skillMentions.value.filter((tag) => tag.insert !== insert);
+  }
+
   async function send() {
     const zen = window.zen;
-    const text = input.value.trim();
+    // 技能 tag 在发送时拼回 /skill 前缀，agent 侧沿用原有文本信号
+    const mentionPrefix = skillMentions.value.map((tag) => tag.insert.trim()).join(" ");
+    const text = [mentionPrefix, input.value.trim()].filter(Boolean).join(" ");
     if (!zen || isRunning.value || (!text && !attachments.value.length)) {
       return;
     }
@@ -398,6 +417,7 @@ export const useChatStore = defineStore("chat", () => {
     lastError.value = "";
     input.value = "";
     attachments.value = [];
+    skillMentions.value = [];
     if (sessionName.value === "新会话") {
       const first = text || attachmentRefs[0]?.name || "新会话";
       sessionName.value = first.slice(0, 24) + (first.length > 24 ? "…" : "");
@@ -521,6 +541,7 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     input.value = "";
     attachments.value = [];
+    skillMentions.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
@@ -621,6 +642,7 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     attachments,
+    skillMentions,
     activeTool,
     toolHistory,
     pendingApproval,
@@ -639,6 +661,8 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit,
     addAttachment,
     removeAttachment,
+    addSkillMention,
+    removeSkillMention,
     send,
     cancel,
     pause,
