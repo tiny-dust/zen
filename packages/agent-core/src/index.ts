@@ -135,12 +135,12 @@ function isReadonlyCommand(command: string): boolean {
 
 /**
  * 单工具审批裁决（ADR-004 权限矩阵）。
- * 网络类「会话级确认」由 AgentSession 记忆已批准工具后放行。
+ * 会话级「全部允许」与网络类确认记忆由 AgentSession 维护，命中后直接放行。
  */
 function evaluateApproval(
   toolName: string,
   mode: PermissionMode,
-  options: { rememberedNetwork: boolean; command?: string },
+  options: { remembered: boolean; command?: string },
 ): ApprovalVerdict {
   if (mode === "full") {
     return "allow";
@@ -149,15 +149,16 @@ function evaluateApproval(
   if (risk === "read") {
     return "allow";
   }
+  // 本会话内用户已放行过的工具（「全部允许」/ 网络类确认过）不再逐次确认
+  if (options.remembered) {
+    return "allow";
+  }
   if (mode === "smart") {
     if (risk === "write") {
       // writeFile/editFile 的 path 都被 tools-fs 约束在工作区内
       return "allow";
     }
     if (risk === "exec" && options.command && isReadonlyCommand(options.command)) {
-      return "allow";
-    }
-    if (risk === "network" && options.rememberedNetwork) {
       return "allow";
     }
     return "confirm";
@@ -660,8 +661,8 @@ export class AgentSession {
   private taskVersion = 0;
   /** askUser 挂起等待（askId → resolver） */
   private readonly pendingAsks = new Map<string, PendingAsk>();
-  /** smart 权限下已确认过的网络工具（会话级记忆） */
-  private readonly rememberedNetworkTools = new Set<string>();
+  /** 会话内已放行的工具（「全部允许」记忆；网络类确认一次后同样放行） */
+  private readonly rememberedTools = new Set<string>();
 
   constructor(config: AgentSessionConfig) {
     this.config = config;
@@ -716,7 +717,7 @@ export class AgentSession {
             ? String((args as { command: unknown }).command)
             : undefined;
         const verdict = evaluateApproval(toolName, config.permissionMode, {
-          rememberedNetwork: this.rememberedNetworkTools.has(toolName),
+          remembered: this.rememberedTools.has(toolName),
           command,
         });
         return verdict === "allow" ? undefined : "user-approval";
@@ -747,9 +748,9 @@ export class AgentSession {
     }
     if (decision.approved) {
       const risk = riskForTool(this.pending.toolName);
-      if (risk === "network") {
-        // 会话级记忆：同类网络工具确认一次后放行
-        this.rememberedNetworkTools.add(this.pending.toolName);
+      if (risk === "network" || decision.always) {
+        // 会话级记忆：网络类确认一次后放行；显式「全部允许」时记忆该工具
+        this.rememberedTools.add(this.pending.toolName);
       }
     }
     this.messages.push({
