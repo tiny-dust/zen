@@ -111,3 +111,10 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 右栏修复二轮：顶部 tab 是 div 且头部为窗口拖拽区，Electron 下点击被拖拽吞掉无法切换——`[role='tab']` 一并豁免 no-drag；图谱详情文件行可点击展开该文件的 commit patch（新增 `git:commit-diff` IPC，`diff-tree -p -m --first-parent` 限路径，行内 DiffView 渲染，max-h-72 内滚动）。
   - 分批提交：提交面板「提交/提交并推送」在未手填 message 时走 `git:commit-batched`——主进程用模型按变更内容把文件分成 1-6 批并生成各批 message（JSON 计划解析校验 + 模型不可用时按目录确定性兜底），逐批 `add + commit(pathspec 限定)`（不泄漏其它已暂存内容），完成后统一 push；手填 message 仍为单提交；「包含未暂存」关闭时仅对已暂存文件分批。
   - 图谱独立成 tab：从变更面板拆出，成为右栏与文件/浏览器/变更同级的顶级 tab（`RightPanelKind` 增加 `graph`，头行按钮 GitGraph 图标开面板）；GitGraph 自带头行（提交历史 + 计数 + 刷新，watch cwd 自动刷新）；变更面板还原为纯变更视图。注意 RightPanel 内 lucide `GitGraph` 图标与 `GitGraph.vue` 组件重名，组件导入需别名（如 GraphPanel），否则模板解析成图标。
+- 2026-09-17（composer 交互与流式渲染二轮）：
+  - Composer 技能选中改 chip：`/` 触发选中技能不再插入正文，改为输入壳上方 tag（悬浮 HoverCard 展示技能名/描述/目录）；发送时以 `/skill:` 前缀注入 agent 消息、正文保持干净并由 `meta.skills` 渲柔回显 tag；`canSend` 计入已选技能。修复选择技能后输入框失焦——`<Textarea ref>` 拿到的是组件实例而非原生元素，`el.focus()` 抛错（改函数 ref 取 `$el`），建议面板按钮补 `@mousedown.prevent`。
+  - Composer 权限改下拉：底栏权限按钮从「点击循环」改 DropdownMenu，枚举 `PERMISSION_MODES` 三档并带说明文案，当前档位打勾。
+  - 用户消息悬浮操作条：hover 显示发送时间（当日 HH:mm，跨日带日期）+ 复制（剪贴板，1.5s 打勾反馈）+ 编辑（内容放回输入框聚焦重发）；随消息发送的技能 tag 在气泡内回显。
+  - 流式渲染修复：`Response`/`ReasoningContent` 关闭 vue-stream-markdown 逐段淡入动画（`enable-animate: false`）——动画 span `backwards` 填充在快速输出下让尾部长时间不可见（表现为底部大片空白、看不到实时内容），关闭后文本随到随显且 DOM 量大幅下降；`Response` 根元素 `size-full` 改 `w-full` 不再强制 height:100%。ChatTimeline 自动滚动加 `overflow-anchor: none` 与贴底策略（`stickToBottom` + ResizeObserver 兜底）——markdown 异步增量渲染的实际高度在 nextTick 之后才增长，仅 watch content 会滞后于真实渲染高度；用户上滚阅读时暂停跟随。
+  - 审批与提问上移：`ApprovalCard.vue`（从 AgentRunStatus 拆出，新增「全部允许（本会话）」——shared `ToolApprovalDecision.always`，agent-core `rememberedTools` 会话级记忆放行同类工具）与 `AskUserCard` 固定 sticky 在对话区顶部，方便操作。
+  - 运行状态卡下线：删除 `AgentRunStatus.vue`（正在回复/暂停/停止卡片），运行状态直接体现在 Composer 发送按钮位——运行中变「停止」（取消运行）、暂停时变「继续」（恢复运行）；发送按钮态用既有 token（`--color-send-empty/-fg`），不新增色值。
