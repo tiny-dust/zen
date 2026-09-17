@@ -54,7 +54,7 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 
 ## 4. 布局骨架
 
-四列可拖拽布局（`App.vue`）：左栏 220–360 / 中央区（聊天列 + 250px 会话信息卡列，≥1100px 宽时出现信息卡）/ 右工具侧栏 280–480。聊天内容与 composer 共用 860px 居中列。底部终端面板属于中央区（不盖住工具侧栏）。
+四列可拖拽布局（`App.vue`）：左栏 180–420 / 中央区（聊天列 + 250px 会话信息卡列，≥1100px 宽时出现信息卡）/ 右工具侧栏 240–窗口 75%。拖拽钳制两侧互斥（`stores/layout.ts`）：任何一侧拉宽都必须给中央区保底 420px（含会话信息卡列时 670px），窗口 resize 后按新边界回收两侧宽度。聊天内容与 composer 共用 860px 居中列。底部终端面板属于中央区（不盖住工具侧栏）。
 
 **窗口 chrome 按列拆分（无全宽标题栏）**——各列自带 38px 头行（`--titlebar-h`），背景即列背景，相互之间只用背景色区分、不画分隔线：
 
@@ -102,3 +102,11 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - ChatComposer 壳面对齐 DimAgent：改用 `--color-composer-surface` + `--shadow-composer`（浮起壳面，不再用比背板更暗的 `--color-side`），placeholder 走 `--color-composer-placeholder`；EffortSlider 移到底栏右簇（推理强度/模型/发送，见 zen-002）。
   - 发送按钮对齐 DimAgent：中性圆形改强调色圆角方形（`--color-accent` + 新增 `--color-accent-fg` 前景 token），图标统一 lucide `ArrowUp`；Composer 壳体收紧（px-3.5 / textarea min-h 48）。
   - Composer 壳下新增状态行（仓库 · 分支 + 上下文用量%；非 git 目录时整段 git 信息隐藏）：新增 `agent` `usage` 流事件（agent-core 在 `finish-step` 上报 inputTokens/outputTokens）、`git:info` IPC（repo 取 toplevel basename，branch 取 `--abbrev-ref HEAD`，非 git 返回空串）；`SessionInfoPanel` 的分支从写死 mock 改为真实数据且无分支时隐藏。
+- 2026-09-17（面板拖拽 / diff / chat 组件化）：
+  - 面板钳制重写（`stores/layout.ts`）：左栏 180–420、右栏 240–窗口 75%，两侧互斥钳制给中央区保底 420px（含会话信息卡列 670px）；`syncViewport` 在窗口 resize 后回收两侧宽度——修复两栏各拉到窗口 75% 把聊天区压没、以及窗口变小后面板溢出的存量问题；左栏最小宽从 220 收到 180。
+  - 变更文件 diff 视图：新增 `right/DiffView.vue`（双行号 gutter、增删行着色、hunk 头、meta 行，token 取 `--color-add/-del`），`ChangesPanel` 接入并补「读取中/无变更内容」状态；未跟踪文件由 git store 读文件内容合成纯新增 diff，仅暂存文件回落 staged diff。
+  - chat 区组件化（ai-elements-vue，落位 `components/ai-elements/`，新增 shadcn-vue `collapsible`/`hover-card` 原语与 `vue-stream-markdown` 依赖）：思考过程改 `Reasoning`（流式自动展开、结束 1s 后收起、显示时长），正文改 `Response` 流式 markdown（vue-stream-markdown 增量渲染，替代 marked+DOMPurify），空回复 loading 改 `Loader`，用户消息与 composer 附件统一 `Attachment` inline chips（图标按扩展名推断）。
+  - 右栏内部布局二轮：文件/变更面板的列表与内容区分割线改 `ResizeHandle line` 模式（常显 1px 线、悬停高亮、可拖拽 18%–66%）；CodeMirror 预览撑满内容区（`.zen-code-viewer`）；变更面板新增「变更/图谱」视图切换，新增 `right/GitGraph.vue`（泳道提交历史，数据走 git store 的 `refreshLog`），删除无引用的死代码 `GitPanel.vue`。
+  - 图谱 VS Code 化：提交行点击展开详情块（完整 message、Commit/Parents/Author/Committer/Date、变更文件列表含状态徽标与 +N/-N，按 hash 懒加载缓存）；泳道竖线穿过详情块保持时间轴连贯；新增 `git:commit-detail` IPC（`diff-tree -r --root -m --first-parent` 的 numstat+name-status 合并 + `log -1` 完整信息，hash 入参做十六进制校验），shared 新增 `GitCommitDetail`/`GitCommitFile` 类型。
+  - 右栏修复二轮：顶部 tab 是 div 且头部为窗口拖拽区，Electron 下点击被拖拽吞掉无法切换——`[role='tab']` 一并豁免 no-drag；图谱详情文件行可点击展开该文件的 commit patch（新增 `git:commit-diff` IPC，`diff-tree -p -m --first-parent` 限路径，行内 DiffView 渲染，max-h-72 内滚动）。
+  - 分批提交：提交面板「提交/提交并推送」在未手填 message 时走 `git:commit-batched`——主进程用模型按变更内容把文件分成 1-6 批并生成各批 message（JSON 计划解析校验 + 模型不可用时按目录确定性兜底），逐批 `add + commit(pathspec 限定)`（不泄漏其它已暂存内容），完成后统一 push；手填 message 仍为单提交；「包含未暂存」关闭时仅对已暂存文件分批。
