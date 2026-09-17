@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ChevronDown } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { ChevronDown, GitGraph as GitGraphIcon, RefreshCw } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
 
 import DiffView from "@/components/right/DiffView.vue";
 import { computeGraphRows } from "@/components/right/git-graph";
+import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,15 @@ import type { GraphEdge, GraphRow } from "@/components/right/git-graph";
 const gitStore = useGitStore();
 
 const graphRows = computed(() => computeGraphRows(gitStore.log));
+
+// 打开面板或切换工作区时刷新提交历史
+watch(
+  () => gitStore.cwd(),
+  () => {
+    void gitStore.refreshLog();
+  },
+  { immediate: true },
+);
 
 /** 展开态与详情缓存（按 hash 懒加载一次） */
 const expandedHash = ref("");
@@ -167,8 +177,41 @@ function fmtParents(parents: string[]): string {
 </script>
 
 <template>
-  <div class="min-h-0 flex-1 overflow-auto">
-    <template v-for="row in graphRows" :key="row.entry.hash">
+  <div class="flex min-h-0 flex-1 flex-col gap-2">
+    <div class="flex flex-none items-center gap-1">
+      <span
+        class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
+      >
+        提交历史
+      </span>
+      <span class="flex-none text-[10.5px] text-[var(--color-dim)]">{{ graphRows.length }}</span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        :aria-label="gitStore.logLoading ? '刷新中' : '刷新提交历史'"
+        title="刷新"
+        @click="gitStore.refreshLog()"
+      >
+        <RefreshCw :class="gitStore.logLoading ? 'animate-spin' : ''" />
+      </Button>
+    </div>
+
+    <div class="min-h-0 flex-1 overflow-auto">
+      <p
+        v-if="gitStore.logLoading && !graphRows.length"
+        class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
+      >
+        读取中…
+      </p>
+      <p
+        v-else-if="!graphRows.length"
+        class="m-0 flex items-center gap-1.5 px-1 py-2 text-[12px] text-[var(--color-dim)]"
+      >
+        <GitGraphIcon class="size-3.5 flex-none" aria-hidden="true" />
+        {{ gitStore.cwd() ? "暂无提交记录" : "公共区未绑定目录" }}
+      </p>
+      <template v-else>
+        <template v-for="row in graphRows" :key="row.entry.hash">
       <!-- 提交行：点击展开/折叠详情 -->
       <button
         type="button"
@@ -340,6 +383,8 @@ function fmtParents(parents: string[]): string {
           </template>
         </div>
       </div>
-    </template>
+        </template>
+      </template>
+    </div>
   </div>
 </template>

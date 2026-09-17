@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { FolderOpen, Globe, PanelRight, RefreshCw, X } from "@lucide/vue";
+import GraphPanel from "@/components/right/GitGraph.vue";
+import { FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
@@ -22,6 +23,9 @@ function iconFor(kind: string) {
   }
   if (kind === "browser") {
     return Globe;
+  }
+  if (kind === "graph") {
+    return GitGraph;
   }
   return RefreshCw;
 }
@@ -106,6 +110,16 @@ function tabCls(id: string) {
         </Button>
         <Button
           variant="ghost"
+          size="icon-xs"
+          :disabled="rightPanel.hasKind('graph')"
+          :aria-label="rightPanel.hasKind('graph') ? '图谱面板已打开' : '打开图谱面板'"
+          title="图谱"
+          @click="rightPanel.ensureTab('graph')"
+        >
+          <GitGraph />
+        </Button>
+        <Button
+          variant="ghost"
           size="icon-sm"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
           aria-label="收起面板"
@@ -121,6 +135,7 @@ function tabCls(id: string) {
       <FilePanel v-if="activeTab?.kind === 'files'" />
       <BrowserPanel v-else-if="activeTab?.kind === 'browser'" />
       <ChangesPanel v-else-if="activeTab?.kind === 'changes'" />
+      <GraphPanel v-else-if="activeTab?.kind === 'graph'" />
     </div>
   </aside>
 </template>

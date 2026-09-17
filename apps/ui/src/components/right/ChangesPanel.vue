@@ -5,7 +5,6 @@ import { computed, ref, watch } from "vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import ChangeTreeRow from "@/components/right/ChangeTreeRow.vue";
 import DiffView from "@/components/right/DiffView.vue";
-import GitGraph from "@/components/right/GitGraph.vue";
 import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
@@ -13,11 +12,9 @@ import { cn } from "@/lib/utils";
 import type { ChangeNode } from "@/components/right/panel-nodes";
 
 type ViewMode = "tree" | "flat";
-type PanelView = "changes" | "graph";
 
 const gitStore = useGitStore();
 const viewMode = ref<ViewMode>("flat");
-const view = ref<PanelView>("changes");
 const expanded = ref(new Set<string>([""]));
 
 /** 变更列表/diff 分割比例（%），拖拽手柄调整 */
@@ -33,22 +30,6 @@ function onSplitDrag(delta: number) {
   }
   const next = splitPct.value + (delta / total) * 100;
   splitPct.value = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, next));
-}
-
-// 切到图谱时按需拉取提交历史
-watch(view, (next) => {
-  if (next === "graph" && !gitStore.log.length) {
-    void gitStore.refreshLog();
-  }
-});
-
-function viewBtn(active: boolean) {
-  return cn(
-    "h-6 rounded-md px-2 text-[12px]",
-    active
-      ? "bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]"
-      : "text-[var(--color-mut)] hover:text-[var(--color-txt)]",
-  );
 }
 
 const files = computed(() => gitStore.files);
@@ -121,22 +102,16 @@ watch(
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-2">
     <div class="flex flex-none items-center gap-1">
-      <button type="button" :class="viewBtn(view === 'changes')" @click="view = 'changes'">
-        变更
-      </button>
-      <button type="button" :class="viewBtn(view === 'graph')" @click="view = 'graph'">
-        图谱
-      </button>
-      <span class="min-w-0 flex-1" />
       <span
-        v-if="view === 'changes'"
-        class="flex-none font-[family-name:var(--font-mono)] text-[11px]"
+        class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
       >
+        变更文件
+      </span>
+      <span class="flex-none font-[family-name:var(--font-mono)] text-[11px]">
         <span class="text-[var(--color-add)]">+{{ gitStore.totalAdd }}</span>
         <span class="text-[var(--color-del)]">&nbsp;-{{ gitStore.totalDel }}</span>
       </span>
       <Button
-        v-if="view === 'changes'"
         variant="ghost"
         size="icon-xs"
         :aria-label="viewMode === 'flat' ? '切换目录树' : '切换平铺'"
@@ -149,29 +124,15 @@ watch(
       <Button
         variant="ghost"
         size="icon-xs"
-        :aria-label="view === 'graph' ? '刷新提交历史' : '刷新变更'"
+        aria-label="刷新变更"
         title="刷新"
-        @click="view === 'graph' ? gitStore.refreshLog() : gitStore.refreshStatus()"
+        @click="gitStore.refreshStatus()"
       >
-        <RefreshCw :class="gitStore.loading || gitStore.logLoading ? 'animate-spin' : ''" />
+        <RefreshCw :class="gitStore.loading ? 'animate-spin' : ''" />
       </Button>
     </div>
 
-    <!-- 图谱：泳道提交历史 -->
-    <template v-if="view === 'graph'">
-      <p
-        v-if="gitStore.logLoading && !gitStore.log.length"
-        class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
-      >
-        读取中…
-      </p>
-      <p v-else-if="!gitStore.log.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
-        暂无提交记录
-      </p>
-      <GitGraph v-else />
-    </template>
-
-    <div v-else ref="containerEl" class="flex min-h-0 flex-1 gap-0.5">
+    <div ref="containerEl" class="flex min-h-0 flex-1 gap-0.5">
       <div
         class="flex min-w-[150px] flex-none flex-col overflow-auto"
         :style="{ width: `${splitPct}%` }"
