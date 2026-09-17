@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
 
 /**
- * askUser 提问卡片：Agent 请求用户决策时展示在输入框上方。
+ * askUser 提问卡片：Agent 请求用户决策时固定在对话区顶部。
  * 选项按钮直接作答；也可自由输入后回车提交。
  */
 const chatStore = useChatStore();
@@ -28,7 +28,7 @@ function submitFreeText() {
 <template>
   <div
     v-if="chatStore.pendingAsk"
-    class="mb-2 rounded-2xl bg-[var(--color-composer-surface)] p-3 shadow-[var(--shadow-composer)] outline outline-1 -outline-offset-1 outline-[color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
+    class="rounded-2xl bg-[var(--color-composer-surface)] p-3 shadow-[var(--shadow-composer)] outline outline-1 -outline-offset-1 outline-[color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
     role="group"
     aria-label="Agent 提问"
   >
