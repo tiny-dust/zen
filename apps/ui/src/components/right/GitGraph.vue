@@ -174,6 +174,43 @@ function detailRowCls() {
 function fmtParents(parents: string[]): string {
   return parents.length ? parents.map((p) => p.slice(0, 7)).join(" ") : "（根提交）";
 }
+
+/** 分支/标签徽标：%D 里的 ref 归类（HEAD 当前分支 / 本地 / 远端 / tag） */
+interface RefBadge {
+  label: string;
+  kind: "head" | "local" | "remote" | "tag";
+}
+
+function refBadges(refs: string[]): RefBadge[] {
+  const badges: RefBadge[] = [];
+  for (const raw of refs) {
+    const name = raw.trim();
+    if (!name) {
+      continue;
+    }
+    if (name.startsWith("HEAD -> ")) {
+      badges.push({ label: name.slice(8), kind: "head" });
+    } else if (name === "HEAD") {
+      badges.push({ label: "HEAD", kind: "head" });
+    } else if (name.startsWith("tag: ")) {
+      badges.push({ label: name.slice(5), kind: "tag" });
+    } else if (name.includes("/")) {
+      badges.push({ label: name, kind: "remote" });
+    } else {
+      badges.push({ label: name, kind: "local" });
+    }
+  }
+  return badges;
+}
+
+const BADGE_CLS: Record<RefBadge["kind"], string> = {
+  head: "border-transparent bg-[color-mix(in_srgb,var(--color-accent)_18%,transparent)] text-[var(--color-accent)]",
+  local: "border-[var(--color-line-strong)] text-[var(--color-txt)]",
+  remote: "border-[var(--color-line)] text-[var(--color-mut)]",
+  tag: "border-transparent bg-[color-mix(in_srgb,var(--color-blue)_16%,transparent)] text-[var(--color-blue)]",
+};
+
+const MAX_BADGES = 3;
 </script>
 
 <template>
@@ -257,9 +294,28 @@ function fmtParents(parents: string[]): string {
           />
         </svg>
         <div class="min-w-0 flex-1 py-1.5">
-          <p class="m-0 truncate text-[12px] text-[var(--color-txt)]" :title="row.entry.subject">
-            {{ row.entry.subject }}
-          </p>
+          <div class="flex min-w-0 items-center gap-1.5">
+            <p
+              class="m-0 min-w-0 flex-1 truncate text-[12px] text-[var(--color-txt)]"
+              :title="row.entry.subject"
+            >
+              {{ row.entry.subject }}
+            </p>
+            <span
+              v-for="badge in refBadges(row.entry.refs).slice(0, MAX_BADGES)"
+              :key="badge.label"
+              class="flex-none rounded-full border px-1.5 py-px text-[10px] leading-[1.4]"
+              :class="BADGE_CLS[badge.kind]"
+            >
+              {{ badge.label }}
+            </span>
+            <span
+              v-if="refBadges(row.entry.refs).length > MAX_BADGES"
+              class="flex-none text-[10px] text-[var(--color-dim)]"
+            >
+              +{{ refBadges(row.entry.refs).length - MAX_BADGES }}
+            </span>
+          </div>
           <p class="m-0 truncate text-[10.5px] text-[var(--color-dim)]">
             {{ row.entry.hash.slice(0, 7) }} · {{ row.entry.author }} ·
             {{ fmtTime(row.entry.time) }}

@@ -15,11 +15,12 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
+import ToolCallRow from "@/components/chat/ToolCallRow.vue";
 import { useChatStore } from "@/stores/chat";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { SelectedSkill } from "@/stores/chat-types";
-import type { ChatMessage } from "@zen/shared";
+import type { ChatMessage, ChatMessagePart } from "@zen/shared";
 
 const props = defineProps<{
   message: ChatMessage;
@@ -36,14 +37,41 @@ function mediaTypeOf(name: string): string {
   return IMAGE_EXT.has(ext) ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream";
 }
 
-const reasoningActive = computed(
-  () => props.streaming === true && !props.message.content && !!props.message.reasoning,
-);
+/** 按时间顺序的分段：新消息用 parts，旧消息按「思考 → 正文」合成 */
+const parts = computed<ChatMessagePart[]>(() => {
+  if (props.message.parts?.length) {
+    return props.message.parts;
+  }
+  const legacy: ChatMessagePart[] = [];
+  if (props.message.reasoning) {
+    legacy.push({
+      type: "reasoning",
+      text: props.message.reasoning,
+      ms: props.message.reasoningMs,
+    });
+  }
+  if (props.message.content) {
+    legacy.push({ type: "text", text: props.message.content });
+  }
+  return legacy;
+});
 
-/** 思考时长（秒）；流式未结束时保持 undefined，触发器显示「思考中…」 */
-const reasoningSeconds = computed(() =>
-  props.message.reasoningMs ? Math.ceil(props.message.reasoningMs / 1000) : undefined,
-);
+/** 分段后是否还有正文：决定思考块默认展开与自动收起 */
+function hasTextAfter(index: number): boolean {
+  return parts.value.slice(index + 1).some((part) => part.type === "text" || part.type === "tool");
+}
+
+/** 思考块流式进行中：处于流式消息的最后一段 */
+function reasoningStreaming(index: number): boolean {
+  return (
+    props.streaming === true &&
+    index === parts.value.length - 1 &&
+    parts.value[index]?.type === "reasoning"
+  );
+}
+
+const reasoningSeconds = (part: Extract<ChatMessagePart, { type: "reasoning" }>) =>
+  part.ms ? Math.ceil(part.ms / 1000) : undefined;
 
 const attachmentParts = computed<AttachmentData[]>(() => {
   const meta = props.message.meta as { attachments?: Array<{ name: string }> } | undefined;
@@ -94,7 +122,7 @@ function editContent() {
 </script>
 
 <template>
-  <!-- user：右对齐弱气泡，悬浮出时间与复制/编辑；assistant：裸内容直接铺在背板上 -->
+  <!-- user：右对齐弱气泡，悬浮出时间与复制/编辑；assistant：按时间顺序铺分段 -->
   <div v-if="message.role === 'user'" class="group flex w-full flex-col items-end gap-1">
     <!-- 悬浮操作条：发送时间 / 复制 / 编辑 -->
     <div
@@ -129,7 +157,7 @@ function editContent() {
     </div>
 
     <div
-      class="max-w-[min(760px,85%)] rounded-2xl bg-[var(--color-side-sel)] px-3.5 py-2.5 text-[var(--color-txt-strong)]"
+      class="max-w-[min(760px,85%)] rounded-2xl bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
       <!-- 随消息发送的技能 tag -->
       <div v-if="skillParts.length" class="mb-1.5 flex flex-wrap justify-end gap-1.5">
@@ -167,22 +195,36 @@ function editContent() {
     </div>
   </div>
 
-  <div v-else class="w-full">
-    <Reasoning
-      v-if="message.reasoning"
-      class="w-full"
-      :is-streaming="reasoningActive"
-      :duration="reasoningSeconds"
-      :default-open="!message.content"
+  <div v-else class="flex w-full flex-col gap-2">
+    <template v-for="(part, index) in parts" :key="`${index}-${part.type}`">
+      <!-- 思考块：独立折叠面板，独立弱色 -->
+      <Reasoning
+        v-if="part.type === 'reasoning'"
+        class="w-full"
+        :is-streaming="reasoningStreaming(index)"
+        :duration="reasoningSeconds(part)"
+        :default-open="!hasTextAfter(index)"
+      >
+        <ReasoningTrigger class="text-[12px]" />
+        <ReasoningContent :content="part.text" class="mt-2 text-[12px] reasoning-dim" />
+      </Reasoning>
+
+      <!-- 正文：流式 markdown -->
+      <Response
+        v-else-if="part.type === 'text'"
+        :content="part.text"
+        class="md-content"
+      />
+
+      <!-- 工具调用：icon + 动作 + 高亮目标，可展开输出 -->
+      <ToolCallRow v-else :part="part" />
+    </template>
+
+    <!-- 无任何分段：思考中 loading -->
+    <div
+      v-if="!parts.length"
+      class="flex items-center gap-1.5 text-[var(--color-mut)]"
     >
-      <ReasoningTrigger />
-      <ReasoningContent :content="message.reasoning" class="text-[12px]" />
-    </Reasoning>
-
-    <!-- 流式 markdown（vue-stream-markdown 增量渲染，关闭逐段动画保证实时可见） -->
-    <Response v-if="message.content" :content="message.content" class="md-content" />
-
-    <div v-else-if="!message.reasoning" class="flex items-center gap-1.5 text-[var(--color-mut)]">
       <Loader :size="14" />
       <span class="text-[13px]">正在思考…</span>
     </div>

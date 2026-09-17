@@ -7,10 +7,12 @@ import type {
   AgentStreamEvent,
   AttachmentRef,
   ChatMessage,
+  ChatMessagePart,
   ReasoningEffort,
   SessionRecord,
   ToolApprovalDecision,
 } from "@zen/shared";
+import { applyStreamToParts } from "@zen/shared";
 import { buildHistory } from "@/stores/chat-types";
 import { useAgentStore } from "@/stores/agent";
 import { useGitStore } from "@/stores/git";
@@ -22,12 +24,10 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
 import type {
-  ActiveTool,
   ComposerAttachment,
   PendingApproval,
   RunPhase,
   SelectedSkill,
-  ToolHistoryItem,
 } from "@/stores/chat-types";
 import type { AskUserQuestionEvent } from "@zen/shared";
 
@@ -47,8 +47,6 @@ export const useChatStore = defineStore("chat", () => {
   const attachments = ref<ComposerAttachment[]>([]);
   /** 输入框选中的技能 chip（发送时以 /skill: 前缀注入消息） */
   const selectedSkills = ref<SelectedSkill[]>([]);
-  const activeTool = ref<ActiveTool | null>(null);
-  const toolHistory = ref<ToolHistoryItem[]>([]);
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
   const pendingAsk = ref<AskUserQuestionEvent | null>(null);
@@ -101,35 +99,45 @@ export const useChatStore = defineStore("chat", () => {
     return last?.role === "assistant" ? last : undefined;
   }
 
+  /** 流式分段容器：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
+  function streamingParts(): ChatMessagePart[] {
+    let last = lastAssistant();
+    if (!last) {
+      const message: ChatMessage = {
+        id: uuid(),
+        role: "assistant",
+        content: "",
+        parts: [],
+        createdAt: Date.now(),
+      };
+      messages.value.push(message);
+      last = message;
+    }
+    last.parts ??= [];
+    return last.parts;
+  }
+
   function appendDelta(text: string) {
     phase.value = "answering";
     const last = lastAssistant();
     if (last) {
       last.content += text;
+      last.parts ??= [];
+      applyStreamToParts(last.parts, { type: "delta", sessionId: "", text });
       return;
     }
     appendMessage({
       id: uuid(),
       role: "assistant",
       content: text,
+      parts: [{ type: "text", text }],
       createdAt: Date.now(),
     });
   }
 
   function appendReasoning(text: string) {
     phase.value = "thinking";
-    const last = lastAssistant();
-    if (last) {
-      last.reasoning = (last.reasoning ?? "") + text;
-      return;
-    }
-    appendMessage({
-      id: uuid(),
-      role: "assistant",
-      content: "",
-      reasoning: text,
-      createdAt: Date.now(),
-    });
+    applyStreamToParts(streamingParts(), { type: "reasoning_delta", sessionId: "", text });
   }
 
   function handleStreamEvent(event: AgentStreamEvent) {
@@ -150,49 +158,22 @@ export const useChatStore = defineStore("chat", () => {
         const last = lastAssistant();
         if (last) {
           last.reasoningMs = event.durationMs;
+          last.parts ??= [];
+          applyStreamToParts(last.parts, event);
         }
         break;
       }
       case "tool_input_start":
-        activeTool.value = {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          message: "准备工具参数",
-          state: "input-streaming",
-        };
-        statusText.value = `准备 ${event.toolName}`;
-        break;
       case "tool_start":
-        activeTool.value = {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          message: "正在调用工具",
-          state: "running",
-        };
-        statusText.value = `正在调用 ${event.toolName}`;
+        applyStreamToParts(streamingParts(), event);
         break;
       case "tool_progress":
-        activeTool.value = {
-          toolCallId: event.event.toolCallId,
-          toolName: event.event.toolName,
-          message: event.event.message,
-          percent: event.event.percent,
-          state: "running",
-        };
-        statusText.value = event.event.message;
+        applyStreamToParts(streamingParts(), event);
         break;
-      case "tool_end": {
-        toolHistory.value.push({
-          id: event.toolCallId,
-          toolName: event.toolName,
-          summary: event.summary,
-          ok: event.ok,
-          output: event.output,
-        });
-        activeTool.value = null;
+      case "tool_end":
+        applyStreamToParts(streamingParts(), event);
         statusText.value = event.summary;
         break;
-      }
       case "approval_request":
         pendingApproval.value = {
           approvalId: event.request.approvalId,
@@ -241,7 +222,6 @@ export const useChatStore = defineStore("chat", () => {
       case "done":
         status.value = "idle";
         isPaused.value = false;
-        activeTool.value = null;
         pendingApproval.value = null;
         statusText.value = event.reason === "cancelled" ? "已取消" : "";
         void refreshGit();
@@ -354,9 +334,7 @@ export const useChatStore = defineStore("chat", () => {
 
     status.value = "thinking";
     isPaused.value = false;
-    toolHistory.value = [];
     pendingApproval.value = null;
-    activeTool.value = null;
     phase.value = "thinking";
     statusText.value = "Agent 思考中…";
 
@@ -462,8 +440,6 @@ export const useChatStore = defineStore("chat", () => {
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
-    activeTool.value = null;
-    toolHistory.value = [];
     pendingApproval.value = null;
     pendingAsk.value = null;
     statusText.value = "";
@@ -511,8 +487,6 @@ export const useChatStore = defineStore("chat", () => {
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
-    activeTool.value = null;
-    toolHistory.value = [];
     pendingApproval.value = null;
     pendingAsk.value = null;
     statusText.value = "";
@@ -539,8 +513,6 @@ export const useChatStore = defineStore("chat", () => {
     effort,
     attachments,
     selectedSkills,
-    activeTool,
-    toolHistory,
     pendingApproval,
     pendingAsk,
     isPaused,

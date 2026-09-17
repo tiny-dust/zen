@@ -4,6 +4,7 @@ import { CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { computed, useSlots } from 'vue'
 import { Markdown } from 'vue-stream-markdown'
+import { streamMarkdownExtensions } from '@/components/ai-elements/response/extensions'
 import 'vue-stream-markdown/index.css'
 
 interface Props {
@@ -40,7 +41,12 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
       props.class,
     )"
   >
-    <!-- 同 Response：关闭流式逐段动画，思考文本随到随显 -->
-    <Markdown :content="md" :enable-animate="false" />
+    <!-- 同 Response：关闭流式逐段动画；思考文本用独立弱色（styles.css 的 .reasoning-dim 覆盖库的根节点前景色） -->
+    <Markdown
+      :content="md"
+      :enable-animate="false"
+      :extensions="streamMarkdownExtensions"
+      :is-dark="true"
+    />
   </CollapsibleContent>
 </template>

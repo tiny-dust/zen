@@ -1,19 +1,103 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import AppIcon from "@/components/base/AppIcon.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
+
+import type { UpdateStatusInfo } from "@zen/shared";
 
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
 
 const menuBarVisible = ref(true);
+
+/** 软件更新（临时开放）：更新源 + 检查/下载/安装 */
+const feedDraft = ref("");
+const updateStatus = ref<UpdateStatusInfo>({ phase: "idle" });
+const updateError = ref("");
+
+const updateStatusText = computed(() => {
+  switch (updateStatus.value.phase) {
+    case "checking":
+      return "正在检查更新…";
+    case "available":
+      return `发现新版本 v${updateStatus.value.version ?? ""}`;
+    case "not-available":
+      return "已是最新版本";
+    case "downloading":
+      return `正在下载更新 ${updateStatus.value.percent ?? 0}%`;
+    case "downloaded":
+      return `已下载 v${updateStatus.value.version ?? ""}，重启后安装`;
+    case "error":
+      return updateStatus.value.message || "更新失败";
+    default:
+      return "";
+  }
+});
+
+const canInstall = computed(() => updateStatus.value.phase === "downloaded");
+const canDownload = computed(() => updateStatus.value.phase === "available");
+const appVersion = ref("");
+
+onMounted(() => {
+  feedDraft.value = settings.value.updateFeedUrl ?? "";
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  void zen.app.info().then((info) => {
+    appVersion.value = info.version;
+  });
+  const off = zen.updates.onStatus((status) => {
+    updateStatus.value = status;
+    if (status.phase === "error") {
+      updateError.value = status.message ?? "更新失败";
+    }
+  });
+  onUnmounted(off);
+});
+
+function installUpdate() {
+  window.zen?.updates.install();
+}
+
+async function saveFeed() {
+  const url = feedDraft.value.trim() || null;
+  await settingsStore.setFeedUrl(url);
+  feedDraft.value = url ?? "";
+}
+
+async function checkUpdate() {
+  const zen = window.zen;
+  if (!zen || updateStatus.value.phase === "checking" || updateStatus.value.phase === "downloading") {
+    return;
+  }
+  updateError.value = "";
+  await saveFeed();
+  const result = await zen.updates.check();
+  if (!result.ok) {
+    updateError.value = result.error ?? "检查更新失败";
+  }
+}
+
+async function downloadUpdate() {
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  updateError.value = "";
+  const result = await zen.updates.download();
+  if (!result.ok) {
+    updateError.value = result.error ?? "下载失败";
+  }
+}
 </script>
 
 <template>
@@ -48,6 +132,63 @@ const menuBarVisible = ref(true);
           </div>
           <Switch v-model="menuBarVisible" />
         </div>
+      </CardContent>
+    </Card>
+
+    <!-- 软件更新（临时开放）：generic 更新源，局域网/本机静态目录即可 -->
+    <h3 class="settings-section-title">软件更新</h3>
+    <Card size="sm" class="settings-card">
+      <CardContent class="flex flex-col gap-3 p-4">
+        <div class="flex items-center gap-2">
+          <Input
+            v-model="feedDraft"
+            class="h-8 min-w-0 flex-1 font-[family-name:var(--font-mono)] text-[12px]"
+            placeholder="更新源地址，如 http://192.168.1.10:8899"
+            aria-label="更新源地址"
+            @keydown.enter="saveFeed"
+          />
+          <Button variant="outline" size="sm" class="flex-none" @click="saveFeed">保存</Button>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="updateStatus.phase === 'checking' || updateStatus.phase === 'downloading'"
+            @click="checkUpdate"
+          >
+            {{ updateStatus.phase === "checking" ? "检查中…" : "检查更新" }}
+          </Button>
+          <Button
+            v-if="canDownload"
+            size="sm"
+            @click="downloadUpdate"
+          >
+            下载更新
+          </Button>
+          <Button
+            v-if="canInstall"
+            size="sm"
+            @click="installUpdate"
+          >
+            立即安装并重启
+          </Button>
+          <span class="text-[11px] text-[var(--color-dim)]">当前版本 v{{ appVersion }}</span>
+        </div>
+        <p
+          v-if="updateStatusText"
+          class="m-0 text-[12px]"
+          :class="updateStatus.phase === 'error' ? 'text-[var(--color-err)]' : 'text-[var(--color-mut)]'"
+          role="status"
+        >
+          {{ updateStatusText }}
+        </p>
+        <p v-if="updateError && updateStatus.phase !== 'error'" class="m-0 text-[12px] text-[var(--color-err)]">
+          {{ updateError }}
+        </p>
+        <p class="m-0 text-[11px] leading-relaxed text-[var(--color-dim)]">
+          默认指向本机 8899 端口；在仓库里运行 pnpm updates:serve 即可启动更新源（内含
+          latest-mac.yml 与安装包），局域网机器改填对应 IP。
+        </p>
       </CardContent>
     </Card>
   </section>
