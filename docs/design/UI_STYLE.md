@@ -118,3 +118,10 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 流式渲染修复：`Response`/`ReasoningContent` 关闭 vue-stream-markdown 逐段淡入动画（`enable-animate: false`）——动画 span `backwards` 填充在快速输出下让尾部长时间不可见（表现为底部大片空白、看不到实时内容），关闭后文本随到随显且 DOM 量大幅下降；`Response` 根元素 `size-full` 改 `w-full` 不再强制 height:100%。ChatTimeline 自动滚动加 `overflow-anchor: none` 与贴底策略（`stickToBottom` + ResizeObserver 兜底）——markdown 异步增量渲染的实际高度在 nextTick 之后才增长，仅 watch content 会滞后于真实渲染高度；用户上滚阅读时暂停跟随。
   - 审批与提问上移：`ApprovalCard.vue`（从 AgentRunStatus 拆出，新增「全部允许（本会话）」——shared `ToolApprovalDecision.always`，agent-core `rememberedTools` 会话级记忆放行同类工具）与 `AskUserCard` 固定 sticky 在对话区顶部，方便操作。
   - 运行状态卡下线：删除 `AgentRunStatus.vue`（正在回复/暂停/停止卡片），运行状态直接体现在 Composer 发送按钮位——运行中变「停止」（取消运行）、暂停时变「继续」（恢复运行）；发送按钮态用既有 token（`--color-send-empty/-fg`），不新增色值。
+- 2026-09-17（消息流分段与工具可视化）：
+  - 消息改为按时间顺序的分段渲染（`ChatMessage.parts`：reasoning / text / tool，main 落库与 ui 渲染共用 `applyStreamToParts`，持久化在 meta_json.parts 读出时提升回顶层）：每次思考独立成折叠面板按序展示（后随正文/工具时默认收起），不再全部并进一个面板；旧消息按「思考 → 正文」合成兼容。
+  - 工具调用行内渲染（`ToolCallRow.vue` + `tool-part.ts`）：icon + 动作名（执行终端/写入文件/读取文件/浏览目录/搜索/网络/技能/MCP）+ 高亮目标——文件路径带文件 icon 成 chip，点击在右栏文件面板定位（right-panel 新增 `revealFile`，FilePanel 展开祖先目录并选中）；终端命令以 mono chip 展示；行尾状态（旋转/勾/叉），点击展开结果输出。删除死状态 `activeTool`/`toolHistory`。
+  - 思考内容独立弱色：`.reasoning-dim .stream-markdown` 覆盖库根节点的前景色重置（`--color-mut`，1.7 行距），与正文 14px 主色区分。
+  - 密度收紧：消息间距 gap-5→gap-4，user 气泡 py-2.5→py-2，Reasoning 去掉 mb-4（由分段 gap 承担），`.md-content` p/pre/ul 外边距 8→6px。
+  - 代码高亮：接入 `@stream-markdown/code`（Shiki 4 + `createJavaScriptRegexEngine` 免 wasm），主题对 github-light/dark，Markdown 显式 `:is-dark="true"`（渲染根节点带 `.dark` 激活 `--shiki-dark` 变量）；Response 与 ReasoningContent 共用 `response/extensions.ts`。
+  - 提交图谱分支徽标：提交行渲染 %D refs（当前分支 accent 实底、本地分支描边、远端弱化、tag 蓝色，>3 个收进 +N）；泳道算法本就支持多分支（zen 仓库当前 main 完全并入 develop，单轴即真实形态）。
