@@ -5,6 +5,7 @@ import type {
   GitBranchInfo,
   GitBranches,
   GitFileChange,
+  GitLogEntry,
   GitPullRequest,
   GitStatus,
 } from "@zen/shared";
@@ -20,8 +21,11 @@ export const useGitStore = defineStore("git", () => {
   const pullRequest = ref<GitPullRequest | null>(null);
   const selectedPath = ref("");
   const diff = ref("");
+  const diffLoading = ref(false);
   const loading = ref(false);
   const branchesLoading = ref(false);
+  const log = ref<GitLogEntry[]>([]);
+  const logLoading = ref(false);
   const diffLayout = ref<DiffLayout>("single");
   const commitPanelOpen = ref(false);
   const branchPickerOpen = ref(false);
@@ -76,14 +80,62 @@ export const useGitStore = defineStore("git", () => {
     }
   }
 
+  /** 提交历史（图谱视图数据源） */
+  async function refreshLog() {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      log.value = [];
+      return;
+    }
+    logLoading.value = true;
+    try {
+      log.value = await zen.git.log(root);
+    } finally {
+      logLoading.value = false;
+    }
+  }
+
+  /** 未跟踪文件没有 git diff：读文件内容合成纯新增 diff（二进制/超限时退化为提示行） */
+  function toAddedDiff(path: string, content: string): string {
+    const body = content.replace(/\n$/, "");
+    const rows = body ? body.split("\n") : [];
+    const lines = rows.map((line) => `+${line}`).join("\n");
+    return [
+      `diff --git a/${path} b/${path}`,
+      "new file mode",
+      `@@ -0,0 +1,${rows.length} @@`,
+      lines,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   async function selectFile(path: string) {
     selectedPath.value = path;
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
+      diff.value = "";
       return;
     }
-    diff.value = (await zen.git.diff(root, path)) ?? "（无未暂存 diff）";
+    diffLoading.value = true;
+    try {
+      const change = files.value.find((item) => item.path === path);
+      if (change?.untracked) {
+        const content = await zen.workspace.readFile(root, path);
+        diff.value = content ? toAddedDiff(path, content.content) : `Binary files ${path} differ`;
+        return;
+      }
+      let raw = await zen.git.diff(root, path);
+      if (!raw) {
+        // 仅已暂存的文件没有 unstaged diff，回落到 staged diff
+        raw = await zen.git.diff(root, path, true);
+      }
+      diff.value = raw ?? "";
+    } finally {
+      diffLoading.value = false;
+    }
   }
 
   /** 从会话信息卡打开右侧变更面板 */
@@ -151,6 +203,24 @@ export const useGitStore = defineStore("git", () => {
     return result;
   }
 
+  /** 分批提交：按变更内容自动分组，每批独立 commit；返回批次清单供 UI 反馈 */
+  async function commitBatched(paths: string[], options: { push?: boolean } = {}) {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, batches: [], error: "未绑定工作目录" };
+    }
+    const result = await zen.git.commitBatched(root, paths, { push: options.push });
+    if (result.ok) {
+      const hashes = result.batches.map((batch) => batch.hash).join(" ");
+      feedback.value = options.push
+        ? `已分 ${result.batches.length} 批提交并推送（${hashes}）`
+        : `已分 ${result.batches.length} 批提交（${hashes}）`;
+    }
+    await Promise.all([refreshStatus(), refreshBranches()]);
+    return result;
+  }
+
   async function push() {
     const zen = window.zen;
     const root = cwd();
@@ -171,8 +241,10 @@ export const useGitStore = defineStore("git", () => {
     status.value = null;
     branches.value = { local: [], remote: [] };
     pullRequest.value = null;
+    log.value = [];
     selectedPath.value = "";
     diff.value = "";
+    diffLoading.value = false;
     commitPanelOpen.value = false;
     branchPickerOpen.value = false;
     feedback.value = "";
@@ -199,8 +271,11 @@ export const useGitStore = defineStore("git", () => {
     status,
     branches,
     pullRequest,
+    log,
+    logLoading,
     selectedPath,
     diff,
+    diffLoading,
     loading,
     branchesLoading,
     diffLayout,
@@ -214,10 +289,12 @@ export const useGitStore = defineStore("git", () => {
     hasChanges,
     refreshStatus,
     refreshBranches,
+    refreshLog,
     selectFile,
     checkout,
     createBranch,
     commit,
+    commitBatched,
     push,
     reset,
     statusBadge,

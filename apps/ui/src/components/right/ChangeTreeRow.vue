@@ -69,10 +69,10 @@ function active() {
       </span>
       <span
         v-if="node.change"
-        class="flex-none font-[family-name:var(--font-mono)] text-[10px]"
+        class="flex flex-none items-center gap-1 font-[family-name:var(--font-mono)] text-[10px]"
       >
-        <span class="text-[var(--color-add)]">{{ node.change.add || "" }}</span>
-        <span class="text-[var(--color-del)]">{{ node.change.del || "" }}</span>
+        <span v-if="node.change.add" class="text-[var(--color-add)]">+{{ node.change.add }}</span>
+        <span v-if="node.change.del" class="text-[var(--color-del)]">-{{ node.change.del }}</span>
       </span>
     </button>
     <template v-if="node.isDir && expanded.has(node.path)">
