@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 
 import type { WorkspaceFile } from "@zen/shared";
 import { BUILTIN_SKILLS } from "@zen/shared";
+import { useAgentStore } from "@/stores/agent";
 
 export interface TriggerItem {
   insert: string;
@@ -30,13 +31,27 @@ export function useComposerTriggers(options: {
 
   const tokenStart = ref(0);
 
+  const agentStore = useAgentStore();
+
   const skillItems = computed<TriggerItem[]>(() => {
+    // 扫描到的真实技能优先；无扫描结果时回退到内置占位
+    if (agentStore.skills.length) {
+      return agentStore.skills
+        .filter((skill) => matchesQuery(skill.id + skill.name, query.value))
+        .slice(0, 30)
+        .map((skill) => ({
+          insert: `/skill:${skill.name} `,
+          label: skill.name,
+          desc: skill.description || skill.dir,
+          icon: "skill" as const,
+        }));
+    }
     return BUILTIN_SKILLS.filter((item) => matchesQuery(item.id + item.label, query.value)).map(
       (item) => ({
         insert: `/${item.id} `,
         label: item.label,
         desc: item.description,
-        icon: "skill",
+        icon: "skill" as const,
       }),
     );
   });

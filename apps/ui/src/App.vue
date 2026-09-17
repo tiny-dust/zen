@@ -5,6 +5,7 @@ import { computed, onMounted, onUnmounted } from "vue";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
+import TaskFloatingPanel from "@/components/chat/TaskFloatingPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import RightPanel from "@/components/right/RightPanel.vue";
@@ -14,6 +15,7 @@ import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
 import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
 import { useMediaQuery } from "@/composables/useMediaQuery";
+import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
@@ -43,6 +45,7 @@ let disposeChat: (() => void) | undefined;
 let disposeUser: (() => void) | undefined;
 let disposeSettings: (() => void) | undefined;
 let disposeModels: (() => void) | undefined;
+let disposeAgent: (() => void) | undefined;
 
 useGlobalShortcuts({
   shortcuts: () => settingsStore.settings.shortcuts,
@@ -72,6 +75,7 @@ onMounted(() => {
   disposeUser = userStore.bootstrap();
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
+  disposeAgent = useAgentStore().bootstrap();
   void useWorkspaceStore().refresh();
   // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
   layoutStore.syncViewport();
@@ -84,6 +88,7 @@ onUnmounted(() => {
   disposeUser?.();
   disposeSettings?.();
   disposeModels?.();
+  disposeAgent?.();
 });
 
 function onLeftDrag(delta: number) {
@@ -149,6 +154,7 @@ const sideRail =
     </div>
 
     <InfoPopup />
+    <TaskFloatingPanel />
     <SettingsPage />
   </div>
 </template>

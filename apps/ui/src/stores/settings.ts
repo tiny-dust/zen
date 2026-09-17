@@ -10,7 +10,14 @@ const fallbackSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
 };
 
-export type SettingsTab = "general" | "profile" | "models" | "shortcuts";
+export type SettingsTab =
+  | "general"
+  | "profile"
+  | "models"
+  | "shortcuts"
+  | "agent"
+  | "skills"
+  | "prompts";
 
 export const useSettingsStore = defineStore("settings", () => {
   const settings = ref<AppSettings>({ ...fallbackSettings });
@@ -33,7 +40,15 @@ export const useSettingsStore = defineStore("settings", () => {
     }
     const parts = hash.slice(1).split("/");
     const tab = (parts[1] || "general") as SettingsTab;
-    const allowed: SettingsTab[] = ["general", "profile", "models", "shortcuts"];
+    const allowed: SettingsTab[] = [
+      "general",
+      "profile",
+      "models",
+      "shortcuts",
+      "agent",
+      "skills",
+      "prompts",
+    ];
     openSettings(allowed.includes(tab) ? tab : "general");
   }
 

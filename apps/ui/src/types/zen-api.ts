@@ -1,8 +1,10 @@
 import type {
   AddModelInput,
   AgentRunRequest,
+  AgentSettings,
   AgentStreamEvent,
   AppSettings,
+  AskUserAnswer,
   AuthState,
   CatalogMatch,
   CatalogModel,
@@ -17,15 +19,20 @@ import type {
   GitLogEntry,
   GitPullRequest,
   GitStatus,
+  McpServerConfig,
+  McpServerStatus,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
+  PromptPreset,
   ProviderInput,
   ProviderModel,
   ProviderSummary,
   ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
+  SkillSummary,
+  SyncResult,
   ToolApprovalDecision,
   UpdateModelInput,
   WorkspaceFile,
@@ -138,7 +145,27 @@ export interface ZenApi {
       sessionId: string,
       decision: ToolApprovalDecision,
     ): Promise<{ ok: boolean; error?: string }>;
+    resolveAsk(
+      sessionId: string,
+      answer: AskUserAnswer,
+    ): Promise<{ ok: boolean; error?: string }>;
+    getSettings(): Promise<AgentSettings>;
+    setSettings(partial: Partial<AgentSettings>): Promise<AgentSettings>;
+    listSkills(): Promise<SkillSummary[]>;
+    pickDirectory(): Promise<string | null>;
+    promptPresets(): Promise<PromptPreset[]>;
+    sandboxDir(): Promise<string>;
+    rebuildSandbox(projectPath: string): Promise<{ ok: boolean; dir?: string; error?: string }>;
+    onSettingsChanged(handler: (settings: AgentSettings) => void): () => void;
     onEvent(handler: (event: AgentStreamEvent) => void): () => void;
+  };
+  mcp: {
+    list(): Promise<McpServerStatus[]>;
+    setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]>;
+  };
+  sync: {
+    upload(): Promise<SyncResult>;
+    download(): Promise<SyncResult>;
   };
   workspace: {
     listFiles(cwd?: string): Promise<WorkspaceFile[]>;

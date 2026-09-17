@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ExternalLink } from "@lucide/vue";
+import { CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, watch } from "vue";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
 
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
+const agentStore = useAgentStore();
 const { auth, loading, refreshing, deviceCode, loginError } = storeToRefs(userStore);
+const { settings: agentSettings, syncBusy, lastSync } = storeToRefs(agentStore);
 
 const user = computed(() => auth.value.user);
 const stats = computed(() => {
@@ -135,6 +138,42 @@ function onOpenBlog() {
             {{ refreshing ? "刷新中…" : "刷新资料" }}
           </Button>
           <Button variant="destructive" size="sm" @click="userStore.logout()">退出登录</Button>
+        </div>
+
+        <!-- 配置云同步 -->
+        <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">配置云同步</div>
+            <label class="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-[var(--color-mut)]">
+              <input
+                type="checkbox"
+                class="accent-[var(--color-accent)]"
+                :checked="agentSettings.syncEnabled"
+                @change="agentStore.updateSettings({ syncEnabled: !agentSettings.syncEnabled })"
+              />
+              允许同步
+            </label>
+          </div>
+          <p class="m-0 text-[11.5px] leading-snug text-[var(--color-mut)]">
+            将模型供应、Agent 设置与 MCP 配置同步到你的 GitHub 私密仓库（默认
+            {{ agentSettings.syncRepo || "zen-config" }}）。API Key 属于敏感凭据，永远不会上传；登录授权需包含
+            repo 权限（见 docs/auth/github-oauth-setup.md）。
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" :disabled="syncBusy || !agentSettings.syncEnabled" @click="agentStore.syncUpload()">
+              <CloudUpload :size="13" data-icon="inline-start" />上传配置
+            </Button>
+            <Button variant="outline" size="sm" :disabled="syncBusy || !agentSettings.syncEnabled" @click="agentStore.syncDownload()">
+              <CloudDownload :size="13" data-icon="inline-start" />下载并合并
+            </Button>
+          </div>
+          <p
+            v-if="lastSync"
+            class="m-0 text-[11.5px]"
+            :class="lastSync.ok ? 'text-[var(--color-mut)]' : 'text-[var(--color-danger-fg)]'"
+          >
+            {{ lastSync.ok ? `已同步 ${lastSync.repo ?? ""}${lastSync.summary ? `：${lastSync.summary}` : ""}` : lastSync.error }}
+          </p>
         </div>
       </CardContent>
     </Card>
