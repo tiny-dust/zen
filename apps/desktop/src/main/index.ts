@@ -18,6 +18,7 @@ import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
 import { initUserState, registerUserIpc } from "./user-ipc";
+import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
@@ -107,6 +108,7 @@ function createWindow(): BrowserWindow {
 function registerIpc(): void {
   ipcMain.handle("app:info", () => ({
     workspaceRoot: process.cwd(),
+    version: app.getVersion(),
     versions: {
       electron: process.versions.electron,
       chrome: process.versions.chrome,
@@ -330,6 +332,7 @@ app.whenReady().then(() => {
   registerAgentIpc(broadcast);
   registerMcpIpc();
   registerSyncIpc();
+  registerUpdaterIpc();
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));

@@ -64,13 +64,22 @@ function toSession(row: SessionRow): SessionRecord {
 }
 
 function toMessage(row: MessageRow): ChatMessage {
+  let meta = row.meta_json ? (JSON.parse(row.meta_json) as Record<string, unknown>) : undefined;
+  // parts 持久化在 meta_json.parts，读出时提升回顶层字段
+  let parts: ChatMessage["parts"];
+  if (meta && Array.isArray(meta.parts)) {
+    parts = meta.parts as ChatMessage["parts"];
+    const { parts: _parts, ...rest } = meta;
+    meta = Object.keys(rest).length ? rest : undefined;
+  }
   return {
     id: row.id,
     role: row.role,
     content: row.content,
     reasoning: row.reasoning ?? undefined,
     reasoningMs: row.reasoning_ms ?? undefined,
-    meta: row.meta_json ? (JSON.parse(row.meta_json) as Record<string, unknown>) : undefined,
+    ...(parts?.length ? { parts } : {}),
+    ...(meta ? { meta } : {}),
     createdAt: row.created_at,
   };
 }
@@ -218,6 +227,10 @@ export function ensureSessionTitle(id: string, title: string): void {
 }
 
 export function appendMessage(sessionId: string, message: ChatMessage): void {
+  // parts 并入 meta_json 持久化，避免改表结构
+  const meta = message.parts?.length
+    ? { ...message.meta, parts: message.parts }
+    : message.meta;
   getDb()
     .prepare(
       `INSERT OR IGNORE INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
@@ -230,7 +243,7 @@ export function appendMessage(sessionId: string, message: ChatMessage): void {
       message.content,
       message.reasoning ?? null,
       message.reasoningMs ?? null,
-      message.meta ? JSON.stringify(message.meta) : null,
+      meta ? JSON.stringify(meta) : null,
       message.createdAt,
     );
   getDb().prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").run(Date.now(), sessionId);

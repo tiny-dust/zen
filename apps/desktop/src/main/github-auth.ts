@@ -48,6 +48,11 @@ function requireClientId(): string {
   return clientId;
 }
 
+/** 非抛出版：未配置时返回 null（token 刷新等可选路径使用） */
+export function findClientId(): string | null {
+  return readEnv("GITHUB_CLIENT_ID") ?? null;
+}
+
 export async function encryptTokens(tokens: GitHubTokens): Promise<EncryptedTokens> {
   const accessTokenEnc = await encryptSecret(tokens.accessToken);
   const encrypted: EncryptedTokens = { accessTokenEnc };
@@ -254,4 +259,39 @@ export async function loginWithGitHub(options: {
   });
   const user = await fetchGitHubUser(tokens.accessToken);
   return { user, tokens };
+}
+
+/** 用 refresh token 换新令牌（GitHub App 过期令牌续期；刷新会轮换 refresh token） */
+export async function refreshAccessToken(
+  clientId: string,
+  refreshToken: string,
+): Promise<GitHubTokens> {
+  const response = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "zen-desktop",
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }),
+  });
+
+  const data = (await response.json()) as TokenPollResponse;
+  if (!response.ok || !data.access_token) {
+    throw new Error(
+      data.error_description || data.error || `刷新令牌失败（HTTP ${response.status}）`,
+    );
+  }
+  const tokens: GitHubTokens = { accessToken: data.access_token };
+  if (data.refresh_token) {
+    tokens.refreshToken = data.refresh_token;
+  }
+  if (data.expires_in) {
+    tokens.expiresAt = Date.now() + data.expires_in * 1000;
+  }
+  return tokens;
 }
