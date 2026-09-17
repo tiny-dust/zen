@@ -7,6 +7,7 @@ import {
   Mic,
   ShieldCheck,
   Sparkles,
+  X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
@@ -42,6 +43,7 @@ const {
   canSend,
   effort,
   attachments,
+  skillMentions,
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
@@ -87,6 +89,10 @@ const triggers = useComposerTriggers({
     input.value = next;
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
+  // 技能选中不插入原文：去掉触发 token，由文本前方 tag 行展示，发送时拼回 /skill 前缀
+  onSelectSkill: (item) => {
+    chatStore.addSkillMention({ label: item.label, insert: item.insert });
+  },
 });
 
 function formatSize(bytes: number): string {
@@ -231,6 +237,25 @@ function removeAttachment(id: string) {
         "
       >
         <label class="sr-only" for="chat-input">消息输入</label>
+        <!-- 已选技能 tag：位于文本内容前方，可单独移除 -->
+        <div v-if="skillMentions.length" class="mb-1 flex flex-wrap items-center gap-1.5">
+          <span
+            v-for="tag in skillMentions"
+            :key="tag.insert"
+            class="flex items-center gap-1 rounded-full border border-[var(--color-line)] bg-[var(--color-side-glass)] py-0.5 pl-2 pr-1 text-[11px] text-[var(--color-txt)]"
+          >
+            <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
+            <span class="max-w-[160px] truncate">{{ tag.label }}</span>
+            <button
+              type="button"
+              class="flex size-4 items-center justify-center rounded-full text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="`移除技能 ${tag.label}`"
+              @click="chatStore.removeSkillMention(tag.insert)"
+            >
+              <X class="size-3" />
+            </button>
+          </span>
+        </div>
         <Textarea
           id="chat-input"
           ref="textareaEl"
