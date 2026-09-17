@@ -14,6 +14,8 @@ import type {
   DirEntry,
   FetchModelsResult,
   GitBranches,
+  GitCommitBatch,
+  GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
   GitStatus,
@@ -95,6 +97,23 @@ const zen = {
     },
     log(cwd?: string): Promise<GitLogEntry[]> {
       return ipcRenderer.invoke("git:log", cwd);
+    },
+    commitDetail(cwd: string | undefined, hash: string): Promise<GitCommitDetail | null> {
+      return ipcRenderer.invoke("git:commit-detail", cwd, hash);
+    },
+    commitFileDiff(
+      cwd: string | undefined,
+      hash: string,
+      path: string,
+    ): Promise<string | null> {
+      return ipcRenderer.invoke("git:commit-diff", cwd, hash, path);
+    },
+    commitBatched(
+      cwd: string | undefined,
+      files: string[],
+      options?: { push?: boolean },
+    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> {
+      return ipcRenderer.invoke("git:commit-batched", cwd, files, options);
     },
     aiMessage(cwd?: string): Promise<string> {
       return ipcRenderer.invoke("git:ai-message", cwd);

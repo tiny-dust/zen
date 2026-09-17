@@ -171,6 +171,38 @@ export interface GitLogEntry {
   subject: string;
 }
 
+/** 单个提交的变更文件（diff-tree name-status + numstat 合并，按首父对比） */
+export interface GitCommitFile {
+  path: string;
+  /** A/M/D/T 等原始状态字母 */
+  status: string;
+  add: number;
+  del: number;
+}
+
+/** 单个提交的完整信息（图谱展开详情） */
+export interface GitCommitDetail {
+  hash: string;
+  parents: string[];
+  author: string;
+  authorEmail: string;
+  committer: string;
+  committerEmail: string;
+  authorTime: number;
+  committerTime: number;
+  subject: string;
+  /** 完整提交信息（含正文） */
+  body: string;
+  files: GitCommitFile[];
+}
+
+/** 分批提交的单批结果；失败批次 hash 为空 */
+export interface GitCommitBatch {
+  message: string;
+  files: string[];
+  hash: string;
+}
+
 /** 本地/远程分支条目 */
 export interface GitBranchInfo {
   name: string;
