@@ -82,6 +82,8 @@ export interface ToolApprovalDecision {
   approvalId: string;
   approved: boolean;
   reason?: string;
+  /** 本会话内对该工具全部放行（避免同类调用逐次确认） */
+  always?: boolean;
 }
 
 export type AgentStreamEvent =
