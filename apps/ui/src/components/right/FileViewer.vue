@@ -140,7 +140,7 @@ defineExpose({ render });
         </p>
         <div
           ref="hostEl"
-          class="min-h-0 flex-1 overflow-auto font-[family-name:var(--font-mono)] text-[12px]"
+          class="zen-code-viewer min-h-0 flex-1 overflow-hidden font-[family-name:var(--font-mono)] text-[12px]"
         />
       </template>
     </template>

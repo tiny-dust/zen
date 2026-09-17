@@ -2,6 +2,7 @@
 import { FileCode, RefreshCw } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
+import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,21 @@ const loading = ref(false);
 const selected = ref("");
 const expanded = ref(new Set<string>([""]));
 const query = ref("");
+
+/** 树/预览分割比例（%），拖拽手柄调整；预览列保底约 1/3 */
+const splitPct = ref(42);
+const SPLIT_MIN = 18;
+const SPLIT_MAX = 66;
+const containerEl = ref<HTMLElement | null>(null);
+
+function onSplitDrag(delta: number) {
+  const total = containerEl.value?.clientWidth ?? 0;
+  if (!total) {
+    return;
+  }
+  const next = splitPct.value + (delta / total) * 100;
+  splitPct.value = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, next));
+}
 
 const treeRoot = computed(() => workspaceStore.pathOf(chatStore.sessionWorkspaceId));
 const fileCount = computed(() => files.value.filter((item) => !item.isDir).length);
@@ -104,8 +120,11 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 gap-2">
-    <div class="flex w-[42%] min-w-[140px] flex-none flex-col gap-1.5">
+  <div ref="containerEl" class="flex min-h-0 flex-1 gap-0.5">
+    <div
+      class="flex min-w-[140px] flex-none flex-col gap-1.5"
+      :style="{ width: `${splitPct}%` }"
+    >
       <div class="flex flex-none items-center gap-1">
         <span
           class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
@@ -141,7 +160,7 @@ watch(
       </div>
     </div>
 
-    <div class="w-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
+    <ResizeHandle line orientation="vertical" @drag="onSplitDrag" />
 
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <div v-if="selected" class="flex flex-none items-center gap-1 pb-1">

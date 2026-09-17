@@ -45,7 +45,9 @@ const remoteBranches = computed(() =>
 );
 
 const messagePlaceholder = computed(() =>
-  generating.value ? "正在分析变更并生成提交信息…" : "提交信息（留空则提交时自动生成）…",
+  generating.value
+    ? "正在分析变更并生成提交信息…"
+    : "提交信息（留空则按变更内容自动分批提交）…",
 );
 
 function canSubmit() {
@@ -115,28 +117,31 @@ async function submit(mode: "commit" | "commit-push" | "push") {
       return;
     }
 
-    // 提交相关操作：message 为空则先生成，再交给后端（后端还有兜底）
-    if (!message.value.trim()) {
-      generating.value = true;
-      try {
-        const text = await window.zen?.git.aiMessage(gitStore.cwd());
-        if (text?.trim()) {
-          message.value = text.trim();
-        }
-      } catch {
-        // 交给后端 fallback
-      } finally {
-        generating.value = false;
+    // 手动填写 message：尊重显式意图，单条提交；留空则按变更内容自动分批提交
+    if (message.value.trim()) {
+      const paths = gitStore.files.map((item) => item.path);
+      const result = await gitStore.commit(message.value, paths, {
+        push: mode === "commit-push",
+        includeUnstaged: includeUnstaged.value,
+      });
+      if (!result.ok) {
+        error.value = result.error ?? "提交失败";
+        return;
       }
+      message.value = "";
+      emit("close");
+      return;
     }
 
-    const paths = gitStore.files.map((item) => item.path);
-    const result = await gitStore.commit(message.value, paths, {
-      push: mode === "commit-push",
-      includeUnstaged: includeUnstaged.value,
-    });
+    const paths = gitStore.files
+      .filter((item) => includeUnstaged.value || (item.x !== " " && !item.untracked))
+      .map((item) => item.path);
+    const result = await gitStore.commitBatched(paths, { push: mode === "commit-push" });
     if (!result.ok) {
-      error.value = result.error ?? "提交失败";
+      error.value =
+        result.batches.length > 0
+          ? `${result.error ?? "部分批次提交失败"}（已完成 ${result.batches.length} 批）`
+          : (result.error ?? "提交失败");
       return;
     }
     message.value = "";

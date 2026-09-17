@@ -43,7 +43,7 @@ function tabCls(id: string) {
   >
     <!-- 头行：Tab 与折叠开关同级 -->
     <header
-      class="flex h-[var(--titlebar-h)] flex-none items-center gap-1 px-2 select-none [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
+      class="flex h-[var(--titlebar-h)] flex-none items-center gap-1 px-2 select-none [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag] [&_[role='tab']]:[-webkit-app-region:no-drag]"
     >
       <div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist">
         <div
