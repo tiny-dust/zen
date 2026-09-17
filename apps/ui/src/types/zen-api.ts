@@ -12,6 +12,8 @@ import type {
   DirEntry,
   FetchModelsResult,
   GitBranches,
+  GitCommitBatch,
+  GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
   GitStatus,
@@ -81,6 +83,13 @@ export interface ZenApi {
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
     log(cwd?: string): Promise<GitLogEntry[]>;
+    commitDetail(cwd: string | undefined, hash: string): Promise<GitCommitDetail | null>;
+    commitFileDiff(cwd: string | undefined, hash: string, path: string): Promise<string | null>;
+    commitBatched(
+      cwd: string | undefined,
+      files: string[],
+      options?: { push?: boolean },
+    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }>;
     aiMessage(cwd?: string): Promise<string>;
     createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
     branches(cwd?: string): Promise<GitBranches>;

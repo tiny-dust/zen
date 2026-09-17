@@ -8,6 +8,9 @@ import { completeOnce } from "./model-api";
 import type {
   GitBranchInfo,
   GitBranches,
+  GitCommitBatch,
+  GitCommitDetail,
+  GitCommitFile,
   GitFileChange,
   GitLogEntry,
   GitPullRequest,
@@ -39,6 +42,11 @@ function parseNumstat(output: string): Map<string, { add: number; del: number }>
     });
   }
   return map;
+}
+
+/** 重命名路径 "old -> new" 取新路径 */
+function normalizeDiffPath(path: string): string {
+  return path.includes(" -> ") ? (path.split(" -> ").pop() ?? "") : path;
 }
 
 /** 未跟踪文件按行数计入新增（上限 2000，避免超大文件拖慢 status） */
@@ -303,6 +311,164 @@ export function registerGitIpc(): void {
     }
   });
 
+  const COMMIT_HASH_RE = /^[0-9a-f]{4,40}$/i;
+
+  /** 提交详情（图谱展开）：完整信息 + 首父对比的变更文件 */  ipcMain.handle(
+    "git:commit-detail",
+    async (_event, cwd: string | undefined, hash: string): Promise<GitCommitDetail | null> => {
+      if (!COMMIT_HASH_RE.test(hash)) {
+        return null;
+      }
+      const workdir = cwd || process.cwd();
+      const SEP = "\u001f";
+      try {
+        const [infoRaw, numstat, nameStatus] = await Promise.all([
+          git(workdir, [
+            "log",
+            "-1",
+            "--date=unix",
+            // %B 含完整 message（主题重复一次无碍，正文以 %B 为准）
+            `--pretty=format:%H${SEP}%P${SEP}%an${SEP}%ae${SEP}%at${SEP}%cn${SEP}%ce${SEP}%ct${SEP}%s${SEP}%B`,
+            hash,
+          ]),
+          // merge 提交按首父对比；--root 覆盖根提交
+          git(workdir, [
+            "diff-tree",
+            "--no-commit-id",
+            "-r",
+            "--root",
+            "-m",
+            "--first-parent",
+            "--numstat",
+            hash,
+          ]),
+          git(workdir, [
+            "diff-tree",
+            "--no-commit-id",
+            "-r",
+            "--root",
+            "-m",
+            "--first-parent",
+            "--name-status",
+            hash,
+          ]),
+        ]);
+        const [hashOut = "", parentsRaw = "", author = "", authorEmail = "", authorTime = "0", committer = "", committerEmail = "", committerTime = "0", subject = "", ...bodyRest] = infoRaw.split(SEP);
+
+        const stats = new Map<string, { add: number; del: number }>();
+        for (const line of numstat.split("\n")) {
+          if (!line.trim()) {
+            continue;
+          }
+          const [add = "-", del = "-", path = ""] = line.split("\t");
+          if (!path) {
+            continue;
+          }
+          stats.set(normalizeDiffPath(path), {
+            add: add === "-" ? 0 : Number(add) || 0,
+            del: del === "-" ? 0 : Number(del) || 0,
+          });
+        }
+        const files: GitCommitFile[] = [];
+        for (const line of nameStatus.split("\n")) {
+          if (!line.trim()) {
+            continue;
+          }
+          const [status = "M", ...rest] = line.split("\t");
+          const path = normalizeDiffPath(rest.join("\t"));
+          if (!path) {
+            continue;
+          }
+          const stat = stats.get(path) ?? { add: 0, del: 0 };
+          files.push({ path, status: status.slice(0, 1), add: stat.add, del: stat.del });
+        }
+        return {
+          hash: hashOut || hash,
+          parents: parentsRaw ? parentsRaw.split(" ").filter(Boolean) : [],
+          author,
+          authorEmail,
+          committer,
+          committerEmail,
+          authorTime: Number(authorTime) * 1000,
+          committerTime: Number(committerTime) * 1000,
+          subject,
+          body: bodyRest.join(SEP).replace(/\n$/, ""),
+          files,
+        };
+      } catch {
+        return null;
+      }
+    },
+  );
+
+  /** 提交内单个文件的 patch（与 commit-detail 同口径：首父对比，根提交 --root） */  ipcMain.handle(
+    "git:commit-diff",
+    async (
+      _event,
+      cwd: string | undefined,
+      hash: string,
+      path: string,
+    ): Promise<string | null> => {
+      if (!COMMIT_HASH_RE.test(hash) || !path.trim()) {
+        return null;
+      }
+      const workdir = cwd || process.cwd();
+      try {
+        const output = await git(
+          workdir,
+          ["diff-tree", "--no-commit-id", "--root", "-p", "-m", "--first-parent", hash, "--", path],
+          DIFF_LIMIT * 2,
+        );
+        return output.length > DIFF_LIMIT ? `${output.slice(0, DIFF_LIMIT)}\n… diff 已截断` : output;
+      } catch {
+        return null;
+      }
+    },
+  );
+
+  /** 分批提交：按文件变更内容分组，每批独立 add + pathspec 限定 commit，最后统一 push */
+  ipcMain.handle(
+    "git:commit-batched",
+    async (
+      _event,
+      cwd: string | undefined,
+      files: string[],
+      options?: { push?: boolean },
+    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> => {
+      const workdir = cwd || process.cwd();
+      const candidates = [...new Set(files.map((file) => file.trim()).filter(Boolean))];
+      if (!candidates.length) {
+        return { ok: false, batches: [], error: "没有可提交的文件" };
+      }
+      const candidateSet = new Set(candidates);
+      const committed: GitCommitBatch[] = [];
+      try {
+        const plan = await planBatches(workdir, candidates, candidateSet);
+        for (const batch of plan) {
+          // add 保证未跟踪文件入库；pathspec 限定 commit 只提交本批路径，不泄漏其它已暂存内容
+          await git(workdir, ["add", "--", ...batch.files]);
+          await git(workdir, ["commit", "-m", batch.message, "--", ...batch.files]);
+          const hash = (await git(workdir, ["rev-parse", "--short", "HEAD"])).trim();
+          committed.push({ message: batch.message, files: batch.files, hash });
+        }
+        if (!committed.length) {
+          return { ok: false, batches: [], error: "没有生成有效的提交批次" };
+        }
+        if (options?.push) {
+          await git(workdir, ["push"]);
+        }
+        return { ok: true, batches: committed };
+      } catch (error) {
+        const err = error as { stderr?: string; message?: string };
+        return {
+          ok: false,
+          batches: committed,
+          error: err.stderr?.trim() || err.message || "分批提交失败",
+        };
+      }
+    },
+  );
+
   ipcMain.handle("git:ai-message", async (_event, cwd?: string): Promise<string> => {
     const workdir = cwd || process.cwd();
     return generateAiMessage(workdir);
@@ -328,6 +494,124 @@ export function registerGitIpc(): void {
 }
 
 const AI_DIFF_LIMIT = 12 * 1024;
+const MAX_BATCHES = 6;
+const BATCH_PLAN_SYSTEM_PROMPT = [
+  "你是 git 分批提交规划器，全部输出就是一个 JSON 数组本身。",
+  "数组元素形如 {\"message\":\"...\",\"files\":[\"...\"]}：message 为该批次的 commit message，files 为该批次包含的文件路径。",
+].join("\n");
+
+/** 按变更内容规划提交批次：优先用模型分组，失败时按目录确定性兜底 */
+async function planBatches(
+  workdir: string,
+  candidates: string[],
+  candidateSet: Set<string>,
+): Promise<Array<{ message: string; files: string[] }>> {
+  const raw = await buildBatchPlanPrompt(workdir, candidates)
+    .then((prompt) => completeOnce(prompt, { maxTokens: 2048, system: BATCH_PLAN_SYSTEM_PROMPT }))
+    .catch(() => "");
+  const plan = parseBatchPlan(raw, candidateSet);
+  if (!plan.length) {
+    return fallbackBatches(candidates);
+  }
+  // 覆盖兜底：模型遗漏的文件补成收尾批次
+  const used = new Set(plan.flatMap((batch) => batch.files));
+  const leftovers = candidates.filter((file) => !used.has(file));
+  if (leftovers.length) {
+    plan.push({ message: `chore: 其余 ${leftovers.length} 个变更文件`, files: leftovers });
+  }
+  return plan.slice(0, MAX_BATCHES);
+}
+
+/** 分组规划的输入材料：状态、行数增减与限量 diff */
+async function buildBatchPlanPrompt(workdir: string, candidates: string[]): Promise<string> {
+  const [status, numstat, diffBody] = await Promise.all([
+    git(workdir, ["status", "--porcelain"]).catch(() => ""),
+    git(workdir, ["diff", "HEAD", "--numstat"]).catch(() => ""),
+    git(workdir, ["diff", "HEAD", "--no-color", "-U1"]).catch(() => ""),
+  ]);
+  const diff =
+    diffBody.length > AI_DIFF_LIMIT ? `${diffBody.slice(0, AI_DIFF_LIMIT)}\n… diff 已截断` : diffBody;
+  return [
+    "把下面的 git 工作区变更文件按内容相关性分成 1-6 个提交批次，每个批次一条 commit message。",
+    "message 用中文 Conventional Commits：type(scope): 主题（主题不超过 50 字），必要时空一行带 1-2 行正文。",
+    "分组要求：同一功能、同一模块或同一目的的文件归入同一批次；目的明显不同的（如功能与格式化、代码与文档）拆开。",
+    "硬性要求：给出的文件列表必须与候选文件一致，每个文件必须且只能出现在一个批次中，不得遗漏、不得编造列表之外的文件。",
+    "未跟踪文件（??）按新文件对待。",
+    "只输出 JSON 数组：[{\"message\":\"...\",\"files\":[\"...\"]}]，禁止解释、禁止 markdown 代码块。",
+    "",
+    "候选文件：",
+    candidates.join("\n") || "（无）",
+    "",
+    "状态与行数增减：",
+    [status, numstat].filter(Boolean).join("\n") || "（无）",
+    "",
+    "变更内容（diff 摘要）：",
+    diff || "（无）",
+  ].join("\n");
+}
+
+/** 解析模型输出的 JSON 批次计划：只保留候选文件、去重、限量 */
+function parseBatchPlan(
+  raw: string,
+  candidateSet: Set<string>,
+): Array<{ message: string; files: string[] }> {
+  const text = raw.replace(/```(?:json)?/g, "").trim();
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start < 0 || end <= start) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const used = new Set<string>();
+  const batches: Array<{ message: string; files: string[] }> = [];
+  for (const item of parsed) {
+    const record = item as { message?: unknown; files?: unknown };
+    const message =
+      typeof record?.message === "string" ? capSubject(record.message.trim().replace(/^["'`]+|["'`]+$/g, "")) : "";
+    const files = (
+      Array.isArray(record?.files) ? record.files : []
+    ).filter((file): file is string => typeof file === "string" && candidateSet.has(file.trim()))
+      .map((file) => file.trim())
+      .filter((file) => !used.has(file));
+    if (!message || !files.length) {
+      continue;
+    }
+    for (const file of files) {
+      used.add(file);
+    }
+    batches.push({ message, files });
+    if (batches.length >= MAX_BATCHES) {
+      break;
+    }
+  }
+  return batches;
+}
+
+/** 无模型时的确定性兜底：按目录（前两级）分组 */
+function fallbackBatches(files: string[]): Array<{ message: string; files: string[] }> {
+  const groups = new Map<string, string[]>();
+  for (const file of files) {
+    const segments = file.split("/");
+    const group = segments.length > 1 ? segments.slice(0, -1).slice(0, 2).join("/") : "(root)";
+    groups.set(group, [...(groups.get(group) ?? []), file]);
+  }
+  return [...groups.entries()].map(([group, batchFiles]) => ({
+    message:
+      group === "(root)"
+        ? `chore: update ${batchFiles.length} files`
+        : `chore: update ${group} files (${batchFiles.length})`,
+    files: batchFiles,
+  }));
+}
+
 const HISTORY_LIMIT = 4 * 1024;
 const SUBJECT_LIMIT = 72;
 const BODY_LIMIT = 600;
