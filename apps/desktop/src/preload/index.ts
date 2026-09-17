@@ -348,6 +348,13 @@ const zen = {
     ): Promise<ReadFileResult | null> {
       return ipcRenderer.invoke("workspace:read-file", cwd, relPath);
     },
+    writeFile(
+      cwd: string | undefined,
+      relPath: string,
+      content: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("workspace:write-file", cwd, relPath, content);
+    },
     list(): Promise<WorkspaceGroup[]> {
       return ipcRenderer.invoke("workspace:list");
     },

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
 import { ipcMain } from "electron";
@@ -111,6 +111,36 @@ export function registerWorkspaceIpc(): void {
         };
       } catch {
         return null;
+      }
+    },
+  );
+
+  // 写入文本文件：与 read-file 同一套路径沙箱；返回是否成功
+  ipcMain.handle(
+    "workspace:write-file",
+    async (
+      _event,
+      cwd?: string,
+      relPath?: string,
+      content?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!relPath || typeof content !== "string") {
+        return { ok: false, error: "path and content are required" };
+      }
+      const root = cwd || process.cwd();
+      const target = resolve(root, relPath);
+      if (target !== root && !target.startsWith(root + sep)) {
+        return { ok: false, error: "path escapes workspace" };
+      }
+      try {
+        const info = await stat(target).catch(() => null);
+        if (info?.isDirectory()) {
+          return { ok: false, error: "target is a directory" };
+        }
+        await writeFile(target, content, "utf8");
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "write failed" };
       }
     },
   );
