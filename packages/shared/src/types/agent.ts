@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "./model";
+import type { AskUserQuestionEvent } from "./agent-settings";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -117,6 +118,14 @@ export type AgentStreamEvent =
       approvalId: string;
       toolCallId: string;
       approved: boolean;
+    }
+  | { type: "ask_user"; sessionId: string; question: AskUserQuestionEvent }
+  | {
+      type: "ask_resolved";
+      sessionId: string;
+      askId: string;
+      toolCallId: string;
+      answer: string;
     }
   | { type: "status"; sessionId: string; status: AgentRunStatus }
   | { type: "step_start"; sessionId: string; step: number }
