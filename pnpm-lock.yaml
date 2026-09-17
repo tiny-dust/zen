@@ -175,9 +175,15 @@ importers:
       '@zen/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@zen/mcp-client':
+        specifier: workspace:*
+        version: link:../../packages/mcp-client
       '@zen/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@zen/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
