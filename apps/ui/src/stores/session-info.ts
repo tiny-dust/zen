@@ -75,6 +75,56 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
     ownerSessionId.value = "";
   }
 
+  /**
+   * 从会话打开结果恢复任务清单（含消息流里的 tasks 快照，兼容旧数据）。
+   */
+  function restoreFromSession(payload: {
+    messages: Array<{
+      role: string;
+      meta?: Record<string, unknown> | null;
+    }>;
+    taskLists?: Array<{ version: number; items: TaskItem[]; createdAt?: number }>;
+  }) {
+    const sessionId = useChatStore().sessionId;
+    ensureSession(sessionId);
+    versions.value = [];
+    activeVersionId.value = "";
+
+    const source =
+      payload.taskLists?.length
+        ? payload.taskLists.map((item) => ({
+            version: item.version,
+            items: item.items,
+            createdAt: item.createdAt ?? Date.now(),
+          }))
+        : payload.messages.flatMap((message) => {
+            const meta = message.meta as
+              | { kind?: string; version?: number; items?: TaskItem[] }
+              | undefined;
+            if (message.role !== "tool" || meta?.kind !== "tasks" || !Array.isArray(meta.items)) {
+              return [];
+            }
+            return [
+              {
+                version: meta.version ?? 1,
+                items: meta.items,
+                createdAt: Date.now(),
+              },
+            ];
+          });
+
+    for (const item of source) {
+      const created: TaskListVersion = {
+        id: nextTaskId(),
+        version: item.version,
+        items: item.items,
+        createdAt: item.createdAt,
+      };
+      versions.value.push(created);
+      activeVersionId.value = created.id;
+    }
+  }
+
   /** 会话变更时由 chat store 调用 */
   function syncFromChat() {
     const sessionId = useChatStore().sessionId;
@@ -92,6 +142,7 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
     applyTasksUpdated,
     addReference,
     clear,
+    restoreFromSession,
     syncFromChat,
     ensureSession,
   };

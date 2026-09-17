@@ -3,7 +3,7 @@ import { basename } from "node:path";
 
 import { getDb } from "./model-db-connection";
 
-import type { ChatMessage, SessionRecord, Workspace, WorkspaceGroup } from "@zen/shared";
+import type { ChatMessage, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
 
 interface WorkspaceRow {
   id: string;
@@ -167,7 +167,13 @@ export function createSession(workspaceId: string | null): SessionRecord {
   return toSession(row);
 }
 
-export function getSession(id: string): { session: SessionRecord; messages: ChatMessage[] } | undefined {
+export function getSession(id: string):
+  | {
+      session: SessionRecord;
+      messages: ChatMessage[];
+      taskLists: Array<{ version: number; items: TaskItem[]; createdAt: number }>;
+    }
+  | undefined {
   const db = getDb();
   const row = db.prepare("SELECT * FROM chat_sessions WHERE id = ?").get(id) as
     | SessionRow
@@ -178,7 +184,47 @@ export function getSession(id: string): { session: SessionRecord; messages: Chat
   const messages = db
     .prepare("SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC")
     .all(id) as MessageRow[];
-  return { session: toSession(row), messages: messages.map(toMessage) };
+  return {
+    session: toSession(row),
+    messages: messages.map(toMessage),
+    taskLists: loadTaskLists(id),
+  };
+}
+
+/** 任务清单落库：同 version 覆盖（updateTasks 增量更新当前版） */
+export function saveTaskList(sessionId: string, version: number, items: TaskItem[]): void {
+  if (version <= 0) {
+    return;
+  }
+  getDb()
+    .prepare(
+      `INSERT INTO session_task_lists (session_id, version, items_json, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(session_id, version) DO UPDATE SET items_json = excluded.items_json`,
+    )
+    .run(sessionId, version, JSON.stringify(items), Date.now());
+}
+
+export function loadTaskLists(
+  sessionId: string,
+): Array<{ version: number; items: TaskItem[]; createdAt: number }> {
+  const rows = getDb()
+    .prepare(
+      "SELECT version, items_json, created_at FROM session_task_lists WHERE session_id = ? ORDER BY version ASC",
+    )
+    .all(sessionId) as Array<{ version: number; items_json: string; created_at: number }>;
+  const lists: Array<{ version: number; items: TaskItem[]; createdAt: number }> = [];
+  for (const row of rows) {
+    try {
+      const items = JSON.parse(row.items_json) as TaskItem[];
+      if (Array.isArray(items)) {
+        lists.push({ version: row.version, items, createdAt: row.created_at });
+      }
+    } catch {
+      // 忽略脏数据
+    }
+  }
+  return lists;
 }
 
 export function renameSession(id: string, title: string): void {
@@ -218,11 +264,18 @@ export function ensureSessionTitle(id: string, title: string): void {
 }
 
 export function appendMessage(sessionId: string, message: ChatMessage): void {
+  // 任务快照按 version 覆盖；其余消息 INSERT OR IGNORE 防重复
+  const isTaskSnapshot =
+    message.role === "tool" &&
+    (message.meta as { kind?: string } | undefined)?.kind === "tasks";
+  const sql = isTaskSnapshot
+    ? `INSERT INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, id) DO UPDATE SET meta_json = excluded.meta_json, created_at = excluded.created_at`
+    : `INSERT OR IGNORE INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
   getDb()
-    .prepare(
-      `INSERT OR IGNORE INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+    .prepare(sql)
     .run(
       message.id,
       sessionId,

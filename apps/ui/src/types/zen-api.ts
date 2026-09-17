@@ -179,7 +179,11 @@ export interface ZenApi {
   };
   session: {
     create(workspaceId: string | null): Promise<SessionRecord>;
-    open(id: string): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null>;
+    open(id: string): Promise<{
+      session: SessionRecord;
+      messages: ChatMessage[];
+      taskLists?: Array<{ version: number; items: import("@zen/shared").TaskItem[]; createdAt?: number }>;
+    } | null>;
     rename(id: string, title: string): Promise<void>;
     setDraft(id: string, draft: string): Promise<void>;
     pin(id: string, pinned: boolean): Promise<void>;

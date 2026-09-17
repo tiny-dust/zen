@@ -87,6 +87,15 @@ function migrate(conn: Database.Database) {
       PRIMARY KEY (session_id, id),
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS session_task_lists (
+      session_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      items_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (session_id, version),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
   `);
 
   // 公共区：内置工作区，不绑定目录，不可删除

@@ -14,6 +14,15 @@ export interface ChatMessage {
   meta?: Record<string, unknown>;
 }
 
+/** 消息流中工具调用卡片的 meta 形状（role=tool） */
+export interface ToolCallMessageMeta {
+  toolName: string;
+  ok: boolean;
+  summary?: string;
+  output?: unknown;
+  args?: unknown;
+}
+
 export type ToolRisk = "read" | "write" | "exec" | "network";
 
 export interface ToolDefinition {

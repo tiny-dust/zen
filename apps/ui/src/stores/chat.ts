@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   ReasoningEffort,
   SessionRecord,
+  TaskItem,
   ToolApprovalDecision,
 } from "@zen/shared";
 import { buildHistory } from "@/stores/chat-types";
@@ -46,6 +47,12 @@ export const useChatStore = defineStore("chat", () => {
   const attachments = ref<ComposerAttachment[]>([]);
   const activeTool = ref<ActiveTool | null>(null);
   const toolHistory = ref<ToolHistoryItem[]>([]);
+  /** tool_start 的入参缓存：tool_end 时写入消息 meta，供卡片展开 */
+  const pendingToolArgs = ref(new Map<string, unknown>());
+  /** 工具写文件后递增，驱动右侧文件面板刷新 */
+  const filesRevision = ref(0);
+  /** 本 run 内是否调用过 updateTasks（用于 checklist 兜底） */
+  let usedUpdateTasks = false;
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
   const pendingAsk = ref<AskUserQuestionEvent | null>(null);
@@ -87,6 +94,40 @@ export const useChatStore = defineStore("chat", () => {
 
   function appendMessage(message: ChatMessage) {
     messages.value.push(message);
+  }
+
+  /**
+   * 兜底：模型没调 updateTasks、却在正文里写了 markdown 任务清单时，
+   * 从最后一条助手消息提取 `- [ ]` / `- [x]` 列表，灌入会话信息卡。
+   */
+  function applyChecklistFallback() {
+    const last = [...messages.value].reverse().find((item) => item.role === "assistant");
+    if (!last?.content) {
+      return;
+    }
+    const items: TaskItem[] = [];
+    for (const line of last.content.split("\n")) {
+      const match = /^\s*[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
+      if (match) {
+        items.push({
+          id: `auto-${items.length + 1}`,
+          label: (match[2] ?? "").trim(),
+          done: (match[1] ?? " ") !== " ",
+        });
+      }
+    }
+    if (items.length < 2) {
+      return;
+    }
+    const version = (useSessionInfoStore().versions.at(-1)?.version ?? 0) + 1;
+    useSessionInfoStore().applyTasksUpdated(sessionId.value, version, items);
+    appendMessage({
+      id: uuid(),
+      role: "tool",
+      content: "",
+      createdAt: Date.now(),
+      meta: { kind: "tasks", version, items, source: "checklist" },
+    });
   }
 
   function lastAssistant(): ChatMessage | undefined {
@@ -156,6 +197,7 @@ export const useChatStore = defineStore("chat", () => {
         statusText.value = `准备 ${event.toolName}`;
         break;
       case "tool_start":
+        pendingToolArgs.value.set(event.toolCallId, event.args);
         activeTool.value = {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -175,6 +217,8 @@ export const useChatStore = defineStore("chat", () => {
         statusText.value = event.event.message;
         break;
       case "tool_end": {
+        const args = pendingToolArgs.value.get(event.toolCallId);
+        pendingToolArgs.value.delete(event.toolCallId);
         toolHistory.value.push({
           id: event.toolCallId,
           toolName: event.toolName,
@@ -182,6 +226,24 @@ export const useChatStore = defineStore("chat", () => {
           ok: event.ok,
           output: event.output,
         });
+        // 工具调用进入消息时间线（可展开、带图标），与 MiMo 消息列表同构
+        appendMessage({
+          id: event.toolCallId || uuid(),
+          role: "tool",
+          content: event.summary,
+          createdAt: Date.now(),
+          toolCallId: event.toolCallId,
+          meta: {
+            toolName: event.toolName,
+            ok: event.ok,
+            summary: event.summary,
+            output: event.output,
+            args,
+          },
+        });
+        if (event.toolName === "writeFile" || event.toolName === "editFile") {
+          filesRevision.value += 1;
+        }
         activeTool.value = null;
         statusText.value = event.summary;
         break;
@@ -231,18 +293,46 @@ export const useChatStore = defineStore("chat", () => {
       case "usage":
         lastInputTokens.value = event.inputTokens;
         break;
-      case "done":
+      case "done": {
         status.value = "idle";
         isPaused.value = false;
         activeTool.value = null;
         pendingApproval.value = null;
         statusText.value = event.reason === "cancelled" ? "已取消" : "";
+        if (!usedUpdateTasks && event.reason === "stop") {
+          applyChecklistFallback();
+        }
+        usedUpdateTasks = false;
         void refreshGit();
         void useGitStore().refreshStatus();
         break;
-      case "tasks_updated":
+      }
+      case "tasks_updated": {
+        usedUpdateTasks = true;
         useSessionInfoStore().applyTasksUpdated(event.sessionId, event.version, event.items);
+        // 时间线插入一版任务快照（同版本覆盖上一张卡片）
+        const version = event.version;
+        const items = event.items;
+        const existingIdx = messages.value.findIndex(
+          (item) =>
+            item.role === "tool" &&
+            (item.meta as { kind?: string; version?: number } | undefined)?.kind === "tasks" &&
+            (item.meta as { version?: number } | undefined)?.version === version,
+        );
+        const snapshot: ChatMessage = {
+          id: existingIdx >= 0 ? messages.value[existingIdx]!.id : uuid(),
+          role: "tool",
+          content: "",
+          createdAt: Date.now(),
+          meta: { kind: "tasks", version, items },
+        };
+        if (existingIdx >= 0) {
+          messages.value[existingIdx] = snapshot;
+        } else {
+          appendMessage(snapshot);
+        }
         break;
+      }
       case "reference_found":
         useSessionInfoStore().addReference(event.sessionId, event.reference);
         break;
@@ -327,6 +417,8 @@ export const useChatStore = defineStore("chat", () => {
     status.value = "thinking";
     isPaused.value = false;
     toolHistory.value = [];
+    pendingToolArgs.value.clear();
+    usedUpdateTasks = false;
     pendingApproval.value = null;
     activeTool.value = null;
     phase.value = "thinking";
@@ -434,6 +526,8 @@ export const useChatStore = defineStore("chat", () => {
     isPaused.value = false;
     activeTool.value = null;
     toolHistory.value = [];
+    pendingToolArgs.value.clear();
+    usedUpdateTasks = false;
     pendingApproval.value = null;
     pendingAsk.value = null;
     statusText.value = "";
@@ -482,6 +576,8 @@ export const useChatStore = defineStore("chat", () => {
     isPaused.value = false;
     activeTool.value = null;
     toolHistory.value = [];
+    pendingToolArgs.value.clear();
+    usedUpdateTasks = false;
     pendingApproval.value = null;
     pendingAsk.value = null;
     statusText.value = "";
@@ -489,6 +585,24 @@ export const useChatStore = defineStore("chat", () => {
     lastInputTokens.value = null;
     useSessionInfoStore().clear();
     useSessionInfoStore().ensureSession(sessionId.value);
+    useSessionInfoStore().restoreFromSession(found);
+    // 旧会话若无任务快照消息、只有 taskLists 表数据，补进时间线
+    const hasTaskCard = messages.value.some(
+      (item) =>
+        item.role === "tool" &&
+        (item.meta as { kind?: string } | undefined)?.kind === "tasks",
+    );
+    if (!hasTaskCard) {
+      for (const list of found.taskLists ?? []) {
+        messages.value.push({
+          id: uuid(),
+          role: "tool",
+          content: "",
+          createdAt: list.createdAt ?? Date.now(),
+          meta: { kind: "tasks", version: list.version, items: list.items },
+        });
+      }
+    }
     useGitStore().reset();
     void refreshGit();
     void useGitStore().refreshStatus();
@@ -519,6 +633,7 @@ export const useChatStore = defineStore("chat", () => {
     branch,
     repo,
     contextUsage,
+    filesRevision,
     bootstrap,
     handleStreamEvent,
     refreshGit,

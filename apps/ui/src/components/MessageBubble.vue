@@ -14,9 +14,11 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
+import TaskUpdateCard from "@/components/chat/TaskUpdateCard.vue";
+import ToolCallCard from "@/components/chat/ToolCallCard.vue";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
-import type { ChatMessage } from "@zen/shared";
+import type { ChatMessage, TaskItem, ToolCallMessageMeta } from "@zen/shared";
 
 const props = defineProps<{
   message: ChatMessage;
@@ -50,6 +52,36 @@ const attachmentParts = computed<AttachmentData[]>(() => {
     mediaType: mediaTypeOf(att.name),
   }));
 });
+
+const toolMeta = computed<ToolCallMessageMeta | null>(() => {
+  if (props.message.role !== "tool") {
+    return null;
+  }
+  const meta = props.message.meta as Partial<ToolCallMessageMeta> | undefined;
+  if (!meta?.toolName) {
+    return null;
+  }
+  return {
+    toolName: meta.toolName,
+    ok: meta.ok !== false,
+    summary: meta.summary ?? props.message.content,
+    output: meta.output,
+    args: meta.args,
+  };
+});
+
+const taskSnapshot = computed(() => {
+  if (props.message.role !== "tool") {
+    return null;
+  }
+  const meta = props.message.meta as
+    | { kind?: string; version?: number; items?: TaskItem[] }
+    | undefined;
+  if (meta?.kind !== "tasks" || !Array.isArray(meta.items)) {
+    return null;
+  }
+  return { version: meta.version ?? 1, items: meta.items };
+});
 </script>
 
 <template>
@@ -71,6 +103,20 @@ const attachmentParts = computed<AttachmentData[]>(() => {
         </Attachment>
       </Attachments>
     </div>
+  </div>
+
+  <!-- 工具调用 / 任务清单快照：铺在时间线里，可展开详情 -->
+  <div v-else-if="message.role === 'tool'" class="w-full">
+    <TaskUpdateCard
+      v-if="taskSnapshot"
+      :version="taskSnapshot.version"
+      :items="taskSnapshot.items"
+    />
+    <ToolCallCard
+      v-else-if="toolMeta"
+      :meta="toolMeta"
+      :content="message.content"
+    />
   </div>
 
   <div v-else-if="message.role === 'system'" class="w-full">

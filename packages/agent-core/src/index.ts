@@ -442,7 +442,10 @@ function buildToolSet(
     }),
     updateTasks: tool({
       description:
-        "Create or update the session task list shown in the UI. Call with startNew=true to begin a new version (vN). Always send the full task list.",
+        "Create or update the session task/plan list shown in the UI sidebar and chat timeline. " +
+        "REQUIRED for any multi-step work (3+ steps or any plan). Call once up front with startNew=true, " +
+        "then call again after completing or revising items — always send the FULL list. " +
+        "Do not only write markdown checklists in prose; use this tool so the UI can track progress.",
       inputSchema: z.object({
         startNew: z
           .boolean()
