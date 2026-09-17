@@ -577,6 +577,24 @@
   margin: 0 0 8px;
 }
 
+/* Shiki 高亮：让 stream-markdown 的 code 块贴合 Zen token */
+.md-content pre [data-stream-markdown='code'],
+.stream-markdown pre {
+  border-radius: var(--radius-sm);
+}
+
+.md-content .shiki,
+.md-content .shiki span {
+  color: var(--shiki-light, var(--color-code-fg)) !important;
+  background-color: transparent !important;
+}
+
+.dark .md-content .shiki,
+.dark .md-content .shiki span {
+  color: var(--shiki-dark, var(--color-code-fg)) !important;
+  background-color: transparent !important;
+}
+
 .md-content p:last-child {
   margin-bottom: 0;
 }
