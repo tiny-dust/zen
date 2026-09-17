@@ -158,7 +158,7 @@ export function registerGitIpc(): void {
         }
         const commitOut = await git(workdir, ["commit", "-m", trimmed]);
         if (push) {
-          const pushOut = await git(workdir, ["push"]);
+          const pushOut = await pushWithUpstream(workdir);
           return {
             ok: true,
             message: trimmed,
@@ -178,7 +178,7 @@ export function registerGitIpc(): void {
     async (_event, cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }> => {
       const workdir = cwd || process.cwd();
       try {
-        const output = await git(workdir, ["push"]);
+        const output = await pushWithUpstream(workdir);
         return { ok: true, output: output.trim() };
       } catch (error) {
         const err = error as { stderr?: string; message?: string };
@@ -455,7 +455,7 @@ export function registerGitIpc(): void {
           return { ok: false, batches: [], error: "没有生成有效的提交批次" };
         }
         if (options?.push) {
-          await git(workdir, ["push"]);
+          await pushWithUpstream(workdir);
         }
         return { ok: true, batches: committed };
       } catch (error) {
@@ -494,6 +494,17 @@ export function registerGitIpc(): void {
 }
 
 const AI_DIFF_LIMIT = 12 * 1024;
+
+/** 推送当前分支：-u 兼容首推（无上游时自动建立 tracking，已设置时幂等）。
+ *  remote 名取仓库第一个 remote（通常 origin），无 remote 时回落普通 push 交由 git 报错 */
+async function pushWithUpstream(workdir: string): Promise<string> {
+  const remotes = await git(workdir, ["remote"]).catch(() => "");
+  const remote = remotes.split("\n")[0]?.trim();
+  return remote
+    ? git(workdir, ["push", "-u", remote, "HEAD"])
+    : git(workdir, ["push"]);
+}
+
 const MAX_BATCHES = 6;
 const BATCH_PLAN_SYSTEM_PROMPT = [
   "你是 git 分批提交规划器，全部输出就是一个 JSON 数组本身。",
@@ -755,5 +766,17 @@ async function fallbackCommitMessage(workdir: string): Promise<string> {
   if (paths.length === 1) {
     return `chore: update ${paths[0]}`;
   }
-  return `chore: update ${paths.length} files (${paths[0]}…)`;
+  // 按前两级目录聚合，兜底信息至少说明改了哪些区域而不只是文件数量
+  const groups = new Map<string, number>();
+  for (const path of paths) {
+    const segments = path.split("/");
+    const area = segments.length > 2 ? segments.slice(0, 2).join("/") : (segments[0] ?? path);
+    groups.set(area, (groups.get(area) ?? 0) + 1);
+  }
+  const areas = [...groups.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([area, count]) => `${area}(${count})`)
+    .join("、");
+  return `chore: update ${paths.length} files: ${areas}`;
 }
