@@ -111,3 +111,8 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 右栏修复二轮：顶部 tab 是 div 且头部为窗口拖拽区，Electron 下点击被拖拽吞掉无法切换——`[role='tab']` 一并豁免 no-drag；图谱详情文件行可点击展开该文件的 commit patch（新增 `git:commit-diff` IPC，`diff-tree -p -m --first-parent` 限路径，行内 DiffView 渲染，max-h-72 内滚动）。
   - 分批提交：提交面板「提交/提交并推送」在未手填 message 时走 `git:commit-batched`——主进程用模型按变更内容把文件分成 1-6 批并生成各批 message（JSON 计划解析校验 + 模型不可用时按目录确定性兜底），逐批 `add + commit(pathspec 限定)`（不泄漏其它已暂存内容），完成后统一 push；手填 message 仍为单提交；「包含未暂存」关闭时仅对已暂存文件分批。
   - 图谱独立成 tab：从变更面板拆出，成为右栏与文件/浏览器/变更同级的顶级 tab（`RightPanelKind` 增加 `graph`，头行按钮 GitGraph 图标开面板）；GitGraph 自带头行（提交历史 + 计数 + 刷新，watch cwd 自动刷新）；变更面板还原为纯变更视图。注意 RightPanel 内 lucide `GitGraph` 图标与 `GitGraph.vue` 组件重名，组件导入需别名（如 GraphPanel），否则模板解析成图标。
+- 2026-09-17（消息列表 / 任务协议 / 文件编辑）：
+  - 消息代码高亮：`Response` 接入 `@stream-markdown/code`（Shiki，github-dark/light），`.md-content .shiki` 贴合 Zen code token。
+  - 工具调用进时间线：`tool_end` 落 `role=tool` 消息（`ToolCallCard`：按工具名 lucide 图标 + 成败色 + 可展开 args/output）；`updateTasks` 落 `TaskUpdateCard` 快照；工具步骤从 AgentRunStatus 折叠列表移除（避免双写）。
+  - 任务清单协议：`session_task_lists` 表持久化 version/items；`session:open` 一并返回并恢复侧栏；模型未调 `updateTasks` 时从正文 `- [ ]` 勾选列表兜底抽取；系统提示词强调必须走工具。
+  - 文件编辑：`workspace:write-file` IPC（路径沙箱同 read）；FileViewer 可编辑（history + 脏标记 + 保存/放弃）；Agent `writeFile`/`editFile` 后 `filesRevision` 驱动文件树与预览刷新（本地未保存时不覆盖）。
