@@ -7,19 +7,40 @@
   "build": {
     "appId": "com.zen.desktop",
     "productName": "Zen",
-    "directories": { "output": "release" },
-    "files": ["out/**"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.icns"
-    }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Development"
+    },
+    "npmRebuild": false
   },
   "scripts": {
     "predev": "bash scripts/brand-dev-app.sh",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "package": "electron-builder",
+    "package": "node scripts/package.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "brand:dev": "bash scripts/brand-dev-app.sh",
     "typecheck": "tsc --noEmit"
@@ -44,5 +65,9 @@
     "electron-vite": "5.0.0",
     "typescript": "5.9.3",
     "vite": "7.3.6"
+  },
+  "description": "Zen — 极致精简，专注编程的 AI Agent 桌面端",
+  "author": {
+    "name": "Reynold"
   }
 }
