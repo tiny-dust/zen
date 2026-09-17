@@ -1,13 +1,25 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { isStepCount, tool, ToolLoopAgent } from "ai";
+import { isStepCount, jsonSchema, tool, ToolLoopAgent } from "ai";
+import { exec } from "node:child_process";
 import { z } from "zod";
+
+import { readSkillById } from "@zen/skills";
+import {
+  editWorkspaceFile,
+  listWorkspaceDir,
+  readWorkspaceFile,
+  searchWorkspaceFiles,
+  writeWorkspaceFile,
+} from "@zen/tools-fs";
 
 import type { LanguageModel, ModelMessage, ToolSet } from "ai";
 import type {
   AgentStreamEvent,
+  AskUserQuestionEvent,
   ChatTurn,
+  PermissionMode,
   ProviderProtocol,
   ReasoningEffort,
   ReferenceItem,
@@ -15,7 +27,6 @@ import type {
   ToolApprovalDecision,
   ToolRisk,
 } from "@zen/shared";
-import { readWorkspaceFile, writeWorkspaceFile } from "@zen/tools-fs";
 
 const MOCK_REPLY_PREFIX =
   "【Mock Agent】已收到你的消息。后续将接入 AI SDK ToolLoopAgent，完成「改文件 → 跑测试 → commit」闭环。\n\n你刚才说：";
@@ -49,6 +60,20 @@ async function delayMs(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface AgentSkillHint {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** MCP 工具桥接描述（main 侧由 McpToolInfo + server 配置转换而来） */
+export interface McpToolBridge {
+  serverName: string;
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface AgentSessionConfig {
   sessionId: string;
   workspaceRoot: string;
@@ -57,26 +82,93 @@ export interface AgentSessionConfig {
   apiKey: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
+  /** 权限模式（ADR-004）：default / smart / full */
+  permissionMode: PermissionMode;
+  /** 系统提示词全文（设置页选择的预设或自定义） */
+  systemPrompt?: string;
+  /** 技能清单提示（loadSkill 可取全文） */
+  skills?: AgentSkillHint[];
+  /** loadSkill 校验用：与设置页一致的技能搜索路径 */
+  skillExtraPaths?: string[];
+  /** 已启用 MCP server 的工具（动态桥接为 mcp.<server>.<tool>） */
+  mcpTools?: McpToolBridge[];
   emit: (event: AgentStreamEvent) => void;
 }
 
-const APPROVAL_BY_RISK: Record<ToolRisk, boolean> = {
-  read: false,
-  write: true,
-  exec: true,
-  network: true,
-};
+/* ------------------------------------------------------------------ */
+/* 权限策略                                                            */
+/* ------------------------------------------------------------------ */
+
+type ApprovalVerdict = "allow" | "confirm";
+
+/** 只读终端命令白名单：smart 模式自动放行 */
+const READONLY_COMMAND_RE =
+  /^\s*(ls|cat|head|tail|wc|pwd|echo|which|whoami|date|file|find|grep|rg|node\s+(-v|--version)|npm\s+(ls|view|search|test --)|git\s+(status|log|diff|show|branch|rev-parse|remote|tag)|pnpm\s+(ls|list|-v)|python3?\s+(-V|--version))\b/;
 
 function riskForTool(toolName: string): ToolRisk {
-  if (toolName === "readFile" || toolName === "updateTasks" || toolName === "webSearch") {
-    // webSearch 只发起公开 GET，按只读处理，避免每次搜索都弹审批
+  if (
+    toolName === "readFile" ||
+    toolName === "listDir" ||
+    toolName === "searchFiles" ||
+    toolName === "updateTasks" ||
+    toolName === "webSearch" ||
+    toolName === "loadSkill" ||
+    toolName === "askUser"
+  ) {
     return "read";
   }
-  if (toolName === "writeFile") {
+  if (toolName === "writeFile" || toolName === "editFile") {
     return "write";
+  }
+  if (toolName === "runTerminal") {
+    return "exec";
+  }
+  if (toolName.startsWith("mcp.")) {
+    return "network";
   }
   return "exec";
 }
+
+function isReadonlyCommand(command: string): boolean {
+  return READONLY_COMMAND_RE.test(command);
+}
+
+/**
+ * 单工具审批裁决（ADR-004 权限矩阵）。
+ * 网络类「会话级确认」由 AgentSession 记忆已批准工具后放行。
+ */
+function evaluateApproval(
+  toolName: string,
+  mode: PermissionMode,
+  options: { rememberedNetwork: boolean; command?: string },
+): ApprovalVerdict {
+  if (mode === "full") {
+    return "allow";
+  }
+  const risk = riskForTool(toolName);
+  if (risk === "read") {
+    return "allow";
+  }
+  if (mode === "smart") {
+    if (risk === "write") {
+      // writeFile/editFile 的 path 都被 tools-fs 约束在工作区内
+      return "allow";
+    }
+    if (risk === "exec" && options.command && isReadonlyCommand(options.command)) {
+      return "allow";
+    }
+    if (risk === "network" && options.rememberedNetwork) {
+      return "allow";
+    }
+    return "confirm";
+  }
+  // default：除 read 外全部确认
+  return "confirm";
+}
+
+/* ------------------------------------------------------------------ */
+/* 工具集                                                              */
+/* ------------------------------------------------------------------ */
 
 function uuidLike(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -175,12 +267,25 @@ function buildProviderOptions(config: AgentSessionConfig): Record<string, unknow
   return { zenProvider: { reasoningEffort: effort } };
 }
 
+function truncateOutput(text: string, limit = 8000): string {
+  return text.length > limit ? `${text.slice(0, limit)}\n…[输出截断]` : text;
+}
+
+interface ToolHooks {
+  /** askUser 工具挂起等待用户回答 */
+  waitForUserAnswer(question: AskUserQuestionEvent, toolCallId: string): Promise<string>;
+  emitAskEvent(question: AskUserQuestionEvent): void;
+  emitAskResolved(askId: string, toolCallId: string, answer: string): void;
+}
+
 function buildToolSet(
   workspaceRoot: string,
   emit: (event: AgentStreamEvent) => void,
   sessionId: string,
+  config: AgentSessionConfig,
+  hooks: ToolHooks,
 ): ToolSet {
-  return {
+  const toolSet: ToolSet = {
     readFile: tool({
       description: "Read a UTF-8 text file inside the workspace.",
       inputSchema: z.object({ path: z.string().describe("Path relative to the workspace root.") }),
@@ -198,6 +303,141 @@ function buildToolSet(
       execute: async ({ path, content }) => {
         const result = await writeWorkspaceFile(workspaceRoot, path, content);
         return result.content;
+      },
+    }),
+    editFile: tool({
+      description:
+        "Edit a file by exact string replacement. oldString must match exactly (and uniquely unless replaceAll=true). Prefer this over writeFile for small changes.",
+      inputSchema: z.object({
+        path: z.string().describe("Path relative to the workspace root."),
+        oldString: z.string().describe("Exact text to replace."),
+        newString: z.string().describe("Replacement text."),
+        replaceAll: z.boolean().optional().describe("Replace every occurrence (default false)."),
+      }),
+      execute: async ({ path, oldString, newString, replaceAll }) => {
+        const result = await editWorkspaceFile(
+          workspaceRoot,
+          path,
+          oldString,
+          newString,
+          replaceAll ?? false,
+        );
+        if (result.replacements === 0) {
+          throw new Error(`oldString not found in ${path}; read the file first and copy exact text`);
+        }
+        return result;
+      },
+    }),
+    listDir: tool({
+      description: "List one directory level inside the workspace (no recursion).",
+      inputSchema: z.object({
+        path: z.string().describe("Directory path relative to the workspace root ('' for root)."),
+      }),
+      execute: async ({ path }) => {
+        const result = await listWorkspaceDir(workspaceRoot, path || "");
+        return result.entries.map((entry) => `${entry.isDir ? "d" : "-"} ${entry.name}`).join("\n");
+      },
+    }),
+    searchFiles: tool({
+      description:
+        "Search the workspace by file name or file content. Returns path/line/snippet hits.",
+      inputSchema: z.object({
+        query: z.string().describe("Text to search for."),
+        mode: z.enum(["name", "content"]).describe("name = file names, content = file contents."),
+      }),
+      execute: async ({ query, mode }) => {
+        const hits = await searchWorkspaceFiles(workspaceRoot, query, mode);
+        if (!hits.length) {
+          return "no matches";
+        }
+        return hits
+          .slice(0, 40)
+          .map((hit) =>
+            hit.line > 0 ? `${hit.path}:${hit.line}: ${hit.snippet}` : `${hit.path}`,
+          )
+          .join("\n");
+      },
+    }),
+    runTerminal: tool({
+      description:
+        "Run a shell command with cwd locked to the workspace root. Non-interactive use only (pass --yes/-y style flags yourself). Output is truncated.",
+      inputSchema: z.object({
+        command: z.string().describe("The shell command to run."),
+        timeoutMs: z
+          .number()
+          .optional()
+          .describe("Timeout in ms (default 120000, max 300000)."),
+      }),
+      execute: async ({ command, timeoutMs }) => {
+        return await new Promise((resolve) => {
+          exec(
+            command,
+            {
+              cwd: workspaceRoot,
+              timeout: Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000),
+              maxBuffer: 1024 * 1024,
+              windowsHide: true,
+              env: process.env,
+            },
+            (error, stdout, stderr) => {
+              const exitCode =
+                typeof (error as { code?: unknown } | null)?.code === "number"
+                  ? (error as unknown as { code: number }).code
+                  : error
+                    ? 1
+                    : 0;
+              const output = truncateOutput(
+                `${stdout || ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim() ||
+                  "(no output)",
+              );
+              resolve({
+                ok: !error,
+                exitCode,
+                output,
+              });
+            },
+          );
+        });
+      },
+    }),
+    askUser: tool({
+      description:
+        "Ask the user one question with optional preset options; shown above the chat input. Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
+      inputSchema: z.object({
+        question: z.string().describe("One concrete question."),
+        options: z
+          .array(z.string())
+          .optional()
+          .describe("2-6 preset answers for the user to pick; empty for free text only."),
+        allowFreeText: z.boolean().optional().describe("Whether free text is allowed (default true)."),
+      }),
+      execute: async ({ question, options, allowFreeText }, { toolCallId }) => {
+        const askId = uuidLike();
+        const event: AskUserQuestionEvent = {
+          askId,
+          toolCallId,
+          question,
+          options: (options ?? []).slice(0, 6),
+          allowFreeText: allowFreeText !== false,
+        };
+        hooks.emitAskEvent(event);
+        const answer = await hooks.waitForUserAnswer(event, toolCallId);
+        hooks.emitAskResolved(askId, toolCallId, answer);
+        return { answer };
+      },
+    }),
+    loadSkill: tool({
+      description:
+        "Load the full instructions (SKILL.md body) of one listed skill. Call before following a skill's workflow.",
+      inputSchema: z.object({
+        skillId: z.string().describe("The skill id from the available-skills list."),
+      }),
+      execute: async ({ skillId }) => {
+        const found = await readSkillById(skillId, config.skillExtraPaths ?? []);
+        if (!found) {
+          throw new Error(`skill not found or not allowed: ${skillId}`);
+        }
+        return found;
       },
     }),
     updateTasks: tool({
@@ -256,6 +496,80 @@ function buildToolSet(
       },
     }),
   };
+
+  // MCP 工具动态桥接：mcp.<server>.<tool>
+  for (const bridge of config.mcpTools ?? []) {
+    const toolName = `mcp.${bridge.serverName}.${bridge.name}`;
+    toolSet[toolName] = tool({
+      description: bridge.description
+        ? `[MCP ${bridge.serverName}] ${bridge.description}`
+        : `[MCP ${bridge.serverName}] ${bridge.name}`,
+      inputSchema: jsonSchema(bridge.inputSchema),
+      execute: async (input: unknown) => {
+        const { callMcpTool } = await importMcpRuntime();
+        const result = await callMcpTool(bridge.serverName, bridge.name, input);
+        if (!result.ok) {
+          throw new Error(result.error ?? "MCP tool failed");
+        }
+        return result.text;
+      },
+    });
+  }
+
+  return toolSet;
+}
+
+/** 延迟加载 main 侧 MCP 运行时，避免 agent-core 启动即依赖 Electron */
+let mcpRuntimeLoader: (() => Promise<{
+  callMcpTool(
+    serverName: string,
+    toolName: string,
+    args: unknown,
+  ): Promise<{ ok: boolean; text: string; error?: string }>;
+}>) | null = null;
+
+export function registerMcpRuntime(
+  loader: () => Promise<{
+    callMcpTool(
+      serverName: string,
+      toolName: string,
+      args: unknown,
+    ): Promise<{ ok: boolean; text: string; error?: string }>;
+  }>,
+): void {
+  mcpRuntimeLoader = loader;
+}
+
+async function importMcpRuntime() {
+  if (!mcpRuntimeLoader) {
+    throw new Error("MCP runtime 未注册");
+  }
+  return mcpRuntimeLoader();
+}
+
+function buildInstructions(config: AgentSessionConfig): string | undefined {
+  const parts: string[] = [];
+  if (config.systemPrompt?.trim()) {
+    parts.push(config.systemPrompt.trim());
+  }
+  if (config.skills?.length) {
+    const lines = config.skills
+      .map((skill) => `- ${skill.name}（id: ${skill.id}）：${skill.description || "无描述"}`)
+      .join("\n");
+    parts.push(
+      `可用技能（按需用 loadSkill 工具加载全文后再遵循其流程）：\n${lines}\n不要对任务硬套技能；只有当技能确实匹配时才加载。`,
+    );
+  }
+  if (config.mcpTools?.length) {
+    const lines = config.mcpTools
+      .map((bridge) => `- mcp.${bridge.serverName}.${bridge.name}: ${bridge.description ?? ""}`)
+      .join("\n");
+    parts.push(`已连接的 MCP 工具（调用前注意这些是外部服务）：\n${lines}`);
+  }
+  parts.push(
+    `当前工作目录：${config.workspaceRoot}\n系统平台：${process.platform}\n今天的日期：${new Date().toISOString().slice(0, 10)}`,
+  );
+  return parts.join("\n\n");
 }
 
 function partText(part: unknown): string {
@@ -319,6 +633,13 @@ function usageFromPart(part: unknown): { inputTokens: number; outputTokens: numb
 
 interface PendingApproval {
   approvalId: string;
+  toolName: string;
+}
+
+interface PendingAsk {
+  askId: string;
+  resolve: (answer: string) => void;
+  reject: (error: Error) => void;
 }
 
 /**
@@ -337,6 +658,10 @@ export class AgentSession {
   private pending: PendingApproval | null = null;
   /** 会话内任务清单版本号（updateTasks 的 startNew 递增） */
   private taskVersion = 0;
+  /** askUser 挂起等待（askId → resolver） */
+  private readonly pendingAsks = new Map<string, PendingAsk>();
+  /** smart 权限下已确认过的网络工具（会话级记忆） */
+  private readonly rememberedNetworkTools = new Set<string>();
 
   constructor(config: AgentSessionConfig) {
     this.config = config;
@@ -358,14 +683,43 @@ export class AgentSession {
       }
       config.emit(event);
     };
+    const hooks: ToolHooks = {
+      emitAskEvent: (question) => {
+        emit({ type: "ask_user", sessionId: config.sessionId, question });
+      },
+      emitAskResolved: (askId, toolCallId, answer) => {
+        emit({
+          type: "ask_resolved",
+          sessionId: config.sessionId,
+          askId,
+          toolCallId,
+          answer,
+        });
+      },
+      waitForUserAnswer: (question) => {
+        return new Promise<string>((resolve, reject) => {
+          this.pendingAsks.set(question.askId, { askId: question.askId, resolve, reject });
+        });
+      },
+    };
     this.agent = new ToolLoopAgent({
       model: createLanguageModel(config),
-      tools: buildToolSet(config.workspaceRoot, emit, config.sessionId),
-      stopWhen: isStepCount(20),
+      tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks),
+      instructions: buildInstructions(config),
+      stopWhen: isStepCount(30),
       providerOptions: buildProviderOptions(config) as never,
       toolApproval: ({ toolCall }) => {
-        const risk = riskForTool(toolCall.toolName);
-        return APPROVAL_BY_RISK[risk] ? "user-approval" : undefined;
+        const toolName = toolCall.toolName ?? "";
+        const args = (toolCall as { input?: unknown; args?: unknown }).input;
+        const command =
+          typeof args === "object" && args !== null && "command" in args
+            ? String((args as { command: unknown }).command)
+            : undefined;
+        const verdict = evaluateApproval(toolName, config.permissionMode, {
+          rememberedNetwork: this.rememberedNetworkTools.has(toolName),
+          command,
+        });
+        return verdict === "allow" ? undefined : "user-approval";
       },
     });
   }
@@ -391,6 +745,13 @@ export class AgentSession {
     if (!this.pending || this.pending.approvalId !== decision.approvalId) {
       return;
     }
+    if (decision.approved) {
+      const risk = riskForTool(this.pending.toolName);
+      if (risk === "network") {
+        // 会话级记忆：同类网络工具确认一次后放行
+        this.rememberedNetworkTools.add(this.pending.toolName);
+      }
+    }
     this.messages.push({
       role: "tool",
       content: [
@@ -408,6 +769,17 @@ export class AgentSession {
 
   reject(decision: ToolApprovalDecision): Promise<void> {
     return this.approve({ ...decision, approved: false });
+  }
+
+  /** 渲染层回答 askUser 提问 */
+  resolveAsk(askId: string, answer: string): boolean {
+    const pending = this.pendingAsks.get(askId);
+    if (!pending) {
+      return false;
+    }
+    this.pendingAsks.delete(askId);
+    pending.resolve(answer);
+    return true;
   }
 
   async pause(): Promise<void> {
@@ -432,6 +804,10 @@ export class AgentSession {
     }
     this.paused = false;
     this.pending = null;
+    for (const pending of this.pendingAsks.values()) {
+      pending.reject(new Error("会话已取消"));
+    }
+    this.pendingAsks.clear();
   }
 
   private async continueLoop(): Promise<void> {
@@ -546,7 +922,10 @@ export class AgentSession {
           case "tool-approval-request":
             if (!part.isAutomatic) {
               approvalRequested = true;
-              this.pending = { approvalId: part.approvalId };
+              this.pending = {
+                approvalId: part.approvalId,
+                toolName: toolNameFromPart(part),
+              };
               this.config.emit({
                 type: "approval_request",
                 sessionId: this.sessionId,

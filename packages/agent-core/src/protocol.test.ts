@@ -208,6 +208,7 @@ async function runSession(protocol: ProviderProtocol, baseUrl: string): Promise<
     baseUrl,
     apiKey: API_KEY,
     model: MODEL_ID,
+    permissionMode: "smart",
     emit: (event) => events.push(event),
   });
 
