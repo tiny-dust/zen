@@ -171,6 +171,11 @@ export interface ZenApi {
     listFiles(cwd?: string): Promise<WorkspaceFile[]>;
     readDir(cwd: string | undefined, relPath: string): Promise<DirEntry[] | null>;
     readFile(cwd: string | undefined, relPath: string): Promise<ReadFileResult | null>;
+    writeFile(
+      cwd: string | undefined,
+      relPath: string,
+      content: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     list(): Promise<WorkspaceGroup[]>;
     create(): Promise<Workspace | null>;
     pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]>;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileCode, RefreshCw } from "@lucide/vue";
+import { FileCode, RefreshCw, Save } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
@@ -7,6 +7,7 @@ import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
+import { useGitStore } from "@/stores/git";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { WorkspaceFile } from "@zen/shared";
@@ -19,6 +20,9 @@ const loading = ref(false);
 const selected = ref("");
 const expanded = ref(new Set<string>([""]));
 const query = ref("");
+const viewerRef = ref<InstanceType<typeof FileViewer> | null>(null);
+const viewerDirty = ref(false);
+const viewerSaving = ref(false);
 
 /** 树/预览分割比例（%），拖拽手柄调整；预览列保底约 1/3 */
 const splitPct = ref(42);
@@ -117,6 +121,39 @@ watch(
   },
   { immediate: true },
 );
+
+/** Agent 写文件后自动刷新树与当前预览（本地有未保存修改时不覆盖） */
+watch(
+  () => chatStore.filesRevision,
+  () => {
+    void load();
+    if (!viewerDirty.value) {
+      viewerRef.value?.render();
+    }
+  },
+);
+
+function onViewerDirty(dirty: boolean) {
+  viewerDirty.value = dirty;
+  if (!dirty) {
+    viewerSaving.value = false;
+  }
+}
+
+async function saveViewer() {
+  viewerSaving.value = true;
+  const ok = await viewerRef.value?.save();
+  viewerSaving.value = false;
+  if (ok) {
+    viewerDirty.value = false;
+    void useGitStore().refreshStatus();
+  }
+}
+
+function revertViewer() {
+  viewerRef.value?.revert();
+  viewerDirty.value = false;
+}
 </script>
 
 <template>
@@ -169,19 +206,41 @@ watch(
         >
           {{ selected }}
         </span>
+        <template v-if="viewerDirty">
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-6 px-1.5 text-[11px]"
+            :disabled="viewerSaving"
+            @click="revertViewer"
+          >
+            放弃
+          </Button>
+          <Button
+            size="sm"
+            class="h-6 px-1.5 text-[11px]"
+            :disabled="viewerSaving"
+            @click="saveViewer"
+          >
+            <Save :size="12" data-icon="inline-start" />保存
+          </Button>
+        </template>
       </div>
       <div
         v-if="!selected"
         class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]"
       >
         <FileCode class="size-5" aria-hidden="true" />
-        <p class="m-0 text-[12px]">在左侧选择文件预览</p>
+        <p class="m-0 text-[12px]">在左侧选择文件，可直接编辑保存</p>
       </div>
       <FileViewer
         v-else
         :key="`viewer-${treeRoot}-${selected}`"
+        ref="viewerRef"
         :path="selected"
         :root="treeRoot"
+        @dirty-change="onViewerDirty"
+        @saved="onViewerDirty(false)"
       />
     </div>
   </div>

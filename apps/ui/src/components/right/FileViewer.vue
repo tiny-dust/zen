@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { FileCode } from "@lucide/vue";
 import { EditorState } from "@codemirror/state";
-import { EditorView, lineNumbers } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
@@ -18,10 +19,20 @@ const props = defineProps<{
   root?: string;
 }>();
 
+const emit = defineEmits<{
+  saved: [path: string];
+  dirtyChange: [dirty: boolean];
+}>();
+
 const hostEl = ref<HTMLDivElement | null>(null);
 const failed = ref(false);
 const truncated = ref(false);
+const dirty = ref(false);
+const saving = ref(false);
+const saveError = ref("");
 let view: EditorView | null = null;
+/** 当前已加载的磁盘内容，用于脏检查与保存 */
+let loadedContent = "";
 
 function langExtension(path: string) {
   const ext = path.includes(".") ? path.split(".").pop()!.toLowerCase() : "";
@@ -59,16 +70,48 @@ function langExtension(path: string) {
 }
 
 function extensionList(path: string) {
-  return [lineNumbers(), langExtension(path), oneDark, EditorView.lineWrapping];
+  return [
+    lineNumbers(),
+    history(),
+    keymap.of([
+      {
+        key: "Mod-s",
+        run: () => {
+          void save();
+          return true;
+        },
+      },
+      ...defaultKeymap,
+      ...historyKeymap,
+      indentWithTab,
+    ]),
+    langExtension(path),
+    oneDark,
+    EditorView.lineWrapping,
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        dirty.value = view ? view.state.doc.toString() !== loadedContent : false;
+        saveError.value = "";
+        emit("dirtyChange", dirty.value);
+      }
+    }),
+  ];
 }
 
-function render() {
+function destroyView() {
   if (view) {
     view.destroy();
     view = null;
   }
+}
+
+function render() {
+  destroyView();
   failed.value = false;
   truncated.value = false;
+  dirty.value = false;
+  saveError.value = "";
+  loadedContent = "";
   if (!hostEl.value || !props.path || !props.root) {
     return;
   }
@@ -88,18 +131,51 @@ function render() {
     }
     failed.value = false;
     truncated.value = result.truncated;
+    loadedContent = result.content;
+    dirty.value = false;
     view = new EditorView({
       parent: hostEl.value,
       state: EditorState.create({
         doc: result.content,
-        extensions: [
-          ...extensionList(props.path!),
-          EditorState.readOnly.of(true),
-          EditorView.editable.of(false),
-        ],
+        extensions: extensionList(props.path!),
       }),
     });
   });
+}
+
+/** 保存当前编辑器内容到磁盘；成功后重置脏标记 */
+async function save(): Promise<boolean> {
+  const zen = window.zen;
+  if (!zen || !view || !props.path || !props.root || saving.value) {
+    return false;
+  }
+  if (!dirty.value) {
+    return true;
+  }
+  saving.value = true;
+  saveError.value = "";
+  try {
+    const content = view.state.doc.toString();
+    const result = await zen.workspace.writeFile(props.root, props.path, content);
+    if (!result.ok) {
+      saveError.value = result.error || "保存失败";
+      return false;
+    }
+    loadedContent = content;
+    dirty.value = false;
+    emit("saved", props.path);
+    return true;
+  } catch (error) {
+    saveError.value = error instanceof Error ? error.message : "保存失败";
+    return false;
+  } finally {
+    saving.value = false;
+  }
+}
+
+/** 丢弃本地修改并重新读盘 */
+function revert() {
+  render();
 }
 
 // 首次挂载时 path 已就绪也必须渲染；后续切换 path/root 再刷
@@ -113,16 +189,22 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  view?.destroy();
-  view = null;
+  destroyView();
 });
 
-defineExpose({ render });
+defineExpose({ render, save, revert, dirty, saving, saveError });
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <template v-if="path && root">
+      <div v-if="dirty || saveError" class="flex flex-none items-center gap-1.5 pb-1">
+        <span v-if="dirty" class="text-[11px] text-[var(--color-accent)]">未保存</span>
+        <span v-if="saveError" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-err)]">
+          {{ saveError }}
+        </span>
+        <span v-else class="flex-1" />
+      </div>
       <p
         v-if="failed"
         class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
@@ -136,7 +218,7 @@ defineExpose({ render });
           class="m-0 px-1 pb-1 text-[11px] text-[var(--color-accent)]"
           role="status"
         >
-          文件过大，仅展示前 512KB。
+          文件过大，仅展示前 512KB（截断部分不可保存）。
         </p>
         <div
           ref="hostEl"
@@ -146,7 +228,7 @@ defineExpose({ render });
     </template>
     <div v-else class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]">
       <FileCode class="size-5" aria-hidden="true" />
-      <p class="m-0 text-[12px]">在上方选择文件预览</p>
+      <p class="m-0 text-[12px]">在左侧选择文件，可直接编辑保存</p>
     </div>
   </div>
 </template>
