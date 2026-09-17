@@ -73,9 +73,13 @@ onMounted(() => {
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
   void useWorkspaceStore().refresh();
+  // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
+  layoutStore.syncViewport();
+  window.addEventListener("resize", layoutStore.syncViewport);
 });
 
 onUnmounted(() => {
+  window.removeEventListener("resize", layoutStore.syncViewport);
   disposeChat?.();
   disposeUser?.();
   disposeSettings?.();

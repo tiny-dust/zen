@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
 const props = withDefaults(
   defineProps<{
     orientation?: "vertical" | "horizontal";
     invert?: boolean;
+    /** 常显分隔线模式：手柄中央画 1px 线，悬停仍是整条高亮 */
+    line?: boolean;
   }>(),
   {
     orientation: "vertical",
     invert: false,
+    line: false,
   },
 );
 
@@ -46,8 +49,16 @@ function onPointerUp() {
   dragging.value = false;
 }
 
-const rootClass =
-  "group relative z-5 flex-none touch-none bg-transparent after:absolute after:inset-0 after:bg-transparent after:transition-colors after:duration-[var(--motion-fast)] after:ease-[var(--ease-enter)] hover:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]";
+const rootClass = computed(() =>
+  [
+    "group relative z-5 flex-none touch-none after:absolute after:transition-colors after:duration-[var(--motion-fast)] after:ease-[var(--ease-enter)]",
+    props.line
+      ? // 常显 1px 分隔线；悬停/拖拽时让位于整条高亮
+        "after:inset-y-0 after:left-1/2 after:right-auto after:w-px after:bg-[var(--color-line)]"
+      : "after:inset-0 after:bg-transparent",
+    "hover:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]",
+  ].join(" "),
+);
 </script>
 
 <template>
@@ -57,7 +68,7 @@ const rootClass =
       orientation === 'vertical'
         ? 'w-[5px] -mx-0.5 cursor-col-resize'
         : 'h-[5px] -my-0.5 cursor-row-resize',
-      dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]' : '',
+      dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]!' : '',
     ]"
     role="separator"
     :aria-orientation="orientation"
