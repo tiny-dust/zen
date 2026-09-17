@@ -676,3 +676,12 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
   cursor: pointer;
 }
+
+/* CodeMirror 只读预览撑满面板剩余高度（滚动交给 .cm-scroller） */
+.zen-code-viewer .cm-editor {
+  height: 100%;
+}
+
+.zen-code-viewer .cm-scroller {
+  overflow: auto;
+}
