@@ -27,6 +27,8 @@
   "dependencies": {
     "@zen/shared": "workspace:*",
     "@zen/agent-core": "workspace:*",
+    "@zen/skills": "workspace:*",
+    "@zen/mcp-client": "workspace:*",
     "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9",
     "rattail": "2.2.0"

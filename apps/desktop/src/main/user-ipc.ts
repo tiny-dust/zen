@@ -92,6 +92,19 @@ async function loadAuth(): Promise<AuthState> {
   return toPublicAuth(await loadStoredAuth());
 }
 
+/** 供配置云同步读取已存 token；未登录返回 null。token 不出 main 进程。 */
+export async function getStoredAuthTokens(): Promise<string | null> {
+  const stored = await loadStoredAuth();
+  if (!stored.loggedIn || !stored.tokens) {
+    return null;
+  }
+  try {
+    return (await decryptTokens(stored.tokens)).accessToken;
+  } catch {
+    return null;
+  }
+}
+
 async function persistAuth(stored: StoredAuth): Promise<AuthState> {
   cachedAuth = stored;
   await writeJson(authFile(), stored);

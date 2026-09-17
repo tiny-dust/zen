@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
 
-import { AgentSession, runMockAgent } from "@zen/agent-core";
+import { AgentSession, registerMcpRuntime, runMockAgent } from "@zen/agent-core";
 import { BrowserWindow, app, ipcMain, nativeImage, shell } from "electron";
 
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
@@ -14,14 +14,20 @@ import {
   ensureSessionTitle,
   getSession as loadSessionRecord,
 } from "./workspace-db";
+import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
+import { registerMcpIpc, enabledMcpTools, shutdownMcp } from "./mcp-ipc";
+import { registerSyncIpc } from "./config-sync";
+import { resolvePromptText } from "./prompt-presets";
+import { resolveWorkspaceDir } from "./sandbox";
+import { initZenDir, loadAgentSettings } from "./zen-dir";
 
-import type { AgentRunRequest, AgentStreamEvent, ToolApprovalDecision } from "@zen/shared";
+import type { AgentRunRequest, AgentStreamEvent, AskUserAnswer, ToolApprovalDecision } from "@zen/shared";
 
 const sessions = new Map<string, AgentSession>();
 
@@ -174,16 +180,38 @@ function registerIpc(): void {
       }
 
       const apiKey = await loadProviderApiKey(provider.id);
-      // 工作目录由 main 解析：绑定目录的工作区用其目录，公共区回退到用户主目录
-      const workspacePath = getWorkspace(request.workspaceId)?.path;
+
+      // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
+      const agentSettings = await loadAgentSettings();
+      const projectPath = getWorkspace(request.workspaceId)?.path;
+      const { dir: workspaceRoot } = projectPath
+        ? await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)
+        : { dir: homedir() };
+
+      // 技能与 MCP 惰性汇总（失败不阻塞会话）
+      const [skills, mcpTools] = await Promise.all([
+        import("@zen/skills")
+          .then(({ listSkills }) => listSkills(agentSettings.skillExtraPaths))
+          .then((items) =>
+            items.map((item) => ({ id: item.id, name: item.name, description: item.description })),
+          )
+          .catch(() => []),
+        enabledMcpTools().catch(() => []),
+      ]);
+
       const session = new AgentSession({
         sessionId: request.sessionId,
-        workspaceRoot: workspacePath || homedir(),
+        workspaceRoot,
         protocol: provider.protocol,
         baseUrl: provider.baseUrl,
         apiKey,
         model: modelId,
         reasoningEffort: request.reasoningEffort,
+        permissionMode: agentSettings.permissionMode,
+        systemPrompt: resolvePromptText(agentSettings),
+        skills,
+        skillExtraPaths: agentSettings.skillExtraPaths,
+        mcpTools,
         emit: emitTo,
       });
       sessions.set(request.sessionId, session);
@@ -240,6 +268,29 @@ function registerIpc(): void {
       return { ok: true };
     },
   );
+
+  ipcMain.handle(
+    "agent:ask-resolve",
+    async (_event, sessionId: string, answer: AskUserAnswer) => {
+      const session = sessions.get(sessionId);
+      if (!session) {
+        return { ok: false, error: "session not running" };
+      }
+      if (!answer?.askId || typeof answer.answer !== "string") {
+        return { ok: false, error: "invalid ask answer" };
+      }
+      const resolved = session.resolveAsk(answer.askId, answer.answer);
+      return resolved ? { ok: true } : { ok: false, error: "ask not found" };
+    },
+  );
+}
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, payload);
+    }
+  }
 }
 
 app.setName("Zen");
@@ -276,7 +327,12 @@ app.whenReady().then(() => {
   registerWorkspaceIpc();
   registerGitIpc();
   registerShellIpc();
+  registerAgentIpc(broadcast);
+  registerMcpIpc();
+  registerSyncIpc();
   createWindow();
+  // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
+  void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
   void initUserState();
 
   app.on("activate", () => {
@@ -290,4 +346,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("will-quit", () => {
+  shutdownMcp();
 });
