@@ -3,8 +3,10 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   AddModelInput,
   AgentRunRequest,
+  AgentSettings,
   AgentStreamEvent,
   AppSettings,
+  AskUserAnswer,
   AuthState,
   CatalogMatch,
   CatalogModel,
@@ -19,15 +21,20 @@ import type {
   GitLogEntry,
   GitPullRequest,
   GitStatus,
+  McpServerConfig,
+  McpServerStatus,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
+  PromptPreset,
   ProviderInput,
   ProviderModel,
   ProviderSummary,
   ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
+  SkillSummary,
+  SyncResult,
   ToolApprovalDecision,
   UpdateModelInput,
   WorkspaceFile,
@@ -264,6 +271,44 @@ const zen = {
     ): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:approval", sessionId, decision);
     },
+    resolveAsk(
+      sessionId: string,
+      answer: AskUserAnswer,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:ask-resolve", sessionId, answer);
+    },
+    getSettings(): Promise<AgentSettings> {
+      return ipcRenderer.invoke("agent:get-settings");
+    },
+    setSettings(partial: Partial<AgentSettings>): Promise<AgentSettings> {
+      return ipcRenderer.invoke("agent:set-settings", partial);
+    },
+    listSkills(): Promise<SkillSummary[]> {
+      return ipcRenderer.invoke("agent:list-skills");
+    },
+    pickDirectory(): Promise<string | null> {
+      return ipcRenderer.invoke("agent:pick-directory");
+    },
+    promptPresets(): Promise<PromptPreset[]> {
+      return ipcRenderer.invoke("agent:prompt-presets");
+    },
+    sandboxDir(): Promise<string> {
+      return ipcRenderer.invoke("agent:sandbox-dir");
+    },
+    rebuildSandbox(
+      projectPath: string,
+    ): Promise<{ ok: boolean; dir?: string; error?: string }> {
+      return ipcRenderer.invoke("agent:rebuild-sandbox", projectPath);
+    },
+    onSettingsChanged(handler: (settings: AgentSettings) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, settings: AgentSettings) => {
+        handler(settings);
+      };
+      ipcRenderer.on("agent:settings-changed", listener);
+      return () => {
+        ipcRenderer.removeListener("agent:settings-changed", listener);
+      };
+    },
     onEvent(handler: (event: AgentStreamEvent) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, event: AgentStreamEvent) => {
         handler(event);
@@ -272,6 +317,22 @@ const zen = {
       return () => {
         ipcRenderer.removeListener("agent:event", listener);
       };
+    },
+  },
+  mcp: {
+    list(): Promise<McpServerStatus[]> {
+      return ipcRenderer.invoke("mcp:list");
+    },
+    setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
+      return ipcRenderer.invoke("mcp:set-servers", servers);
+    },
+  },
+  sync: {
+    upload(): Promise<SyncResult> {
+      return ipcRenderer.invoke("sync:upload");
+    },
+    download(): Promise<SyncResult> {
+      return ipcRenderer.invoke("sync:download");
     },
   },
   workspace: {
