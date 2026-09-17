@@ -35,6 +35,14 @@ export interface ComposerAttachment {
   isImage: boolean;
 }
 
+/** 输入框选中的技能 chip（悬浮展示基本信息，发送时以 /skill: 前缀告知 Agent） */
+export interface SelectedSkill {
+  name: string;
+  description: string;
+  dir?: string;
+  source?: "builtin" | "user";
+}
+
 /** 取用户/助手可发送历史（去掉系统消息与工具消息） */
 export function buildHistory(messages: ChatMessage[]): ChatTurn[] {
   return messages

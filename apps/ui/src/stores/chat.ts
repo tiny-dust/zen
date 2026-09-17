@@ -26,6 +26,7 @@ import type {
   ComposerAttachment,
   PendingApproval,
   RunPhase,
+  SelectedSkill,
   ToolHistoryItem,
 } from "@/stores/chat-types";
 import type { AskUserQuestionEvent } from "@zen/shared";
@@ -44,6 +45,8 @@ export const useChatStore = defineStore("chat", () => {
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
   const attachments = ref<ComposerAttachment[]>([]);
+  /** 输入框选中的技能 chip（发送时以 /skill: 前缀注入消息） */
+  const selectedSkills = ref<SelectedSkill[]>([]);
   const activeTool = ref<ActiveTool | null>(null);
   const toolHistory = ref<ToolHistoryItem[]>([]);
   const pendingApproval = ref<PendingApproval | null>(null);
@@ -61,7 +64,11 @@ export const useChatStore = defineStore("chat", () => {
   );
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
-    () => (input.value.trim().length > 0 || attachments.value.length > 0) && !isRunning.value,
+    () =>
+      (input.value.trim().length > 0 ||
+        attachments.value.length > 0 ||
+        selectedSkills.value.length > 0) &&
+      !isRunning.value,
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
@@ -278,6 +285,17 @@ export const useChatStore = defineStore("chat", () => {
     });
   }
 
+  function addSkill(skill: SelectedSkill) {
+    if (selectedSkills.value.some((item) => item.name === skill.name)) {
+      return;
+    }
+    selectedSkills.value.push(skill);
+  }
+
+  function removeSkill(name: string) {
+    selectedSkills.value = selectedSkills.value.filter((item) => item.name !== name);
+  }
+
   function removeAttachment(id: string) {
     attachments.value = attachments.value.filter((item) => item.id !== id);
   }
@@ -285,7 +303,8 @@ export const useChatStore = defineStore("chat", () => {
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
-    if (!zen || isRunning.value || (!text && !attachments.value.length)) {
+    const skills = selectedSkills.value;
+    if (!zen || isRunning.value || (!text && !attachments.value.length && !skills.length)) {
       return;
     }
     // 未登录禁止使用（需求 1）：配置保留在本地，但 agent 会话需要 GitHub 登录
@@ -305,11 +324,17 @@ export const useChatStore = defineStore("chat", () => {
       path: item.path,
     }));
 
+    // Agent 收到 /skill: 前缀 + 正文；气泡正文保持干净，技能由 meta.skills 渲染成 tag
+    const agentText = [skills.map((item) => `/skill:${item.name}`).join(" "), text]
+      .filter(Boolean)
+      .join("\n");
+
     lastError.value = "";
     input.value = "";
     attachments.value = [];
+    selectedSkills.value = [];
     if (sessionName.value === "新会话") {
-      const first = text || attachmentRefs[0]?.name || "新会话";
+      const first = text || skills[0]?.name || attachmentRefs[0]?.name || "新会话";
       sessionName.value = first.slice(0, 24) + (first.length > 24 ? "…" : "");
       // 侧栏标题同步：落库 + 本地分组刷新
       void zen.session.rename(sessionId.value, sessionName.value);
@@ -321,7 +346,10 @@ export const useChatStore = defineStore("chat", () => {
       role: "user",
       content: text,
       createdAt: Date.now(),
-      meta: attachmentRefs.length ? { attachments: attachmentRefs } : undefined,
+      meta: {
+        ...(skills.length ? { skills } : {}),
+        ...(attachmentRefs.length ? { attachments: attachmentRefs } : {}),
+      },
     });
 
     status.value = "thinking";
@@ -334,7 +362,7 @@ export const useChatStore = defineStore("chat", () => {
 
     const result = await zen.agent.run({
       sessionId: sessionId.value,
-      userMessage: text,
+      userMessage: agentText,
       workspaceRoot: workspaceRoot.value,
       workspaceId: sessionWorkspaceId.value,
       providerId: modelsStore.selection.providerId ?? undefined,
@@ -375,7 +403,7 @@ export const useChatStore = defineStore("chat", () => {
     await zen.agent.resume(sessionId.value);
   }
 
-  async function approve(approved: boolean) {
+  async function approve(approved: boolean, always = false) {
     const zen = window.zen;
     const approval = pendingApproval.value;
     if (!zen || !approval) {
@@ -384,6 +412,7 @@ export const useChatStore = defineStore("chat", () => {
     const decision: ToolApprovalDecision = {
       approvalId: approval.approvalId,
       approved,
+      ...(always ? { always } : {}),
     };
     await zen.agent.resolveApproval(sessionId.value, decision);
   }
@@ -429,6 +458,7 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     input.value = "";
     attachments.value = [];
+    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
@@ -477,6 +507,7 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = found.messages;
     input.value = found.session.draft ?? "";
     attachments.value = [];
+    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
@@ -507,6 +538,7 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     attachments,
+    selectedSkills,
     activeTool,
     toolHistory,
     pendingApproval,
@@ -524,6 +556,8 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit,
     addAttachment,
     removeAttachment,
+    addSkill,
+    removeSkill,
     send,
     cancel,
     pause,

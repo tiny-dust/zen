@@ -40,6 +40,7 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
       props.class,
     )"
   >
-    <Markdown :content="md" />
+    <!-- 同 Response：关闭流式逐段动画，思考文本随到随显 -->
+    <Markdown :content="md" :enable-animate="false" />
   </CollapsibleContent>
 </template>
