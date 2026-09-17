@@ -66,7 +66,7 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#181818",
-    title: "Zen",
+    title: isDevRenderer ? "Zen Dev" : "Zen",
     titleBarStyle: "hidden",
     // 交通灯在 38px 标题栏内垂直居中（--titlebar-h / --titlebar-lead 与之一致）
     trafficLightPosition: { x: 12, y: 13 },
@@ -80,6 +80,11 @@ function createWindow(): BrowserWindow {
 
   window.on("ready-to-show", () => {
     window.show();
+  });
+
+  // 锁定窗口标题（页面 <title> 会覆盖 BrowserWindow 的 title，dev/prod 需可区分）
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
   });
 
   // 渲染进程异常退出时自动恢复，避免整窗黑屏
@@ -293,8 +298,10 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-app.setName("Zen");
-process.title = "Zen";
+// dev 与生产 app 名称区分（dev 为 Zen Dev），避免安装生产包时与开发包混淆
+const isDevRenderer = Boolean(process.env.ELECTRON_RENDERER_URL);
+app.setName(isDevRenderer ? "Zen Dev" : "Zen");
+process.title = isDevRenderer ? "Zen Dev" : "Zen";
 // 品牌名改了，但 userData 保持原路径，避免已有登录态/数据库/设置丢失
 app.setPath("userData", join(app.getPath("appData"), "@zen/desktop"));
 
