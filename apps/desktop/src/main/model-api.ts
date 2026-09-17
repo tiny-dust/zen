@@ -19,6 +19,11 @@ import type {
 
 const DEFAULT_UA = "zen-desktop";
 
+/** 补全类小任务（commit message 等）的超时：reasoning 模型响应慢，默认 20s 会偶发中断 */
+const COMPLETION_TIMEOUT_MS = 60_000;
+/** reasoning 模型的最小补全预算：思考会先消耗 token，预算太小会只输出思考内容 */
+const REASONING_MIN_TOKENS = 4096;
+
 async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

@@ -19,6 +19,11 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+/** 把模型调用异常转成可读原因，用于提交面板的错误提示 */
+function describeAiError(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "模型调用失败";
+}
+
 const DIFF_LIMIT = 200 * 1024;
 
 async function git(cwd: string, args: string[], maxBuffer = 1024 * 1024): Promise<string> {
