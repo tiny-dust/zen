@@ -7,6 +7,7 @@ import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
+import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { WorkspaceFile } from "@zen/shared";
@@ -14,6 +15,7 @@ import type { FileTreeNode as FileNode } from "@/components/right/panel-nodes";
 
 const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
+const rightPanel = useRightPanelStore();
 const files = ref<WorkspaceFile[]>([]);
 const loading = ref(false);
 const selected = ref("");
@@ -114,6 +116,30 @@ watch(
     selected.value = "";
     expanded.value = new Set([""]);
     void load();
+  },
+  { immediate: true },
+);
+
+// 消息流点击文件名 → 展开祖先目录并选中该文件
+watch(
+  () => rightPanel.pendingReveal,
+  (path) => {
+    if (!path) {
+      return;
+    }
+    const next = new Set(expanded.value);
+    const segments = path.split("/");
+    let acc = "";
+    for (const segment of segments.slice(0, -1)) {
+      acc = acc ? `${acc}/${segment}` : segment;
+      next.add(acc);
+    }
+    expanded.value = next;
+    selected.value = path;
+    if (!files.value.length) {
+      void load();
+    }
+    rightPanel.pendingReveal = "";
   },
   { immediate: true },
 );

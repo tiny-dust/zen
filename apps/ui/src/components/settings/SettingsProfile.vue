@@ -17,6 +17,18 @@ const { auth, loading, refreshing, deviceCode, loginError } = storeToRefs(userSt
 const { settings: agentSettings, syncBusy, lastSync } = storeToRefs(agentStore);
 
 const user = computed(() => auth.value.user);
+
+/** 登录有效期：自登录起 3 个月 */
+const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const expiryLabel = computed(() => {
+  const loginAt = auth.value.loginAt;
+  if (!loginAt) {
+    return null;
+  }
+  const until = new Date(loginAt + SESSION_TTL_MS);
+  return `登录有效期至 ${until.getFullYear()}/${until.getMonth() + 1}/${until.getDate()}（自登录起 3 个月）`;
+});
+
 const stats = computed(() => {
   const u = user.value;
   if (!u) {
@@ -139,6 +151,9 @@ function onOpenBlog() {
           </Button>
           <Button variant="destructive" size="sm" @click="userStore.logout()">退出登录</Button>
         </div>
+        <p v-if="expiryLabel" class="m-0 text-[11px] text-[var(--color-dim)]">
+          {{ expiryLabel }}
+        </p>
 
         <!-- 配置云同步 -->
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3">

@@ -3,6 +3,7 @@ import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { computed, useSlots } from 'vue'
 import { Markdown } from 'vue-stream-markdown'
+import { streamMarkdownExtensions } from '@/components/ai-elements/response/extensions'
 import 'vue-stream-markdown/index.css'
 
 interface Props {
@@ -38,6 +39,8 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
   <Markdown
     :content="md"
     :enable-animate="props.enableAnimate"
+    :extensions="streamMarkdownExtensions"
+    :is-dark="true"
     :class="
       cn(
         'w-full [&>*:first-child]:mt-0! [&>*:last-child]:mb-0!',

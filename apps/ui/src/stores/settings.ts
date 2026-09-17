@@ -2,12 +2,13 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 import type { AppIconId, AppSettings, ShortcutBinding } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, normalizeShortcutKey } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_UPDATE_FEED_URL, normalizeShortcutKey } from "@zen/shared";
 
 const fallbackSettings: AppSettings = {
   iconId: "zen-ink",
   customIconPath: null,
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
+  updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
 };
 
 export type SettingsTab =
@@ -107,6 +108,14 @@ export const useSettingsStore = defineStore("settings", () => {
     settings.value = await zen.settings.pickIcon();
   }
 
+  async function setFeedUrl(url: string | null) {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    settings.value = await zen.settings.set({ updateFeedUrl: url });
+  }
+
   async function updateShortcut(id: string, key: string) {
     const zen = window.zen;
     if (!zen) {
@@ -132,6 +141,7 @@ export const useSettingsStore = defineStore("settings", () => {
     bootstrap,
     setIcon,
     pickCustomIcon,
+    setFeedUrl,
     updateShortcut,
   };
 });

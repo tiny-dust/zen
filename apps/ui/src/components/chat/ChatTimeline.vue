@@ -96,7 +96,7 @@ onUnmounted(() => {
 
       <div
         ref="contentEl"
-        class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-5"
+        class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-4"
       >
         <div v-if="messages.length === 0" class="m-auto text-center text-[var(--color-mut)]">
           <p class="m-0">开始一段对话</p>

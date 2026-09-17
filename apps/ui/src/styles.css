@@ -572,9 +572,15 @@
   }
 }
 
+/* 思考内容独立弱色：vue-stream-markdown 根节点自带前景色重置，需同权重命中 */
+.reasoning-dim .stream-markdown {
+  color: var(--color-mut);
+  line-height: 1.7;
+}
+
 /* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点） */
 .md-content p {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
 }
 
 .md-content p:last-child {
@@ -591,8 +597,8 @@
 }
 
 .md-content pre {
-  margin: 8px 0;
-  padding: 10px 12px;
+  margin: 6px 0;
+  padding: 9px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-line);
   background: var(--color-code-bg);
@@ -608,7 +614,7 @@
 
 .md-content ul,
 .md-content ol {
-  margin: 8px 0;
+  margin: 6px 0;
   padding-left: 20px;
 }
 
