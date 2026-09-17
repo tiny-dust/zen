@@ -103,7 +103,10 @@ import { routes } from 'vue-router/auto-routes'
 
 - Skills：Agent Skills 标准
 - 会话：JSONL + better-sqlite3 **13**
-- 打包：electron-builder **26.16**；macOS DMG+zip；Windows **NSIS**；updater **6.8.9**
+- 打包：electron-builder **26.16**；macOS DMG+zip；Windows **NSIS**；Linux AppImage；updater **6.8.9**
+- 打包入口：`pnpm package`（交互式选平台/架构）或 `pnpm package -- mac-arm64 win-x64 linux-x64`（`--skip-build` 复用 out/）；脚本 `apps/desktop/scripts/package.mjs`
+- 原生模块：`npmRebuild: false`——better-sqlite3 13 为 N-API 预编译（`prebuilds/` 覆盖全平台，运行时优先加载），交叉打包无需源码编译；node-pty 无 linux 预编译（当前未被运行时引用，不影响 linux 包启动）
+- 在线更新源：见 [UPDATES.md](./UPDATES.md)
 
 ## 9. 依赖锁定摘要
 
