@@ -56,7 +56,7 @@ watch(
       class="flex h-full flex-col overflow-auto px-4 pb-3 pt-4"
       @scroll="onScroll"
     >
-      <div class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-5">
+      <div class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-3">
         <div v-if="messages.length === 0" class="m-auto text-center text-[var(--color-mut)]">
           <p class="m-0">开始一段对话</p>
           <p class="mt-2 text-[12px] text-[var(--color-dim)]">

@@ -13,6 +13,7 @@ import {
   appendMessage,
   ensureSessionTitle,
   getSession as loadSessionRecord,
+  saveTaskList,
 } from "./workspace-db";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
@@ -156,6 +157,7 @@ function registerIpc(): void {
 
     // 流式累积助手回复，run 结束后一次性落库
     const acc = { content: "", reasoning: "", reasoningMs: undefined as number | undefined };
+    const toolArgs = new Map<string, unknown>();
     const emitTo = (streamEvent: AgentStreamEvent) => {
       if (streamEvent.sessionId !== request.sessionId) {
         emit(event.sender, streamEvent);
@@ -167,6 +169,40 @@ function registerIpc(): void {
         acc.reasoning += streamEvent.text;
       } else if (streamEvent.type === "reasoning_end") {
         acc.reasoningMs = streamEvent.durationMs;
+      } else if (streamEvent.type === "tool_start") {
+        toolArgs.set(streamEvent.toolCallId, streamEvent.args);
+      } else if (streamEvent.type === "tool_end") {
+        const args = toolArgs.get(streamEvent.toolCallId);
+        toolArgs.delete(streamEvent.toolCallId);
+        // 工具卡片落库：重开会话仍可见操作轨迹
+        appendMessage(request.sessionId, {
+          id: streamEvent.toolCallId || randomUUID(),
+          role: "tool",
+          content: streamEvent.summary,
+          createdAt: Date.now(),
+          toolCallId: streamEvent.toolCallId,
+          meta: {
+            toolName: streamEvent.toolName,
+            ok: streamEvent.ok,
+            summary: streamEvent.summary,
+            output: streamEvent.output,
+            args,
+          },
+        });
+      } else if (streamEvent.type === "tasks_updated") {
+        saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
+        // 任务快照进消息流（同 version 覆盖），重开可见计划卡
+        appendMessage(request.sessionId, {
+          id: `tasks-${request.sessionId}-v${streamEvent.version}`,
+          role: "tool",
+          content: "",
+          createdAt: Date.now(),
+          meta: {
+            kind: "tasks",
+            version: streamEvent.version,
+            items: streamEvent.items,
+          },
+        });
       }
       emit(event.sender, streamEvent);
     };

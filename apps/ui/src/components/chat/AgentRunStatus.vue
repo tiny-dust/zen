@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { Check, ChevronDown, CirclePause, Loader2, Play, Square, Wrench, X } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { Check, CirclePause, Loader2, Play, Square, Wrench, X } from "@lucide/vue";
+import { computed } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toolIconSpec } from "@/lib/tool-meta";
 import { useChatStore } from "@/stores/chat";
 
 const chatStore = useChatStore();
-const expanded = ref(false);
-const toolLabel = computed(() => chatStore.activeTool?.toolName || "准备中");
+const toolLabel = computed(() => {
+  const name = chatStore.activeTool?.toolName;
+  return name ? toolIconSpec(name).label : "准备中";
+});
 const isBusy = computed(() => chatStore.isRunning && !chatStore.isPaused);
 
 const approvalInputText = computed(() => {
@@ -91,22 +94,6 @@ const approvalInputText = computed(() => {
       </template>
     </div>
 
-    <button
-      v-if="chatStore.toolHistory.length"
-      type="button"
-      class="ml-2.5 mt-1.5 inline-flex items-center gap-1 text-[11px] text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-      :aria-expanded="expanded"
-      @click="expanded = !expanded"
-    >
-      <ChevronDown :class="cn('transition-transform duration-[var(--motion-fast)] ease-[var(--ease-enter)]', expanded && 'rotate-180')" :size="14" />
-      {{ chatStore.toolHistory.length }} 个工具步骤
-    </button>
-    <div v-if="expanded" class="ml-3 mt-1.5 rounded-[var(--radius-sm)] bg-[var(--color-side-glass)] px-2.5 py-1.5">
-      <div v-for="item in chatStore.toolHistory" :key="item.id" class="flex justify-between gap-3 py-[3px] text-[11px] text-[var(--color-mut)]">
-        <span :class="cn('shrink-0', !item.ok && 'text-[var(--color-err)]')">{{ item.toolName }}</span>
-        <span class="truncate text-[var(--color-dim)]">{{ item.summary }}</span>
-      </div>
-    </div>
   </div>
 </template>
 
