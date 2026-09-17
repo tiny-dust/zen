@@ -29,6 +29,32 @@ export interface AppSettings {
   iconId: AppIconId;
   customIconPath: string | null;
   shortcuts: ShortcutBinding[];
+  /** 在线更新源地址（generic provider，局域网/本机静态目录即可）；清空表示不启用 */
+  updateFeedUrl: string | null;
+}
+
+/** 更新源默认值：updates-server.mjs 的端口需与此保持一致 */
+export const DEFAULT_UPDATE_FEED_URL = "http://127.0.0.1:8899";
+
+/** 在线更新状态（临时开放功能：generic 更新源） */
+export type UpdatePhase =
+  | "idle"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export interface UpdateStatusInfo {
+  phase: UpdatePhase;
+  /** 检查到的新版本号（available / downloaded 时有值） */
+  version?: string;
+  releaseNotes?: string | null;
+  /** 下载进度 0-100（downloading） */
+  percent?: number;
+  /** 错误信息（error） */
+  message?: string;
 }
 
 const SHORTCUT_MODIFIERS = ["Cmd", "Ctrl", "Alt", "Shift"] as const;
@@ -138,6 +164,10 @@ export interface AuthState {
   loggedIn: boolean;
   user: GitHubUser | null;
   error?: string | null;
+  /** 本次登录时间戳；登录态自登录起 3 个月有效 */
+  loginAt?: number | null;
+  /** 访问令牌到期时间（GitHub App 过期令牌才有；长期令牌为空） */
+  expiresAt?: number | null;
 }
 
 export interface DeviceCodeInfo {
