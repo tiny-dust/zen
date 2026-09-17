@@ -12,10 +12,12 @@ import type {
   ToolApprovalDecision,
 } from "@zen/shared";
 import { buildHistory } from "@/stores/chat-types";
+import { useAgentStore } from "@/stores/agent";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
 import { useSessionInfoStore } from "@/stores/session-info";
+import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
@@ -26,6 +28,7 @@ import type {
   RunPhase,
   ToolHistoryItem,
 } from "@/stores/chat-types";
+import type { AskUserQuestionEvent } from "@zen/shared";
 
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([]);
@@ -44,6 +47,8 @@ export const useChatStore = defineStore("chat", () => {
   const activeTool = ref<ActiveTool | null>(null);
   const toolHistory = ref<ToolHistoryItem[]>([]);
   const pendingApproval = ref<PendingApproval | null>(null);
+  /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
+  const pendingAsk = ref<AskUserQuestionEvent | null>(null);
   const isPaused = ref(false);
   const branch = ref("");
   const repo = ref("");
@@ -197,6 +202,15 @@ export const useChatStore = defineStore("chat", () => {
         }
         statusText.value = event.approved ? "已批准" : "已拒绝";
         break;
+      case "ask_user":
+        pendingAsk.value = event.question;
+        statusText.value = "等待你的回答";
+        break;
+      case "ask_resolved":
+        if (pendingAsk.value?.askId === event.askId) {
+          pendingAsk.value = null;
+        }
+        break;
       case "status":
         status.value = event.status;
         if (event.status === "paused") {
@@ -272,6 +286,12 @@ export const useChatStore = defineStore("chat", () => {
     const zen = window.zen;
     const text = input.value.trim();
     if (!zen || isRunning.value || (!text && !attachments.value.length)) {
+      return;
+    }
+    // 未登录禁止使用（需求 1）：配置保留在本地，但 agent 会话需要 GitHub 登录
+    if (!useUserStore().auth.loggedIn) {
+      lastError.value = "请先在「个人资料」中登录 GitHub 后再使用";
+      statusText.value = lastError.value;
       return;
     }
 
@@ -368,6 +388,17 @@ export const useChatStore = defineStore("chat", () => {
     await zen.agent.resolveApproval(sessionId.value, decision);
   }
 
+  /** 回答 askUser 提问（选项或自由输入） */
+  async function submitAsk(answer: string) {
+    const zen = window.zen;
+    const ask = pendingAsk.value;
+    if (!zen || !ask || !answer.trim()) {
+      return;
+    }
+    pendingAsk.value = null;
+    await zen.agent.resolveAsk(sessionId.value, { askId: ask.askId, answer: answer.trim() });
+  }
+
   function dismissApproval() {
     pendingApproval.value = null;
     statusText.value = "审批提示已收起";
@@ -404,6 +435,7 @@ export const useChatStore = defineStore("chat", () => {
     activeTool.value = null;
     toolHistory.value = [];
     pendingApproval.value = null;
+    pendingAsk.value = null;
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
@@ -451,6 +483,7 @@ export const useChatStore = defineStore("chat", () => {
     activeTool.value = null;
     toolHistory.value = [];
     pendingApproval.value = null;
+    pendingAsk.value = null;
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
@@ -477,6 +510,7 @@ export const useChatStore = defineStore("chat", () => {
     activeTool,
     toolHistory,
     pendingApproval,
+    pendingAsk,
     isPaused,
     isRunning,
     hasMessages,
@@ -495,6 +529,7 @@ export const useChatStore = defineStore("chat", () => {
     pause,
     resume,
     approve,
+    submitAsk,
     dismissApproval,
     newTask,
     loadSession,

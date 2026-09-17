@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { Boxes, Keyboard, Settings2, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Keyboard, Settings2, Sparkles, UserRound, Wrench, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
+import SettingsAgent from "@/components/settings/SettingsAgent.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
+import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
+import SettingsSkills from "@/components/settings/SettingsSkills.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +28,14 @@ const navGroups = computed(() => [
     items: [
       { id: "general" as const, label: "常规", icon: Settings2 },
       { id: "shortcuts" as const, label: "键盘快捷键", icon: Keyboard },
+    ],
+  },
+  {
+    title: "Agent",
+    items: [
+      { id: "agent" as const, label: "Agent 与权限", icon: Bot },
+      { id: "skills" as const, label: "技能与扩展", icon: Wrench },
+      { id: "prompts" as const, label: "提示词", icon: Sparkles },
     ],
   },
   {
@@ -57,6 +68,12 @@ const paneTitle = computed(() => {
       return "个人资料";
     case "shortcuts":
       return "键盘快捷键";
+    case "agent":
+      return "Agent 与权限";
+    case "skills":
+      return "技能与扩展";
+    case "prompts":
+      return "提示词";
     default:
       return "常规";
   }
@@ -68,9 +85,15 @@ const paneDesc = computed(() => {
     case "models":
       return "自定义 OpenAI / Anthropic 兼容供应商，支持三种消息协议。";
     case "profile":
-      return "GitHub 账号信息，登录后自动获取头像与公开资料。";
+      return "GitHub 账号信息与配置云同步，登录后自动获取公开资料。";
     case "shortcuts":
       return "点击输入框后按下组合键即可重新绑定。";
+    case "agent":
+      return "权限三档与项目隔离区，控制 Agent 的操作边界。";
+    case "skills":
+      return "技能目录扫描与 MCP 服务器接入。";
+    case "prompts":
+      return "选择知名工具的内置系统提示词，或自定义你的规则。";
     default:
       return "默认打开方式、项目位置、菜单栏与图标。";
   }
@@ -171,6 +194,9 @@ watch(
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsProfile v-else-if="activeTab === 'profile'" />
             <SettingsModels v-else-if="activeTab === 'models'" />
+            <SettingsAgent v-else-if="activeTab === 'agent'" />
+            <SettingsSkills v-else-if="activeTab === 'skills'" />
+            <SettingsPrompts v-else-if="activeTab === 'prompts'" />
           </div>
         </div>
       </main>

@@ -5,6 +5,7 @@ import {
   CornerDownLeft,
   FileText,
   Mic,
+  ShieldCheck,
   Sparkles,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -17,12 +18,15 @@ import {
   AttachmentPreview,
   AttachmentRemove,
 } from "@/components/ai-elements/attachments";
+import AskUserCard from "@/components/chat/AskUserCard.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import { Textarea } from "@/components/ui/textarea";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
+import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
+import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
@@ -30,6 +34,8 @@ import type { ReasoningEffort } from "@zen/shared";
 
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
+const agentStore = useAgentStore();
+const userStore = useUserStore();
 const {
   input,
   isRunning,
@@ -39,6 +45,16 @@ const {
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
+const { permissionLabel } = storeToRefs(agentStore);
+
+const loggedIn = computed(() => userStore.auth.loggedIn);
+
+/** 循环切换权限档位：默认 → 智能 → 完全访问 */
+async function cyclePermission() {
+  const order = ["default", "smart", "full"] as const;
+  const next = order[(order.indexOf(agentStore.permissionMode) + 1) % order.length];
+  await agentStore.updateSettings({ permissionMode: next });
+}
 
 const allowedEfforts = computed(() => {
   const allowed = selectedReasoningEfforts.value as readonly ReasoningEffort[];
@@ -161,6 +177,33 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
   <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
+      <!-- askUser 提问卡：Agent 请求决策时置于输入框上方 -->
+      <AskUserCard />
+
+      <!-- 未登录拦截：本地配置保留，agent 会话需登录后使用 -->
+      <div
+        v-if="!loggedIn"
+        class="flex items-center gap-3 rounded-2xl bg-[var(--color-composer-surface)] px-4 py-3 shadow-[var(--shadow-composer)]"
+      >
+        <ShieldCheck :size="16" class="flex-none text-[var(--color-mut)]" />
+        <div class="min-w-0 flex-1">
+          <p class="m-0 text-[13px] font-medium text-[var(--color-txt-strong)]">
+            登录后开始使用
+          </p>
+          <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
+            本地配置与模型设置已保留；登录 GitHub 后即可对话与执行任务。
+          </p>
+        </div>
+        <button
+          type="button"
+          class="flex-none rounded-full bg-[var(--color-accent)] px-3.5 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90"
+          @click="userStore.login()"
+        >
+          {{ userStore.loading ? "等待授权…" : "登录 GitHub" }}
+        </button>
+      </div>
+
+      <template v-else>
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
       <Attachments v-if="attachments.length" variant="inline" class="mb-2">
         <Attachment
@@ -227,6 +270,16 @@ function removeAttachment(id: string) {
             <ModelPicker />
             <button
               type="button"
+              class="flex h-7 items-center gap-1 rounded-lg px-2 text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+              aria-label="切换权限模式"
+              :title="`权限：${permissionLabel}（点击切换）`"
+              @click="cyclePermission"
+            >
+              <ShieldCheck class="size-4" />
+              <span class="text-[11px]">{{ permissionLabel }}</span>
+            </button>
+            <button
+              type="button"
               class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
               aria-label="语音"
               title="语音（占位）"
@@ -251,6 +304,7 @@ function removeAttachment(id: string) {
           </div>
         </div>
       </div>
+      </template>
 
       <div
         class="mt-1.5 flex h-4 items-center justify-center text-[11px] text-[var(--color-dim)]"
