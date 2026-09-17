@@ -7,38 +7,50 @@ import {
   decryptTokens,
   encryptTokens,
   fetchGitHubUser,
+  findClientId,
   loginWithGitHub,
+  refreshAccessToken,
 } from "./github-auth";
 
-import type { EncryptedTokens } from "./github-auth";
+import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
-import { DEFAULT_SHORTCUTS } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 const authFile = () => join(app.getPath("userData"), "auth.json");
 const customIconDir = () => join(app.getPath("userData"), "icons");
 
+/** 登录态有效期：自登录起 3 个月，到期需重新登录 */
+const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/** 访问令牌到期前提前续期的时间窗 */
+const REFRESH_AHEAD_MS = 24 * 60 * 60 * 1000;
+
 const defaultSettings: AppSettings = {
   iconId: "zen-ink",
   customIconPath: null,
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
+  updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
 };
 
 interface StoredAuth {
   loggedIn: boolean;
   user: GitHubUser | null;
   tokens?: EncryptedTokens | null;
+  /** 本次登录时间戳（3 个月会话窗口起点） */
+  loginAt?: number;
 }
 
 let cachedSettings: AppSettings | null = null;
 let cachedAuth: StoredAuth | null = null;
 let loginInFlight: Promise<AuthState> | null = null;
 
-function toPublicAuth(stored: StoredAuth): AuthState {
+function toPublicAuth(stored: StoredAuth, error: string | null = null): AuthState {
   return {
     loggedIn: stored.loggedIn,
     user: stored.user,
-    error: null,
+    error,
+    loginAt: stored.loginAt ?? null,
+    expiresAt: stored.tokens?.expiresAt ?? null,
   };
 }
 
@@ -75,6 +87,11 @@ async function loadSettings(): Promise<AppSettings> {
   return cachedSettings;
 }
 
+/** 供 updater 等模块读取应用设置（带缓存） */
+export async function loadAppSettings(): Promise<AppSettings> {
+  return loadSettings();
+}
+
 async function loadStoredAuth(): Promise<StoredAuth> {
   if (cachedAuth) {
     return cachedAuth;
@@ -84,31 +101,86 @@ async function loadStoredAuth(): Promise<StoredAuth> {
     loggedIn: stored.loggedIn === true && Boolean(stored.user),
     user: stored.user ?? null,
     tokens: stored.tokens ?? null,
+    // 旧版 auth.json 无 loginAt：以本次升级为起点开 3 个月窗口
+    loginAt: stored.loginAt ?? (stored.loggedIn === true ? Date.now() : undefined),
   };
+  if (cachedAuth.loggedIn && stored.loginAt == null) {
+    void writeJson(authFile(), cachedAuth);
+  }
   return cachedAuth;
 }
 
-async function loadAuth(): Promise<AuthState> {
-  return toPublicAuth(await loadStoredAuth());
+/** 3 个月会话窗口是否已过 */
+function sessionExpired(stored: StoredAuth): boolean {
+  return Boolean(stored.loggedIn && stored.loginAt && Date.now() - stored.loginAt > SESSION_TTL_MS);
 }
 
-/** 供配置云同步读取已存 token；未登录返回 null。token 不出 main 进程。 */
-export async function getStoredAuthTokens(): Promise<string | null> {
+async function loadAuth(): Promise<AuthState> {
+  const stored = await loadStoredAuth();
+  if (sessionExpired(stored)) {
+    return persistAuth({ loggedIn: false, user: null, tokens: null }, "登录已超过 3 个月，请重新登录");
+  }
+  return toPublicAuth(stored);
+}
+
+/** 取可用的访问令牌：会话过期返回 null；令牌临近到期时用 refresh token 续期 */
+async function ensureValidTokens(): Promise<string | null> {
   const stored = await loadStoredAuth();
   if (!stored.loggedIn || !stored.tokens) {
     return null;
   }
+  if (sessionExpired(stored)) {
+    await persistAuth({ loggedIn: false, user: null, tokens: null }, "登录已超过 3 个月，请重新登录");
+    return null;
+  }
+  let tokens: GitHubTokens;
   try {
-    return (await decryptTokens(stored.tokens)).accessToken;
+    tokens = await decryptTokens(stored.tokens);
+  } catch {
+    // 本地密钥失效 / token 损坏：清掉凭据，引导重新登录
+    await persistAuth(
+      { loggedIn: false, user: null, tokens: null },
+      "本地密钥无法解密已保存的凭据，请重新登录",
+    );
+    return null;
+  }
+  const nearExpiry = tokens.expiresAt != null && tokens.expiresAt - Date.now() < REFRESH_AHEAD_MS;
+  if (!nearExpiry || !tokens.refreshToken) {
+    // 长期令牌（OAuth App）无过期时间，直接使用
+    return tokens.accessToken;
+  }
+  const refreshed = await forceRefreshTokens(stored, tokens.refreshToken);
+  return refreshed?.accessToken ?? tokens.accessToken;
+}
+
+/** 强制续期并落库；失败返回 null（由调用方决定是否清除登录态） */
+async function forceRefreshTokens(
+  stored: StoredAuth,
+  refreshToken: string,
+): Promise<GitHubTokens | null> {
+  try {
+    const clientId = findClientId();
+    if (!clientId) {
+      return null;
+    }
+    const refreshed = await refreshAccessToken(clientId, refreshToken);
+    const encrypted = await encryptTokens(refreshed);
+    await persistAuth({ ...stored, tokens: encrypted });
+    return refreshed;
   } catch {
     return null;
   }
 }
 
-async function persistAuth(stored: StoredAuth): Promise<AuthState> {
+/** 供配置云同步读取已存 token；未登录/会话过期返回 null。token 不出 main 进程。 */
+export async function getStoredAuthTokens(): Promise<string | null> {
+  return ensureValidTokens();
+}
+
+async function persistAuth(stored: StoredAuth, error: string | null = null): Promise<AuthState> {
   cachedAuth = stored;
   await writeJson(authFile(), stored);
-  const next = toPublicAuth(stored);
+  const next = toPublicAuth(stored, error);
   broadcast("auth:changed", next);
   return next;
 }
@@ -121,15 +193,11 @@ async function performLogin(): Promise<AuthState> {
       },
     });
     const encrypted = await encryptTokens(tokens);
-    return await persistAuth({ loggedIn: true, user, tokens: encrypted });
+    return await persistAuth({ loggedIn: true, user, tokens: encrypted, loginAt: Date.now() });
   } catch (error) {
     const message = error instanceof Error ? error.message : "GitHub 登录失败";
     const current = await loadStoredAuth();
-    return {
-      loggedIn: current.loggedIn,
-      user: current.user,
-      error: message,
-    };
+    return toPublicAuth(current, message);
   }
 }
 
@@ -139,8 +207,11 @@ async function refreshProfile(): Promise<AuthState> {
     return loadAuth();
   }
   try {
-    const tokens = await decryptTokens(stored.tokens);
-    const user = await fetchGitHubUser(tokens.accessToken);
+    const accessToken = await ensureValidTokens();
+    if (!accessToken) {
+      return loadAuth();
+    }
+    const user = await fetchGitHubUser(accessToken);
     return await persistAuth({ ...stored, user });
   } catch (error) {
     const raw = error instanceof Error ? error.message : "刷新资料失败";
@@ -148,11 +219,26 @@ async function refreshProfile(): Promise<AuthState> {
     if (/解密|凭据无效|ByteString/i.test(raw)) {
       return await persistAuth({ loggedIn: false, user: null, tokens: null });
     }
-    return {
-      loggedIn: stored.loggedIn,
-      user: stored.user,
-      error: raw,
-    };
+    // 令牌被吊销/过期（401/403）：有 refresh token 时强制续期重试一次
+    if (/HTTP 40[13]/.test(raw)) {
+      const tokens = await decryptTokens(stored.tokens).catch(() => null);
+      const refreshed = tokens?.refreshToken
+        ? await forceRefreshTokens(stored, tokens.refreshToken)
+        : null;
+      if (refreshed) {
+        try {
+          const user = await fetchGitHubUser(refreshed.accessToken);
+          return await persistAuth({ ...stored, user });
+        } catch {
+          // 新令牌仍失效：走清除路径
+        }
+      }
+      return await persistAuth(
+        { loggedIn: false, user: null, tokens: null },
+        "登录态已失效，请重新登录",
+      );
+    }
+    return toPublicAuth(stored, raw);
   }
 }
 

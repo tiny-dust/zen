@@ -13,6 +13,7 @@ import type {
   CatalogVendor,
   ChatMessage,
   DeviceCodeInfo,
+  UpdateStatusInfo,
   DirEntry,
   FetchModelsResult,
   GitBranches,
@@ -196,6 +197,26 @@ const zen = {
       ipcRenderer.on("settings:changed", listener);
       return () => {
         ipcRenderer.removeListener("settings:changed", listener);
+      };
+    },
+  },
+  updates: {
+    check(): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("update:check");
+    },
+    download(): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("update:download");
+    },
+    install(): void {
+      void ipcRenderer.invoke("update:install");
+    },
+    onStatus(handler: (status: UpdateStatusInfo) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatusInfo) => {
+        handler(status);
+      };
+      ipcRenderer.on("update:status", listener);
+      return () => {
+        ipcRenderer.removeListener("update:status", listener);
       };
     },
   },

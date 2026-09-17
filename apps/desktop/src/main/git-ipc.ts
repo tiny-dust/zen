@@ -286,17 +286,20 @@ export function registerGitIpc(): void {
     const workdir = cwd || process.cwd();
     const SEP = "\u001f";
     try {
+      // --all：纳入所有分支的提交，图谱才能画出分支泳道；--topo-order 保证父子有序、泳道少交叉
       const output = await git(workdir, [
         "log",
+        "--all",
+        "--topo-order",
         "--date=unix",
-        `--pretty=format:%H${SEP}%P${SEP}%an${SEP}%at${SEP}%s`,
+        `--pretty=format:%H${SEP}%P${SEP}%an${SEP}%at${SEP}%s${SEP}%D`,
         "--max-count=200",
       ]);
       return output
         .split("\n")
         .filter((line) => line.trim())
         .map((line) => {
-          const [hash = "", parents = "", author = "", time = "0", subject = ""] =
+          const [hash = "", parents = "", author = "", time = "0", subject = "", ...refParts] =
             line.split(SEP);
           return {
             hash,
@@ -304,6 +307,11 @@ export function registerGitIpc(): void {
             author,
             time: Number(time) * 1000,
             subject,
+            refs: refParts
+              .join(SEP)
+              .split(",")
+              .map((ref) => ref.trim())
+              .filter(Boolean),
           };
         });
     } catch {

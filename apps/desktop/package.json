@@ -7,11 +7,22 @@
   "build": {
     "appId": "com.zen.desktop",
     "productName": "Zen",
-    "directories": { "output": "release" },
-    "files": ["out/**"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.icns"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "http://localhost:8899"
     }
   },
   "scripts": {
@@ -20,6 +31,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "electron-builder",
+    "updates:serve": "node scripts/updates-server.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "brand:dev": "bash scripts/brand-dev-app.sh",
     "typecheck": "tsc --noEmit"
