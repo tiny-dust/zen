@@ -403,22 +403,30 @@ function buildToolSet(
     }),
     askUser: tool({
       description:
-        "Ask the user one question with optional preset options; shown above the chat input. Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
+        "Ask the user one question with optional preset options; shown above the chat input. " +
+        "Options render as a vertical list — single-select by default (one tap answers). " +
+        "Set multiSelect=true when the options are not mutually exclusive (the user picks several and submits together). " +
+        "Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
       inputSchema: z.object({
         question: z.string().describe("One concrete question."),
         options: z
           .array(z.string())
           .optional()
           .describe("2-6 preset answers for the user to pick; empty for free text only."),
+        multiSelect: z
+          .boolean()
+          .optional()
+          .describe("Set true when several options may be chosen at once; default single-select."),
         allowFreeText: z.boolean().optional().describe("Whether free text is allowed (default true)."),
       }),
-      execute: async ({ question, options, allowFreeText }, { toolCallId }) => {
+      execute: async ({ question, options, multiSelect, allowFreeText }, { toolCallId }) => {
         const askId = uuidLike();
         const event: AskUserQuestionEvent = {
           askId,
           toolCallId,
           question,
           options: (options ?? []).slice(0, 6),
+          multiSelect: multiSelect === true,
           allowFreeText: allowFreeText !== false,
         };
         hooks.emitAskEvent(event);
@@ -488,7 +496,11 @@ function buildToolSet(
       execute: async ({ query }) => {
         const results = await runWebSearch(query);
         for (const reference of results) {
-          emit({ type: "reference_found", sessionId, reference });
+          emit({
+            type: "reference_found",
+            sessionId,
+            reference: { ...reference, source: "web" },
+          });
         }
         if (!results.length) {
           return { query, results: [], note: "no results" };
