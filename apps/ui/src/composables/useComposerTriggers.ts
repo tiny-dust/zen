@@ -19,10 +19,58 @@ export type TriggerKind = "skill" | "file";
 
 const MAX_FILES = 200;
 
+/**
+ * 模糊匹配打分：query 以子序列命中 haystack；
+ * 连续命中与词边界（开头、/ - _ . 空白之后）加分，haystack 越长略微降分。
+ * 返回 null 表示不匹配。
+ */
+function fuzzyScore(haystack: string, query: string): number | null {
+  if (!query) {
+    return 0;
+  }
+  const lower = haystack.toLowerCase();
+  const needle = query.toLowerCase();
+  let from = 0;
+  let prevIndex = -1;
+  let score = 0;
+  for (const ch of needle) {
+    const index = lower.indexOf(ch, from);
+    if (index < 0) {
+      return null;
+    }
+    score += 1;
+    if (index === prevIndex + 1) {
+      score += 2;
+    }
+    const prevChar = index > 0 ? (lower[index - 1] ?? "") : "";
+    if (index === 0 || /[/_.\s-]/.test(prevChar)) {
+      score += 3;
+    }
+    prevIndex = index;
+    from = index + 1;
+  }
+  return score - haystack.length * 0.01;
+}
+
+/** 按 query 模糊打分排序（不匹配的剔除），保持条目原样返回 */
+function rankByQuery<T>(entries: Array<{ haystack: string; value: T }>, query: string): T[] {
+  return entries
+    .flatMap((entry) => {
+      const score = fuzzyScore(entry.haystack, query);
+      return score === null ? [] : [{ value: entry.value, score }];
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((row) => row.value);
+}
+
 export function useComposerTriggers(options: {
-  textarea: () => HTMLTextAreaElement | null;
+  /** 光标在源文本中的偏移（由编辑器提供） */
+  caret: () => number;
   value: () => string;
   setValue: (next: string) => void;
+  /** 光标落点：由编辑器保证在重渲染后设置 */
+  setCaret: (offset: number) => void;
+  focus: () => void;
   /** @ 文件补全的根目录；不传则用 main 的默认目录 */
   rootPath?: () => string | undefined;
   /** 技能选中回调：返回 true 表示已按 chip 消费，不再往正文插入文本 */
@@ -42,41 +90,52 @@ export function useComposerTriggers(options: {
   const skillItems = computed<TriggerItem[]>(() => {
     // 扫描到的真实技能优先；无扫描结果时回退到内置占位
     if (agentStore.skills.length) {
-      return agentStore.skills
-        .filter((skill) => matchesQuery(skill.id + skill.name, query.value))
-        .slice(0, 30)
-        .map((skill) => ({
-          insert: `/skill:${skill.name} `,
-          label: skill.name,
-          desc: skill.description || skill.dir,
-          icon: "skill" as const,
-          id: skill.id,
-          dir: skill.dir,
-          source: skill.source,
-        }));
+      return rankByQuery(
+        agentStore.skills.map((skill) => ({
+          haystack: `${skill.id} ${skill.name}`,
+          value: {
+            insert: `/skill:${skill.name} `,
+            label: skill.name,
+            desc: skill.description || skill.dir,
+            icon: "skill" as const,
+            id: skill.id,
+            dir: skill.dir,
+            source: skill.source,
+          },
+        })),
+        query.value,
+      ).slice(0, 30);
     }
-    return BUILTIN_SKILLS.filter((item) => matchesQuery(item.id + item.label, query.value)).map(
-      (item) => ({
-        insert: `/${item.id} `,
-        label: item.label,
-        desc: item.description,
-        icon: "skill" as const,
-        id: item.id,
-        source: "builtin" as const,
-      }),
-    );
+    return rankByQuery(
+      BUILTIN_SKILLS.map((item) => ({
+        haystack: `${item.id} ${item.label}`,
+        value: {
+          insert: `/${item.id} `,
+          label: item.label,
+          desc: item.description,
+          icon: "skill" as const,
+          id: item.id,
+          source: "builtin" as const,
+        },
+      })),
+      query.value,
+    ).slice(0, 30);
   });
 
   const fileItems = computed<TriggerItem[]>(() => {
-    return files.value
-      .filter((item) => matchesQuery(item.path, query.value))
-      .slice(0, 30)
-      .map((item) => ({
-        insert: `$${item.path} `,
-        label: item.name,
-        desc: item.path,
-        icon: item.isDir ? "dir" : "file",
-      }));
+    return rankByQuery(
+      files.value.slice(0, MAX_FILES).map((file) => ({
+        // 文件名在前：文件名命中排在纯路径命中之前
+        haystack: `${file.name} ${file.path}`,
+        value: {
+          insert: `$${file.path} `,
+          label: file.name,
+          desc: file.path,
+          icon: file.isDir ? ("dir" as const) : ("file" as const),
+        },
+      })),
+      query.value,
+    ).slice(0, 30);
   });
 
   const items = computed<TriggerItem[]>(() =>
@@ -84,10 +143,6 @@ export function useComposerTriggers(options: {
   );
 
   const activeItem = computed(() => items.value[active.value] ?? null);
-
-  function matchesQuery(haystack: string, q: string): boolean {
-    return q ? haystack.toLowerCase().includes(q.toLowerCase()) : true;
-  }
 
   async function ensureFiles() {
     if (Date.now() - filesFetchedAt < 30_000 && files.value.length) {
@@ -105,19 +160,17 @@ export function useComposerTriggers(options: {
     }
   }
 
-  /** 输入变化后检测光标前的触发 token（/ 或 $ + 查询词） */
+  /** 输入变化后检测光标前的触发 token（/ 技能；@ 或 $ 文件引用） */
   function evaluate(): void {
-    const el = options.textarea();
-    if (!el) {
-      close();
-      return;
-    }
     const value = options.value();
-    const cursor = el.selectionStart ?? value.length;
+    const cursor = Math.min(Math.max(options.caret(), 0), value.length);
     const before = value.slice(0, cursor);
-    const match = /(?:^|\s)(\/|\/[\w-]*|[$][$\w./-]*)$/.exec(before);
+    // / 唤起技能；@/$ 唤起文件引用（@ 前不能是字母数字等，避免邮箱误触）
+    const skillMatch = /(?:^|\s)(\/[\w-]*)$/.exec(before);
+    const fileMatch = /(?:^|[^\w.@$/])([@$][\w./-]*)$/.exec(before);
+    const match = skillMatch ?? fileMatch;
 
-    if (!match) {
+    if (!match || !match[1]) {
       close();
       return;
     }
@@ -130,10 +183,6 @@ export function useComposerTriggers(options: {
 
     if (kind.value === "file") {
       void ensureFiles();
-      if (!files.value.length && !query.value) {
-        close();
-        return;
-      }
     }
     open.value = true;
   }
@@ -153,28 +202,26 @@ export function useComposerTriggers(options: {
 
   function apply(item: TriggerItem | null): boolean {
     const target = item ?? activeItem.value;
-    const el = options.textarea();
-    if (!open.value || !target || !el) {
+    if (!open.value || !target) {
       return false;
     }
     const value = options.value();
-    const cursor = el.selectionEnd ?? value.length;
+    const cursor = Math.min(Math.max(options.caret(), 0), value.length);
 
     // 技能以 chip 挂在输入框上方：移除触发 token，不往正文插入文本
     if (options.onSelectSkill?.(target)) {
       options.setValue(value.slice(0, tokenStart.value) + value.slice(cursor));
       close();
-      el.focus();
-      el.setSelectionRange(tokenStart.value, tokenStart.value);
+      options.focus();
+      options.setCaret(tokenStart.value);
       return true;
     }
 
     const next = value.slice(0, tokenStart.value) + target.insert + value.slice(cursor);
     options.setValue(next);
     close();
-    el.focus();
-    const caret = tokenStart.value + target.insert.length;
-    el.setSelectionRange(caret, caret);
+    options.focus();
+    options.setCaret(tokenStart.value + target.insert.length);
     return true;
   }
 

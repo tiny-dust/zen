@@ -12,7 +12,7 @@ import {
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import {
   Attachment,
@@ -21,6 +21,7 @@ import {
   AttachmentPreview,
   AttachmentRemove,
 } from "@/components/ai-elements/attachments";
+import ComposerEditor from "@/components/chat/ComposerEditor.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import {
@@ -35,7 +36,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { Textarea } from "@/components/ui/textarea";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
@@ -92,26 +92,23 @@ watch(allowedEfforts, (list) => {
   }
 }, { immediate: true });
 
-const textareaEl = ref<HTMLTextAreaElement | null>(null);
+const editorRef = ref<InstanceType<typeof ComposerEditor> | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
-
-/**
- * Textarea 是包装组件：模板 ref 拿到的是组件实例而非原生元素，
- * 直接调用 instance.focus() 会抛错导致选择技能后输入框失焦，这里取其根元素。
- */
-function setTextareaRef(instance: unknown): void {
-  textareaEl.value =
-    instance instanceof HTMLTextAreaElement
-      ? instance
-      : ((instance as { $el?: HTMLTextAreaElement } | null)?.$el ?? null);
-}
+/** 悬浮引用 token 时高亮上方对应的附件 chip */
+const hoveredAttachmentId = ref<string | null>(null);
 
 const triggers = useComposerTriggers({
-  textarea: () => textareaEl.value,
+  caret: () => editorRef.value?.caretOffset() ?? 0,
   value: () => input.value,
   setValue: (next) => {
     input.value = next;
+  },
+  setCaret: (offset) => {
+    editorRef.value?.setCaretSoon(offset);
+  },
+  focus: () => {
+    editorRef.value?.focus();
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
   onSelectSkill: (item) => {
@@ -149,12 +146,16 @@ function attachmentData(att: { id: string; name: string; isImage: boolean }): At
   };
 }
 
-function onInput() {
+function onModelValue(value: string) {
+  input.value = value;
   triggers.evaluate();
 }
 
 function onKeydown(event: KeyboardEvent) {
   if (triggers.onKeydown(event)) {
+    return;
+  }
+  if (event.isComposing) {
     return;
   }
   if (event.key === "Enter" && !event.shiftKey) {
@@ -170,45 +171,72 @@ function openFilePicker() {
 function onPickFiles(event: Event) {
   const target = event.target as HTMLInputElement;
   const zen = window.zen;
-  const files = Array.from(target.files ?? []);
-  for (const file of files) {
+  for (const file of Array.from(target.files ?? [])) {
     const path = zen ? zen.pathForFile(file) : "";
     chatStore.addAttachment(file, path);
-    insertAtCursor(`$${file.name} `);
+    editorRef.value?.insertAtCaret(`$${file.name} `);
   }
   target.value = "";
 }
 
+// ---------- 拖放：只接管文件；纯文本拖放不拦截，交给编辑器 beforeinput ----------
+
+let dragDepth = 0;
+
+function onDragEnter(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes("Files")) {
+    return;
+  }
+  dragDepth += 1;
+  dragging.value = true;
+}
+
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) {
+    dragging.value = false;
+  }
+}
+
+function onDragOver(event: DragEvent) {
+  if (event.dataTransfer?.types.includes("Files")) {
+    event.preventDefault();
+  }
+}
+
+/** 文件落点：编辑器内按坐标插到光标处，壳内其他区域追加到末尾 */
 function onDrop(event: DragEvent) {
+  dragDepth = 0;
   dragging.value = false;
-  const zen = window.zen;
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (!files.length) {
     return;
   }
   event.preventDefault();
+  const zen = window.zen;
+  let refs = "";
   for (const file of files) {
     const path = zen ? zen.pathForFile(file) : "";
     chatStore.addAttachment(file, path);
-    insertAtCursor(`$${file.name} `);
+    refs += `$${file.name} `;
+  }
+  const dropped = editorRef.value?.insertAtPoint(event.clientX, event.clientY, refs) ?? false;
+  if (!dropped) {
+    editorRef.value?.insertAtCaret(refs);
   }
 }
 
-function insertAtCursor(text: string) {
-  const el = textareaEl.value;
-  const value = input.value;
-  const start = el?.selectionStart ?? value.length;
-  const end = el?.selectionEnd ?? value.length;
-  input.value = value.slice(0, start) + text + value.slice(end);
-  void nextTick(() => {
-    el?.focus();
-    const caret = start + text.length;
-    el?.setSelectionRange(caret, caret);
-  });
+/** 悬浮正文引用 token 时高亮上方对应附件 chip */
+function onTokenHover(id: string | null) {
+  hoveredAttachmentId.value = id;
 }
 
 function removeAttachment(id: string) {
+  const att = attachments.value.find((item) => item.id === id);
   chatStore.removeAttachment(id);
+  if (att && input.value.includes(`$${att.name}`)) {
+    input.value = input.value.split(`$${att.name}`).join("");
+  }
 }
 </script>
 
@@ -246,7 +274,12 @@ function removeAttachment(id: string) {
           v-for="att in attachments"
           :key="att.id"
           :data="attachmentData(att)"
-          class="max-w-[240px] bg-[var(--color-side-glass)] border-[var(--color-line)]"
+          class="max-w-[240px] bg-[var(--color-side-glass)]"
+          :class="
+            hoveredAttachmentId === att.id
+              ? 'border-[var(--color-accent)]'
+              : 'border-[var(--color-line)]'
+          "
           @remove="removeAttachment(att.id)"
         >
           <AttachmentPreview />
@@ -265,6 +298,10 @@ function removeAttachment(id: string) {
             ? 'border border-[color-mix(in_srgb,var(--color-accent)_50%,var(--color-line))]'
             : 'border border-transparent'
         "
+        @dragenter="onDragEnter"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
       >
         <!-- 选中的技能：tag 形式渲染，悬浮展示技能信息 -->
         <div
@@ -315,20 +352,17 @@ function removeAttachment(id: string) {
         </div>
 
         <label class="sr-only" for="chat-input">消息输入</label>
-        <Textarea
+        <ComposerEditor
           id="chat-input"
-          :ref="setTextareaRef"
-          v-model="input"
-          class="max-h-[220px] min-h-[44px]! resize-none rounded-none! border-none! bg-transparent! px-0! py-0! text-[14px] leading-relaxed text-[var(--color-txt-strong)] placeholder:text-[var(--color-composer-placeholder)]"
-          rows="2"
-          placeholder="描述任务，输入/调用技能"
+          ref="editorRef"
+          :model-value="input"
+          :attachments="attachments"
+          placeholder="描述任务，/ 调用技能，@ 引用文件"
           :disabled="isRunning"
-          @input="onInput"
+          @update:model-value="onModelValue"
+          @token-hover="onTokenHover"
           @keydown="onKeydown"
           @click="triggers.evaluate"
-          @dragover.prevent="dragging = true"
-          @dragleave.prevent="dragging = false"
-          @drop="onDrop"
         />
 
         <div class="mt-2 flex items-center justify-between gap-2">
