@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
+import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, watch } from "vue";
 
@@ -13,7 +13,7 @@ import { useUserStore } from "@/stores/user";
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const agentStore = useAgentStore();
-const { auth, loading, refreshing, deviceCode, loginError } = storeToRefs(userStore);
+const { auth, loading, refreshing, deviceCode, loginError, codeCopied } = storeToRefs(userStore);
 const { settings: agentSettings, syncBusy, lastSync } = storeToRefs(agentStore);
 
 const user = computed(() => auth.value.user);
@@ -201,11 +201,17 @@ function onOpenBlog() {
         </p>
         <div v-if="deviceCode && loading" class="text-[12px] text-[var(--color-txt)]">
           浏览器若未预填，请输入设备码
-          <code
-            class="ml-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 font-[family-name:var(--font-mono)] tracking-[0.08em]"
+          <button
+            type="button"
+            class="ml-1 inline-flex items-center gap-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 align-middle font-[family-name:var(--font-mono)] tracking-[0.08em] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
+            :aria-label="codeCopied ? '设备码已复制' : '点击复制设备码'"
+            :title="codeCopied ? '已复制' : '点击复制'"
+            @click="userStore.copyUserCode()"
           >
             {{ deviceCode.userCode }}
-          </code>
+            <Check v-if="codeCopied" class="size-3 text-[var(--color-ok)]" aria-hidden="true" />
+          </button>
+          <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">已复制，可直接粘贴</span>
         </div>
         <p v-if="loginError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ loginError }}</p>
         <Button size="sm" :disabled="loading" @click="userStore.login()">
