@@ -22,9 +22,12 @@ const rootEl = ref<HTMLElement | null>(null);
 const commitPos = ref({ top: 0, left: 0 });
 
 const cardCls = classes(
-  "flex min-h-0 flex-1 flex-col",
+  "flex min-h-0 flex-1 flex-col gap-4",
   "rounded-2xl border border-[var(--color-line-soft)] bg-[var(--color-raise)] p-3",
 );
+
+/** 节间分隔：细线 + 上方留白，三节边界清晰 */
+const dividerCls = "border-t border-[var(--color-line-soft)] pt-4";
 
 /** 提交面板贴在信息卡左侧，与触发行大致齐平 */
 async function openCommitPanel() {
@@ -55,8 +58,8 @@ async function openCommitPanel() {
   >
     <div :class="embedded ? 'flex flex-col gap-4' : cardCls">
       <EnvInfoSection @open-commit="openCommitPanel" />
-      <TaskListSection />
-      <ReferencesSection />
+      <TaskListSection :class="dividerCls" />
+      <ReferencesSection :class="dividerCls" />
     </div>
   </aside>
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, Copy, Pencil, Sparkles } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
 import {
@@ -15,7 +15,6 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
-import TaskUpdateCard from "@/components/chat/TaskUpdateCard.vue";
 import ToolCallCard from "@/components/chat/ToolCallCard.vue";
 import ToolCallRow from "@/components/chat/ToolCallRow.vue";
 import { useChatStore } from "@/stores/chat";
@@ -25,7 +24,6 @@ import type { SelectedSkill } from "@/stores/chat-types";
 import type {
   ChatMessage,
   ChatMessagePart,
-  TaskItem,
   ToolCallMessageMeta,
 } from "@zen/shared";
 
@@ -108,19 +106,6 @@ const toolMeta = computed<ToolCallMessageMeta | null>(() => {
   };
 });
 
-const taskSnapshot = computed(() => {
-  if (props.message.role !== "tool") {
-    return null;
-  }
-  const meta = props.message.meta as
-    | { kind?: string; version?: number; items?: TaskItem[] }
-    | undefined;
-  if (meta?.kind !== "tasks" || !Array.isArray(meta.items)) {
-    return null;
-  }
-  return { version: meta.version ?? 1, items: meta.items };
-});
-
 /** 发送时随消息一起带上的技能 tag（正文不含 /skill: 前缀） */
 const skillParts = computed<SelectedSkill[]>(() => {
   const meta = props.message.meta as { skills?: SelectedSkill[] } | undefined;
@@ -138,6 +123,45 @@ function formatTime(ts: number): string {
 }
 
 const copied = ref(false);
+
+/** 流式运行时长：每秒跳动的已运行时间，让用户知道回复仍在进行 */
+const elapsedText = ref("");
+let elapsedTimer: number | undefined;
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds} 秒`;
+  }
+  return `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, "0")} 秒`;
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer !== undefined) {
+    window.clearInterval(elapsedTimer);
+    elapsedTimer = undefined;
+  }
+}
+
+watch(
+  () => props.streaming,
+  (active) => {
+    stopElapsedTimer();
+    if (!active) {
+      elapsedText.value = "";
+      return;
+    }
+    const startedAt = chatStore.runStartedAt ?? Date.now();
+    const tick = () => {
+      elapsedText.value = formatElapsed(Date.now() - startedAt);
+    };
+    tick();
+    elapsedTimer = window.setInterval(tick, 1000);
+  },
+  { immediate: true },
+);
+
+onUnmounted(stopElapsedTimer);
 
 async function copyContent() {
   try {
@@ -194,7 +218,7 @@ function editContent() {
     </div>
 
     <div
-      class="max-w-[min(760px,85%)] rounded-2xl bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
+      class="max-w-[min(760px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
       <!-- 随消息发送的技能 tag -->
       <div v-if="skillParts.length" class="mb-1.5 flex flex-wrap justify-end gap-1.5">
@@ -223,18 +247,9 @@ function editContent() {
     </div>
   </div>
 
-  <!-- 工具调用 / 任务清单快照：铺在时间线里，可展开详情 -->
+  <!-- 工具调用：铺在时间线里，可展开详情 -->
   <div v-else-if="message.role === 'tool'" class="w-full">
-    <TaskUpdateCard
-      v-if="taskSnapshot"
-      :version="taskSnapshot.version"
-      :items="taskSnapshot.items"
-    />
-    <ToolCallCard
-      v-else-if="toolMeta"
-      :meta="toolMeta"
-      :content="message.content"
-    />
+    <ToolCallCard v-if="toolMeta" :meta="toolMeta" :content="message.content" />
   </div>
 
   <div v-else-if="message.role === 'system'" class="w-full">
@@ -267,17 +282,20 @@ function editContent() {
         class="md-content"
       />
 
-      <!-- 工具调用：icon + 动作 + 高亮目标，可展开输出 -->
+      <!-- 工具调用：icon + 动作 + 高亮目标 + 改动行数，可展开输出 -->
       <ToolCallRow v-else :part="part" />
     </template>
 
-    <!-- 无任何分段：思考中 loading -->
+    <!-- 运行状态行：loader + 已运行时长，结束后消失 -->
     <div
-      v-if="!parts.length"
+      v-if="streaming"
       class="flex items-center gap-1.5 text-[var(--color-mut)]"
+      role="status"
     >
       <Loader :size="14" />
-      <span class="text-[13px]">正在思考…</span>
+      <span class="text-[12px] tabular-nums">
+        {{ parts.length ? "运行中" : "正在思考" }} · {{ elapsedText || "0 秒" }}
+      </span>
     </div>
   </div>
 </template>

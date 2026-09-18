@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Circle, CircleCheck, ChevronDown } from "@lucide/vue";
+import { Circle, CircleCheck, ListChecks } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
+import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { cn } from "@/lib/utils";
 
@@ -26,27 +27,17 @@ watch(
     });
   },
 );
-
-const headCls =
-  "flex min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:text-[var(--color-txt)]";
 </script>
 
 <template>
   <section class="flex flex-col">
-    <button type="button" :class="headCls" @click="open = !open">
-      任务清单
-      <ChevronDown
-        class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
-        :class="open ? '' : '-rotate-90'"
-        aria-hidden="true"
-      />
-      <span
-        v-if="tasks.length"
-        class="ml-auto inline-flex h-5 items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10.5px] font-normal text-[var(--color-mut)]"
-      >
-        {{ doneCount }}/{{ tasks.length }}
-      </span>
-    </button>
+    <SessionSectionHead
+      :icon="ListChecks"
+      title="任务清单"
+      :open="open"
+      :count="tasks.length ? `${doneCount}/${tasks.length}` : undefined"
+      @toggle="open = !open"
+    />
 
     <div v-if="open" class="mt-1 flex flex-col gap-1.5">
       <div

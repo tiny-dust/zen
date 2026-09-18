@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import {
-  ChevronDown,
-  ChevronRight,
   CircleCheck,
   ExternalLink,
+  FoldVertical,
   Gauge,
   GitBranch,
   GitPullRequestArrow,
+  Info,
   RefreshCw,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
+import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
@@ -55,33 +56,39 @@ onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocPointerDown, true);
 });
 
-const headCls =
-  "flex min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:text-[var(--color-txt)]";
 const actionCls = cn(
   "flex min-h-8 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left text-[13px] text-[var(--color-txt)]",
   "hover:bg-[var(--color-menu-hover)]",
 );
 const envIconCls = "mt-0.5 size-3.5 flex-none text-[var(--color-mut)]";
+/** 说明行缩进：与上方行内文本对齐（行内边距 4px + 图标 14px + 间距 8px） */
+const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12px] text-[var(--color-dim)]";
 </script>
 
 <template>
   <section class="flex flex-col">
-    <button type="button" :class="headCls" @click="open = !open">
-      环境信息
-      <ChevronDown
-        class="size-3.5 text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
-        :class="open ? '' : '-rotate-90'"
-        aria-hidden="true"
-      />
-    </button>
+    <SessionSectionHead :icon="Info" title="环境信息" :open="open" @toggle="open = !open" />
 
     <div v-if="open" class="mt-1 flex flex-col">
-      <div v-if="contextUsage != null" class="flex min-h-8 items-start gap-2 py-1 text-[12.5px] text-[var(--color-txt)]">
+      <div
+        v-if="contextUsage != null"
+        class="flex min-h-8 items-start gap-2 px-1 py-1 text-[12.5px] text-[var(--color-txt)]"
+      >
         <Gauge :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">上下文</span>
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
           {{ contextUsage }}%
         </span>
+        <button
+          v-if="chatStore.hasMessages"
+          type="button"
+          class="flex-none text-[var(--color-dim)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
+          aria-label="压缩上下文：更早对话折叠为摘要"
+          title="压缩上下文：把更早对话折叠成「目标/进度/变更」摘要，下一次发送生效"
+          @click="chatStore.compressNow()"
+        >
+          <FoldVertical class="size-3.5" aria-hidden="true" />
+        </button>
       </div>
 
       <!-- 变更文件 -->
@@ -146,7 +153,7 @@ const envIconCls = "mt-0.5 size-3.5 flex-none text-[var(--color-mut)]";
         <GitPullRequestArrow :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">提交或推送</span>
       </button>
-      <div class="flex min-h-7 items-center gap-2 py-0.5 pl-6 text-[12px] text-[var(--color-dim)]">
+      <div :class="noteIndentCls">
         <span class="min-w-0 flex-1 truncate">
           {{ gitStore.pullRequest ? prLabel : "当前分支暂无拉取请求" }}
         </span>
@@ -161,7 +168,7 @@ const envIconCls = "mt-0.5 size-3.5 flex-none text-[var(--color-mut)]";
           <ExternalLink class="size-3.5" aria-hidden="true" />
         </a>
       </div>
-      <p v-if="gitStore.feedback" class="m-0 pl-6 text-[11px] text-[var(--color-mut)]" role="status">
+      <p v-if="gitStore.feedback" class="m-0 pl-[26px] text-[11px] text-[var(--color-mut)]" role="status">
         {{ gitStore.feedback }}
       </p>
     </div>

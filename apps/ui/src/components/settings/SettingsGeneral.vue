@@ -3,10 +3,13 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import AppIcon from "@/components/base/AppIcon.vue";
+import { Response } from "@/components/ai-elements/response";
+import { CODE_THEMES } from "@/components/ai-elements/response/extensions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
@@ -17,6 +20,13 @@ const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
 
 const menuBarVisible = ref(true);
+
+/** 代码主题预览片段：同一份代码左浅右深各渲染一份（取色规则见 styles.css 预览节） */
+const PREVIEW_SNIPPET = `function greet() {
+  const name = "world"
+  console.log(name)
+  return true
+}`;
 
 /** 软件更新（临时开放）：更新源 + 检查/下载/安装 */
 const feedDraft = ref("");
@@ -188,6 +198,50 @@ async function downloadUpdate() {
         <p class="m-0 text-[11px] leading-relaxed text-[var(--color-dim)]">
           默认指向本机 8899 端口；在仓库里运行 pnpm updates:serve 即可启动更新源（内含
           latest-mac.yml 与安装包），局域网机器改填对应 IP。
+        </p>
+      </CardContent>
+    </Card>
+  </section>
+
+  <section class="flex flex-col">
+    <h3 class="settings-section-title">代码主题</h3>
+    <Card size="sm" class="settings-card">
+      <CardContent class="flex flex-col gap-3 p-4">
+        <Select
+          :model-value="settings.codeTheme"
+          @update:model-value="settingsStore.setCodeTheme(String($event))"
+        >
+          <SelectTrigger class="h-9 w-full rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
+            <SelectValue placeholder="选择代码主题" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem
+                v-for="theme in CODE_THEMES"
+                :key="theme.id"
+                :value="theme.id"
+              >
+                {{ theme.label }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <!-- 预览：同一片段左浅右深各一份，切换主题即时刷新 -->
+        <div class="grid grid-cols-2 overflow-hidden rounded-[10px] border border-[var(--color-line)]">
+          <Response
+            :key="`light-${settings.codeTheme}`"
+            :content="'```ts\n' + PREVIEW_SNIPPET + '\n```'"
+            class="md-content code-theme-preview code-theme-preview--light"
+          />
+          <Response
+            :key="`dark-${settings.codeTheme}`"
+            :content="'```ts\n' + PREVIEW_SNIPPET + '\n```'"
+            class="md-content code-theme-preview code-theme-preview--dark"
+          />
+        </div>
+        <p class="m-0 text-[11px] text-[var(--color-dim)]">
+          主题同时作用于对话消息里的代码块；左侧为浅色模式、右侧为深色模式下的效果。
         </p>
       </CardContent>
     </Card>
