@@ -3,10 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "productName": "Zen",
+  "desktopName": "zen.desktop",
   "main": "out/main/index.js",
   "build": {
     "appId": "com.zen.desktop",
     "productName": "Zen",
+    "executableName": "zen",
     "directories": {
       "output": "release"
     },
@@ -31,7 +33,8 @@
         "AppImage"
       ],
       "icon": "build/icon.png",
-      "category": "Development"
+      "category": "Development",
+      "syncDesktopName": true
     },
     "npmRebuild": false,
     "publish": {
