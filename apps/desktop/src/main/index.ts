@@ -192,19 +192,8 @@ function registerIpc(): void {
           },
         });
       } else if (streamEvent.type === "tasks_updated") {
+        // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流，避免聊天区/面板/右下角三处重复
         saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
-        // 任务快照进消息流（同 version 覆盖），重开可见计划卡
-        appendMessage(request.sessionId, {
-          id: `tasks-${request.sessionId}-v${streamEvent.version}`,
-          role: "tool",
-          content: "",
-          createdAt: Date.now(),
-          meta: {
-            kind: "tasks",
-            version: streamEvent.version,
-            items: streamEvent.items,
-          },
-        });
       }
       emit(event.sender, streamEvent);
     };
