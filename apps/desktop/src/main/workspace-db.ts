@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
+import { decodeChatMessageMeta, encodeChatMessageMeta } from "@zen/shared";
+
 import { getDb } from "./model-db-connection";
 
 import type { ChatMessage, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
@@ -64,22 +66,15 @@ function toSession(row: SessionRow): SessionRecord {
 }
 
 function toMessage(row: MessageRow): ChatMessage {
-  let meta = row.meta_json ? (JSON.parse(row.meta_json) as Record<string, unknown>) : undefined;
-  // parts 持久化在 meta_json.parts，读出时提升回顶层字段
-  let parts: ChatMessage["parts"];
-  if (meta && Array.isArray(meta.parts)) {
-    parts = meta.parts as ChatMessage["parts"];
-    const { parts: _parts, ...rest } = meta;
-    meta = Object.keys(rest).length ? rest : undefined;
-  }
+  const decoded = decodeChatMessageMeta(row.meta_json);
   return {
     id: row.id,
     role: row.role,
     content: row.content,
     reasoning: row.reasoning ?? undefined,
     reasoningMs: row.reasoning_ms ?? undefined,
-    ...(parts?.length ? { parts } : {}),
-    ...(meta ? { meta } : {}),
+    ...(decoded.parts?.length ? { parts: decoded.parts } : {}),
+    ...(decoded.meta ? { meta: decoded.meta } : {}),
     createdAt: row.created_at,
   };
 }
@@ -274,9 +269,7 @@ export function ensureSessionTitle(id: string, title: string): void {
 
 export function appendMessage(sessionId: string, message: ChatMessage): void {
   // parts 并入 meta_json 持久化，避免改表结构
-  const meta = message.parts?.length
-    ? { ...message.meta, parts: message.parts }
-    : message.meta;
+  const meta = encodeChatMessageMeta(message);
   // 任务快照按 version 覆盖；其余消息 INSERT OR IGNORE 防重复
   const isTaskSnapshot =
     message.role === "tool" &&

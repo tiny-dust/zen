@@ -32,15 +32,16 @@ const spec = (
 ): ToolIconSpec => ({ icon, cls, label });
 
 const BY_NAME: Record<string, ToolIconSpec> = {
+  // 动作名与 tool-part.ts / toolDisplay 对齐，避免新旧工具卡状态词不一致
   readFile: spec(FileText, "text-[var(--color-mut)]", "读取文件"),
   writeFile: spec(FilePlus, "text-[var(--color-add)]", "写入文件"),
   editFile: spec(FilePen, "text-[var(--color-accent)]", "编辑文件"),
-  listDir: spec(FolderOpen, "text-[var(--color-mut)]", "列出目录"),
+  listDir: spec(FolderOpen, "text-[var(--color-mut)]", "浏览目录"),
   searchFiles: spec(Search, "text-[var(--color-mut)]", "搜索文件"),
-  runTerminal: spec(Terminal, "text-[var(--color-accent-2)]", "终端命令"),
+  runTerminal: spec(Terminal, "text-[var(--color-accent-2)]", "执行终端"),
   webSearch: spec(Globe, "text-[var(--color-link)]", "网络搜索"),
-  updateTasks: spec(ListChecks, "text-[var(--color-accent)]", "任务清单"),
-  askUser: spec(MessageCircleQuestion, "text-[var(--color-accent-2)]", "向用户提问"),
+  updateTasks: spec(ListChecks, "text-[var(--color-accent)]", "更新任务清单"),
+  askUser: spec(MessageCircleQuestion, "text-[var(--color-accent-2)]", "询问用户"),
   loadSkill: spec(BookMarked, "text-[var(--color-mut)]", "加载技能"),
 };
 

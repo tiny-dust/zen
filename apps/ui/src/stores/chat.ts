@@ -3,18 +3,19 @@ import { uuid } from "rattail";
 import { computed, ref, watch } from "vue";
 
 import type {
+  AgentDoneReason,
   AgentRunStatus,
   AgentStreamEvent,
   AttachmentRef,
   ChatMessage,
-  ChatMessagePart,
+  ChatRunSummary,
   ReasoningEffort,
   SessionRecord,
   TaskItem,
   ToolApprovalDecision,
   ToolCallMessageMeta,
 } from "@zen/shared";
-import { applyStreamToParts } from "@zen/shared";
+import { applyStreamToMessage, getMessageRun, restoreRunSummaryFromMessages } from "@zen/shared";
 import {
   buildHistory,
   compressHistory,
@@ -68,6 +69,10 @@ export const useChatStore = defineStore("chat", () => {
   const branch = ref("");
   const repo = ref("");
   const lastInputTokens = ref<number | null>(null);
+  const lastOutputTokens = ref<number | null>(null);
+  const currentStep = ref<number | null>(null);
+  const lastDoneReason = ref<AgentDoneReason | null>(null);
+  const runSummary = ref<ChatRunSummary | null>(null);
 
   const { flushDraft } = useSessionDraft(input, sessionId);
 
@@ -145,8 +150,8 @@ export const useChatStore = defineStore("chat", () => {
     return last?.role === "assistant" ? last : undefined;
   }
 
-  /** 流式分段容器：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
-  function streamingParts(): ChatMessagePart[] {
+  /** 流式助手消息：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
+  function ensureAssistantMessage(): ChatMessage {
     let last = lastAssistant();
     if (!last) {
       const message: ChatMessage = {
@@ -160,30 +165,26 @@ export const useChatStore = defineStore("chat", () => {
       last = message;
     }
     last.parts ??= [];
-    return last.parts;
+    return last;
   }
 
-  function appendDelta(text: string) {
-    phase.value = "answering";
-    const last = lastAssistant();
-    if (last) {
-      last.content += text;
-      last.parts ??= [];
-      applyStreamToParts(last.parts, { type: "delta", sessionId: "", text });
+  function applyToLiveAssistant(event: AgentStreamEvent): void {
+    applyStreamToMessage(ensureAssistantMessage(), event);
+  }
+
+  function syncRunRefsFromMessage(message: ChatMessage): void {
+    const summary = getMessageRun(message);
+    if (!summary) {
       return;
     }
-    appendMessage({
-      id: uuid(),
-      role: "assistant",
-      content: text,
-      parts: [{ type: "text", text }],
-      createdAt: Date.now(),
-    });
-  }
-
-  function appendReasoning(text: string) {
-    phase.value = "thinking";
-    applyStreamToParts(streamingParts(), { type: "reasoning_delta", sessionId: "", text });
+    runSummary.value = summary;
+    if (summary.reason) lastDoneReason.value = summary.reason;
+    if (summary.step != null) currentStep.value = summary.step;
+    if (summary.usage) {
+      lastInputTokens.value = summary.usage.inputTokens;
+      lastOutputTokens.value = summary.usage.outputTokens;
+    }
+    if (summary.error) lastError.value = summary.error;
   }
 
   function handleStreamEvent(event: AgentStreamEvent) {
@@ -191,36 +192,42 @@ export const useChatStore = defineStore("chat", () => {
       return;
     }
 
+    // 与 main 共用消息级 reducer：parts / content / run summary / 未完成工具终态
+    if (
+      event.type === "delta" ||
+      event.type === "reasoning_delta" ||
+      event.type === "reasoning_end" ||
+      event.type === "tool_input_start" ||
+      event.type === "tool_start" ||
+      event.type === "tool_progress" ||
+      event.type === "tool_end" ||
+      event.type === "approval_request" ||
+      event.type === "approval_resolved" ||
+      event.type === "step_start" ||
+      event.type === "usage" ||
+      event.type === "error" ||
+      event.type === "done"
+    ) {
+      applyToLiveAssistant(event);
+    }
+
     switch (event.type) {
       case "delta":
         phase.value = "answering";
-        appendDelta(event.text);
         break;
       case "reasoning_delta":
         phase.value = "thinking";
-        appendReasoning(event.text);
         break;
-      case "reasoning_end": {
-        const last = lastAssistant();
-        if (last) {
-          last.reasoningMs = event.durationMs;
-          last.parts ??= [];
-          applyStreamToParts(last.parts, event);
-        }
+      case "reasoning_end":
         break;
-      }
       case "tool_input_start":
+        break;
       case "tool_start":
-        if (event.type === "tool_start") {
-          pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
-        }
-        applyStreamToParts(streamingParts(), event);
+        pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
         break;
       case "tool_progress":
-        applyStreamToParts(streamingParts(), event);
         break;
       case "tool_end": {
-        applyStreamToParts(streamingParts(), event);
         // 读写文件成功 → 收进悬浮面板「参考 · 项目」（按路径去重）
         const pending = pendingToolArgs.get(event.toolCallId);
         pendingToolArgs.delete(event.toolCallId);
@@ -253,7 +260,7 @@ export const useChatStore = defineStore("chat", () => {
         if (pendingApproval.value?.approvalId === event.approvalId) {
           pendingApproval.value = null;
         }
-        statusText.value = event.approved ? "已批准" : "已拒绝";
+        statusText.value = event.approved ? "已批准，等待执行" : "已拒绝";
         break;
       case "ask_user":
         pendingAsk.value = event.question;
@@ -277,22 +284,39 @@ export const useChatStore = defineStore("chat", () => {
         }
         break;
       case "error":
-        status.value = "error";
         lastError.value = event.message;
         statusText.value = event.message;
+        syncRunRefsFromMessage(ensureAssistantMessage());
+        break;
+      case "step_start":
+        currentStep.value = event.step;
         break;
       case "usage":
         lastInputTokens.value = event.inputTokens;
+        lastOutputTokens.value = event.outputTokens;
         break;
       case "done": {
-        status.value = "idle";
+        const message = ensureAssistantMessage();
+        syncRunRefsFromMessage(message);
+        const reason = runSummary.value?.reason ?? event.reason;
+        lastDoneReason.value = reason;
+        status.value = reason === "error" ? "error" : "idle";
         isPaused.value = false;
         pendingApproval.value = null;
-        statusText.value = event.reason === "cancelled" ? "已取消" : "";
-        if (!usedUpdateTasks && event.reason === "stop") {
+        pendingAsk.value = null;
+        statusText.value =
+          reason === "cancelled"
+            ? "已取消"
+            : reason === "max_steps"
+              ? "已达到步骤上限"
+              : reason === "error"
+                ? (lastError.value || "运行失败")
+                : "已完成";
+        if (!usedUpdateTasks && reason === "stop") {
           applyChecklistFallback();
         }
         usedUpdateTasks = false;
+        pendingToolArgs.clear();
         void refreshGit();
         void useGitStore().refreshStatus();
         break;
@@ -435,6 +459,11 @@ export const useChatStore = defineStore("chat", () => {
       .join("\n");
 
     lastError.value = "";
+    lastDoneReason.value = null;
+    runSummary.value = null;
+    currentStep.value = null;
+    lastInputTokens.value = null;
+    lastOutputTokens.value = null;
     input.value = "";
     attachments.value = [];
     selectedSkills.value = [];
@@ -599,6 +628,10 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
+    lastOutputTokens.value = null;
+    currentStep.value = null;
+    lastDoneReason.value = null;
+    runSummary.value = null;
     sessionName.value = "新会话";
     forceCompress.value = false;
     pendingToolArgs.clear();
@@ -649,11 +682,27 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
+    lastOutputTokens.value = null;
+    currentStep.value = null;
+    lastDoneReason.value = null;
+    runSummary.value = null;
     forceCompress.value = false;
     pendingToolArgs.clear();
     useSessionInfoStore().clear();
     useSessionInfoStore().ensureSession(sessionId.value);
     useSessionInfoStore().restoreFromSession(found);
+    // 从最后一条 assistant 的 meta.run 恢复 run summary
+    const restored = restoreRunSummaryFromMessages(found.messages);
+    if (restored) {
+      runSummary.value = restored;
+      if (restored.reason) lastDoneReason.value = restored.reason;
+      if (restored.step != null) currentStep.value = restored.step;
+      if (restored.usage) {
+        lastInputTokens.value = restored.usage.inputTokens;
+        lastOutputTokens.value = restored.usage.outputTokens;
+      }
+      if (restored.error) lastError.value = restored.error;
+    }
     useGitStore().reset();
     void refreshGit();
     void useGitStore().refreshStatus();
@@ -684,6 +733,11 @@ export const useChatStore = defineStore("chat", () => {
     branch,
     repo,
     contextUsage,
+    lastInputTokens,
+    lastOutputTokens,
+    currentStep,
+    lastDoneReason,
+    runSummary,
     filesRevision,
     bootstrap,
     handleStreamEvent,

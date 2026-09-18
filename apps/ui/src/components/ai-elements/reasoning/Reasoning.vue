@@ -3,7 +3,7 @@ import type { HTMLAttributes } from 'vue'
 import { Collapsible } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { useVModel } from '@vueuse/core'
-import { computed, provide, ref, watch } from 'vue'
+import { computed, onUnmounted, provide, ref, watch } from 'vue'
 import { ReasoningKey } from './context'
 
 interface Props {
@@ -41,40 +41,57 @@ function updateDuration(val: number) {
   emit('update:duration', val)
 }
 
-const hasAutoClosed = ref(false)
 const startTime = ref<number | null>(null)
+const hasUserClosed = ref(false)
+let autoCloseTimer: ReturnType<typeof setTimeout> | undefined
 
 const MS_IN_S = 1000
 const AUTO_CLOSE_DELAY = 1000
 
-// Track duration when streaming starts and ends
-watch(() => props.isStreaming, (streaming) => {
-  if (streaming) {
-    // Auto-open when streaming starts
-    isOpen.value = true
+function clearAutoCloseTimer() {
+  if (autoCloseTimer) {
+    clearTimeout(autoCloseTimer)
+    autoCloseTimer = undefined
+  }
+}
 
+// A new stream may open reasoning once; a manual close remains respected for that cycle.
+watch(() => props.isStreaming, (streaming, wasStreaming) => {
+  clearAutoCloseTimer()
+  if (streaming) {
+    if (!wasStreaming) {
+      hasUserClosed.value = false
+      isOpen.value = true
+    }
     if (startTime.value === null && props.duration === undefined) {
       startTime.value = Date.now()
     }
+    return
   }
-  else if (startTime.value !== null) {
+
+  if (startTime.value !== null) {
     const calculatedDuration = Math.ceil((Date.now() - startTime.value) / MS_IN_S)
     updateDuration(calculatedDuration)
     startTime.value = null
   }
-}, { immediate: true })
 
-// Auto-close logic
-watch([() => props.isStreaming, isOpen, () => props.defaultOpen, hasAutoClosed], (_, __, onCleanup) => {
-  if (props.defaultOpen && !props.isStreaming && isOpen.value && !hasAutoClosed.value) {
-    const timer = setTimeout(() => {
-      isOpen.value = false
-      hasAutoClosed.value = true
+  if (wasStreaming && isOpen.value && !hasUserClosed.value) {
+    autoCloseTimer = setTimeout(() => {
+      autoCloseTimer = undefined
+      if (!props.isStreaming && !hasUserClosed.value) {
+        isOpen.value = false
+      }
     }, AUTO_CLOSE_DELAY)
-
-    onCleanup(() => clearTimeout(timer))
   }
 }, { immediate: true })
+
+watch(isOpen, (open, wasOpen) => {
+  if (wasOpen && !open && props.isStreaming) {
+    hasUserClosed.value = true
+  }
+})
+
+onUnmounted(clearAutoCloseTimer)
 
 provide(ReasoningKey, {
   isStreaming: computed(() => props.isStreaming),

@@ -15,7 +15,7 @@ const props = defineProps<Props>()
 const { isStreaming, isOpen, duration } = useReasoningContext()
 
 const thinkingMessage = computed(() => {
-  if (isStreaming.value || duration.value === 0) {
+  if (isStreaming.value) {
     return 'thinking'
   }
   if (duration.value === undefined) {
@@ -40,11 +40,11 @@ const thinkingMessage = computed(() => {
       </template>
 
       <template v-else-if="thinkingMessage === 'default_done'">
-        <p>思考完成</p>
+        <span>思考完成</span>
       </template>
 
       <template v-else>
-        <p>已思考 {{ duration }} 秒</p>
+        <span>已思考 {{ duration }} 秒</span>
       </template>
 
       <ChevronDownIcon
