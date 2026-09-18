@@ -66,6 +66,8 @@ export interface AskUserQuestionEvent {
   question: string;
   /** 可选项；为空时只显示自由输入 */
   options: string[];
+  /** 选项是否可多选（多选时 UI 显示勾选态 + 统一提交按钮）；缺省单选 */
+  multiSelect?: boolean;
   /** 允许自由输入；默认 true */
   allowFreeText: boolean;
 }
