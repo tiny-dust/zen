@@ -594,9 +594,130 @@
   line-height: 1.7;
 }
 
-/* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点） */
+/* ---- 正文内文件/目录引用 chip（Response 对行内 code 的装饰） ----
+   图标走 currentColor + mask，不往渲染器 DOM 里插节点 */
+.md-content code.zen-file-ref,
+.md-content code.zen-dir-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-line);
+  background: var(--color-chip-bg);
+}
+
+.md-content code.zen-file-ref::before,
+.md-content code.zen-dir-ref::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: none;
+  background-color: currentColor;
+  mask: center / contain no-repeat;
+}
+
+.md-content code.zen-file-ref::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
+}
+
+.md-content code.zen-dir-ref::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
+}
+
+/* ---- 设置页代码主题预览 ----
+   左浅右深各渲染一份；浅色侧强制走 --shiki-light 取色（应用默认在暗色下，
+   且渲染器根节点随 is-dark 带上 .stream-markdown.dark，需同权重覆盖） */
+.md-content.code-theme-preview .code-block-header,
+.md-content.code-theme-preview [data-stream-markdown='actions'] {
+  display: none;
+}
+
+.md-content.code-theme-preview [data-stream-markdown='code-block'] {
+  margin-block: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.md-content.code-theme-preview--light .shiki,
+.md-content.code-theme-preview--light .shiki span,
+.stream-markdown.md-content.code-theme-preview--light .shiki,
+.stream-markdown.md-content.code-theme-preview--light .shiki span,
+.dark .md-content.code-theme-preview--light .shiki,
+.dark .md-content.code-theme-preview--light .shiki span {
+  color: var(--shiki-light, var(--color-code-fg)) !important;
+  background-color: transparent !important;
+}
+
+.md-content.code-theme-preview--light pre.shiki,
+.stream-markdown.md-content.code-theme-preview--light pre.shiki,
+.dark .md-content.code-theme-preview--light pre.shiki {
+  background-color: var(--shiki-light-bg, #fff) !important;
+}
+
+/* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点）
+   层次策略：正文字号/行高/字重打底（450 缓解暗底细字发虚），标题分级字号 +
+   分级配色（h2 走绿色系，与状态绿 token 一致），强调文字提亮，列表标记弱色，
+   保证长回复可扫读 */
+.md-content {
+  font-size: 14px;
+  line-height: 1.7;
+  font-weight: 450;
+  color: var(--color-txt-strong);
+}
+
 .md-content p {
   margin: 0 0 6px;
+}
+
+.md-content strong {
+  font-weight: 650;
+  color: var(--color-txt-strong);
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4 {
+  margin: 14px 0 6px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.md-content h1 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-txt-strong);
+}
+
+/* 二级标题：绿色系（与 chip-text 状态绿一致），呼应对话里的章节感 */
+.md-content h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-chip-text);
+}
+
+.md-content h3 {
+  font-size: 14px;
+  color: var(--color-txt-strong);
+}
+
+.md-content h4 {
+  font-size: 13px;
+  color: var(--color-mut);
+}
+
+/* 列表标记弱色，项目符号与正文拉开层次 */
+.md-content li::marker {
+  color: var(--color-dim);
+}
+
+.md-content hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--color-line);
 }
 
 /* Shiki 高亮：让 stream-markdown 的 code 块贴合 Zen token */
@@ -615,6 +736,11 @@
 .dark .md-content .shiki span {
   color: var(--shiki-dark, var(--color-code-fg)) !important;
   background-color: transparent !important;
+}
+
+/* 深色下代码底色跟随所选主题自带背景，保证主题观感完整 */
+.dark .md-content pre.shiki {
+  background-color: var(--shiki-dark-bg, var(--color-code-bg)) !important;
 }
 
 .md-content p:last-child {
@@ -638,6 +764,34 @@
   background: var(--color-code-bg);
   color: var(--color-code-fg);
   overflow: auto;
+}
+
+/* ---- 消息流里的代码块（stream-markdown code-block）：紧凑单层面板 ----
+   头部原为 sticky top-0，相对消息列表滚动口吸附、被外层 overflow-clip 裁切，
+   滚到顶时与代码行错位重叠；改为随块滚动并整体收紧内距，单边框单层底色。 */
+.md-content [data-stream-markdown='code-block'] {
+  margin-block: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-code-bg);
+}
+
+.md-content [data-stream-markdown='code-block'] .code-block-header {
+  position: static;
+  padding: 3px 10px;
+  font-size: 11px;
+  background: transparent;
+  border-color: var(--color-line-soft);
+}
+
+.md-content [data-stream-markdown='code-block'] pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 12px;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .md-content pre code {
@@ -669,32 +823,39 @@
   color: var(--color-link);
 }
 
-.md-content h1,
-.md-content h2,
-.md-content h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-txt-strong);
-  margin: 10px 0 6px;
-}
-
 .md-content blockquote {
   margin: 8px 0;
   padding: 2px 10px;
-  border-left: 3px solid var(--color-line-strong);
+  border-left: 3px solid color-mix(in srgb, var(--color-blue) 55%, transparent);
   color: var(--color-mut);
+}
+
+.md-content img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
 }
 
 .md-content table {
   border-collapse: collapse;
   margin: 8px 0;
-  font-size: 12px;
+  font-size: 12.5px;
+  /* 宽表格块级横向滚动，不撑破消息列 */
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .md-content th,
 .md-content td {
   border: 1px solid var(--color-line);
-  padding: 4px 8px;
+  padding: 5px 10px;
+}
+
+.md-content th {
+  background: var(--color-chip-bg);
+  color: var(--color-txt-strong);
+  font-weight: 600;
+  text-align: left;
 }
 
 /* range 滑杆 thumb：伪元素，Tailwind 不适用 */

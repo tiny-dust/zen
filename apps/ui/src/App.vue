@@ -5,7 +5,6 @@ import { computed, onMounted, onUnmounted } from "vue";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
-import TaskFloatingPanel from "@/components/chat/TaskFloatingPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import RightPanel from "@/components/right/RightPanel.vue";
@@ -154,7 +153,6 @@ const sideRail =
     </div>
 
     <InfoPopup />
-    <TaskFloatingPanel />
     <SettingsPage />
   </div>
 </template>

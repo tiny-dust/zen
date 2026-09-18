@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { uuid } from "rattail";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type {
   AgentRunStatus,
@@ -12,9 +12,14 @@ import type {
   SessionRecord,
   TaskItem,
   ToolApprovalDecision,
+  ToolCallMessageMeta,
 } from "@zen/shared";
 import { applyStreamToParts } from "@zen/shared";
-import { buildHistory } from "@/stores/chat-types";
+import {
+  buildHistory,
+  compressHistory,
+  pathFromToolArgs,
+} from "@/stores/chat-types";
 import { useAgentStore } from "@/stores/agent";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
@@ -52,6 +57,10 @@ export const useChatStore = defineStore("chat", () => {
   const filesRevision = ref(0);
   /** 本 run 内是否调用过 updateTasks（用于 checklist 兜底） */
   let usedUpdateTasks = false;
+  /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
+  const pendingToolArgs = new Map<string, { toolName: string; args: unknown }>();
+  /** 手动压缩开关：点「压缩上下文」后置位，本会话后续发送都走摘要历史 */
+  const forceCompress = ref(false);
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
   const pendingAsk = ref<AskUserQuestionEvent | null>(null);
@@ -65,6 +74,11 @@ export const useChatStore = defineStore("chat", () => {
   const isRunning = computed(() =>
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
   );
+  /** 本轮运行起点：消息流里展示已运行时长（审批等待计入本轮） */
+  const runStartedAt = ref<number | null>(null);
+  watch(isRunning, (running) => {
+    runStartedAt.value = running ? (runStartedAt.value ?? Date.now()) : null;
+  });
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
     () =>
@@ -124,13 +138,6 @@ export const useChatStore = defineStore("chat", () => {
     }
     const version = (useSessionInfoStore().versions.at(-1)?.version ?? 0) + 1;
     useSessionInfoStore().applyTasksUpdated(sessionId.value, version, items);
-    appendMessage({
-      id: uuid(),
-      role: "tool",
-      content: "",
-      createdAt: Date.now(),
-      meta: { kind: "tasks", version, items, source: "checklist" },
-    });
   }
 
   function lastAssistant(): ChatMessage | undefined {
@@ -204,18 +211,34 @@ export const useChatStore = defineStore("chat", () => {
       }
       case "tool_input_start":
       case "tool_start":
+        if (event.type === "tool_start") {
+          pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
+        }
         applyStreamToParts(streamingParts(), event);
         break;
       case "tool_progress":
         applyStreamToParts(streamingParts(), event);
         break;
-      case "tool_end":
+      case "tool_end": {
         applyStreamToParts(streamingParts(), event);
+        // 读写文件成功 → 收进悬浮面板「参考 · 项目」（按路径去重）
+        const pending = pendingToolArgs.get(event.toolCallId);
+        pendingToolArgs.delete(event.toolCallId);
+        const touchedPath = pending ? pathFromToolArgs(pending.toolName, pending.args) : "";
+        if (touchedPath && event.ok) {
+          useSessionInfoStore().addReference(event.sessionId, {
+            id: "",
+            title: touchedPath.split("/").pop() || touchedPath,
+            url: touchedPath,
+            source: "project",
+          });
+        }
         if (event.toolName === "writeFile" || event.toolName === "editFile") {
           filesRevision.value += 1;
         }
         statusText.value = event.summary;
         break;
+      }
       case "approval_request":
         pendingApproval.value = {
           approvalId: event.request.approvalId,
@@ -275,29 +298,9 @@ export const useChatStore = defineStore("chat", () => {
         break;
       }
       case "tasks_updated": {
+        // 任务清单只更新会话信息卡（悬浮面板）；不再往时间线插快照卡片
         usedUpdateTasks = true;
         useSessionInfoStore().applyTasksUpdated(event.sessionId, event.version, event.items);
-        // 时间线插入一版任务快照（同版本覆盖上一张卡片）
-        const version = event.version;
-        const items = event.items;
-        const existingIdx = messages.value.findIndex(
-          (item) =>
-            item.role === "tool" &&
-            (item.meta as { kind?: string; version?: number } | undefined)?.kind === "tasks" &&
-            (item.meta as { version?: number } | undefined)?.version === version,
-        );
-        const snapshot: ChatMessage = {
-          id: existingIdx >= 0 ? messages.value[existingIdx]!.id : uuid(),
-          role: "tool",
-          content: "",
-          createdAt: Date.now(),
-          meta: { kind: "tasks", version, items },
-        };
-        if (existingIdx >= 0) {
-          messages.value[existingIdx] = snapshot;
-        } else {
-          appendMessage(snapshot);
-        }
         break;
       }
       case "reference_found":
@@ -350,6 +353,58 @@ export const useChatStore = defineStore("chat", () => {
     attachments.value = attachments.value.filter((item) => item.id !== id);
   }
 
+  /** 会话里 Agent 读写过的文件路径（流式 parts + 旧数据 tool 消息，去重） */
+  function collectTouchedFiles(): string[] {
+    const files: string[] = [];
+    for (const message of messages.value) {
+      for (const part of message.parts ?? []) {
+        if (part.type !== "tool") {
+          continue;
+        }
+        const path = pathFromToolArgs(part.toolName, part.args);
+        if (path) {
+          files.push(path);
+        }
+      }
+      if (message.role === "tool") {
+        const meta = message.meta as Partial<ToolCallMessageMeta> | undefined;
+        if (meta?.toolName) {
+          const path = pathFromToolArgs(meta.toolName, meta.args);
+          if (path) {
+            files.push(path);
+          }
+        }
+      }
+    }
+    return [...new Set(files)];
+  }
+
+  /** 历史消息里用户上传过的文件名（去重） */
+  function collectUploads(): string[] {
+    const names: string[] = [];
+    for (const message of messages.value) {
+      if (message.role !== "user") {
+        continue;
+      }
+      const meta = message.meta as { attachments?: Array<{ name: string }> } | undefined;
+      for (const att of meta?.attachments ?? []) {
+        if (att.name) {
+          names.push(att.name);
+        }
+      }
+    }
+    return [...new Set(names)];
+  }
+
+  /** 手动压缩：下一次发送起使用摘要历史（会话内保持） */
+  function compressNow() {
+    if (!hasMessages.value) {
+      return;
+    }
+    forceCompress.value = true;
+    statusText.value = "已开启压缩：下一次发送起，更早对话将折叠为摘要";
+  }
+
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
@@ -383,6 +438,20 @@ export const useChatStore = defineStore("chat", () => {
     input.value = "";
     attachments.value = [];
     selectedSkills.value = [];
+
+    // 上传的文件收进悬浮面板「参考 · 用户」（按路径去重）
+    if (attachmentRefs.length) {
+      const sessionInfo = useSessionInfoStore();
+      for (const att of attachmentRefs) {
+        sessionInfo.addReference(sessionId.value, {
+          id: "",
+          title: att.name,
+          url: att.path,
+          source: "user",
+        });
+      }
+    }
+
     if (sessionName.value === "新会话") {
       const first = text || skills[0]?.name || attachmentRefs[0]?.name || "新会话";
       sessionName.value = first.slice(0, 24) + (first.length > 24 ? "…" : "");
@@ -409,6 +478,19 @@ export const useChatStore = defineStore("chat", () => {
     phase.value = "thinking";
     statusText.value = "Agent 思考中…";
 
+    // 滚动摘要 + 超限双保险：手动压缩或上下文用量超阈值时折叠旧轮次
+    const sessionInfo = useSessionInfoStore();
+    const compression = compressHistory(buildHistory(messages.value).slice(0, -1), {
+      tasks: sessionInfo.activeTasks.map((item) => ({ label: item.label, done: item.done })),
+      touchedFiles: collectTouchedFiles(),
+      uploads: collectUploads(),
+      force: forceCompress.value,
+      overThreshold: (contextUsage.value ?? 0) >= 70,
+    });
+    if (compression.compressed) {
+      statusText.value = "已压缩上下文 · Agent 思考中…";
+    }
+
     const result = await zen.agent.run({
       sessionId: sessionId.value,
       userMessage: agentText,
@@ -418,7 +500,7 @@ export const useChatStore = defineStore("chat", () => {
       model: modelsStore.selection.modelId ?? undefined,
       reasoningEffort: effort.value,
       attachments: attachmentRefs.length ? attachmentRefs : undefined,
-      history: buildHistory(messages.value).slice(0, -1),
+      history: compression.turns,
     });
 
     if (!result.ok) {
@@ -518,6 +600,8 @@ export const useChatStore = defineStore("chat", () => {
     lastError.value = "";
     lastInputTokens.value = null;
     sessionName.value = "新会话";
+    forceCompress.value = false;
+    pendingToolArgs.clear();
     useSessionInfoStore().clear();
 
     sessionWorkspaceId.value = target;
@@ -565,26 +649,11 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
+    forceCompress.value = false;
+    pendingToolArgs.clear();
     useSessionInfoStore().clear();
     useSessionInfoStore().ensureSession(sessionId.value);
     useSessionInfoStore().restoreFromSession(found);
-    // 旧会话若无任务快照消息、只有 taskLists 表数据，补进时间线
-    const hasTaskCard = messages.value.some(
-      (item) =>
-        item.role === "tool" &&
-        (item.meta as { kind?: string } | undefined)?.kind === "tasks",
-    );
-    if (!hasTaskCard) {
-      for (const list of found.taskLists ?? []) {
-        messages.value.push({
-          id: uuid(),
-          role: "tool",
-          content: "",
-          createdAt: list.createdAt ?? Date.now(),
-          meta: { kind: "tasks", version: list.version, items: list.items },
-        });
-      }
-    }
     useGitStore().reset();
     void refreshGit();
     void useGitStore().refreshStatus();
@@ -608,6 +677,7 @@ export const useChatStore = defineStore("chat", () => {
     pendingAsk,
     isPaused,
     isRunning,
+    runStartedAt,
     hasMessages,
     canSend,
     workspaceRoot,
@@ -629,6 +699,7 @@ export const useChatStore = defineStore("chat", () => {
     approve,
     submitAsk,
     dismissApproval,
+    compressNow,
     newTask,
     loadSession,
   };

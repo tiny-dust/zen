@@ -1,23 +1,58 @@
 <script setup lang="ts">
-import { CornerDownLeft, HelpCircle } from "@lucide/vue";
-import { ref } from "vue";
+import { Check, CornerDownLeft, HelpCircle } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
 
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
 
 /**
  * askUser 提问卡片：Agent 请求用户决策时固定在对话区顶部。
- * 选项按钮直接作答；也可自由输入后回车提交。
+ * 选项竖向一行行排列：单选点击即答；多选（multiSelect）勾选后统一提交。
+ * 也可自由输入后回车提交。
  */
 const chatStore = useChatStore();
 const freeText = ref("");
+/** 多选模式下已勾选的选项 */
+const picked = ref<string[]>([]);
+
+const ask = computed(() => chatStore.pendingAsk);
+const isMulti = computed(() => ask.value?.multiSelect === true && ask.value.options.length > 0);
+
+// 新问题到来时清空上次的选择与输入
+watch(
+  () => ask.value?.askId,
+  () => {
+    picked.value = [];
+    freeText.value = "";
+  },
+);
 
 function pick(option: string) {
+  if (isMulti.value) {
+    picked.value = picked.value.includes(option)
+      ? picked.value.filter((item) => item !== option)
+      : [...picked.value, option];
+    return;
+  }
   chatStore.submitAsk(option);
+}
+
+function submitPicked() {
+  if (!picked.value.length) {
+    return;
+  }
+  const extra = freeText.value.trim();
+  chatStore.submitAsk([picked.value.join("、"), extra].filter(Boolean).join("；补充："));
+  picked.value = [];
+  freeText.value = "";
 }
 
 function submitFreeText() {
   if (!freeText.value.trim()) {
+    return;
+  }
+  if (picked.value.length) {
+    submitPicked();
     return;
   }
   chatStore.submitAsk(freeText.value);
@@ -42,21 +77,46 @@ function submitFreeText() {
         <p class="m-0 whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--color-txt-strong)]">
           {{ chatStore.pendingAsk.question }}
         </p>
+
+        <!-- 选项竖向排列：单选圆点指示，多选方框勾选 -->
         <div
           v-if="chatStore.pendingAsk.options.length"
-          class="mt-2.5 flex flex-wrap gap-1.5"
+          class="mt-2.5 flex flex-col gap-1"
+          role="listbox"
+          :aria-multiselectable="isMulti"
         >
-          <Button
+          <button
             v-for="option in chatStore.pendingAsk.options"
             :key="option"
-            variant="outline"
-            size="sm"
-            class="max-w-full"
+            type="button"
+            role="option"
+            :aria-selected="picked.includes(option)"
+            class="flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12.5px] transition-colors duration-[var(--motion-fast)]"
+            :class="
+              picked.includes(option)
+                ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)]'
+                : 'border-[var(--color-line)] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]'
+            "
             @click="pick(option)"
           >
-            <span class="truncate">{{ option }}</span>
+            <span
+              class="grid size-3.5 flex-none place-items-center border text-[var(--color-accent)]"
+              :class="isMulti ? 'rounded-[4px]' : 'rounded-full'"
+              :aria-hidden="true"
+            >
+              <Check v-if="picked.includes(option)" class="size-2.5" />
+            </span>
+            <span class="min-w-0 flex-1 break-words">{{ option }}</span>
+          </button>
+        </div>
+
+        <!-- 多选：统一提交按钮 -->
+        <div v-if="isMulti" class="mt-2 flex justify-end">
+          <Button size="sm" :disabled="!picked.length" @click="submitPicked">
+            发送所选{{ picked.length ? `（${picked.length}）` : "" }}
           </Button>
         </div>
+
         <div
           v-if="chatStore.pendingAsk.allowFreeText"
           class="mt-2.5 flex items-center gap-1.5 rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-1"
@@ -65,7 +125,7 @@ function submitFreeText() {
             v-model="freeText"
             type="text"
             class="h-7 min-w-0 flex-1 bg-transparent text-[12.5px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-dim)]"
-            placeholder="或输入你的回答…"
+            :placeholder="isMulti ? '可补充说明后一并发送…' : '或输入你的回答…'"
             aria-label="自由回答"
             @keydown.enter.prevent="submitFreeText"
           />
@@ -73,8 +133,8 @@ function submitFreeText() {
             type="button"
             class="flex size-6 flex-none items-center justify-center rounded-lg text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)]"
             aria-label="提交回答"
-            :disabled="!freeText.trim()"
-            :class="!freeText.trim() && 'opacity-40'"
+            :disabled="!freeText.trim() && !picked.length"
+            :class="!freeText.trim() && !picked.length && 'opacity-40'"
             @click="submitFreeText"
           >
             <CornerDownLeft :size="14" />

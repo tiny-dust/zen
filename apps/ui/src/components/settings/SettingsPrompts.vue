@@ -36,8 +36,11 @@ const previewText = computed(() => {
   if (settings.value.prompt.presetId === "custom") {
     return settings.value.prompt.customText || "（尚未填写自定义提示词）";
   }
-  return presets.value.find((item) => item.id === settings.value.prompt.presetId)?.text ?? "";
+  return presets.value.find((item) => item.id === previewId.value)?.text ?? "";
 });
+
+/** 预览字数：让「提炼版 / 完整原文」的体量差异一目了然 */
+const previewChars = computed(() => previewText.value.length.toLocaleString());
 
 function selectPreset(id: string) {
   previewId.value = id;
@@ -94,9 +97,11 @@ watch(
         <Badge variant="secondary">当前：{{ activePresetName }}</Badge>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        内置预设提炼自公开的主流工具系统提示词（调研见
+        「提炼」预设是公开主流工具系统提示词的中文提炼（调研见
         <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/agent-system-prompts.md</code>
-        ），选择后对新会话生效。
+        ）；「完整原文」预设提取自本机安装包，未做改写（原文存
+        <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/prompts/</code>
+        ）。选择后对新会话生效。
       </p>
       <div class="grid gap-2 sm:grid-cols-2">
         <button
@@ -116,6 +121,13 @@ watch(
             <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
               {{ preset.name }}
             </span>
+            <Badge
+              v-if="preset.kind === 'full'"
+              class="bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]!"
+              variant="secondary"
+            >
+              完整原文
+            </Badge>
           </div>
           <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-mut)]">
             {{ preset.description }}
@@ -144,8 +156,9 @@ watch(
     </section>
 
     <section class="flex flex-col gap-2">
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+      <h3 class="m-0 flex items-center gap-2 text-[13px] font-semibold text-[var(--color-txt-strong)]">
         {{ settings.prompt.presetId === 'custom' ? '编辑自定义提示词' : '预览' }}
+        <span class="text-[11px] font-normal text-[var(--color-dim)]">{{ previewChars }} 字符</span>
       </h3>
       <p class="m-0 text-[11.5px] text-[var(--color-mut)]">
         Zen 会自动附加工作目录、平台、日期、可用技能与 MCP 清单；这里的内容是核心行为规则。

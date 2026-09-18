@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ChevronDown, FileText, Loader2, X } from "@lucide/vue";
+import { Check, ChevronDown, FileText, FolderOpen, Loader2, X } from "@lucide/vue";
 import { computed, ref } from "vue";
 
 import { toolDisplay } from "@/components/chat/tool-part";
@@ -9,7 +9,7 @@ import type { ToolPart } from "@/components/chat/tool-part";
 
 /**
  * 消息流内的工具调用行：icon + 动作 + 高亮目标（文件可点击在右栏定位查看），
- * 点击行展开结果输出。
+ * 写/编辑文件带 +/- 行数统计，点击行展开结果输出。
  */
 const props = defineProps<{ part: ToolPart }>();
 
@@ -32,6 +32,50 @@ const detailText = computed(() => {
   }
 });
 const hasDetails = computed(() => Boolean(detailText.value));
+
+/** 文本行数（空串为 0；按换行拆分并去掉末尾空行） */
+function countLines(text: string): number {
+  if (!text) {
+    return 0;
+  }
+  const lines = text.split("\n");
+  while (lines.length && lines.at(-1)?.trim() === "") {
+    lines.pop();
+  }
+  return lines.length;
+}
+
+/** 从工具入参里取第一个非空字符串 */
+function argString(keys: string[]): string {
+  if (typeof props.part.args !== "object" || props.part.args === null) {
+    return "";
+  }
+  const record = props.part.args as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return "";
+}
+
+/**
+ * 写/编辑文件的改动行数统计：editFile 按旧串/新串行数计 -/+；
+ * writeFile 是整文件写入，只计 +。+/- 为 0 时对应侧省略。
+ */
+const diffStat = computed<{ added: number; removed: number } | null>(() => {
+  if (props.part.toolName === "editFile") {
+    return {
+      added: countLines(argString(["newString", "new_string", "newText"])),
+      removed: countLines(argString(["oldString", "old_string", "oldText"])),
+    };
+  }
+  if (props.part.toolName === "writeFile") {
+    return { added: countLines(argString(["content", "text"])), removed: 0 };
+  }
+  return null;
+});
 
 function revealFile() {
   const path = display.value.target?.text;
@@ -58,7 +102,7 @@ function revealFile() {
       </span>
       <span class="flex-none text-[12px] text-[var(--color-txt)]">{{ display.label }}</span>
 
-      <!-- 高亮目标：文件 chip 可点击在右栏定位，其余以弱 mono 展示 -->
+      <!-- 高亮目标：文件 chip 可点击在右栏定位，目录带 folder 图标，其余以弱 mono 展示 -->
       <button
         v-if="display.target?.kind === 'file' && display.target.text"
         type="button"
@@ -70,11 +114,29 @@ function revealFile() {
         <span class="truncate font-[family-name:var(--font-mono)]">{{ display.target.text }}</span>
       </button>
       <span
+        v-else-if="display.target?.kind === 'dir' && display.target.text"
+        class="flex min-w-0 max-w-[280px] flex-none items-center gap-1 rounded-md border border-[var(--color-line)] bg-[var(--color-side-glass)] px-1.5 py-px text-[11px] text-[var(--color-mut)]"
+        :title="display.target.text"
+      >
+        <FolderOpen class="size-3 shrink-0" />
+        <span class="truncate font-[family-name:var(--font-mono)]">{{ display.target.text }}</span>
+      </span>
+      <span
         v-else-if="display.target?.text"
         class="min-w-0 max-w-[280px] flex-none truncate rounded-md bg-[var(--color-side-glass)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
         :title="display.target.text"
       >
         {{ display.target.text }}
+      </span>
+
+      <!-- 写/编辑文件的改动行数：+绿 -红，零值侧省略 -->
+      <span
+        v-if="diffStat && !running && (diffStat.added > 0 || diffStat.removed > 0)"
+        class="flex-none font-[family-name:var(--font-mono)] text-[11px] leading-none"
+      >
+        <span v-if="diffStat.added > 0" class="text-[var(--color-add)]">+{{ diffStat.added }}</span>
+        <span v-if="diffStat.added > 0 && diffStat.removed > 0" class="mx-0.5" />
+        <span v-if="diffStat.removed > 0" class="text-[var(--color-del)]">-{{ diffStat.removed }}</span>
       </span>
 
       <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
