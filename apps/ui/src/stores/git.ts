@@ -80,6 +80,8 @@ export const useGitStore = defineStore("git", () => {
     }
   }
 
+  /** 图谱分支筛选："" = 全部分支（--all），否则按指定 ref 取历史 */
+  const logRef = ref("");
   /** 提交历史（图谱视图数据源） */
   async function refreshLog() {
     const zen = window.zen;
@@ -90,10 +92,19 @@ export const useGitStore = defineStore("git", () => {
     }
     logLoading.value = true;
     try {
-      log.value = await zen.git.log(root);
+      log.value = await zen.git.log(root, logRef.value || undefined);
     } finally {
       logLoading.value = false;
     }
+  }
+
+  /** 切换图谱筛选分支并刷新历史 */
+  async function setLogRef(ref: string) {
+    if (logRef.value === ref) {
+      return;
+    }
+    logRef.value = ref;
+    await refreshLog();
   }
 
   /** 未跟踪文件没有 git diff：读文件内容合成纯新增 diff（二进制/超限时退化为提示行） */
@@ -290,6 +301,8 @@ export const useGitStore = defineStore("git", () => {
     refreshStatus,
     refreshBranches,
     refreshLog,
+    logRef,
+    setLogRef,
     selectFile,
     checkout,
     createBranch,

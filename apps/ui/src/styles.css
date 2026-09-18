@@ -94,6 +94,14 @@
   --color-link: #3295fb;
   --color-blue: #2f6fed;
 
+  /* 图谱泳道色板（GitGraph 按序循环） */
+  --color-graph-1: var(--color-accent);
+  --color-graph-2: var(--color-blue);
+  --color-graph-3: #8250df;
+  --color-graph-4: #0f7f73;
+  --color-graph-5: #bf3989;
+  --color-graph-6: #57606a;
+
   --color-ok: #1a9e5f;
   --color-err: #d23f3f;
   --color-add: #1a7f37;
@@ -212,6 +220,14 @@
   --color-send-empty: #5a5a5a;
   --color-link: #3295fb;
   --color-blue: #5a9cff;
+
+  /* 图谱泳道色板（暗色提亮一档保证对比） */
+  --color-graph-1: var(--color-accent);
+  --color-graph-2: var(--color-blue);
+  --color-graph-3: #c297ff;
+  --color-graph-4: #33b3a6;
+  --color-graph-5: #e56aae;
+  --color-graph-6: #9ea7b3;
 
   --color-ok: #1a9e5f;
   --color-add: #3fb950;

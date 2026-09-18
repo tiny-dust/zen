@@ -287,42 +287,48 @@ export function registerGitIpc(): void {
     },
   );
 
-  ipcMain.handle("git:log", async (_event, cwd?: string): Promise<GitLogEntry[]> => {
-    const workdir = cwd || process.cwd();
-    const SEP = "\u001f";
-    try {
-      // --all：纳入所有分支的提交，图谱才能画出分支泳道；--topo-order 保证父子有序、泳道少交叉
-      const output = await git(workdir, [
-        "log",
-        "--all",
-        "--topo-order",
-        "--date=unix",
-        `--pretty=format:%H${SEP}%P${SEP}%an${SEP}%at${SEP}%s${SEP}%D`,
-        "--max-count=200",
-      ]);
-      return output
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => {
-          const [hash = "", parents = "", author = "", time = "0", subject = "", ...refParts] =
-            line.split(SEP);
-          return {
-            hash,
-            parents: parents ? parents.split(" ").filter(Boolean) : [],
-            author,
-            time: Number(time) * 1000,
-            subject,
-            refs: refParts
-              .join(SEP)
-              .split(",")
-              .map((ref) => ref.trim())
-              .filter(Boolean),
-          };
-        });
-    } catch {
-      return [];
-    }
-  });
+  ipcMain.handle(
+    "git:log",
+    async (_event, cwd?: string, ref?: string): Promise<GitLogEntry[]> => {
+      const workdir = cwd || process.cwd();
+      const SEP = "\u001f";
+      // ref 指向具体分支时按该分支取历史；缺省 --all 画全部分支泳道。
+      // ref 以 "-" 开头会被 git 当作旗标解析，直接拒绝（fail fast）。
+      const range = ref && !ref.startsWith("-") ? [ref] : ["--all"];
+      try {
+        // 缺省按提交时间排序（与 VS Code 图谱一致）：HEAD 所在分支的链紧跟 merge 展示；
+        // git 本身保证父提交不会先于子提交出现，泳道算法不受影响
+        const output = await git(workdir, [
+          "log",
+          ...range,
+          "--date=unix",
+          `--pretty=format:%H${SEP}%P${SEP}%an${SEP}%at${SEP}%s${SEP}%D`,
+          "--max-count=200",
+        ]);
+        return output
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((line) => {
+            const [hash = "", parents = "", author = "", time = "0", subject = "", ...refParts] =
+              line.split(SEP);
+            return {
+              hash,
+              parents: parents ? parents.split(" ").filter(Boolean) : [],
+              author,
+              time: Number(time) * 1000,
+              subject,
+              refs: refParts
+                .join(SEP)
+                .split(",")
+                .map((ref) => ref.trim())
+                .filter(Boolean),
+            };
+          });
+      } catch {
+        return [];
+      }
+    },
+  );
 
   const COMMIT_HASH_RE = /^[0-9a-f]{4,40}$/i;
 

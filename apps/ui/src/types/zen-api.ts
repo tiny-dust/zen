@@ -92,7 +92,7 @@ export interface ZenApi {
       options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
-    log(cwd?: string): Promise<GitLogEntry[]>;
+    log(cwd?: string, ref?: string): Promise<GitLogEntry[]>;
     commitDetail(cwd: string | undefined, hash: string): Promise<GitCommitDetail | null>;
     commitFileDiff(cwd: string | undefined, hash: string, path: string): Promise<string | null>;
     commitBatched(
