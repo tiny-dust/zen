@@ -103,8 +103,8 @@ const zen = {
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> {
       return ipcRenderer.invoke("git:commit", cwd, message, files, options);
     },
-    log(cwd?: string): Promise<GitLogEntry[]> {
-      return ipcRenderer.invoke("git:log", cwd);
+    log(cwd?: string, ref?: string): Promise<GitLogEntry[]> {
+      return ipcRenderer.invoke("git:log", cwd, ref);
     },
     commitDetail(cwd: string | undefined, hash: string): Promise<GitCommitDetail | null> {
       return ipcRenderer.invoke("git:commit-detail", cwd, hash);

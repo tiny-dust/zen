@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { ChevronDown, GitGraph as GitGraphIcon, RefreshCw } from "@lucide/vue";
+import { ChevronDown, GitGraph as GitGraphIcon, GitBranch, RefreshCw, Tag } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import DiffView from "@/components/right/DiffView.vue";
 import { computeGraphRows } from "@/components/right/git-graph";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -15,11 +24,12 @@ const gitStore = useGitStore();
 
 const graphRows = computed(() => computeGraphRows(gitStore.log));
 
-// 打开面板或切换工作区时刷新提交历史
+// 打开面板或切换工作区时刷新提交历史与分支列表（筛选下拉数据源）
 watch(
   () => gitStore.cwd(),
   () => {
     void gitStore.refreshLog();
+    void gitStore.refreshBranches();
   },
   { immediate: true },
 );
@@ -87,18 +97,18 @@ async function toggle(entry: GitLogEntry) {
   }
 }
 
-/** 泳道图渲染参数；色板循环使用主题 token */
-const GRAPH_UNIT = 12;
+/** 泳道图渲染参数；色板循环使用主题 token（styles.css 的 --color-graph-*） */
+const GRAPH_UNIT = 16;
 const GRAPH_ROW_H = 40;
-const GRAPH_DOT_R = 3.5;
+const GRAPH_DOT_R = 4;
+const GRAPH_STROKE = 2;
 const LANE_COLORS = [
-  "var(--color-accent)",
-  "var(--color-blue)",
-  "var(--color-add)",
-  "var(--color-err)",
-  "var(--color-ok)",
-  "var(--color-link)",
-  "var(--color-mut)",
+  "var(--color-graph-1)",
+  "var(--color-graph-2)",
+  "var(--color-graph-3)",
+  "var(--color-graph-4)",
+  "var(--color-graph-5)",
+  "var(--color-graph-6)",
 ];
 
 function laneColor(lane: number): string {
@@ -106,10 +116,14 @@ function laneColor(lane: number): string {
 }
 
 function laneX(lane: number): number {
-  return lane * GRAPH_UNIT + 6;
+  return lane * GRAPH_UNIT + 10;
 }
 
-/** 上一行 → 本行圆点的汇入线 */
+function svgWidth(laneCount: number): number {
+  return GRAPH_UNIT * laneCount + 4;
+}
+
+/** 上一行 → 本行圆点的汇入线（行界处切线垂直，保证跨行拼接平滑） */
 function inEdgePath(edge: GraphEdge): string {
   const fx = laneX(edge.from);
   const tx = laneX(edge.to);
@@ -132,18 +146,27 @@ function outEdgePath(edge: GraphEdge): string {
   return `M ${fx} ${mid} C ${fx} ${bend}, ${tx} ${bend}, ${tx} ${GRAPH_ROW_H}`;
 }
 
-/** 详情块内延续的泳道竖线：x 取本行 outEdges 的目标泳道，颜色随连线 */
+/** 详情块内延续的泳道竖线：贯穿泳道 + 本行出边，x 去重，颜色随连线 */
 function throughLines(row: GraphRow): Array<{ x: number; color: string }> {
   const seen = new Set<number>();
   const lines: Array<{ x: number; color: string }> = [];
+  for (const lane of row.passThrough) {
+    seen.add(lane);
+    lines.push({ x: laneX(lane), color: laneColor(lane) });
+  }
   for (const edge of row.outEdges) {
     if (seen.has(edge.to)) {
       continue;
     }
     seen.add(edge.to);
-    lines.push({ x: laneX(edge.to), color: laneColor(edge.from) });
+    lines.push({ x: laneX(edge.to), color: laneColor(edge.color) });
   }
   return lines;
+}
+
+/** HEAD 所在的分支尖端行：圆点加光环标记当前检出位置 */
+function isBranchTip(row: GraphRow): boolean {
+  return refBadges(row.entry.refs).some((badge) => badge.kind === "head");
 }
 
 function fmtTime(ms: number) {
@@ -185,7 +208,8 @@ function refBadges(refs: string[]): RefBadge[] {
   const badges: RefBadge[] = [];
   for (const raw of refs) {
     const name = raw.trim();
-    if (!name) {
+    if (!name || name === "origin/HEAD") {
+      // origin/HEAD 只是 origin/main 的别名，展示纯属重复信息
       continue;
     }
     if (name.startsWith("HEAD -> ")) {
@@ -211,6 +235,19 @@ const BADGE_CLS: Record<RefBadge["kind"], string> = {
 };
 
 const MAX_BADGES = 3;
+
+/** 合并提交：列表行淡化展示（Git Graph 同款弱化正文） */
+function isMerge(row: GraphRow): boolean {
+  return row.entry.parents.length > 1;
+}
+
+/** 分支筛选值：Select 不接受空串 value，用 "all" 哨兵映射 ""（= --all） */
+const branchFilter = computed({
+  get: () => gitStore.logRef || "all",
+  set: (value: string) => {
+    void gitStore.setLogRef(value === "all" ? "" : value);
+  },
+});
 </script>
 
 <template>
@@ -233,6 +270,36 @@ const MAX_BADGES = 3;
       </Button>
     </div>
 
+    <!-- 分支筛选：全部 / 本地 / 远端（Git Graph 同款） -->
+    <Select v-model="branchFilter">
+      <SelectTrigger
+        size="sm"
+        class="h-7 w-full flex-none rounded-md text-[11.5px]"
+        aria-label="筛选分支"
+      >
+        <SelectValue placeholder="筛选分支" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">全部分支</SelectItem>
+        <SelectGroup>
+          <SelectLabel>本地分支</SelectLabel>
+          <SelectItem v-for="branch in gitStore.branches.local" :key="branch.name" :value="branch.name">
+            {{ branch.name }}{{ branch.current ? "（当前）" : "" }}
+          </SelectItem>
+        </SelectGroup>
+        <SelectGroup v-if="gitStore.branches.remote.length">
+          <SelectLabel>远端分支</SelectLabel>
+          <SelectItem
+            v-for="branch in gitStore.branches.remote"
+            :key="branch.name"
+            :value="branch.name"
+          >
+            {{ branch.name }}
+          </SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+
     <div class="min-h-0 flex-1 overflow-auto">
       <p
         v-if="gitStore.logLoading && !graphRows.length"
@@ -252,7 +319,7 @@ const MAX_BADGES = 3;
       <!-- 提交行：点击展开/折叠详情 -->
       <button
         type="button"
-        class="flex min-h-[40px] w-full gap-2 rounded-md pl-1.5 pr-1 text-left"
+        class="flex h-10 w-full items-center gap-2 rounded-md pl-1.5 pr-1 text-left"
         :class="
           expandedHash === row.entry.hash
             ? 'bg-[var(--color-menu-active)]'
@@ -262,41 +329,63 @@ const MAX_BADGES = 3;
         @click="toggle(row.entry)"
       >
         <svg
-          :width="GRAPH_UNIT * row.laneCount + 4"
+          :width="svgWidth(row.laneCount)"
           :height="GRAPH_ROW_H"
           class="flex-none self-center"
           aria-hidden="true"
         >
+          <!-- 贯穿泳道：上下方被同一条线占用、不经过圆点的支线保持连续 -->
+          <line
+            v-for="lane in row.passThrough"
+            :key="`th-${lane}`"
+            :x1="laneX(lane)"
+            :x2="laneX(lane)"
+            y1="0"
+            y2="100%"
+            :stroke="laneColor(lane)"
+            :stroke-width="GRAPH_STROKE"
+          />
           <path
             v-for="(edge, index) in row.inEdges"
             :key="`in-${index}`"
             :d="inEdgePath(edge)"
-            :stroke="laneColor(edge.from)"
-            stroke-width="1.5"
+            :stroke="laneColor(edge.color)"
+            :stroke-width="GRAPH_STROKE"
             fill="none"
           />
           <path
             v-for="(edge, index) in row.outEdges"
             :key="`out-${index}`"
             :d="outEdgePath(edge)"
-            :stroke="laneColor(edge.from)"
-            stroke-width="1.5"
+            :stroke="laneColor(edge.color)"
+            :stroke-width="GRAPH_STROKE"
             fill="none"
           />
-          <!-- 合并提交画空心圆 -->
+          <!-- 分支尖端（HEAD 所在提交）加光环；合并提交画空心圆 -->
+          <circle
+            v-if="isBranchTip(row)"
+            :cx="laneX(row.lane)"
+            :cy="GRAPH_ROW_H / 2"
+            :r="GRAPH_DOT_R + 3.5"
+            fill="none"
+            :stroke="laneColor(row.lane)"
+            stroke-opacity="0.35"
+            :stroke-width="GRAPH_STROKE"
+          />
           <circle
             :cx="laneX(row.lane)"
             :cy="GRAPH_ROW_H / 2"
             :r="GRAPH_DOT_R"
             :fill="row.entry.parents.length > 1 ? 'var(--color-bg)' : laneColor(row.lane)"
             :stroke="laneColor(row.lane)"
-            stroke-width="1.5"
+            :stroke-width="GRAPH_STROKE"
           />
         </svg>
-        <div class="min-w-0 flex-1 py-1.5">
+        <div class="min-w-0 flex-1">
           <div class="flex min-w-0 items-center gap-1.5">
             <p
-              class="m-0 min-w-0 flex-1 truncate text-[12px] text-[var(--color-txt)]"
+              class="m-0 min-w-0 flex-1 truncate text-[12px]"
+              :class="isMerge(row) ? 'text-[var(--color-dim)]' : 'text-[var(--color-txt)]'"
               :title="row.entry.subject"
             >
               {{ row.entry.subject }}
@@ -304,9 +393,11 @@ const MAX_BADGES = 3;
             <span
               v-for="badge in refBadges(row.entry.refs).slice(0, MAX_BADGES)"
               :key="badge.label"
-              class="flex-none rounded-full border px-1.5 py-px text-[10px] leading-[1.4]"
+              class="inline-flex flex-none items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] leading-[1.4]"
               :class="BADGE_CLS[badge.kind]"
             >
+              <Tag v-if="badge.kind === 'tag'" class="size-2.5" aria-hidden="true" />
+              <GitBranch v-else class="size-2.5" aria-hidden="true" />
               {{ badge.label }}
             </span>
             <span
@@ -323,14 +414,14 @@ const MAX_BADGES = 3;
         </div>
       </button>
 
-      <!-- 详情：泳道竖线穿过，时间轴保持连贯 -->
+      <!-- 详情：泳道竖线穿过，时间轴保持连贯；卡片样式与列表行拉开层次 -->
       <div
         v-if="expandedHash === row.entry.hash"
-        class="flex items-stretch rounded-md bg-[var(--color-side-glass)] pl-1.5"
+        class="flex items-stretch rounded-lg border border-[var(--color-line-strong)] bg-[var(--color-notice-bg)] pl-1.5 shadow-[var(--shadow-composer)]"
       >
         <div
           class="relative flex-none"
-          :style="{ width: `${GRAPH_UNIT * row.laneCount + 4}px` }"
+          :style="{ width: `${svgWidth(row.laneCount)}px` }"
           aria-hidden="true"
         >
           <svg class="absolute inset-0 h-full w-full">
@@ -342,12 +433,12 @@ const MAX_BADGES = 3;
               y1="0"
               y2="100%"
               :stroke="line.color"
-              stroke-width="1.5"
+              :stroke-width="GRAPH_STROKE"
             />
           </svg>
         </div>
 
-        <div class="min-w-0 flex-1 overflow-hidden px-2 py-2">
+        <div class="min-w-0 flex-1 overflow-hidden px-2.5 py-2.5">
           <p v-if="loadingHash === row.entry.hash" class="m-0 text-[11px] text-[var(--color-dim)]">
             读取提交详情…
           </p>
