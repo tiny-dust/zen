@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ArrowDown } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
 import AskUserCard from "@/components/chat/AskUserCard.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
 import { useChatStore } from "@/stores/chat";
+
+import { getMessageRun } from "@zen/shared";
 
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
@@ -16,6 +18,21 @@ const contentEl = ref<HTMLElement | null>(null);
 const showJump = ref(false);
 /** 贴底跟随：用户上滚阅读时暂停自动滚动，接近底部时恢复 */
 const stickToBottom = ref(true);
+
+/** 顶部错误条：仅展示尚未归属到 assistant run 的错误，避免与消息终态行重复 */
+const showTopError = computed(() => {
+  if (!lastError.value) {
+    return false;
+  }
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const message = messages.value[index];
+    if (message?.role === "assistant") {
+      const run = getMessageRun(message);
+      return run?.reason !== "error";
+    }
+  }
+  return true;
+});
 
 function isFarFromBottom() {
   const el = listEl.value;
@@ -106,7 +123,7 @@ onUnmounted(() => {
         </div>
         <template v-else>
           <p
-            v-if="lastError"
+            v-if="showTopError"
             class="mx-auto w-full rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-2.5 py-2 text-[12px] text-[var(--color-danger-fg)] shadow-[var(--shadow-tip)]"
             role="alert"
           >

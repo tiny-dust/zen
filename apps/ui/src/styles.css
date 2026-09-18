@@ -658,18 +658,16 @@
 }
 
 /* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点）
-   层次策略：正文字号/行高/字重打底（450 缓解暗底细字发虚），标题分级字号 +
-   分级配色（h2 走绿色系，与状态绿 token 一致），强调文字提亮，列表标记弱色，
-   保证长回复可扫读 */
+   P0 密度：正文 14px/1.8；h2 18px、h3 15px；标题用中性强调，不被单一绿色统治 */
 .md-content {
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.8;
   font-weight: 450;
   color: var(--color-txt-strong);
 }
 
 .md-content p {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
 }
 
 .md-content strong {
@@ -681,31 +679,29 @@
 .md-content h2,
 .md-content h3,
 .md-content h4 {
-  margin: 14px 0 6px;
+  margin: 16px 0 8px;
   font-weight: 650;
-  line-height: 1.4;
+  line-height: 1.35;
+  color: var(--color-txt-strong);
 }
 
 .md-content h1 {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 700;
-  color: var(--color-txt-strong);
 }
 
-/* 二级标题：绿色系（与 chip-text 状态绿一致），呼应对话里的章节感 */
 .md-content h2 {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
-  color: var(--color-chip-text);
 }
 
 .md-content h3 {
-  font-size: 14px;
-  color: var(--color-txt-strong);
+  font-size: 15.5px;
+  font-weight: 650;
 }
 
 .md-content h4 {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-mut);
 }
 
@@ -715,7 +711,7 @@
 }
 
 .md-content hr {
-  margin: 12px 0;
+  margin: 14px 0;
   border: 0;
   border-top: 1px solid var(--color-line);
 }
@@ -754,11 +750,12 @@
   color: var(--color-code-fg);
   border-radius: 5px;
   padding: 1.5px 5px;
+  overflow-wrap: anywhere;
 }
 
 .md-content pre {
-  margin: 6px 0;
-  padding: 9px 12px;
+  margin: 10px 0;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-line);
   background: var(--color-code-bg);
@@ -770,15 +767,16 @@
    头部原为 sticky top-0，相对消息列表滚动口吸附、被外层 overflow-clip 裁切，
    滚到顶时与代码行错位重叠；改为随块滚动并整体收紧内距，单边框单层底色。 */
 .md-content [data-stream-markdown='code-block'] {
-  margin-block: 8px;
+  margin-block: 10px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: var(--color-code-bg);
+  overflow: hidden;
 }
 
 .md-content [data-stream-markdown='code-block'] .code-block-header {
   position: static;
-  padding: 3px 10px;
+  padding: 4px 10px;
   font-size: 11px;
   background: transparent;
   border-color: var(--color-line-soft);
@@ -788,10 +786,10 @@
   margin: 0;
   border: 0;
   border-radius: 0;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: transparent;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .md-content pre code {
@@ -802,7 +800,7 @@
 
 .md-content ul,
 .md-content ol {
-  margin: 6px 0;
+  margin: 8px 0;
   padding-left: 20px;
 }
 
@@ -816,7 +814,7 @@
 }
 
 .md-content li {
-  margin: 2px 0;
+  margin: 3px 0;
 }
 
 .md-content a {
@@ -824,9 +822,9 @@
 }
 
 .md-content blockquote {
-  margin: 8px 0;
-  padding: 2px 10px;
-  border-left: 3px solid color-mix(in srgb, var(--color-blue) 55%, transparent);
+  margin: 10px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--color-line-strong);
   color: var(--color-mut);
 }
 
@@ -837,7 +835,7 @@
 
 .md-content table {
   border-collapse: collapse;
-  margin: 8px 0;
+  margin: 10px 0;
   font-size: 12.5px;
   /* 宽表格块级横向滚动，不撑破消息列 */
   display: block;
@@ -848,7 +846,7 @@
 .md-content th,
 .md-content td {
   border: 1px solid var(--color-line);
-  padding: 5px 10px;
+  padding: 6px 10px;
 }
 
 .md-content th {

@@ -13,7 +13,7 @@ import {
 } from "@lucide/vue";
 import type { Component } from "vue";
 
-import type { ChatMessagePart } from "@zen/shared";
+import type { ChatMessagePart, ToolCallState } from "@zen/shared";
 
 export type ToolPart = Extract<ChatMessagePart, { type: "tool" }>;
 
@@ -104,4 +104,99 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
       }
       return { icon: Wrench, label: toolName };
   }
+}
+
+/** 工具状态词：新 tool part 与旧 role=tool 卡片共用 */
+export function toolStateLabel(state: ToolCallState | undefined, percent?: number): string {
+  switch (state) {
+    case "input-streaming":
+      return "准备参数";
+    case "awaiting-approval":
+      return "待审批";
+    case "running":
+      return percent == null ? "执行中" : `${Math.round(percent)}%`;
+    case "ok":
+      return "完成";
+    case "denied":
+      return "已拒绝";
+    case "error":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    case "interrupted":
+      return "已中断";
+    default:
+      return "未知";
+  }
+}
+
+/** 状态旁的说明文案：过程用 message，终态用原因/摘要 */
+export function toolStatusLine(input: {
+  state?: ToolCallState;
+  message?: string;
+  error?: string;
+  summary?: string;
+}): string {
+  const { state, message, error, summary } = input;
+  if (state === "input-streaming") {
+    return message || "正在准备参数";
+  }
+  if (state === "awaiting-approval") {
+    return message || "等待审批";
+  }
+  if (state === "running") {
+    return message || "正在调用工具";
+  }
+  if (state === "cancelled") {
+    return error || message || "已取消，未完成";
+  }
+  if (state === "interrupted") {
+    return error || message || "已中断，未完成";
+  }
+  return error || summary || (state === "ok" ? "已完成" : "未执行");
+}
+
+function stringifyDetail(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncateDetail(text: string, limit = 4000): string {
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, limit)}…（已截断，共 ${text.length} 字符）`;
+}
+
+/** 统一详情结构：参数 / 原因 / 输出 */
+export function formatToolDetailSections(input: {
+  args?: unknown;
+  error?: string;
+  output?: unknown;
+  message?: string;
+  percent?: number;
+}): string {
+  const sections: string[] = [];
+  if (input.message) {
+    sections.push(`状态\n${input.message}`);
+  }
+  if (input.percent != null) {
+    sections.push(`进度\n${Math.round(input.percent)}%`);
+  }
+  if (input.args != null) {
+    sections.push(`参数\n${truncateDetail(stringifyDetail(input.args))}`);
+  }
+  if (input.error) {
+    sections.push(`原因\n${truncateDetail(input.error)}`);
+  }
+  if (input.output != null) {
+    sections.push(`输出\n${truncateDetail(stringifyDetail(input.output))}`);
+  }
+  return sections.join("\n\n");
 }

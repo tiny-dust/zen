@@ -16,6 +16,7 @@ import {
 
 import type { LanguageModel, ModelMessage, ToolSet } from "ai";
 import type {
+  AgentDoneReason,
   AgentStreamEvent,
   AskUserQuestionEvent,
   ChatTurn,
@@ -25,6 +26,7 @@ import type {
   ReferenceItem,
   TaskItem,
   ToolApprovalDecision,
+  ToolCallState,
   ToolRisk,
 } from "@zen/shared";
 
@@ -649,6 +651,7 @@ function usageFromPart(part: unknown): { inputTokens: number; outputTokens: numb
 
 interface PendingApproval {
   approvalId: string;
+  toolCallId: string;
   toolName: string;
 }
 
@@ -671,6 +674,11 @@ export class AgentSession {
   private messages: ModelMessage[] = [];
   private controller: AbortController | null = null;
   private paused = false;
+  private step = 0;
+  /** run 是否仍活跃：暂停/等审批时 start/runStep 已返回，但 run 未结束 */
+  private runActive = false;
+  /** 尚未 tool_end 的工具，run 终态时补 cancelled/interrupted */
+  private openTools = new Map<string, string>();
   private pending: PendingApproval | null = null;
   /** 会话内任务清单版本号（updateTasks 的 startNew 递增） */
   private taskVersion = 0;
@@ -751,7 +759,10 @@ export class AgentSession {
     }));
     this.messages.push({ role: "user", content: userMessage });
     this.paused = false;
+    this.step = 0;
     this.pending = null;
+    this.openTools.clear();
+    this.runActive = true;
     this.controller = new AbortController();
     this.config.emit({ type: "status", sessionId: this.sessionId, status: "thinking" });
     await this.runStep();
@@ -761,11 +772,12 @@ export class AgentSession {
     if (!this.pending || this.pending.approvalId !== decision.approvalId) {
       return;
     }
+    const pending = this.pending;
     if (decision.approved) {
-      const risk = riskForTool(this.pending.toolName);
+      const risk = riskForTool(pending.toolName);
       if (risk === "network" || decision.always) {
         // 会话级记忆：网络类确认一次后放行；显式「全部允许」时记忆该工具
-        this.rememberedTools.add(this.pending.toolName);
+        this.rememberedTools.add(pending.toolName);
       }
     }
     this.messages.push({
@@ -780,6 +792,26 @@ export class AgentSession {
       ],
     });
     this.pending = null;
+    // 批准只解阻，不伪造 tool_end；拒绝才有 denied 终态
+    this.config.emit({
+      type: "approval_resolved",
+      sessionId: this.sessionId,
+      approvalId: pending.approvalId,
+      toolCallId: pending.toolCallId,
+      approved: decision.approved,
+    });
+    if (!decision.approved) {
+      this.openTools.delete(pending.toolCallId);
+      this.config.emit({
+        type: "tool_end",
+        sessionId: this.sessionId,
+        toolCallId: pending.toolCallId,
+        toolName: pending.toolName,
+        ok: false,
+        state: "denied",
+        summary: decision.reason ?? "已拒绝执行",
+      });
+    }
     await this.continueLoop();
   }
 
@@ -815,6 +847,7 @@ export class AgentSession {
   }
 
   async cancel(): Promise<void> {
+    const waiting = this.paused || this.pending != null || this.pendingAsks.size > 0;
     if (this.controller) {
       this.controller.abort();
     }
@@ -824,6 +857,31 @@ export class AgentSession {
       pending.reject(new Error("会话已取消"));
     }
     this.pendingAsks.clear();
+    // runStep 已因暂停/等审批返回时，abort 不会再触发 done，这里补终态
+    if (this.runActive && waiting) {
+      this.finishRun("cancelled");
+    }
+  }
+
+  private finishRun(reason: AgentDoneReason): void {
+    this.runActive = false;
+    this.pending = null;
+    // 未结束工具补终态事件，与 reducer / tool_end 协议一致
+    const unfinishedState: ToolCallState = reason === "cancelled" ? "cancelled" : "interrupted";
+    const unfinishedSummary = reason === "cancelled" ? "已取消，未完成" : "已中断，未完成";
+    for (const [toolCallId, toolName] of this.openTools) {
+      this.config.emit({
+        type: "tool_end",
+        sessionId: this.sessionId,
+        toolCallId,
+        toolName,
+        ok: false,
+        state: unfinishedState,
+        summary: unfinishedSummary,
+      });
+    }
+    this.openTools.clear();
+    this.config.emit({ type: "done", sessionId: this.sessionId, reason });
   }
 
   private async continueLoop(): Promise<void> {
@@ -848,12 +906,13 @@ export class AgentSession {
         sessionId: this.sessionId,
         message: errorMessage(error),
       });
-      this.config.emit({ type: "done", sessionId: this.sessionId, reason: "error" });
+      this.finishRun("error");
       return;
     }
 
     let approvalRequested = false;
     let aborted = false;
+    let streamError: string | null = null;
 
     try {
       for await (const part of stream.fullStream) {
@@ -863,6 +922,9 @@ export class AgentSession {
         }
         switch (part.type) {
           case "start-step":
+            this.step += 1;
+            this.config.emit({ type: "step_start", sessionId: this.sessionId, step: this.step });
+            break;
           case "finish":
             break;
           case "finish-step": {
@@ -892,6 +954,7 @@ export class AgentSession {
             break;
           }
           case "tool-input-start":
+            this.openTools.set(toolIdFromPart(part), toolNameFromPart(part));
             this.config.emit({
               type: "tool_input_start",
               sessionId: this.sessionId,
@@ -900,6 +963,7 @@ export class AgentSession {
             });
             break;
           case "tool-call":
+            this.openTools.set(toolIdFromPart(part), toolNameFromPart(part));
             this.config.emit({
               type: "tool_start",
               sessionId: this.sessionId,
@@ -914,24 +978,28 @@ export class AgentSession {
             });
             break;
           case "tool-result":
+            this.openTools.delete(toolIdFromPart(part));
             this.config.emit({
               type: "tool_end",
               sessionId: this.sessionId,
               toolCallId: toolIdFromPart(part),
               toolName: toolNameFromPart(part),
               ok: true,
+              state: "ok",
               summary: summarizeToolOutput(part),
               output: outputFromPart(part),
             });
             break;
           case "tool-error":
+            this.openTools.delete(toolIdFromPart(part));
             this.config.emit({
               type: "tool_end",
               sessionId: this.sessionId,
               toolCallId: toolIdFromPart(part),
               toolName: toolNameFromPart(part),
               ok: false,
-              summary: "工具执行失败",
+              state: "error",
+              summary: summarizeToolOutput(part) || "工具执行失败",
               output: outputFromPart(part),
             });
             break;
@@ -940,6 +1008,7 @@ export class AgentSession {
               approvalRequested = true;
               this.pending = {
                 approvalId: part.approvalId,
+                toolCallId: toolIdFromPart(part),
                 toolName: toolNameFromPart(part),
               };
               this.config.emit({
@@ -971,10 +1040,11 @@ export class AgentSession {
             });
             break;
           case "error":
+            streamError = errorMessage(part.error);
             this.config.emit({
               type: "error",
               sessionId: this.sessionId,
-              message: errorMessage(part.error),
+              message: streamError,
             });
             break;
           default:
@@ -982,10 +1052,11 @@ export class AgentSession {
         }
       }
     } catch (error) {
+      streamError = errorMessage(error);
       this.config.emit({
         type: "error",
         sessionId: this.sessionId,
-        message: errorMessage(error),
+        message: streamError,
       });
     }
 
@@ -994,7 +1065,13 @@ export class AgentSession {
         this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
         return;
       }
-      this.config.emit({ type: "done", sessionId: this.sessionId, reason: "cancelled" });
+      this.finishRun("cancelled");
+      return;
+    }
+
+    // 错误终态：不得再发 done(stop) 覆盖
+    if (streamError) {
+      this.finishRun("error");
       return;
     }
 
@@ -1008,6 +1085,6 @@ export class AgentSession {
       return;
     }
 
-    this.config.emit({ type: "done", sessionId: this.sessionId, reason: "stop" });
+    this.finishRun("stop");
   }
 }

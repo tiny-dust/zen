@@ -29,7 +29,14 @@ import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import { initZenDir, loadAgentSettings } from "./zen-dir";
 
-import type { AgentRunRequest, AgentStreamEvent, AskUserAnswer, ToolApprovalDecision } from "@zen/shared";
+import type {
+  AgentRunRequest,
+  AgentStreamEvent,
+  AskUserAnswer,
+  ChatMessage,
+  ToolApprovalDecision,
+} from "@zen/shared";
+import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
 const sessions = new Map<string, AgentSession>();
 
@@ -41,21 +48,22 @@ function emit(webContents: Electron.WebContents, event: AgentStreamEvent): void 
   }
 }
 
-/** 助手回复（含思考文本）在 run 结束后一次性落库 */
-function persistAssistant(
-  sessionId: string,
-  acc: { content: string; reasoning: string; reasoningMs?: number },
-): void {
-  if (!acc.content && !acc.reasoning) {
+/** 助手回复（含思考文本）在 run 真正结束后一次性落库；run summary 本身也算有效内容 */
+function persistAssistant(sessionId: string, message: ChatMessage): void {
+  if (!shouldPersistAssistantMessage(message)) {
     return;
   }
+  const run = getMessageRun(message);
+  const parts = message.parts ?? [];
   appendMessage(sessionId, {
-    id: randomUUID(),
+    id: message.id,
     role: "assistant",
-    content: acc.content,
-    reasoning: acc.reasoning || undefined,
-    reasoningMs: acc.reasoningMs,
-    createdAt: Date.now(),
+    content: message.content,
+    reasoning: message.reasoning || undefined,
+    reasoningMs: message.reasoningMs,
+    parts,
+    meta: run ? { ...message.meta, run } : message.meta,
+    createdAt: message.createdAt,
   });
 }
 
@@ -157,43 +165,36 @@ function registerIpc(): void {
     await sessions.get(request.sessionId)?.cancel();
     sessions.delete(request.sessionId);
 
-    // 流式累积助手回复，run 结束后一次性落库
-    const acc = { content: "", reasoning: "", reasoningMs: undefined as number | undefined };
-    const toolArgs = new Map<string, unknown>();
+    // 流式累积助手回复：与 UI 共用 applyStreamToMessage；仅 done/明确错误终态落库
+    const accMessage: ChatMessage = {
+      id: randomUUID(),
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      parts: [],
+    };
+    let persisted = false;
+    const persistRun = () => {
+      if (persisted) {
+        return;
+      }
+      persistAssistant(request.sessionId, accMessage);
+      persisted = true;
+    };
     const emitTo = (streamEvent: AgentStreamEvent) => {
       if (streamEvent.sessionId !== request.sessionId) {
         emit(event.sender, streamEvent);
         return;
       }
-      if (streamEvent.type === "delta") {
-        acc.content += streamEvent.text;
-      } else if (streamEvent.type === "reasoning_delta") {
-        acc.reasoning += streamEvent.text;
-      } else if (streamEvent.type === "reasoning_end") {
-        acc.reasoningMs = streamEvent.durationMs;
-      } else if (streamEvent.type === "tool_start") {
-        toolArgs.set(streamEvent.toolCallId, streamEvent.args);
-      } else if (streamEvent.type === "tool_end") {
-        const args = toolArgs.get(streamEvent.toolCallId);
-        toolArgs.delete(streamEvent.toolCallId);
-        // 工具卡片落库：重开会话仍可见操作轨迹
-        appendMessage(request.sessionId, {
-          id: streamEvent.toolCallId || randomUUID(),
-          role: "tool",
-          content: streamEvent.summary,
-          createdAt: Date.now(),
-          toolCallId: streamEvent.toolCallId,
-          meta: {
-            toolName: streamEvent.toolName,
-            ok: streamEvent.ok,
-            summary: streamEvent.summary,
-            output: streamEvent.output,
-            args,
-          },
-        });
-      } else if (streamEvent.type === "tasks_updated") {
-        // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流，避免聊天区/面板/右下角三处重复
+      if (streamEvent.type === "tasks_updated") {
+        // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流
         saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
+      } else if (streamEvent.type !== "reference_found") {
+        applyStreamToMessage(accMessage, streamEvent);
+      }
+      // 持久化绑定 done：暂停/等审批不是 run 终点，resume 后继续写同一条
+      if (streamEvent.type === "done") {
+        persistRun();
       }
       emit(event.sender, streamEvent);
     };
@@ -207,7 +208,8 @@ function registerIpc(): void {
       if (!provider || !modelId) {
         const controller = new AbortController();
         await runMockAgent(request.sessionId, request.userMessage, controller.signal, emitTo);
-        persistAssistant(request.sessionId, acc);
+        // mock 始终发 done；此处兜底防止遗漏
+        persistRun();
         return { ok: true };
       }
 
@@ -248,12 +250,15 @@ function registerIpc(): void {
       });
       sessions.set(request.sessionId, session);
       await session.start(request.userMessage, request.history);
-      persistAssistant(request.sessionId, acc);
+      // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : "agent run failed";
-      emitTo({ type: "error", sessionId: request.sessionId, message });
-      persistAssistant(request.sessionId, acc);
+      applyStreamToMessage(accMessage, { type: "error", sessionId: request.sessionId, message });
+      applyStreamToMessage(accMessage, { type: "done", sessionId: request.sessionId, reason: "error" });
+      emit(event.sender, { type: "error", sessionId: request.sessionId, message });
+      emit(event.sender, { type: "done", sessionId: request.sessionId, reason: "error" });
+      persistRun();
       return { ok: false, error: message };
     }
   });

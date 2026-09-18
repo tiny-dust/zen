@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Copy, Pencil, Sparkles } from "@lucide/vue";
+import { Ban, Check, CircleAlert, Copy, Pencil, Sparkles, TriangleAlert } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
@@ -24,8 +24,10 @@ import type { SelectedSkill } from "@/stores/chat-types";
 import type {
   ChatMessage,
   ChatMessagePart,
+  ChatRunSummary,
   ToolCallMessageMeta,
 } from "@zen/shared";
+import { getMessageRun } from "@zen/shared";
 
 const props = defineProps<{
   message: ChatMessage;
@@ -61,18 +63,24 @@ const parts = computed<ChatMessagePart[]>(() => {
   return legacy;
 });
 
-/** 分段后是否还有正文：决定思考块默认展开与自动收起 */
+/** 分段后是否还有正文/工具：决定思考块默认展开与自动收起 */
 function hasTextAfter(index: number): boolean {
   return parts.value.slice(index + 1).some((part) => part.type === "text" || part.type === "tool");
 }
 
-/** 思考块流式进行中：处于流式消息的最后一段 */
+/** 思考块流式进行中：未显式 done，且仍是流式消息的最后一段 reasoning */
 function reasoningStreaming(index: number): boolean {
-  return (
-    props.streaming === true &&
-    index === parts.value.length - 1 &&
-    parts.value[index]?.type === "reasoning"
-  );
+  const part = parts.value[index];
+  if (part?.type !== "reasoning") {
+    return false;
+  }
+  if (part.done === true) {
+    return false;
+  }
+  if (part.done === false) {
+    return props.streaming === true;
+  }
+  return props.streaming === true && index === parts.value.length - 1;
 }
 
 const reasoningSeconds = (part: Extract<ChatMessagePart, { type: "reasoning" }>) =>
@@ -103,6 +111,9 @@ const toolMeta = computed<ToolCallMessageMeta | null>(() => {
     summary: meta.summary ?? props.message.content,
     output: meta.output,
     args: meta.args,
+    state: meta.state,
+    message: meta.message,
+    percent: meta.percent,
   };
 });
 
@@ -110,6 +121,83 @@ const toolMeta = computed<ToolCallMessageMeta | null>(() => {
 const skillParts = computed<SelectedSkill[]>(() => {
   const meta = props.message.meta as { skills?: SelectedSkill[] } | undefined;
   return meta?.skills ?? [];
+});
+
+/** 当前助手消息的 run 终态（历史 meta.run 优先；流式中对齐 store） */
+const runSummary = computed<ChatRunSummary | null>(() => {
+  if (props.message.role !== "assistant") {
+    return null;
+  }
+  const fromMeta = getMessageRun(props.message);
+  if (fromMeta) {
+    return fromMeta;
+  }
+  if (props.streaming) {
+    return chatStore.runSummary;
+  }
+  return null;
+});
+
+type RunBanner = {
+  label: string;
+  tone: "ok" | "err" | "warn" | "mut";
+  icon: typeof Check;
+  detail?: string;
+};
+
+const runBanner = computed<RunBanner | null>(() => {
+  const summary = runSummary.value;
+  if (!summary || props.streaming) {
+    return null;
+  }
+  const reason = summary.reason;
+  if (!reason || reason === "stop") {
+    return null;
+  }
+  if (reason === "cancelled") {
+    return {
+      label: "已取消",
+      tone: "warn",
+      icon: Ban,
+      detail: "本次运行被中断，工具与正文可能不完整",
+    };
+  }
+  if (reason === "error") {
+    return {
+      label: "运行失败",
+      tone: "err",
+      icon: CircleAlert,
+      detail: summary.error || "请查看错误信息后重试",
+    };
+  }
+  return {
+    label: "已达到步骤上限",
+    tone: "warn",
+    icon: TriangleAlert,
+    detail: summary.step != null ? `共 ${summary.step} 步` : undefined,
+  };
+});
+
+const runToneClass = computed(() => {
+  switch (runBanner.value?.tone) {
+    case "err":
+      return "text-[var(--color-danger-fg)]";
+    case "warn":
+      return "text-[var(--color-accent-2)]";
+    case "ok":
+      return "text-[var(--color-ok)]";
+    default:
+      return "text-[var(--color-mut)]";
+  }
+});
+
+/** system 消息：默认中性通知；meta.severity=danger 才用危险红 */
+const systemTone = computed(() => {
+  const meta = props.message.meta as { severity?: string; kind?: string } | undefined;
+  if (meta?.severity === "danger" || meta?.kind === "error") {
+    return "danger" as const;
+  }
+  return "neutral" as const;
 });
 
 /** 发送时间：今天只显示时分，更早的带日期 */
@@ -254,10 +342,16 @@ function editContent() {
 
   <div v-else-if="message.role === 'system'" class="w-full">
     <div
-      class="rounded-[var(--radius-sm)] bg-[var(--color-notice-danger-bg)] px-3 py-2 text-[12.5px] text-[var(--color-danger-fg)]"
-      role="alert"
+      class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12.5px]"
+      :class="
+        systemTone === 'danger'
+          ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'
+          : 'border border-[var(--color-line-soft)] bg-[var(--color-side)] text-[var(--color-mut)]'
+      "
+      :role="systemTone === 'danger' ? 'alert' : 'status'"
     >
-      {{ message.content }}
+      <CircleAlert v-if="systemTone === 'danger'" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span class="min-w-0 break-words">{{ message.content }}</span>
     </div>
   </div>
 
@@ -269,7 +363,7 @@ function editContent() {
         class="w-full"
         :is-streaming="reasoningStreaming(index)"
         :duration="reasoningSeconds(part)"
-        :default-open="!hasTextAfter(index)"
+        :default-open="!hasTextAfter(index) && reasoningStreaming(index)"
       >
         <ReasoningTrigger class="text-[12px]" />
         <ReasoningContent :content="part.text" class="mt-2 text-[12px] reasoning-dim" />
@@ -295,6 +389,24 @@ function editContent() {
       <Loader :size="14" />
       <span class="text-[12px] tabular-nums">
         {{ parts.length ? "运行中" : "正在思考" }} · {{ elapsedText || "0 秒" }}
+      </span>
+    </div>
+
+    <!-- run 终态语义行：文字 + 图标，颜色仅辅助；空回复也能看到 -->
+    <div
+      v-else-if="runBanner"
+      class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]"
+      :class="runToneClass"
+      role="status"
+    >
+      <component :is="runBanner.icon" class="size-3.5 shrink-0" aria-hidden="true" />
+      <span class="font-medium">{{ runBanner.label }}</span>
+      <span v-if="runBanner.detail" class="min-w-0 text-[var(--color-mut)]">{{ runBanner.detail }}</span>
+      <span
+        v-if="runSummary?.usage"
+        class="text-[11px] text-[var(--color-dim)] tabular-nums"
+      >
+        输入 {{ runSummary.usage.inputTokens }} / 输出 {{ runSummary.usage.outputTokens }}
       </span>
     </div>
   </div>

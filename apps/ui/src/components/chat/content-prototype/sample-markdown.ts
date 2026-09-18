@@ -1,0 +1,18 @@
+export const sampleMarkdown: Record<string, string> = {
+  text: '已定位消息内容的渲染入口。Zen 将正文交给 `Response`，工具调用按时间顺序插入消息流。\n\n本轮只讨论内容区的阅读层级，不修改正式聊天逻辑。长段落应自然换行，文件名与关键结论保持可辨认。',
+  headings: '# 消息渲染评审\n\n正文先交代结论，再提供验证证据。\n\n## 实现范围\n\n仅新增评审样本。\n\n### 渲染入口\n\n`apps/ui/src/components/MessageBubble.vue` 负责组合消息。\n\n#### 验收要点\n\n检查间距、对齐与窄屏阅读。\n\n##### 辅助标题\n\n用于较深层级的补充信息。\n\n###### 最小标题\n\n不依靠颜色替代语义层次。',
+  emphasis: '**结论：保留现有渲染器。**\n\n*这是一条补充说明。* ~~将所有工具输出折成单行~~ 不适合多行日志。\n\n通过 `computed` 派生展示数据，避免重复维护状态。',
+  lists: '- 正文内容\n  - 普通段落与文件引用\n  - 代码块与表格\n- 工具调用\n  - 动作、目标、状态分列\n\n1. 定位 `ChatTimeline.vue`\n2. 阅读 `Response.vue`\n3. 检查窄屏换行\n\n列表之后恢复正常段落间距。',
+  checklist: '- [x] 阅读现有内容组件\n- [x] 收集 Markdown 样本\n- [ ] 检查窄屏和键盘操作\n\n以上为静态清单，不同步真实任务。',
+  quote: '> 修改前先确认调用方，再限制变更范围。\n>\n> 文件路径：`apps/ui/src/components/chat/ChatTimeline.vue`\n\n引用后的正文保持独立，不继承引用的弱色。',
+  links: '[Vue 响应式文档](https://vuejs.org/guide/essentials/reactivity-fundamentals.html) 提供实现背景。\n\n项目文件引用：`apps/ui/src/components/ai-elements/response/Response.vue:107`。\n\n较长链接：[查看 Vue 官方组件基础说明](https://vuejs.org/guide/essentials/component-basics.html)。',
+  table: '| 内容类型 | 展示方式 | 验收重点 |\n| :--- | :--- | ---: |\n| 正文 | 连续段落 | 14px |\n| 工具目标 | 路径自然折行 | 13px |\n| 附加说明 | 次要文字 | 12px |\n\n表格保留表头与行列关系，窄屏允许横向滚动。',
+  code: '将模型 ID 拆出最后一段再进行匹配：\n\n```ts\nfunction modelName(id: string): string {\n  const name = id.split("/").at(-1)?.trim();\n  if (!name) throw new Error("模型 ID 不能为空");\n  return name;\n}\n\nmodelName("VW2TTQCH/deepseek-v4-flash");\n```\n\n这段代码仅供排版评审，不执行。',
+  diff: '拟议修改：为示例函数添加输入校验。\n\n```diff\n function modelName(id: string): string {\n-  return id.split("/").at(-1) || "";\n+  const name = id.split("/").at(-1)?.trim();\n+  if (!name) throw new Error("模型 ID 不能为空");\n+  return name;\n }\n```\n\n差异为演示数据，未写入任何项目文件。',
+  math: '上下文占用率：$r = \\frac{u}{c} \\times 100\\%$。\n\n$$\nT = \\sum_{i=1}^{n} t_i\n$$',
+  mermaid: '```mermaid\nflowchart LR\n  A[用户输入] --> B[消息分段]\n  B --> C[正文渲染]\n  B --> D[工具结果]\n```',
+  html: '静态 HTML 输入：<strong>仅限安全文本样本</strong>，按 <kbd>Enter</kbd> 确认。\n\n```html\n<section>\n  <strong>安全静态示例</strong>\n  <p>无脚本、无事件属性、无外部资源。</p>\n</section>\n```',
+  callouts: '> [!NOTE]\n> 本轮仅调整评审样例。\n\n> [!TIP]\n> 正文、过程和错误应使用不同的信息层级。\n\n> [!WARNING]\n> 工具的成功标记不等于代码已通过验收。\n\n> [!CAUTION]\n> 不在评审原型中触发真实审批或执行命令。',
+  footnotes: '正文通过现有渲染器展示[^renderer]，此处验证脚注标记与回跳的实际表现。\n\n[^renderer]: Zen 使用 vue-stream-markdown，扩展效果以当前渲染结果为准。',
+  boundaries: '## 边界样本\n\n超长路径：`apps/ui/src/components/chat/content-prototype/a-very-long-component-name-for-review-only.vue:128`。\n\n连续标识符：abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n\n| 文件 | 很长的内容 |\n| --- | --- |\n| `Response.vue` | 内容区在窄屏下仍应保留可阅读的列关系，不能把文字压到操作按钮下面。 |\n\n```text\n一行较长的命令：pnpm --filter @zen/ui exec vue-tsc --noEmit --project tsconfig.json\n```\n\n---\n\n空结果：未找到匹配项。以上边界均为静态演示。',
+}

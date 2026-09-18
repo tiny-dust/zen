@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  ChevronDown,
+  ChevronRight,
   CircleCheck,
   ExternalLink,
   FoldVertical,
