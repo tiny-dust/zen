@@ -8,7 +8,23 @@ export const useUserStore = defineStore("user", () => {
   const loading = ref(false);
   const loginError = ref<string | null>(null);
   const deviceCode = ref<DeviceCodeInfo | null>(null);
+  /** 设备码是否已复制到剪贴板（自动复制失败时可在 UI 点按重试） */
+  const codeCopied = ref(false);
   const refreshing = ref(false);
+
+  /** 复制设备码到剪贴板，方便在 GitHub 授权页直接粘贴 */
+  async function copyUserCode(): Promise<void> {
+    const code = deviceCode.value?.userCode;
+    if (!code) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      codeCopied.value = true;
+    } catch {
+      codeCopied.value = false;
+    }
+  }
 
   function bootstrap(): () => void {
     const zen = window.zen;
@@ -33,6 +49,8 @@ export const useUserStore = defineStore("user", () => {
 
     const offDeviceCode = zen.auth.onDeviceCode((info) => {
       deviceCode.value = info;
+      // 设备码一到即自动复制，用户在浏览器授权页直接粘贴
+      void copyUserCode();
     });
 
     return () => {
@@ -49,6 +67,7 @@ export const useUserStore = defineStore("user", () => {
     loading.value = true;
     loginError.value = null;
     deviceCode.value = null;
+    codeCopied.value = false;
     try {
       const next = await zen.auth.login();
       auth.value = next;
@@ -106,6 +125,8 @@ export const useUserStore = defineStore("user", () => {
     loading,
     loginError,
     deviceCode,
+    codeCopied,
+    copyUserCode,
     refreshing,
     bootstrap,
     login,
