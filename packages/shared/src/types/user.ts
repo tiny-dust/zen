@@ -31,7 +31,12 @@ export interface AppSettings {
   shortcuts: ShortcutBinding[];
   /** 在线更新源地址（generic provider，局域网/本机静态目录即可）；清空表示不启用 */
   updateFeedUrl: string | null;
+  /** 代码高亮主题（对话消息列表与预览），对应 UI 侧 CODE_THEMES 目录里的 id */
+  codeTheme: string;
 }
+
+/** 默认代码主题：GitHub 深浅成对 */
+export const DEFAULT_CODE_THEME = "github";
 
 /** 更新源默认值：updates-server.mjs 的端口需与此保持一致 */
 export const DEFAULT_UPDATE_FEED_URL = "http://127.0.0.1:8899";

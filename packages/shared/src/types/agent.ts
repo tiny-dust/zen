@@ -366,12 +366,16 @@ export interface TaskListVersion {
   createdAt: number;
 }
 
+/** 会话参考条目来源：用户上传 / Agent 触碰的项目文件 / 网络搜索 */
+export type ReferenceSource = "user" | "project" | "web";
+
 /** websearch 命中的参考链接 */
 export interface ReferenceItem {
   id: string;
   title: string;
   url: string;
   snippet?: string;
+  source?: ReferenceSource;
 }
 
 export const BUILTIN_SKILLS: Array<{ id: string; label: string; description: string }> = [

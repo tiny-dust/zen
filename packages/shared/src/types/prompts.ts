@@ -6,5 +6,7 @@ export interface PromptPreset {
   description: string;
   /** 参考来源（调研报告 docs/research/agent-system-prompts.md） */
   origin: string;
+  /** full = 提取的完整原文；distilled = 中文提炼版（缺省） */
+  kind?: "full" | "distilled";
   text: string;
 }
