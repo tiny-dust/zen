@@ -9,6 +9,10 @@ export interface TriggerItem {
   label: string;
   desc: string;
   icon: "skill" | "file" | "dir";
+  /** 技能条目附加信息（供 chip 悬浮展示；文件类无） */
+  id?: string;
+  dir?: string;
+  source?: "builtin" | "user";
 }
 
 export type TriggerKind = "skill" | "file";
@@ -21,8 +25,8 @@ export function useComposerTriggers(options: {
   setValue: (next: string) => void;
   /** @ 文件补全的根目录；不传则用 main 的默认目录 */
   rootPath?: () => string | undefined;
-  /** 技能项选中回调：不插入原文，由输入区渲染为 tag */
-  onSelectSkill?: (item: TriggerItem) => void;
+  /** 技能选中回调：返回 true 表示已按 chip 消费，不再往正文插入文本 */
+  onSelectSkill?: (item: TriggerItem) => boolean;
 }) {
   const open = ref(false);
   const kind = ref<TriggerKind>("skill");
@@ -46,6 +50,9 @@ export function useComposerTriggers(options: {
           label: skill.name,
           desc: skill.description || skill.dir,
           icon: "skill" as const,
+          id: skill.id,
+          dir: skill.dir,
+          source: skill.source,
         }));
     }
     return BUILTIN_SKILLS.filter((item) => matchesQuery(item.id + item.label, query.value)).map(
@@ -54,6 +61,8 @@ export function useComposerTriggers(options: {
         label: item.label,
         desc: item.description,
         icon: "skill" as const,
+        id: item.id,
+        source: "builtin" as const,
       }),
     );
   });
@@ -150,15 +159,16 @@ export function useComposerTriggers(options: {
     }
     const value = options.value();
     const cursor = el.selectionEnd ?? value.length;
-    // 技能不插入原文：去掉触发 token 后交给回调，由输入区在文本前方渲染 tag
-    if (target.icon === "skill" && options.onSelectSkill) {
+
+    // 技能以 chip 挂在输入框上方：移除触发 token，不往正文插入文本
+    if (options.onSelectSkill?.(target)) {
       options.setValue(value.slice(0, tokenStart.value) + value.slice(cursor));
-      options.onSelectSkill(target);
       close();
       el.focus();
       el.setSelectionRange(tokenStart.value, tokenStart.value);
       return true;
     }
+
     const next = value.slice(0, tokenStart.value) + target.insert + value.slice(cursor);
     options.setValue(next);
     close();

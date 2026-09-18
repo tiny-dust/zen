@@ -33,7 +33,11 @@
       "icon": "build/icon.png",
       "category": "Development"
     },
-    "npmRebuild": false
+    "npmRebuild": false,
+    "publish": {
+      "provider": "generic",
+      "url": "http://localhost:8899"
+    }
   },
   "scripts": {
     "predev": "bash scripts/brand-dev-app.sh",
@@ -41,6 +45,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "node scripts/package.mjs",
+    "updates:serve": "node scripts/updates-server.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "brand:dev": "bash scripts/brand-dev-app.sh",
     "typecheck": "tsc --noEmit"

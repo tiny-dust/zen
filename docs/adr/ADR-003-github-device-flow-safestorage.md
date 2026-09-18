@@ -29,3 +29,9 @@
 - 先因 VS Code 式 UX 短暂切到 loopback Web flow；随后确认桌面场景仍采用 **GitHub 官方推荐的 Device Flow**（仅 Client ID，无 secret）。
 - 实现：`apps/desktop/src/main/github-auth.ts`；配置：`docs/auth/github-oauth-setup.md`。
 - UI 通过 `auth:device-code` 展示 `user_code`，并打开 `verification_uri_complete` 以尽量预填。
+
+## 2026-09-17 修订记录
+
+- 登录态生命周期落地在 main（`user-ipc.ts`）：`auth.json` 记录 `loginAt`，自登录起 **3 个月**会话窗口，过期自动清除并提示重新登录（旧文件无 loginAt 时以升级日为窗口起点）。
+- GitHub App 过期令牌（ghu_ 8h）在到期前 24h 内用 `ghr_` refresh token 自动续期（`refreshAccessToken`，刷新轮换 refresh token 并重新加密落库）；续期失败先沿用旧令牌，401 后重试一次再失败则清除登录态。
+- 修正：刷新逻辑此前 ADR 记为「由 tools/github 统一刷新」，实际落在 main 进程（tools/github 无独立凭据通道）；`getStoredAuthTokens`（配置云同步）统一走 `ensureValidTokens`。

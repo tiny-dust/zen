@@ -5,8 +5,10 @@ import {
   CornerDownLeft,
   FileText,
   Mic,
+  Play,
   ShieldCheck,
   Sparkles,
+  Square,
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -19,9 +21,20 @@ import {
   AttachmentPreview,
   AttachmentRemove,
 } from "@/components/ai-elements/attachments";
-import AskUserCard from "@/components/chat/AskUserCard.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Textarea } from "@/components/ui/textarea";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useAgentStore } from "@/stores/agent";
@@ -31,7 +44,8 @@ import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
-import type { ReasoningEffort } from "@zen/shared";
+import type { PermissionMode, ReasoningEffort } from "@zen/shared";
+import { PERMISSION_MODES } from "@zen/shared";
 
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
@@ -40,22 +54,22 @@ const userStore = useUserStore();
 const {
   input,
   isRunning,
+  isPaused,
   canSend,
   effort,
   attachments,
-  skillMentions,
+  selectedSkills,
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
-const { permissionLabel } = storeToRefs(agentStore);
+const { permissionMode, permissionLabel } = storeToRefs(agentStore);
 
 const loggedIn = computed(() => userStore.auth.loggedIn);
 
-/** 循环切换权限档位：默认 → 智能 → 完全访问 */
-async function cyclePermission() {
-  const order = ["default", "smart", "full"] as const;
-  const next = order[(order.indexOf(agentStore.permissionMode) + 1) % order.length];
-  await agentStore.updateSettings({ permissionMode: next });
+const permissionModes = PERMISSION_MODES;
+
+async function setPermissionMode(mode: unknown) {
+  await agentStore.updateSettings({ permissionMode: mode as PermissionMode });
 }
 
 const allowedEfforts = computed(() => {
@@ -82,6 +96,17 @@ const textareaEl = ref<HTMLTextAreaElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 
+/**
+ * Textarea 是包装组件：模板 ref 拿到的是组件实例而非原生元素，
+ * 直接调用 instance.focus() 会抛错导致选择技能后输入框失焦，这里取其根元素。
+ */
+function setTextareaRef(instance: unknown): void {
+  textareaEl.value =
+    instance instanceof HTMLTextAreaElement
+      ? instance
+      : ((instance as { $el?: HTMLTextAreaElement } | null)?.$el ?? null);
+}
+
 const triggers = useComposerTriggers({
   textarea: () => textareaEl.value,
   value: () => input.value,
@@ -89,9 +114,17 @@ const triggers = useComposerTriggers({
     input.value = next;
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
-  // 技能选中不插入原文：去掉触发 token，由文本前方 tag 行展示，发送时拼回 /skill 前缀
   onSelectSkill: (item) => {
-    chatStore.addSkillMention({ label: item.label, insert: item.insert });
+    if (item.icon !== "skill") {
+      return false;
+    }
+    chatStore.addSkill({
+      name: item.label,
+      description: item.desc,
+      dir: item.dir,
+      source: item.source,
+    });
+    return true;
   },
 });
 
@@ -183,9 +216,6 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
   <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
-      <!-- askUser 提问卡：Agent 请求决策时置于输入框上方 -->
-      <AskUserCard />
-
       <!-- 未登录拦截：本地配置保留，agent 会话需登录后使用 -->
       <div
         v-if="!loggedIn"
@@ -236,29 +266,58 @@ function removeAttachment(id: string) {
             : 'border border-transparent'
         "
       >
-        <label class="sr-only" for="chat-input">消息输入</label>
-        <!-- 已选技能 tag：位于文本内容前方，可单独移除 -->
-        <div v-if="skillMentions.length" class="mb-1 flex flex-wrap items-center gap-1.5">
+        <!-- 选中的技能：tag 形式渲染，悬浮展示技能信息 -->
+        <div
+          v-if="selectedSkills.length"
+          class="mb-1.5 flex flex-wrap items-center gap-1.5"
+          aria-label="已选技能"
+        >
           <span
-            v-for="tag in skillMentions"
-            :key="tag.insert"
-            class="flex items-center gap-1 rounded-full border border-[var(--color-line)] bg-[var(--color-side-glass)] py-0.5 pl-2 pr-1 text-[11px] text-[var(--color-txt)]"
+            v-for="skill in selectedSkills"
+            :key="skill.name"
+            class="inline-flex max-w-[240px] items-center gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-side-glass)] py-1 pl-2 pr-1 text-[11.5px] text-[var(--color-txt-strong)]"
           >
-            <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
-            <span class="max-w-[160px] truncate">{{ tag.label }}</span>
+            <HoverCard>
+              <HoverCardTrigger as-child>
+                <span class="inline-flex min-w-0 cursor-default items-center gap-1">
+                  <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
+                  <span class="truncate">{{ skill.name }}</span>
+                </span>
+              </HoverCardTrigger>
+              <HoverCardContent :side="'top'" class="w-72">
+                <div class="flex items-center gap-1.5">
+                  <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
+                  <p class="m-0 text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+                    {{ skill.name }}
+                  </p>
+                </div>
+                <p class="m-0 mt-1 text-[11px] leading-relaxed text-[var(--color-mut)]">
+                  {{ skill.description || "暂无描述" }}
+                </p>
+                <p
+                  v-if="skill.dir"
+                  class="m-0 mt-1.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+                  :title="skill.dir"
+                >
+                  {{ skill.dir }}
+                </p>
+              </HoverCardContent>
+            </HoverCard>
             <button
               type="button"
-              class="flex size-4 items-center justify-center rounded-full text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="`移除技能 ${tag.label}`"
-              @click="chatStore.removeSkillMention(tag.insert)"
+              class="flex size-4 flex-none items-center justify-center rounded text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+              aria-label="移除技能"
+              @click="chatStore.removeSkill(skill.name)"
             >
               <X class="size-3" />
             </button>
           </span>
         </div>
+
+        <label class="sr-only" for="chat-input">消息输入</label>
         <Textarea
           id="chat-input"
-          ref="textareaEl"
+          :ref="setTextareaRef"
           v-model="input"
           class="max-h-[220px] min-h-[44px]! resize-none rounded-none! border-none! bg-transparent! px-0! py-0! text-[14px] leading-relaxed text-[var(--color-txt-strong)] placeholder:text-[var(--color-composer-placeholder)]"
           rows="2"
@@ -293,16 +352,42 @@ function removeAttachment(id: string) {
               :allowed="allowedEfforts"
             />
             <ModelPicker />
-            <button
-              type="button"
-              class="flex h-7 items-center gap-1 rounded-lg px-2 text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
-              aria-label="切换权限模式"
-              :title="`权限：${permissionLabel}（点击切换）`"
-              @click="cyclePermission"
-            >
-              <ShieldCheck class="size-4" />
-              <span class="text-[11px]">{{ permissionLabel }}</span>
-            </button>
+            <!-- 权限模式下拉：展示全部可选权限及其说明 -->
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  type="button"
+                  class="flex h-7 items-center gap-1 rounded-lg px-2 text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+                  aria-label="选择权限模式"
+                  :title="`权限：${permissionLabel}`"
+                >
+                  <ShieldCheck class="size-4" />
+                  <span class="text-[11px]">{{ permissionLabel }}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-72">
+                <DropdownMenuRadioGroup
+                  :model-value="permissionMode"
+                  @update:model-value="setPermissionMode"
+                >
+                  <DropdownMenuRadioItem
+                    v-for="mode in permissionModes"
+                    :key="mode.id"
+                    :value="mode.id"
+                    class="items-start gap-2 py-1.5"
+                  >
+                    <div class="flex min-w-0 flex-col gap-0.5">
+                      <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+                        {{ mode.label }}
+                      </span>
+                      <span class="text-[11px] leading-relaxed text-[var(--color-mut)]">
+                        {{ mode.description }}
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
@@ -312,7 +397,20 @@ function removeAttachment(id: string) {
             >
               <Mic class="size-4" />
             </button>
+            <!-- 发送按钮位即运行状态位：运行中变停止，暂停时变继续 -->
             <button
+              v-if="isRunning || isPaused"
+              type="button"
+              class="flex size-[30px] items-center justify-center rounded-full bg-[var(--color-send-empty)] text-[var(--color-send-fg)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="isPaused ? '继续' : '停止'"
+              :title="isPaused ? '继续' : '停止'"
+              @click="isPaused ? chatStore.resume() : chatStore.cancel()"
+            >
+              <Play v-if="isPaused" class="size-4" />
+              <Square v-else class="size-3.5" />
+            </button>
+            <button
+              v-else
               type="button"
               class="flex size-[30px] items-center justify-center rounded-full"
               :class="
@@ -355,6 +453,7 @@ function removeAttachment(id: string) {
           "
           role="option"
           :aria-selected="index === triggers.active.value"
+          @mousedown.prevent
           @mouseenter="triggers.active.value = index"
           @click="triggers.apply(item)"
         >

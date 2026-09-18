@@ -24,6 +24,8 @@ const TITLE: Record<RightPanelKind, string> = {
 export const useRightPanelStore = defineStore("rightPanel", () => {
   const tabs = ref<RightPanelTab[]>([{ id: "files", kind: "files", title: TITLE.files }]);
   const activeId = ref("files");
+  /** 待定位文件路径：消息流点击文件名时设置，FilePanel 消费后清空 */
+  const pendingReveal = ref("");
 
   const activeTab = computed(() => tabs.value.find((item) => item.id === activeId.value) ?? null);
   const kinds = computed(() => new Set(tabs.value.map((item) => item.kind)));
@@ -69,14 +71,22 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     }
   }
 
+  /** 打开文件面板并定位到指定文件（消息流内点击文件名） */
+  function revealFile(path: string) {
+    pendingReveal.value = path;
+    ensureTab("files");
+  }
+
   return {
     tabs,
     activeId,
+    pendingReveal,
     activeTab,
     kinds,
     hasKind,
     activate,
     ensureTab,
     closeTab,
+    revealFile,
   };
 });

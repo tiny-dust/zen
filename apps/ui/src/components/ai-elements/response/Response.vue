@@ -2,16 +2,21 @@
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { computed, useSlots } from 'vue'
-import { code } from '@stream-markdown/code'
 import { Markdown } from 'vue-stream-markdown'
+import { streamMarkdownExtensions } from '@/components/ai-elements/response/extensions'
 import 'vue-stream-markdown/index.css'
 
 interface Props {
   content?: string
+  /** 流式逐段淡入动画：新文本在动画前不可见（backwards 填充），快速输出时
+   * 尾部会长时间空白看不到实时内容，默认关闭保证内容随到随显 */
+  enableAnimate?: boolean
   class?: HTMLAttributes['class']
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  enableAnimate: false,
+})
 
 const slots = useSlots()
 const slotContent = computed<string | undefined>(() => {
@@ -28,23 +33,17 @@ const slotContent = computed<string | undefined>(() => {
 })
 
 const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
-
-// Shiki 代码高亮：深色主题随根节点 .dark
-const extensions = {
-  code: code({
-    theme: ['github-dark-default', 'github-light-default'],
-  }),
-}
 </script>
 
 <template>
   <Markdown
     :content="md"
-    :extensions="extensions"
+    :enable-animate="props.enableAnimate"
+    :extensions="streamMarkdownExtensions"
     :is-dark="true"
     :class="
       cn(
-        'size-full [&>*:first-child]:mt-0! [&>*:last-child]:mb-0!',
+        'w-full [&>*:first-child]:mt-0! [&>*:last-child]:mb-0!',
         props.class,
       )
     "
