@@ -1,8 +1,11 @@
 import type { PromptPreset } from "@zen/shared";
 
+import { DIMAGENT_PARSED, MIMO_DESKTOP_FULL } from "./prompt-fulltexts";
+
 /**
- * 内置系统提示词预设（调研依据：docs/research/agent-system-prompts.md）。
- * 每条预设是对来源提示词取向的中文提炼（非原文照搬），origin 注明出处与可信度。
+ * 内置系统提示词预设（调研依据：docs/research/agent-system-prompts.md；
+ * 提取原文存 docs/research/prompts/）。每条预设标注 kind：
+ * full = 提取的完整原文；distilled = 中文提炼版（origin 注明出处与可信度）。
  */
 
 const ZEN_DEFAULT = `你是 Zen，运行在用户桌面端里的编码助手，可直接读写本地工作区。
@@ -35,6 +38,11 @@ const ZEN_DEFAULT = `你是 Zen，运行在用户桌面端里的编码助手，�
 - 只做防御性安全：拒绝恶意代码、凭据窃取、批量抓取隐私数据。
 - 不猜测/编造 URL；不输出、不持久化密钥等敏感凭据。
 - 拿不准的事实验证后再说；做不到就直说，并给替代方案。
+
+【输出格式约定】
+- 结构化内容（对比、参数、清单字段）必须用 GFM 表格呈现，不用长段落罗列。
+- 正文提到项目文件一律用反引号包相对路径（如 \`apps/ui/src/App.vue\`），目录以 / 结尾（如 \`apps/ui/\`）；行号写作 \`path:42\` 或 \`path#L42\`；代码块标注语言。
+- 回复只用 Markdown（标题/列表/表格/代码块），不输出 HTML 标签。
 
 【输出】最终回复自包含：结论在前，关键改动与验证结果随后；引用代码带 文件:行号；改动过的文件逐一列出。`;
 
@@ -91,6 +99,7 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "Zen 默认",
     description: "Zen 自研：融合各家共性实践的中文骨架",
     origin: "docs/research/agent-system-prompts.md §4",
+    kind: "distilled",
     text: ZEN_DEFAULT,
   },
   {
@@ -98,6 +107,7 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "Codex 风格",
     description: "自主干到底、AGENTS.md 约定、治本修复",
     origin: "openai/codex gpt_5_2_prompt.md（官方公开）",
+    kind: "distilled",
     text: CODEX_STYLE,
   },
   {
@@ -105,6 +115,7 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "Claude Code 风格",
     description: "防御性安全、极简输出、专用工具优先",
     origin: "x1xhlol 泄露集合 Claude Code 2.0（社区整理）",
+    kind: "distilled",
     text: CLAUDE_CODE_STYLE,
   },
   {
@@ -112,6 +123,7 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "ChatGPT 风格",
     description: "通用助手：人设、收尾纪律、隐私红线",
     origin: "GPT-5 泄露系统提示词（多渠道交叉）",
+    kind: "distilled",
     text: CHATGPT_STYLE,
   },
   {
@@ -119,6 +131,7 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "DeepSeek 风格",
     description: "短、强身份、领域聚焦",
     origin: "DeepSeek-Coder 官方对话模板（官方公开）",
+    kind: "distilled",
     text: DEEPSEEK_STYLE,
   },
   {
@@ -126,7 +139,26 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     name: "Cursor Agent 风格",
     description: "工具使用纪律：何时用/何时不用",
     origin: "x1xhlol 泄露集合 Cursor Agent 2.0（社区整理）",
+    kind: "distilled",
     text: CURSOR_STYLE,
+  },
+  {
+    id: "mimo-desktop",
+    name: "MiMo Desktop（原文）",
+    description:
+      "从小米 MiMo Desktop 安装包 app.asar 提取的完整运行时提示词（desktop-base + desktop-surface 原文，未做任何改写）；含 MiMo 专有工具约定（task/present_files/MIMO_PYTHON 等），Zen 未提供这些工具，选用需自行取舍",
+    origin: "Xiaomi MiMo.app /Contents/Resources/app.asar electron/prompts/（本机提取，原文见 docs/research/prompts/）",
+    kind: "full",
+    text: MIMO_DESKTOP_FULL,
+  },
+  {
+    id: "dimagent-parsed",
+    name: "DimAgent（解析版）",
+    description:
+      "从本机 DimAgent 运行时会话上下文与主程序包 main.cjs 解析整理的行为规则（桌面场景前言 + 安全/语气/工程/Git/收尾），非逐字原文",
+    origin: "DimAgent.app main.cjs + 运行时上下文（解析记录见 docs/research/prompts/dimagent-system-prompt.md）",
+    kind: "distilled",
+    text: DIMAGENT_PARSED,
   },
 ];
 

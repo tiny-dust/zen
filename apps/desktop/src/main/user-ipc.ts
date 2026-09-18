@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
@@ -14,10 +14,15 @@ import {
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
-const authFile = () => join(app.getPath("userData"), "auth.json");
+/**
+ * 登录态按运行形态分文件：dev（Electron）与打包版（Zen）的 safeStorage 钥匙串密钥不同，
+ * 共用一个 auth.json 时，一边启动解不开另一边加密的凭据就会清空登录态（反复掉登录的根因）。
+ */
+const authFile = () =>
+  join(app.getPath("userData"), app.isPackaged ? "auth.json" : "auth.dev.json");
 const customIconDir = () => join(app.getPath("userData"), "icons");
 
 /** 登录态有效期：自登录起 3 个月，到期需重新登录 */
@@ -30,6 +35,7 @@ const defaultSettings: AppSettings = {
   customIconPath: null,
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
+  codeTheme: DEFAULT_CODE_THEME,
 };
 
 interface StoredAuth {
@@ -67,9 +73,12 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+/** 原子写入：先写临时文件再 rename，避免进程被杀时留下截断的 JSON（截断 = 静默登出） */
 async function writeJson(path: string, value: unknown) {
   await ensureDir(dirname(path));
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
+  await rename(tmp, path);
 }
 
 async function loadSettings(): Promise<AppSettings> {
@@ -150,25 +159,28 @@ async function ensureValidTokens(): Promise<string | null> {
     return tokens.accessToken;
   }
   const refreshed = await forceRefreshTokens(stored, tokens.refreshToken);
-  return refreshed?.accessToken ?? tokens.accessToken;
+  return refreshed.tokens?.accessToken ?? tokens.accessToken;
 }
 
-/** 强制续期并落库；失败返回 null（由调用方决定是否清除登录态） */
+/**
+ * 强制续期并落库；失败时返回 error 原因，由调用方区分
+ * 「refresh token 真失效（应清登录）」与「瞬时故障（应保留登录）」。
+ */
 async function forceRefreshTokens(
   stored: StoredAuth,
   refreshToken: string,
-): Promise<GitHubTokens | null> {
+): Promise<{ tokens: GitHubTokens | null; error: string | null }> {
   try {
     const clientId = findClientId();
     if (!clientId) {
-      return null;
+      return { tokens: null, error: "未配置 GITHUB_CLIENT_ID" };
     }
     const refreshed = await refreshAccessToken(clientId, refreshToken);
     const encrypted = await encryptTokens(refreshed);
     await persistAuth({ ...stored, tokens: encrypted });
-    return refreshed;
-  } catch {
-    return null;
+    return { tokens: refreshed, error: null };
+  } catch (error) {
+    return { tokens: null, error: error instanceof Error ? error.message : "刷新令牌失败" };
   }
 }
 
@@ -219,25 +231,40 @@ async function refreshProfile(): Promise<AuthState> {
     if (/解密|凭据无效|ByteString/i.test(raw)) {
       return await persistAuth({ loggedIn: false, user: null, tokens: null });
     }
-    // 令牌被吊销/过期（401/403）：有 refresh token 时强制续期重试一次
-    if (/HTTP 40[13]/.test(raw)) {
+    // 令牌过期/吊销（401）：有 refresh token 时续期重试一次
+    if (/HTTP 401/.test(raw)) {
       const tokens = await decryptTokens(stored.tokens).catch(() => null);
-      const refreshed = tokens?.refreshToken
-        ? await forceRefreshTokens(stored, tokens.refreshToken)
-        : null;
-      if (refreshed) {
+      if (!tokens?.refreshToken) {
+        // 无 refresh token 的长期令牌：401 即凭据失效，清除
+        return await persistAuth(
+          { loggedIn: false, user: null, tokens: null },
+          "登录态已失效，请重新登录",
+        );
+      }
+      const refreshed = await forceRefreshTokens(stored, tokens.refreshToken);
+      if (refreshed.tokens) {
         try {
-          const user = await fetchGitHubUser(refreshed.accessToken);
+          const user = await fetchGitHubUser(refreshed.tokens.accessToken);
           return await persistAuth({ ...stored, user });
         } catch {
-          // 新令牌仍失效：走清除路径
+          // 新令牌仍被拒：凭据确实失效，清除
+          return await persistAuth(
+            { loggedIn: false, user: null, tokens: null },
+            "登录态已失效，请重新登录",
+          );
         }
       }
-      return await persistAuth(
-        { loggedIn: false, user: null, tokens: null },
-        "登录态已失效，请重新登录",
-      );
+      if (/invalid_grant|bad_refresh_token|expired/i.test(refreshed.error ?? "")) {
+        // GitHub 明确判定 refresh token 失效：清登录引导重登
+        return await persistAuth(
+          { loggedIn: false, user: null, tokens: null },
+          "登录态已失效，请重新登录",
+        );
+      }
+      // 瞬时失败（网络/限流/服务波动）：保留登录态，只上报错误，下次再试
+      return toPublicAuth(stored, "令牌续期未成功（网络或服务波动），已保留登录态");
     }
+    // 其余错误（403 多为限流/代理拦截等）不是凭据失效：保留登录态，仅上报
     return toPublicAuth(stored, raw);
   }
 }
