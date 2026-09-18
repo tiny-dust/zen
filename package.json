@@ -13,7 +13,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "package": "pnpm --filter @zen/desktop package"
+    "package": "pnpm --filter @zen/desktop package",
+    "updates:serve": "pnpm --filter @zen/desktop updates:serve"
   },
   "devDependencies": {
     "typescript": "5.9.3"

@@ -34,6 +34,7 @@ import type {
   SkillSummary,
   SyncResult,
   ToolApprovalDecision,
+  UpdateStatusInfo,
   UpdateModelInput,
   WorkspaceFile,
   Workspace,
@@ -42,6 +43,8 @@ import type {
 
 export interface AppInfo {
   workspaceRoot: string;
+  /** 应用版本（package.json version） */
+  version: string;
   versions: {
     electron: string;
     chrome: string;
@@ -117,6 +120,12 @@ export interface ZenApi {
     pickIcon(): Promise<AppSettings>;
     applyIcon(): Promise<AppSettings>;
     onChanged(handler: (settings: AppSettings) => void): () => void;
+  };
+  updates: {
+    check(): Promise<{ ok: boolean; error?: string }>;
+    download(): Promise<{ ok: boolean; error?: string }>;
+    install(): void;
+    onStatus(handler: (status: UpdateStatusInfo) => void): () => void;
   };
   models: {
     list(): Promise<ProviderSummary[]>;

@@ -240,7 +240,7 @@ function extractChatText(data: unknown): string {
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
 export async function completeOnce(
   prompt: string,
-  options?: { maxTokens?: number; system?: string },
+  options?: { maxTokens?: number; system?: string; timeoutMs?: number },
 ): Promise<string> {
   const selection = await getSelection();
   const providerId = selection.providerId;
@@ -258,24 +258,33 @@ export async function completeOnce(
     DEFAULT_UA;
   // reasoning 模型会先耗大量 token 思考；预算太小会导致 content 为空、只剩思考内容
   const caps = inspectModelCapabilities(modelId);
-  const maxTokens = options?.maxTokens ?? (caps.reasoning ? 2048 : 512);
+  let maxTokens = options?.maxTokens ?? (caps.reasoning ? 4096 : 512);
+  if (caps.reasoning) {
+    maxTokens = Math.max(maxTokens, 4096);
+  }
+  // 补全（尤其推理模型 stream:false 全量缓冲）远慢于列表类请求，默认放宽到 120s
+  const timeoutMs = options?.timeoutMs ?? 120_000;
 
   if (provider.protocol === "anthropic-messages") {
-    const data = await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "User-Agent": userAgent,
+    const data = await fetchJson(
+      chatUrl(provider.baseUrl, provider.protocol),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "User-Agent": userAgent,
+        },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: maxTokens,
+          ...(options?.system ? { system: options.system } : {}),
+          messages: [{ role: "user", content: prompt }],
+        }),
       },
-      body: JSON.stringify({
-        model: modelId,
-        max_tokens: maxTokens,
-        ...(options?.system ? { system: options.system } : {}),
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+      timeoutMs,
+    );
     const payload = data as {
       content?: Array<{ type?: string; text?: string }>;
     };
@@ -290,25 +299,29 @@ export async function completeOnce(
     return text;
   }
 
-  const data = await fetchJson(chatUrl(provider.baseUrl, provider.protocol), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "User-Agent": userAgent,
+  const data = await fetchJson(
+    chatUrl(provider.baseUrl, provider.protocol),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "User-Agent": userAgent,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: maxTokens,
+        stream: false,
+        messages: options?.system
+          ? [
+              { role: "system", content: options.system },
+              { role: "user", content: prompt },
+            ]
+          : [{ role: "user", content: prompt }],
+      }),
     },
-    body: JSON.stringify({
-      model: modelId,
-      max_tokens: maxTokens,
-      stream: false,
-      messages: options?.system
-        ? [
-            { role: "system", content: options.system },
-            { role: "user", content: prompt },
-          ]
-        : [{ role: "user", content: prompt }],
-    }),
-  });
+    timeoutMs,
+  );
   const text = extractChatText(data);
   if (!text) {
     throw new Error("模型未返回文本内容");

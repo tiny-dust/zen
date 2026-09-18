@@ -116,3 +116,17 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 工具调用进时间线：`tool_end` 落 `role=tool` 消息（`ToolCallCard`：按工具名 lucide 图标 + 成败色 + 可展开 args/output）；`updateTasks` 落 `TaskUpdateCard` 快照；工具步骤从 AgentRunStatus 折叠列表移除（避免双写）。
   - 任务清单协议：`session_task_lists` 表持久化 version/items；`session:open` 一并返回并恢复侧栏；模型未调 `updateTasks` 时从正文 `- [ ]` 勾选列表兜底抽取；系统提示词强调必须走工具。
   - 文件编辑：`workspace:write-file` IPC（路径沙箱同 read）；FileViewer 可编辑（history + 脏标记 + 保存/放弃）；Agent `writeFile`/`editFile` 后 `filesRevision` 驱动文件树与预览刷新（本地未保存时不覆盖）。
+- 2026-09-17（composer 交互与流式渲染二轮）：
+  - Composer 技能选中改 chip：`/` 触发选中技能不再插入正文，改为输入壳上方 tag（悬浮 HoverCard 展示技能名/描述/目录）；发送时以 `/skill:` 前缀注入 agent 消息、正文保持干净并由 `meta.skills` 渲柔回显 tag；`canSend` 计入已选技能。修复选择技能后输入框失焦——`<Textarea ref>` 拿到的是组件实例而非原生元素，`el.focus()` 抛错（改函数 ref 取 `$el`），建议面板按钮补 `@mousedown.prevent`。
+  - Composer 权限改下拉：底栏权限按钮从「点击循环」改 DropdownMenu，枚举 `PERMISSION_MODES` 三档并带说明文案，当前档位打勾。
+  - 用户消息悬浮操作条：hover 显示发送时间（当日 HH:mm，跨日带日期）+ 复制（剪贴板，1.5s 打勾反馈）+ 编辑（内容放回输入框聚焦重发）；随消息发送的技能 tag 在气泡内回显。
+  - 流式渲染修复：`Response`/`ReasoningContent` 关闭 vue-stream-markdown 逐段淡入动画（`enable-animate: false`）——动画 span `backwards` 填充在快速输出下让尾部长时间不可见（表现为底部大片空白、看不到实时内容），关闭后文本随到随显且 DOM 量大幅下降；`Response` 根元素 `size-full` 改 `w-full` 不再强制 height:100%。ChatTimeline 自动滚动加 `overflow-anchor: none` 与贴底策略（`stickToBottom` + ResizeObserver 兜底）——markdown 异步增量渲染的实际高度在 nextTick 之后才增长，仅 watch content 会滞后于真实渲染高度；用户上滚阅读时暂停跟随。
+  - 审批与提问上移：`ApprovalCard.vue`（从 AgentRunStatus 拆出，新增「全部允许（本会话）」——shared `ToolApprovalDecision.always`，agent-core `rememberedTools` 会话级记忆放行同类工具）与 `AskUserCard` 固定 sticky 在对话区顶部，方便操作。
+  - 运行状态卡下线：删除 `AgentRunStatus.vue`（正在回复/暂停/停止卡片），运行状态直接体现在 Composer 发送按钮位——运行中变「停止」（取消运行）、暂停时变「继续」（恢复运行）；发送按钮态用既有 token（`--color-send-empty/-fg`），不新增色值。
+- 2026-09-17（消息流分段与工具可视化）：
+  - 消息改为按时间顺序的分段渲染（`ChatMessage.parts`：reasoning / text / tool，main 落库与 ui 渲染共用 `applyStreamToParts`，持久化在 meta_json.parts 读出时提升回顶层）：每次思考独立成折叠面板按序展示（后随正文/工具时默认收起），不再全部并进一个面板；旧消息按「思考 → 正文」合成兼容。
+  - 工具调用行内渲染（`ToolCallRow.vue` + `tool-part.ts`）：icon + 动作名（执行终端/写入文件/读取文件/浏览目录/搜索/网络/技能/MCP）+ 高亮目标——文件路径带文件 icon 成 chip，点击在右栏文件面板定位（right-panel 新增 `revealFile`，FilePanel 展开祖先目录并选中）；终端命令以 mono chip 展示；行尾状态（旋转/勾/叉），点击展开结果输出。删除死状态 `activeTool`/`toolHistory`。
+  - 思考内容独立弱色：`.reasoning-dim .stream-markdown` 覆盖库根节点的前景色重置（`--color-mut`，1.7 行距），与正文 14px 主色区分。
+  - 密度收紧：消息间距 gap-5→gap-4，user 气泡 py-2.5→py-2，Reasoning 去掉 mb-4（由分段 gap 承担），`.md-content` p/pre/ul 外边距 8→6px。
+  - 代码高亮：接入 `@stream-markdown/code`（Shiki 4 + `createJavaScriptRegexEngine` 免 wasm），主题对 github-light/dark，Markdown 显式 `:is-dark="true"`（渲染根节点带 `.dark` 激活 `--shiki-dark` 变量）；Response 与 ReasoningContent 共用 `response/extensions.ts`。
+  - 提交图谱分支徽标：提交行渲染 %D refs（当前分支 accent 实底、本地分支描边、远端弱化、tag 蓝色，>3 个收进 +N）；泳道算法本就支持多分支（zen 仓库当前 main 完全并入 develop，单轴即真实形态）。

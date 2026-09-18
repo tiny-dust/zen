@@ -7,11 +7,13 @@ import type {
   AgentStreamEvent,
   AttachmentRef,
   ChatMessage,
+  ChatMessagePart,
   ReasoningEffort,
   SessionRecord,
   TaskItem,
   ToolApprovalDecision,
 } from "@zen/shared";
+import { applyStreamToParts } from "@zen/shared";
 import { buildHistory } from "@/stores/chat-types";
 import { useAgentStore } from "@/stores/agent";
 import { useGitStore } from "@/stores/git";
@@ -23,11 +25,10 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
 import type {
-  ActiveTool,
   ComposerAttachment,
   PendingApproval,
   RunPhase,
-  ToolHistoryItem,
+  SelectedSkill,
 } from "@/stores/chat-types";
 import type { AskUserQuestionEvent } from "@zen/shared";
 
@@ -45,12 +46,8 @@ export const useChatStore = defineStore("chat", () => {
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
   const attachments = ref<ComposerAttachment[]>([]);
-  /** 输入区已选技能 tag（文本前方展示；发送时拼回 /skill 前缀传给 agent） */
-  const skillMentions = ref<Array<{ label: string; insert: string }>>([]);
-  const activeTool = ref<ActiveTool | null>(null);
-  const toolHistory = ref<ToolHistoryItem[]>([]);
-  /** tool_start 的入参缓存：tool_end 时写入消息 meta，供卡片展开 */
-  const pendingToolArgs = ref(new Map<string, unknown>());
+  /** 输入框选中的技能 chip（发送时以 /skill: 前缀注入消息） */
+  const selectedSkills = ref<SelectedSkill[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
   /** 本 run 内是否调用过 updateTasks（用于 checklist 兜底） */
@@ -73,7 +70,7 @@ export const useChatStore = defineStore("chat", () => {
     () =>
       (input.value.trim().length > 0 ||
         attachments.value.length > 0 ||
-        skillMentions.value.length > 0) &&
+        selectedSkills.value.length > 0) &&
       !isRunning.value,
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
@@ -141,35 +138,45 @@ export const useChatStore = defineStore("chat", () => {
     return last?.role === "assistant" ? last : undefined;
   }
 
+  /** 流式分段容器：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
+  function streamingParts(): ChatMessagePart[] {
+    let last = lastAssistant();
+    if (!last) {
+      const message: ChatMessage = {
+        id: uuid(),
+        role: "assistant",
+        content: "",
+        parts: [],
+        createdAt: Date.now(),
+      };
+      messages.value.push(message);
+      last = message;
+    }
+    last.parts ??= [];
+    return last.parts;
+  }
+
   function appendDelta(text: string) {
     phase.value = "answering";
     const last = lastAssistant();
     if (last) {
       last.content += text;
+      last.parts ??= [];
+      applyStreamToParts(last.parts, { type: "delta", sessionId: "", text });
       return;
     }
     appendMessage({
       id: uuid(),
       role: "assistant",
       content: text,
+      parts: [{ type: "text", text }],
       createdAt: Date.now(),
     });
   }
 
   function appendReasoning(text: string) {
     phase.value = "thinking";
-    const last = lastAssistant();
-    if (last) {
-      last.reasoning = (last.reasoning ?? "") + text;
-      return;
-    }
-    appendMessage({
-      id: uuid(),
-      role: "assistant",
-      content: "",
-      reasoning: text,
-      createdAt: Date.now(),
-    });
+    applyStreamToParts(streamingParts(), { type: "reasoning_delta", sessionId: "", text });
   }
 
   function handleStreamEvent(event: AgentStreamEvent) {
@@ -190,70 +197,25 @@ export const useChatStore = defineStore("chat", () => {
         const last = lastAssistant();
         if (last) {
           last.reasoningMs = event.durationMs;
+          last.parts ??= [];
+          applyStreamToParts(last.parts, event);
         }
         break;
       }
       case "tool_input_start":
-        activeTool.value = {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          message: "准备工具参数",
-          state: "input-streaming",
-        };
-        statusText.value = `准备 ${event.toolName}`;
-        break;
       case "tool_start":
-        pendingToolArgs.value.set(event.toolCallId, event.args);
-        activeTool.value = {
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          message: "正在调用工具",
-          state: "running",
-        };
-        statusText.value = `正在调用 ${event.toolName}`;
+        applyStreamToParts(streamingParts(), event);
         break;
       case "tool_progress":
-        activeTool.value = {
-          toolCallId: event.event.toolCallId,
-          toolName: event.event.toolName,
-          message: event.event.message,
-          percent: event.event.percent,
-          state: "running",
-        };
-        statusText.value = event.event.message;
+        applyStreamToParts(streamingParts(), event);
         break;
-      case "tool_end": {
-        const args = pendingToolArgs.value.get(event.toolCallId);
-        pendingToolArgs.value.delete(event.toolCallId);
-        toolHistory.value.push({
-          id: event.toolCallId,
-          toolName: event.toolName,
-          summary: event.summary,
-          ok: event.ok,
-          output: event.output,
-        });
-        // 工具调用进入消息时间线（可展开、带图标），与 MiMo 消息列表同构
-        appendMessage({
-          id: event.toolCallId || uuid(),
-          role: "tool",
-          content: event.summary,
-          createdAt: Date.now(),
-          toolCallId: event.toolCallId,
-          meta: {
-            toolName: event.toolName,
-            ok: event.ok,
-            summary: event.summary,
-            output: event.output,
-            args,
-          },
-        });
+      case "tool_end":
+        applyStreamToParts(streamingParts(), event);
         if (event.toolName === "writeFile" || event.toolName === "editFile") {
           filesRevision.value += 1;
         }
-        activeTool.value = null;
         statusText.value = event.summary;
         break;
-      }
       case "approval_request":
         pendingApproval.value = {
           approvalId: event.request.approvalId,
@@ -302,7 +264,6 @@ export const useChatStore = defineStore("chat", () => {
       case "done": {
         status.value = "idle";
         isPaused.value = false;
-        activeTool.value = null;
         pendingApproval.value = null;
         statusText.value = event.reason === "cancelled" ? "已取消" : "";
         if (!usedUpdateTasks && event.reason === "stop") {
@@ -374,27 +335,26 @@ export const useChatStore = defineStore("chat", () => {
     });
   }
 
+  function addSkill(skill: SelectedSkill) {
+    if (selectedSkills.value.some((item) => item.name === skill.name)) {
+      return;
+    }
+    selectedSkills.value.push(skill);
+  }
+
+  function removeSkill(name: string) {
+    selectedSkills.value = selectedSkills.value.filter((item) => item.name !== name);
+  }
+
   function removeAttachment(id: string) {
     attachments.value = attachments.value.filter((item) => item.id !== id);
   }
 
-  function addSkillMention(item: { label: string; insert: string }) {
-    if (skillMentions.value.some((tag) => tag.insert === item.insert)) {
-      return;
-    }
-    skillMentions.value.push({ label: item.label, insert: item.insert });
-  }
-
-  function removeSkillMention(insert: string) {
-    skillMentions.value = skillMentions.value.filter((tag) => tag.insert !== insert);
-  }
-
   async function send() {
     const zen = window.zen;
-    // 技能 tag 在发送时拼回 /skill 前缀，agent 侧沿用原有文本信号
-    const mentionPrefix = skillMentions.value.map((tag) => tag.insert.trim()).join(" ");
-    const text = [mentionPrefix, input.value.trim()].filter(Boolean).join(" ");
-    if (!zen || isRunning.value || (!text && !attachments.value.length)) {
+    const text = input.value.trim();
+    const skills = selectedSkills.value;
+    if (!zen || isRunning.value || (!text && !attachments.value.length && !skills.length)) {
       return;
     }
     // 未登录禁止使用（需求 1）：配置保留在本地，但 agent 会话需要 GitHub 登录
@@ -414,12 +374,17 @@ export const useChatStore = defineStore("chat", () => {
       path: item.path,
     }));
 
+    // Agent 收到 /skill: 前缀 + 正文；气泡正文保持干净，技能由 meta.skills 渲染成 tag
+    const agentText = [skills.map((item) => `/skill:${item.name}`).join(" "), text]
+      .filter(Boolean)
+      .join("\n");
+
     lastError.value = "";
     input.value = "";
     attachments.value = [];
-    skillMentions.value = [];
+    selectedSkills.value = [];
     if (sessionName.value === "新会话") {
-      const first = text || attachmentRefs[0]?.name || "新会话";
+      const first = text || skills[0]?.name || attachmentRefs[0]?.name || "新会话";
       sessionName.value = first.slice(0, 24) + (first.length > 24 ? "…" : "");
       // 侧栏标题同步：落库 + 本地分组刷新
       void zen.session.rename(sessionId.value, sessionName.value);
@@ -431,22 +396,22 @@ export const useChatStore = defineStore("chat", () => {
       role: "user",
       content: text,
       createdAt: Date.now(),
-      meta: attachmentRefs.length ? { attachments: attachmentRefs } : undefined,
+      meta: {
+        ...(skills.length ? { skills } : {}),
+        ...(attachmentRefs.length ? { attachments: attachmentRefs } : {}),
+      },
     });
 
     status.value = "thinking";
     isPaused.value = false;
-    toolHistory.value = [];
-    pendingToolArgs.value.clear();
     usedUpdateTasks = false;
     pendingApproval.value = null;
-    activeTool.value = null;
     phase.value = "thinking";
     statusText.value = "Agent 思考中…";
 
     const result = await zen.agent.run({
       sessionId: sessionId.value,
-      userMessage: text,
+      userMessage: agentText,
       workspaceRoot: workspaceRoot.value,
       workspaceId: sessionWorkspaceId.value,
       providerId: modelsStore.selection.providerId ?? undefined,
@@ -487,7 +452,7 @@ export const useChatStore = defineStore("chat", () => {
     await zen.agent.resume(sessionId.value);
   }
 
-  async function approve(approved: boolean) {
+  async function approve(approved: boolean, always = false) {
     const zen = window.zen;
     const approval = pendingApproval.value;
     if (!zen || !approval) {
@@ -496,6 +461,7 @@ export const useChatStore = defineStore("chat", () => {
     const decision: ToolApprovalDecision = {
       approvalId: approval.approvalId,
       approved,
+      ...(always ? { always } : {}),
     };
     await zen.agent.resolveApproval(sessionId.value, decision);
   }
@@ -541,13 +507,10 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     input.value = "";
     attachments.value = [];
-    skillMentions.value = [];
+    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
-    activeTool.value = null;
-    toolHistory.value = [];
-    pendingToolArgs.value.clear();
     usedUpdateTasks = false;
     pendingApproval.value = null;
     pendingAsk.value = null;
@@ -592,12 +555,10 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = found.messages;
     input.value = found.session.draft ?? "";
     attachments.value = [];
+    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
-    activeTool.value = null;
-    toolHistory.value = [];
-    pendingToolArgs.value.clear();
     usedUpdateTasks = false;
     pendingApproval.value = null;
     pendingAsk.value = null;
@@ -642,9 +603,7 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     attachments,
-    skillMentions,
-    activeTool,
-    toolHistory,
+    selectedSkills,
     pendingApproval,
     pendingAsk,
     isPaused,
@@ -661,8 +620,8 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit,
     addAttachment,
     removeAttachment,
-    addSkillMention,
-    removeSkillMention,
+    addSkill,
+    removeSkill,
     send,
     cancel,
     pause,

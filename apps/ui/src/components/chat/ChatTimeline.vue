@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ArrowDown } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
-import AgentRunStatus from "@/components/chat/AgentRunStatus.vue";
+import ApprovalCard from "@/components/chat/ApprovalCard.vue";
+import AskUserCard from "@/components/chat/AskUserCard.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
 import { useChatStore } from "@/stores/chat";
 
@@ -11,7 +12,10 @@ const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
 
 const listEl = ref<HTMLElement | null>(null);
+const contentEl = ref<HTMLElement | null>(null);
 const showJump = ref(false);
+/** 贴底跟随：用户上滚阅读时暂停自动滚动，接近底部时恢复 */
+const stickToBottom = ref(true);
 
 function isFarFromBottom() {
   const el = listEl.value;
@@ -22,6 +26,7 @@ function isFarFromBottom() {
 }
 
 function onScroll() {
+  stickToBottom.value = !isFarFromBottom();
   showJump.value = isFarFromBottom();
 }
 
@@ -44,19 +49,55 @@ watch(
     messages.value.at(-1)?.reasoning,
   ],
   () => {
-    scrollToBottom();
+    if (stickToBottom.value) {
+      scrollToBottom();
+    }
   },
 );
+
+// markdown 是异步增量渲染，实际高度在 nextTick 之后才长出来；
+// 用 ResizeObserver 兜底：内容长高且贴底时继续跟随，避免最新内容滞留视口外
+let resizeObserver: ResizeObserver | undefined;
+onMounted(() => {
+  resizeObserver = new ResizeObserver(() => {
+    if (stickToBottom.value) {
+      const el = listEl.value;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  });
+  if (contentEl.value) {
+    resizeObserver.observe(contentEl.value);
+  }
+});
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+});
 </script>
 
 <template>
   <section class="relative h-full min-h-0 min-w-0 flex-1 bg-[var(--color-main-bg)]" aria-label="对话">
     <div
       ref="listEl"
-      class="flex h-full flex-col overflow-auto px-4 pb-3 pt-4"
+      class="flex h-full flex-col overflow-auto px-4 pb-3 pt-4 [overflow-anchor:none]"
       @scroll="onScroll"
     >
-      <div class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-3">
+      <!-- Agent 提问与工具审批固定在对话区顶部，随时可见、方便操作 -->
+      <div
+        v-if="chatStore.pendingApproval || chatStore.pendingAsk"
+        class="sticky top-0 z-10 -mx-4 mb-1 flex flex-col gap-2 bg-[var(--color-main-bg)] px-4 pb-2 pt-3"
+      >
+        <div class="mx-auto flex w-full max-w-[860px] flex-col gap-2">
+          <ApprovalCard />
+          <AskUserCard />
+        </div>
+      </div>
+
+      <div
+        ref="contentEl"
+        class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-4"
+      >
         <div v-if="messages.length === 0" class="m-auto text-center text-[var(--color-mut)]">
           <p class="m-0">开始一段对话</p>
           <p class="mt-2 text-[12px] text-[var(--color-dim)]">
@@ -77,7 +118,6 @@ watch(
             :message="message"
             :streaming="chatStore.isRunning && message.id === messages.at(-1)?.id"
           />
-          <AgentRunStatus />
         </template>
       </div>
     </div>

@@ -12,6 +12,111 @@ export interface ChatMessage {
   reasoningMs?: number;
   toolCallId?: string;
   meta?: Record<string, unknown>;
+  /** 按时间顺序的消息分段（思考 / 正文 / 工具调用），持久化在 meta_json.parts */
+  parts?: ChatMessagePart[];
+}
+
+/** 消息分段：思考块与正文按流式到达顺序交错，工具调用以行为呈现 */
+export type ChatMessagePart =
+  | { type: "reasoning"; text: string; ms?: number }
+  | { type: "text"; text: string }
+  | {
+      type: "tool";
+      toolCallId: string;
+      toolName: string;
+      state: "running" | "ok" | "error";
+      /** 工具入参（供文件名/命令提取与展示） */
+      args?: unknown;
+      /** 进行中的动作描述（tool_progress 更新） */
+      message?: string;
+      /** 结束后的结果摘要 */
+      summary?: string;
+      output?: unknown;
+    };
+
+/** 把流式事件按顺序累积为消息分段（main 落库与 ui 渲染共用） */
+export function applyStreamToParts(
+  parts: ChatMessagePart[],
+  event: Extract<AgentStreamEvent, { type: "delta" | "reasoning_delta" | "reasoning_end" | "tool_input_start" | "tool_start" | "tool_progress" | "tool_end" }>,
+): void {
+  const tail = parts[parts.length - 1];
+  switch (event.type) {
+    case "delta": {
+      if (tail?.type === "text") {
+        tail.text += event.text;
+      } else {
+        parts.push({ type: "text", text: event.text });
+      }
+      break;
+    }
+    case "reasoning_delta": {
+      if (tail?.type === "reasoning") {
+        tail.text += event.text;
+      } else {
+        parts.push({ type: "reasoning", text: event.text });
+      }
+      break;
+    }
+    case "reasoning_end": {
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const part = parts[i];
+        if (part?.type === "reasoning") {
+          part.ms = event.durationMs;
+          break;
+        }
+      }
+      break;
+    }
+    case "tool_input_start":
+    case "tool_start": {
+      let existing: Extract<ChatMessagePart, { type: "tool" }> | undefined;
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const part = parts[i];
+        if (part?.type === "tool" && part.toolCallId === event.toolCallId) {
+          existing = part;
+          break;
+        }
+      }
+      if (existing) {
+        existing.message = event.type === "tool_start" ? "正在调用工具" : "准备工具参数";
+        if (event.type === "tool_start") {
+          existing.args = event.args;
+        }
+        return;
+      }
+      parts.push({
+        type: "tool",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        state: "running",
+        ...(event.type === "tool_start" ? { args: event.args } : {}),
+        message: event.type === "tool_start" ? "正在调用工具" : "准备工具参数",
+      });
+      break;
+    }
+    case "tool_progress": {
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const part = parts[i];
+        if (part?.type === "tool" && part.toolCallId === event.event.toolCallId) {
+          part.message = event.event.message;
+          break;
+        }
+      }
+      break;
+    }
+    case "tool_end": {
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        const part = parts[i];
+        if (part?.type === "tool" && part.toolCallId === event.toolCallId) {
+          part.state = event.ok ? "ok" : "error";
+          part.summary = event.summary;
+          part.output = event.output;
+          break;
+        }
+      }
+      break;
+    }
+  }
 }
 
 /** 消息流中工具调用卡片的 meta 形状（role=tool） */
@@ -91,6 +196,8 @@ export interface ToolApprovalDecision {
   approvalId: string;
   approved: boolean;
   reason?: string;
+  /** 本会话内对该工具全部放行（避免同类调用逐次确认） */
+  always?: boolean;
 }
 
 export type AgentStreamEvent =
@@ -187,6 +294,8 @@ export interface GitLogEntry {
   author: string;
   time: number;
   subject: string;
+  /** %D 装饰：HEAD -> 分支、远端分支、tag 等（图谱分支徽标） */
+  refs: string[];
 }
 
 /** 单个提交的变更文件（diff-tree name-status + numstat 合并，按首父对比） */
