@@ -118,7 +118,7 @@ function revealFile() {
         type="button"
         class="flex min-w-0 flex-none items-center gap-2 text-left"
         :aria-expanded="detailText ? expanded : undefined"
-        :aria-label="`${display.label}${detailText ? '，展开详情' : ''}`"
+        :aria-label="`${display.label}${detailText ? (expanded ? '，收起详情' : '，展开详情') : ''}`"
         @click="toggleDetails"
       >
         <component :is="display.icon" :size="14" class="flex-none text-[var(--color-mut)]" aria-hidden="true" />
@@ -162,20 +162,16 @@ function revealFile() {
         {{ statusLabel }}
       </span>
 
-      <button
+      <span
         v-if="detailText"
-        type="button"
-        class="flex size-5 flex-none items-center justify-center text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-        :aria-label="expanded ? '收起工具详情' : '展开工具详情'"
-        :aria-expanded="expanded"
-        @click="toggleDetails"
+        class="flex size-5 flex-none items-center justify-center text-[var(--color-dim)]"
+        aria-hidden="true"
       >
         <ChevronDown
           :size="13"
           :class="cn('transition-transform duration-[var(--motion-fast)]', expanded && 'rotate-180')"
-          aria-hidden="true"
         />
-      </button>
+      </span>
     </div>
 
     <pre
