@@ -151,8 +151,17 @@ const runBanner = computed<RunBanner | null>(() => {
     return null;
   }
   const reason = summary.reason;
-  if (!reason || reason === "stop") {
+  if (!reason) {
     return null;
+  }
+  if (reason === "stop") {
+    // 正常完成也给一行语义，但用弱色，避免成为噪音
+    return {
+      label: "已完成",
+      tone: "mut",
+      icon: Check,
+      detail: summary.step != null ? `共 ${summary.step} 步` : undefined,
+    };
   }
   if (reason === "cancelled") {
     return {

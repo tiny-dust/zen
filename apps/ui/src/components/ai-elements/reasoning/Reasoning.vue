@@ -91,6 +91,24 @@ watch(isOpen, (open, wasOpen) => {
   }
 })
 
+// 正文/工具到达后调用方会把 defaultOpen 置 false：不依赖该值做初始打开，
+// 而是在流结束后若仍展开且用户未手动关闭，则按同一规则收起。
+watch(
+  () => props.defaultOpen,
+  (shouldStayOpen) => {
+    if (shouldStayOpen || props.isStreaming || !isOpen.value || hasUserClosed.value) {
+      return
+    }
+    clearAutoCloseTimer()
+    autoCloseTimer = setTimeout(() => {
+      autoCloseTimer = undefined
+      if (!props.isStreaming && !props.defaultOpen && !hasUserClosed.value) {
+        isOpen.value = false
+      }
+    }, AUTO_CLOSE_DELAY)
+  },
+)
+
 onUnmounted(clearAutoCloseTimer)
 
 provide(ReasoningKey, {

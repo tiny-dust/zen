@@ -126,14 +126,17 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).toContain("已取消");
   });
 
-  it("正常 stop 不渲染终态噪音行", () => {
+  it("正常 stop 显示弱化的已完成，不显示失败文案", () => {
     const wrapper = mountMessage({
       id: "a5",
       role: "assistant",
       content: "ok",
       createdAt: 1,
-      meta: { run: { reason: "stop", usage: { inputTokens: 1, outputTokens: 2 } } },
+      meta: { run: { reason: "stop", step: 2, usage: { inputTokens: 1, outputTokens: 2 } } },
     });
+    expect(wrapper.text()).toContain("已完成");
+    expect(wrapper.text()).toContain("共 2 步");
+    expect(wrapper.text()).toContain("输入 1 / 输出 2");
     expect(wrapper.text()).not.toContain("运行失败");
     expect(wrapper.text()).not.toContain("已取消");
     expect(wrapper.text()).not.toContain("已达到步骤上限");

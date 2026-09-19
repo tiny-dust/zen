@@ -59,6 +59,7 @@ function argString(keys: string[]): string {
   return "";
 }
 
+/** 按入参估算的改动行数摘要，不是 git diff；仅成功态展示 */
 const diffStat = computed<{ added: number; removed: number } | null>(() => {
   if (props.part.state !== "ok") {
     return null;
@@ -102,7 +103,7 @@ function toggleDetails() {
       <button
         type="button"
         class="tool-action"
-        :aria-label="`${display.label}${hasDetails ? '，展开详情' : ''}`"
+        :aria-label="`${display.label}${hasDetails ? (open ? '，收起详情' : '，展开详情') : ''}`"
         :aria-expanded="hasDetails ? open : undefined"
         @click="toggleDetails"
       >
@@ -133,7 +134,11 @@ function toggleDetails() {
 
       <span class="tool-message" :title="statusText">{{ statusText }}</span>
 
-      <span v-if="diffStat && (diffStat.added > 0 || diffStat.removed > 0)" class="tool-diff">
+      <span
+        v-if="diffStat && (diffStat.added > 0 || diffStat.removed > 0)"
+        class="tool-diff"
+        title="按入参估算，不是 git diff"
+      >
         <span v-if="diffStat.added > 0" class="tool-add">+{{ diffStat.added }}</span>
         <span v-if="diffStat.added > 0 && diffStat.removed > 0" class="mx-0.5" />
         <span v-if="diffStat.removed > 0" class="tool-remove">-{{ diffStat.removed }}</span>
@@ -149,16 +154,10 @@ function toggleDetails() {
         <span>{{ statusLabel }}</span>
       </span>
 
-      <button
-        v-if="hasDetails"
-        type="button"
-        class="tool-details-toggle"
-        :aria-label="open ? '收起工具详情' : '展开工具详情'"
-        :aria-expanded="open"
-        @click="toggleDetails"
-      >
+      <!-- 展开控件合并到动作按钮：chevron 仅作视觉指示 -->
+      <span v-if="hasDetails" class="tool-details-toggle" aria-hidden="true">
         <ChevronDown class="size-3.5" :class="{ 'rotate-180': open }" />
-      </button>
+      </span>
     </div>
 
     <pre v-if="open && detailText" class="tool-details">{{ detailText }}</pre>
@@ -201,8 +200,7 @@ function toggleDetails() {
 }
 
 .tool-action,
-.tool-target-file,
-.tool-details-toggle {
+.tool-target-file {
   appearance: none;
   border: 0;
   background: transparent;
@@ -334,10 +332,6 @@ function toggleDetails() {
   color: var(--color-dim);
 }
 
-.tool-details-toggle:hover {
-  color: var(--color-txt-strong);
-}
-
 .tool-details {
   max-height: 240px;
   margin: 4px 0 6px 27px;
@@ -356,7 +350,7 @@ function toggleDetails() {
 
 @media (max-width: 620px) {
   .tool-row {
-    grid-template-columns: minmax(104px, auto) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(104px, auto) minmax(0, 1fr) auto auto;
     gap: 5px 8px;
   }
 
@@ -377,12 +371,13 @@ function toggleDetails() {
   }
 
   .tool-details-toggle {
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
   }
 
-  .tool-details {
-    margin-left: 0;
+  .tool-state {
+    grid-column: 3;
+    grid-row: 1;
   }
 }
 </style>
