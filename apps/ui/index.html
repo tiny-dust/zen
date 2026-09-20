@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com; connect-src 'self' ws: http://localhost:*"
-    />
+      content="default-src 'self'; script-src 'self' http://localhost:8400; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com blob:; connect-src 'self' ws: http://localhost:* http://localhost:8400"
+ data-impeccable-csp-original="ZGVmYXVsdC1zcmMgJ3NlbGYnOyBzY3JpcHQtc3JjICdzZWxmJyBodHRwOi8vbG9jYWxob3N0Ojg0MDA7IHN0eWxlLXNyYyAnc2VsZicgJ3Vuc2FmZS1pbmxpbmUnOyBpbWctc3JjICdzZWxmJyBkYXRhOiBodHRwczovL2F2YXRhcnMuZ2l0aHVidXNlcmNvbnRlbnQuY29tOyBjb25uZWN0LXNyYyAnc2VsZicgd3M6IGh0dHA6Ly9sb2NhbGhvc3Q6Kg=="    />
     <title>Zen</title>
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
-  </body>
+  <!-- impeccable-live-start -->
+<script src="http://localhost:8400/live.js"></script>
+<!-- impeccable-live-end -->
+</body>
 </html>

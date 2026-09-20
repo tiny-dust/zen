@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import FileLabel from '@/components/files/FileLabel.vue'
 import { cn } from '@/lib/utils'
 import { computed } from 'vue'
 import { useAttachmentContext } from './context'
@@ -24,7 +25,12 @@ const label = computed(() => getAttachmentLabel(data.value))
     :class="cn('min-w-0 flex-1', props.class)"
     v-bind="$attrs"
   >
-    <span class="block truncate">{{ label }}</span>
+    <FileLabel
+      v-if="data.type === 'file'"
+      :path="data.path || data.filename || data.url"
+      :name="label"
+    />
+    <span v-else class="block truncate">{{ label }}</span>
     <span
       v-if="props.showMediaType && data.mediaType"
       class="block truncate text-muted-foreground text-xs"

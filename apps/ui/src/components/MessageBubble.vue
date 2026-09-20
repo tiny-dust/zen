@@ -4,22 +4,18 @@ import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
 import {
-  Attachment,
-  Attachments,
-  AttachmentInfo,
-  AttachmentPreview,
-} from "@/components/ai-elements/attachments";
-import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
 import ToolCallCard from "@/components/chat/ToolCallCard.vue";
-import ToolCallRow from "@/components/chat/ToolCallRow.vue";
+import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
+import { groupMessageParts } from "@/components/chat/message-groups";
+import FileLabel from "@/components/files/FileLabel.vue";
+import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
-
-import type { AttachmentData } from "@/components/ai-elements/attachments";
+import { useRightPanelStore } from "@/stores/right-panel";
 import type { SelectedSkill } from "@/stores/chat-types";
 import type {
   ChatMessage,
@@ -36,13 +32,7 @@ const props = defineProps<{
 
 const chatStore = useChatStore();
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
-
-/** 消息附件只有文件名：按扩展名给出媒体类型，供附件组件挑图标 */
-function mediaTypeOf(name: string): string {
-  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  return IMAGE_EXT.has(ext) ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream";
-}
+const rightPanel = useRightPanelStore();
 
 /** 按时间顺序的分段：新消息用 parts，旧消息按「思考 → 正文」合成 */
 const parts = computed<ChatMessagePart[]>(() => {
@@ -62,6 +52,8 @@ const parts = computed<ChatMessagePart[]>(() => {
   }
   return legacy;
 });
+
+const displayParts = computed(() => groupMessageParts(parts.value));
 
 /** 分段后是否还有正文/工具：决定思考块默认展开与自动收起 */
 function hasTextAfter(index: number): boolean {
@@ -86,15 +78,9 @@ function reasoningStreaming(index: number): boolean {
 const reasoningSeconds = (part: Extract<ChatMessagePart, { type: "reasoning" }>) =>
   part.ms ? Math.ceil(part.ms / 1000) : undefined;
 
-const attachmentParts = computed<AttachmentData[]>(() => {
-  const meta = props.message.meta as { attachments?: Array<{ name: string }> } | undefined;
-  return (meta?.attachments ?? []).map((att, index) => ({
-    id: `${att.name}-${index}`,
-    type: "file" as const,
-    filename: att.name,
-    url: "",
-    mediaType: mediaTypeOf(att.name),
-  }));
+const attachmentParts = computed(() => {
+  const meta = props.message.meta as { attachments?: Array<{ name: string; path?: string }> } | undefined;
+  return meta?.attachments ?? [];
 });
 
 const toolMeta = computed<ToolCallMessageMeta | null>(() => {
@@ -117,11 +103,16 @@ const toolMeta = computed<ToolCallMessageMeta | null>(() => {
   };
 });
 
-/** 发送时随消息一起带上的技能 tag（正文不含 /skill: 前缀） */
+/** 发送时随消息一起带上的技能 tag（token 内联在正文里） */
 const skillParts = computed<SelectedSkill[]>(() => {
   const meta = props.message.meta as { skills?: SelectedSkill[] } | undefined;
   return meta?.skills ?? [];
 });
+
+/** 用户气泡正文：隐藏 /skill: 内联 token（上方 tag 已呈现），原始内容保留供「编辑」回填 */
+const userText = computed(() =>
+  props.message.content.replace(/\/skill:[^\s/]+\s?/g, "").trim(),
+);
 
 /** 当前助手消息的 run 终态（历史 meta.run 优先；流式中对齐 store） */
 const runSummary = computed<ChatRunSummary | null>(() => {
@@ -329,27 +320,29 @@ function editContent() {
           <span class="truncate">{{ skill.name }}</span>
         </span>
       </div>
-      <div class="m-0 whitespace-pre-wrap break-words">{{ message.content }}</div>
-      <Attachments v-if="attachmentParts.length" variant="inline" class="mt-2 w-full">
-        <Attachment
-          v-for="att in attachmentParts"
-          :key="att.id"
-          :data="att"
-          class="max-w-[240px] bg-[var(--color-composer-surface)]"
-        >
-          <AttachmentPreview />
-          <AttachmentInfo />
-        </Attachment>
-      </Attachments>
+      <div class="m-0 whitespace-pre-wrap break-words">{{ userText }}</div>
+      <div v-if="attachmentParts.length" class="mt-2 flex max-w-full flex-wrap gap-x-3 gap-y-1">
+        <template v-for="(att, index) in attachmentParts" :key="`${att.name}-${index}`">
+          <Button
+            v-if="att.path"
+            variant="link"
+            class="h-auto min-w-0 max-w-full shrink border-0 p-0 text-[12px] font-normal no-underline hover:no-underline"
+            @click="rightPanel.revealFile(att.path)"
+          >
+            <FileLabel :path="att.path" :name="att.name" variant="link" />
+          </Button>
+          <FileLabel v-else :path="att.name" class="text-[12px]" />
+        </template>
+      </div>
     </div>
   </div>
 
   <!-- 工具调用：铺在时间线里，可展开详情 -->
-  <div v-else-if="message.role === 'tool'" class="w-full">
+  <div v-else-if="message.role === 'tool'" class="w-fit min-w-0 max-w-full">
     <ToolCallCard v-if="toolMeta" :meta="toolMeta" :content="message.content" />
   </div>
 
-  <div v-else-if="message.role === 'system'" class="w-full">
+  <div v-else-if="message.role === 'system'" class="w-fit min-w-0 max-w-[min(100%,72ch)]">
     <div
       class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12.5px]"
       :class="
@@ -364,29 +357,26 @@ function editContent() {
     </div>
   </div>
 
-  <div v-else class="flex w-full flex-col gap-2">
-    <template v-for="(part, index) in parts" :key="`${index}-${part.type}`">
-      <!-- 思考块：独立折叠面板，独立弱色 -->
+  <div v-else class="message-assistant flex min-w-0 max-w-full flex-col items-start gap-2">
+    <template v-for="part in displayParts" :key="part.key">
       <Reasoning
         v-if="part.type === 'reasoning'"
-        class="w-full"
-        :is-streaming="reasoningStreaming(index)"
+        class="w-fit min-w-0 max-w-[min(100%,72ch)]"
+        :is-streaming="reasoningStreaming(part.index)"
         :duration="reasoningSeconds(part)"
-        :default-open="!hasTextAfter(index) && reasoningStreaming(index)"
+        :default-open="!hasTextAfter(part.index) && reasoningStreaming(part.index)"
       >
-        <ReasoningTrigger class="text-[12px]" />
-        <ReasoningContent :content="part.text" class="mt-2 text-[12px] reasoning-dim" />
+        <ReasoningTrigger class="w-fit max-w-full text-[12px]" />
+        <ReasoningContent :content="part.text" class="mt-2 min-w-0 text-[12px] reasoning-dim" />
       </Reasoning>
 
-      <!-- 正文：流式 markdown -->
       <Response
         v-else-if="part.type === 'text'"
         :content="part.text"
-        class="md-content"
+        class="md-content w-fit min-w-0 max-w-[min(100%,72ch)]"
       />
 
-      <!-- 工具调用：icon + 动作 + 高亮目标 + 改动行数，可展开输出 -->
-      <ToolCallRow v-else :part="part" />
+      <ToolCallGroup v-else :tools="part.tools" />
     </template>
 
     <!-- 运行状态行：loader + 已运行时长，结束后消失 -->

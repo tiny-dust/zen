@@ -200,6 +200,22 @@ describe("message meta round-trip", () => {
     expect(getMessageRun({ ...message, ...decoded })).toEqual(message.meta?.run);
   });
 
+  it("工具结果快照与错误文本经过 JSON 落库后保持不变", () => {
+    const message: ChatMessage = {
+      id: "tool-results", role: "assistant", content: "", createdAt: 1,
+      parts: [
+        { type: "tool", toolCallId: "edit", toolName: "editFile", state: "ok",
+          args: { path: "a.ts", oldString: "old", newString: "new" },
+          output: { path: "a.ts", replacements: 1, before: "old\n", after: "new\n" } },
+        { type: "tool", toolCallId: "terminal", toolName: "runTerminal", state: "error",
+          output: { ok: false, exitCode: 2, output: "not found\n" } },
+        { type: "tool", toolCallId: "write", toolName: "writeFile", state: "error",
+          error: "failed to write", output: "failed to write" },
+      ],
+    };
+    expect(decodeChatMessageMeta(JSON.stringify(encodeChatMessageMeta(message))).parts).toEqual(message.parts);
+  });
+
   it("无 parts 时 encode 只返回 meta", () => {
     const message: ChatMessage = {
       id: "m2",

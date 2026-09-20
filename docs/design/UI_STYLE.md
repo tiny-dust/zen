@@ -39,7 +39,7 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
    - 作为 shadcn `as-child` 触发器的自绘按钮（如 `ModelPicker` 的胶囊触发器、`UserBlock` 的用户行）；
    - 纯导航/列表类 button（侧栏导航项、设置页菜单项、模型行），且必须复用 token 样式。
 3. **不新增第二套按钮体系**。`components/base/` 已收敛：`BaseButton`/`IconButton` 已删除，统一用 `Button`（variant + size + `cn()` 覆写）。
-4. **图标统一 `@lucide/vue`**，16px 基准；线宽不走组件参数，由 `--icon-stroke`（1.5）在 `styles.css` 里全局覆盖 lucide 的 `stroke-width=2`，组件内不要再逐个传 `stroke-width`；自绘 SVG 需显式 `fill="none" stroke="currentColor"`，否则一律用 lucide。
+4. **操作图标统一 `@lucide/vue`**，16px 基准；线宽不走组件参数，由 `--icon-stroke`（1.5）在 `styles.css` 里全局覆盖 lucide 的 `stroke-width=2`，组件内不要再逐个传 `stroke-width`。**文件/目录类型图标统一使用 Charmed Icons**，通过 `components/files/FileIcon.vue` / `FileLabel.vue` 展示本地 SVG，保留上游原色，不受 lucide 线宽或 Markdown 图片圆角影响。资源及映射位于 `apps/ui/src/assets/charmed-icons/`，MIT 许可随发行包保留；不再使用通用文件图标加手工颜色模拟语言标识。
 5. **浮层（dropdown/dialog/popover）一律走 reka-ui**（shadcn 封装），自带焦点圈、Esc、外点关闭；不要再写 `document.addEventListener("click")` 式手稿浮层。
 6. **破坏性操作必须危险色 + 二次确认**（`base/ConfirmDialog.vue` + `base/DangerIconButton.vue`）：
    - 不可撤销的删除，主按钮用 `Button variant="destructive"`，行内删除图标用 `DangerIconButton`（常态即 `--color-del`，悬停提亮为 `--color-danger-fg`，不出现底色）；

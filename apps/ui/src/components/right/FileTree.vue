@@ -2,7 +2,7 @@
 import { ChevronDown, ChevronRight } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 
-import { fileIcon } from "@/lib/file-icons";
+import FileLabel from "@/components/files/FileLabel.vue";
 
 import type { DirEntry } from "@zen/shared";
 
@@ -79,14 +79,12 @@ function depth() {
             v-else-if="entry.isDir"
             class="size-3 flex-none text-[var(--color-dim)]"
           />
-          <component
-            :is="fileIcon(entry.name).icon"
-            v-else
-            class="size-3.5 flex-none"
-            :class="fileIcon(entry.name).cls"
-            aria-hidden="true"
+          <FileLabel
+            :path="relPath(entry.name)"
+            :kind="entry.isDir ? 'directory' : 'file'"
+            :expanded="expanded.has(relPath(entry.name))"
+            class="flex-1"
           />
-          <span class="min-w-0 flex-1 truncate">{{ entry.name }}</span>
         </button>
         <FileTree
           v-if="entry.isDir && expanded.has(relPath(entry.name))"

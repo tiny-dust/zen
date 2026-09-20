@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,7 +24,7 @@ let server: Server;
 let origin = "";
 let workspaceRoot = "";
 
-type RouteKind = "ok" | "http-error" | "write-tool" | "slow";
+type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow";
 
 const routes = new Map<string, RouteKind>();
 
@@ -68,6 +68,33 @@ function blocksFor(kind: RouteKind): string[] {
                 name: "writeFile",
                 arguments: JSON.stringify({ path: "zen-lifecycle-tmp.txt", content: "hello from test" }),
               },
+            },
+          ],
+        },
+        null,
+      ),
+      chunk({}, "tool_calls"),
+      "data: [DONE]\n\n",
+    ];
+  }
+  if (kind === "terminal-tool" || kind === "error-tool" || kind === "edit-miss") {
+    const toolName = kind === "terminal-tool" ? "runTerminal" : kind === "edit-miss" ? "editFile" : "writeFile";
+    const args =
+      kind === "terminal-tool"
+        ? { command: "printf failure >&2; exit 7" }
+        : kind === "edit-miss"
+          ? { path: "edit-miss.txt", oldString: "missing", newString: "new" }
+          : { path: "missing-parent/file.txt", content: "never written" };
+    return [
+      chunk({ role: "assistant", content: "" }, null),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: kind === "terminal-tool" ? "call_terminal_1" : "call_error_1",
+              type: "function",
+              function: { name: toolName, arguments: JSON.stringify(args) },
             },
           ],
         },
@@ -203,6 +230,74 @@ describe("AgentSession 状态链路", () => {
     await session.cancel();
     expect(doneReasons(events)).toEqual(["cancelled"]);
     expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("终端非零退出发 error tool_end 并保留输出", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "life-terminal-error", "terminal-tool");
+    const run = session.start("run failing command");
+    await delay(150);
+    const request = events.find((event) => event.type === "approval_request");
+    if (request?.type !== "approval_request") throw new Error("missing terminal approval");
+    await session.approve({ approvalId: request.request.approvalId, approved: true });
+    await run;
+
+    const end = toolEnds(events).find((event) => event.toolName === "runTerminal");
+    expect(end).toMatchObject({ ok: false, state: "error" });
+    expect(end?.output).toEqual({ ok: false, exitCode: 7, output: "[stderr]\nfailure" });
+  });
+
+  it("tool-error 发 error tool_end 并保留 SDK 原始错误", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "life-tool-error", "error-tool");
+    const run = session.start("write failing file");
+    await delay(150);
+    const request = events.find((event) => event.type === "approval_request");
+    if (request?.type !== "approval_request") throw new Error("missing write approval");
+    await session.approve({ approvalId: request.request.approvalId, approved: true });
+    await run;
+
+    const end = toolEnds(events).find((event) => event.toolName === "writeFile");
+    expect(end?.ok).toBe(false);
+    expect(end?.state).toBe("error");
+    expect(end?.summary).toContain("failed to write");
+    expect(end?.output).toBe(end?.summary);
+    expect(JSON.parse(JSON.stringify(end)).output).toBe(end?.summary);
+    expect(toolEnds(events).some((event) => event.ok)).toBe(false);
+  });
+
+  it("writeFile 透传创建和覆盖快照，editFile 无命中只发失败", async () => {
+    for (const before of [null, "changed immediately before execution"]) {
+      const path = join(workspaceRoot, "zen-lifecycle-tmp.txt");
+      if (before === null) rmSync(path, { force: true });
+      else writeFileSync(path, before);
+      const events: AgentStreamEvent[] = [];
+      const session = createSession(events, `snapshot-${before === null ? "create" : "overwrite"}`, "write-tool");
+      const run = session.start("write snapshot");
+      await delay(150);
+      const request = events.find((event) => event.type === "approval_request");
+      if (request?.type !== "approval_request") throw new Error("missing snapshot approval");
+      await session.approve({ approvalId: request.request.approvalId, approved: true });
+      await run;
+      expect(toolEnds(events)[0]).toMatchObject({
+        ok: true,
+        output: { path: "zen-lifecycle-tmp.txt", content: "hello from test", before, after: "hello from test" },
+      });
+    }
+
+    writeFileSync(join(workspaceRoot, "edit-miss.txt"), "unchanged");
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "edit-miss", "edit-miss");
+    const run = session.start("edit missing text");
+    await delay(150);
+    const request = events.find((event) => event.type === "approval_request");
+    if (request?.type !== "approval_request") throw new Error("missing edit approval");
+    await session.approve({ approvalId: request.request.approvalId, approved: true });
+    await run;
+    expect(toolEnds(events)[0]).toMatchObject({ ok: false, state: "error" });
+    expect(toolEnds(events)[0]?.summary).toContain("oldString not found");
+    expect(toolEnds(events).some((event) => event.ok)).toBe(false);
+    expect(readFileSync(join(workspaceRoot, "edit-miss.txt"), "utf8")).toBe("unchanged");
   });
 
   it("审批拒绝发 denied tool_end；通过不发 synthetic ok tool_end", async () => {

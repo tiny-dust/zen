@@ -9,6 +9,7 @@ import {
   PaperclipIcon,
   VideoIcon,
 } from '@lucide/vue'
+import FileIcon from '@/components/files/FileIcon.vue'
 import { cn } from '@/lib/utils'
 import { computed } from 'vue'
 import { useAttachmentContext } from './context'
@@ -49,6 +50,7 @@ const imageAlt = computed(() =>
 
 <template>
   <div
+    v-if="variant === 'grid' || data.type !== 'file' || showImage || showVideo"
     :class="
       cn(
         'flex shrink-0 items-center justify-center overflow-hidden',
@@ -76,6 +78,7 @@ const imageAlt = computed(() =>
     >
       <track kind="captions">
     </video>
+    <FileIcon v-else-if="data.type === 'file'" :path="data.filename || data.path || data.url" />
     <component :is="props.fallbackIcon" v-else-if="props.fallbackIcon" />
     <component
       :is="iconComponent"

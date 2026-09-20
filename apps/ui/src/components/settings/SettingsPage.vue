@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Bot, Boxes, Keyboard, Settings2, Sparkles, UserRound, Wrench, X } from "@lucide/vue";
+import { Bot, Boxes, Keyboard, Server, Settings2, Sparkles, UserRound, Wrench, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
+import SettingsMcp from "@/components/settings/SettingsMcp.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
@@ -34,7 +35,8 @@ const navGroups = computed(() => [
     title: "Agent",
     items: [
       { id: "agent" as const, label: "Agent 与权限", icon: Bot },
-      { id: "skills" as const, label: "技能与扩展", icon: Wrench },
+      { id: "skills" as const, label: "技能", icon: Wrench },
+      { id: "mcp" as const, label: "MCP 服务", icon: Server },
       { id: "prompts" as const, label: "提示词", icon: Sparkles },
     ],
   },
@@ -71,7 +73,9 @@ const paneTitle = computed(() => {
     case "agent":
       return "Agent 与权限";
     case "skills":
-      return "技能与扩展";
+      return "技能";
+    case "mcp":
+      return "MCP 服务";
     case "prompts":
       return "提示词";
     default:
@@ -91,7 +95,9 @@ const paneDesc = computed(() => {
     case "agent":
       return "权限三档与项目隔离区，控制 Agent 的操作边界。";
     case "skills":
-      return "技能目录扫描与 MCP 服务器接入。";
+      return "技能目录扫描，聊天里输入 / 即可直接引用。";
+    case "mcp":
+      return "接入 stdio 与远程（SSE / Streamable HTTP）MCP 服务器。";
     case "prompts":
       return "选择知名工具的内置系统提示词，或自定义你的规则。";
     default:
@@ -196,6 +202,7 @@ watch(
             <SettingsModels v-else-if="activeTab === 'models'" />
             <SettingsAgent v-else-if="activeTab === 'agent'" />
             <SettingsSkills v-else-if="activeTab === 'skills'" />
+            <SettingsMcp v-else-if="activeTab === 'mcp'" />
             <SettingsPrompts v-else-if="activeTab === 'prompts'" />
           </div>
         </div>

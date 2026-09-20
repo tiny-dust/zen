@@ -304,8 +304,7 @@ function buildToolSet(
         content: z.string().describe("Full file content to write."),
       }),
       execute: async ({ path, content }) => {
-        const result = await writeWorkspaceFile(workspaceRoot, path, content);
-        return result.content;
+        return await writeWorkspaceFile(workspaceRoot, path, content);
       },
     }),
     editFile: tool({
@@ -623,7 +622,21 @@ function summarizeToolOutput(part: unknown): string {
   if (output && typeof output === "object" && "path" in output) {
     return String((output as { path: unknown }).path);
   }
+  if (isFailedToolOutput(output)) {
+    return output.output.length > 120 ? `${output.output.slice(0, 120)}…` : output.output;
+  }
   return "工具执行完成";
+}
+
+function isFailedToolOutput(value: unknown): value is { ok: false; output: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "ok" in value &&
+    (value as { ok?: unknown }).ok === false &&
+    "output" in value &&
+    typeof (value as { output?: unknown }).output === "string"
+  );
 }
 
 function errorMessage(value: unknown): string {
@@ -984,14 +997,16 @@ export class AgentSession {
               sessionId: this.sessionId,
               toolCallId: toolIdFromPart(part),
               toolName: toolNameFromPart(part),
-              ok: true,
-              state: "ok",
+              ok: !isFailedToolOutput(outputFromPart(part)),
+              state: isFailedToolOutput(outputFromPart(part)) ? "error" : "ok",
               summary: summarizeToolOutput(part),
               output: outputFromPart(part),
             });
             break;
-          case "tool-error":
+          case "tool-error": {
             this.openTools.delete(toolIdFromPart(part));
+            const error = (part as { error?: unknown }).error;
+            const message = errorMessage(error);
             this.config.emit({
               type: "tool_end",
               sessionId: this.sessionId,
@@ -999,10 +1014,11 @@ export class AgentSession {
               toolName: toolNameFromPart(part),
               ok: false,
               state: "error",
-              summary: summarizeToolOutput(part) || "工具执行失败",
-              output: outputFromPart(part),
+              summary: message || "工具执行失败",
+              output: message,
             });
             break;
+          }
           case "tool-approval-request":
             if (!part.isAutomatic) {
               approvalRequested = true;

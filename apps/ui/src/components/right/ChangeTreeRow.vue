@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight } from "@lucide/vue";
 
+import FileLabel from "@/components/files/FileLabel.vue";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -64,9 +65,12 @@ function active() {
         {{ gitStore.statusBadge(node.change).text }}
       </span>
       <span v-else class="w-3 flex-none" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)]">
-        {{ node.name }}
-      </span>
+      <FileLabel
+        :path="node.path"
+        :kind="node.isDir ? 'directory' : 'file'"
+        :expanded="expanded.has(node.path)"
+        class="min-w-0 flex-1"
+      />
       <span
         v-if="node.change"
         class="flex flex-none items-center gap-1 font-[family-name:var(--font-mono)] text-[10px]"

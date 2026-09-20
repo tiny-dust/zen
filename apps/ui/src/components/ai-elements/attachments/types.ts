@@ -16,8 +16,8 @@ export interface SourceDocumentUIPart {
 }
 
 export type AttachmentData
-  = | (FileUIPart & { id: string })
-    | (SourceDocumentUIPart & { id: string })
+  = | (FileUIPart & { id: string; path?: string })
+    | (SourceDocumentUIPart & { id: string; path?: string })
 
 export type AttachmentMediaCategory
   = | 'image'

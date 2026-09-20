@@ -21,6 +21,7 @@ export type SettingsTab =
   | "shortcuts"
   | "agent"
   | "skills"
+  | "mcp"
   | "prompts";
 
 export const useSettingsStore = defineStore("settings", () => {
@@ -51,6 +52,7 @@ export const useSettingsStore = defineStore("settings", () => {
       "shortcuts",
       "agent",
       "skills",
+      "mcp",
       "prompts",
     ];
     openSettings(allowed.includes(tab) ? tab : "general");

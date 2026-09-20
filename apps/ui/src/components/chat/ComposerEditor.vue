@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue";
+import { Sparkles } from "@lucide/vue";
+import { h, nextTick, onBeforeUnmount, onMounted, ref, render as renderVue, watch } from "vue";
+
+import FileLabel from "@/components/files/FileLabel.vue";
 
 import type { ComposerAttachment } from "@/stores/chat-types";
 
@@ -22,7 +25,7 @@ let composing = false;
 
 // ---------- 源文本模型：DOM 的 textContent 即 markdown 源文本，装饰只改样式不改字符 ----------
 
-type SegmentKind = "text" | "bold" | "link" | "marker" | "token";
+type SegmentKind = "text" | "bold" | "link" | "marker" | "token" | "skill";
 
 interface Segment {
   kind: SegmentKind;
@@ -36,21 +39,13 @@ interface MarkedRange {
   segment: Segment;
 }
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+const vueContainers: HTMLElement[] = [];
 
-/** token 内联图标（lucide 线稿路径，自绘 SVG 显式 fill/stroke，线宽对齐 --icon-stroke） */
-const ICON_IMAGE =
-  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
-const ICON_FILE =
-  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>';
-
-function extOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
-}
-
-function isImageName(name: string): boolean {
-  return IMAGE_EXT.has(extOf(name));
+function unmountTokenViews(): void {
+  for (const container of vueContainers) {
+    renderVue(null, container);
+  }
+  vueContainers.length = 0;
 }
 
 function overlaps(marked: MarkedRange[], start: number, end: number): boolean {
@@ -80,6 +75,22 @@ function parseSegments(source: string): Segment[] {
         });
       }
       from = index + 1;
+    }
+  }
+
+  // 技能 token：`/skill:名称`（从 / 弹窗选中后内联在正文里）
+  const skillRe = /\/skill:[^\s/]+/g;
+  for (;;) {
+    const match = skillRe.exec(source);
+    if (!match || !match[0]) {
+      break;
+    }
+    if (!overlaps(marked, match.index, match.index + match[0].length)) {
+      marked.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        segment: { kind: "skill", text: match[0] },
+      });
     }
   }
 
@@ -183,16 +194,34 @@ function renderLink(text: string): HTMLElement {
 function renderToken(segment: Segment): HTMLElement {
   const att = props.attachments.find((item) => item.id === segment.attachmentId);
   const name = att?.name ?? segment.text.slice(1);
-  const token = el("span", "composer-token");
+  const token = el("span", "composer-token composer-token-file");
   token.contentEditable = "false";
   if (segment.attachmentId) {
     token.dataset.attachmentId = segment.attachmentId;
   }
-  const icon = el("span", "composer-token-icon");
-  icon.innerHTML = isImageName(name) ? ICON_IMAGE : ICON_FILE;
-  token.append(el("span", "composer-md-mark", "$"), icon, el("span", "composer-token-name", name));
+  const label = el("span", "composer-token-name");
+  renderVue(h(FileLabel, { path: att?.path ?? name, name, variant: "link" }), label);
+  vueContainers.push(label);
+  token.append(el("span", "composer-token-prefix", "$"), label);
   token.addEventListener("mouseenter", () => emit("tokenHover", segment.attachmentId ?? null));
   token.addEventListener("mouseleave", () => emit("tokenHover", null));
+  return token;
+}
+
+/** 前缀保留在 textContent 中，但不参与 token 的布局。 */
+function renderSkillToken(text: string): HTMLElement {
+  const name = text.slice("/skill:".length);
+  const token = el("span", "composer-token composer-token-skill");
+  token.contentEditable = "false";
+  token.title = `技能：${name}`;
+  const icon = el("span", "composer-token-icon");
+  renderVue(h(Sparkles, { size: 12, "aria-hidden": "true" }), icon);
+  vueContainers.push(icon);
+  token.append(
+    el("span", "composer-token-prefix", "/skill:"),
+    icon,
+    el("span", "composer-token-name", name),
+  );
   return token;
 }
 
@@ -207,6 +236,8 @@ function renderSegments(segments: Segment[]): Node[] {
         return el("span", "composer-md-marker", segment.text);
       case "token":
         return renderToken(segment);
+      case "skill":
+        return renderSkillToken(segment.text);
       default:
         return document.createTextNode(segment.text);
     }
@@ -248,11 +279,28 @@ function setCaretAt(offset: number): void {
   const range = document.createRange();
   let remaining = Math.max(0, offset);
   let placed = false;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (node.parentElement?.closest(".composer-token")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return node.nodeType === Node.TEXT_NODE || (node instanceof Element && node.matches(".composer-token"))
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP;
+    },
+  });
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const length = node.textContent?.length ?? 0;
     if (remaining <= length) {
-      range.setStart(node, remaining);
+      if (node instanceof Element && node.matches(".composer-token")) {
+        if (remaining <= length / 2) {
+          range.setStartBefore(node);
+        } else {
+          range.setStartAfter(node);
+        }
+      } else {
+        range.setStart(node, remaining);
+      }
       placed = true;
       break;
     }
@@ -272,6 +320,7 @@ function render(source: string, caret: number | null): void {
   if (!el) {
     return;
   }
+  unmountTokenViews();
   el.replaceChildren(...renderSegments(parseSegments(source)));
   if (caret !== null) {
     setCaretAt(caret);
@@ -284,17 +333,43 @@ function applySource(source: string, caret: number): void {
   render(source, caret);
 }
 
-function insertSourceAt(offset: number, text: string): void {
+function tokenBoundary(offset: number, edge: "start" | "end" | "nearest"): number {
+  let start = 0;
+  for (const segment of parseSegments(currentSource())) {
+    const end = start + segment.text.length;
+    if ((segment.kind === "token" || segment.kind === "skill") && offset > start && offset < end) {
+      return edge === "start" || (edge === "nearest" && offset - start <= end - offset) ? start : end;
+    }
+    start = end;
+  }
+  return offset;
+}
+
+function selectionOffsets(): { start: number; end: number } {
+  const start = caretOffset();
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range || !editorEl.value?.contains(range.endContainer)) {
+    return { start, end: start };
+  }
+  const probe = document.createRange();
+  probe.selectNodeContents(editorEl.value);
+  probe.setEnd(range.endContainer, range.endOffset);
+  return { start, end: probe.toString().length };
+}
+
+function insertSourceAt(offset: number, text: string, replaceSelection = false): void {
   const el = editorEl.value;
-  if (!el || !text) {
+  if (!el || !text || props.disabled || composing) {
     return;
   }
   const source = currentSource();
-  const safe = Math.min(Math.max(offset, 0), source.length);
-  if (!props.disabled) {
-    el.focus();
-  }
-  applySource(source.slice(0, safe) + text + source.slice(safe), safe + text.length);
+  const selected = selectionOffsets();
+  const hasSelection = replaceSelection && selected.start !== selected.end;
+  const safe = tokenBoundary(Math.min(Math.max(offset, 0), source.length), hasSelection ? "start" : "nearest");
+  const end = hasSelection ? tokenBoundary(selected.end, "end") : safe;
+  el.focus();
+  applySource(source.slice(0, safe) + text + source.slice(end), safe + text.length);
 }
 
 // ---------- 事件 ----------
@@ -313,19 +388,43 @@ function onCompositionStart(): void {
 
 function onCompositionEnd(): void {
   composing = false;
-  render(currentSource(), caretOffset());
+  onInput();
 }
 
 /** Enter 换行 / 粘贴 / 拖文本统一收口为纯文本 \n 插入，防止 contenteditable 产生结构化节点 */
 function onBeforeInput(event: InputEvent): void {
   const el = editorEl.value;
-  if (!el || props.disabled) {
+  if (!el || props.disabled || composing || event.isComposing) {
+    return;
+  }
+  const selected = selectionOffsets();
+  const start = tokenBoundary(selected.start, "start");
+  const end = tokenBoundary(selected.end, "end");
+  if (event.inputType.startsWith("delete")) {
+    let from = start;
+    let to = end;
+    if (selected.start === selected.end && start === selected.start && end === selected.end) {
+      from = event.inputType === "deleteContentBackward" ? tokenBoundary(start - 1, "start") : start;
+      to = event.inputType === "deleteContentForward" ? tokenBoundary(end + 1, "end") : end;
+    }
+    const partialToken = start !== selected.start || end !== selected.end;
+    const adjacentToken = selected.start === selected.end && to - from > 1;
+    if (partialToken || adjacentToken) {
+      event.preventDefault();
+      const source = currentSource();
+      applySource(source.slice(0, Math.max(0, from)) + source.slice(to), Math.max(0, from));
+      return;
+    }
+  }
+  if (event.inputType === "insertText" && event.data && (start !== selected.start || end !== selected.end)) {
+    event.preventDefault();
+    insertSourceAt(selected.start, event.data, true);
     return;
   }
   if (event.inputType === "insertParagraph") {
-    // 普通 Enter 在 ChatComposer 拦截为发送；Shift+Enter 走到这里换行
+    // 普通 Enter 在 ChatComposer 拦截为发送；Shift+Enter / Cmd+Enter 走到这里换行
     event.preventDefault();
-    insertSourceAt(caretOffset(), "\n");
+    insertSourceAt(caretOffset(), "\n", true);
     return;
   }
   if (event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop") {
@@ -333,7 +432,7 @@ function onBeforeInput(event: InputEvent): void {
     const text = transfer?.files?.length ? "" : (transfer?.getData("text/plain") ?? "");
     event.preventDefault();
     if (text) {
-      insertSourceAt(caretOffset(), text);
+      insertSourceAt(caretOffset(), text, true);
     }
   }
 }
@@ -341,7 +440,7 @@ function onBeforeInput(event: InputEvent): void {
 watch(
   () => props.modelValue,
   (value) => {
-    if (value === currentSource()) {
+    if (composing || value === currentSource()) {
       return;
     }
     const focused = editorEl.value !== null && document.activeElement === editorEl.value;
@@ -349,9 +448,17 @@ watch(
   },
 );
 
+watch(() => props.attachments, () => {
+  if (!composing) {
+    render(currentSource(), caretOffset());
+  }
+}, { deep: true });
+
 onMounted(() => {
   render(props.modelValue, null);
 });
+
+onBeforeUnmount(unmountTokenViews);
 
 defineExpose({
   focus: () => {
@@ -364,7 +471,7 @@ defineExpose({
   },
   /** 在光标处插入源文本 */
   insertAtCaret: (text: string) => {
-    insertSourceAt(caretOffset(), text);
+    insertSourceAt(caretOffset(), text, true);
   },
   /**
    * 在窗口坐标处插入源文本（拖放落点）；坐标不在编辑器内时返回 false
@@ -461,15 +568,39 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin: 0 1px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   background: var(--color-chip-bg);
   color: var(--color-link);
   font-size: 12px;
   line-height: 18px;
-  vertical-align: baseline;
+  vertical-align: text-bottom;
   cursor: default;
+}
+
+.composer-token-prefix {
+  display: none;
+}
+
+.composer-token-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-token-file {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.composer-token-file .composer-token-name {
+  display: inline-flex;
+  max-width: 100%;
 }
 
 .composer-token:hover .composer-token-name {
@@ -480,5 +611,10 @@ defineExpose({
 .composer-token-icon {
   display: inline-flex;
   flex: none;
+}
+
+/* 技能 token：强调色，与附件引用区分 */
+.composer-token-skill {
+  color: var(--color-accent);
 }
 </style>

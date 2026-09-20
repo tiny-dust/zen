@@ -54,8 +54,8 @@ const lines = computed<DiffLine[]>(() => {
       newNo += 1;
       continue;
     }
-    // "\ No newline at end of file" / 截断提示等杂项：退出 hunk 语境按元信息展示
-    inHunk = false;
+    // A missing-newline marker annotates the preceding line, not the end of the hunk.
+    if (raw !== "\\ No newline at end of file") inHunk = false;
     result.push({ kind: "meta", oldNo: null, newNo: null, text: raw });
   }
   return result;

@@ -2,17 +2,14 @@
 import {
   Plus,
   ArrowUp,
-  CornerDownLeft,
-  FileText,
   Mic,
   Play,
   ShieldCheck,
   Sparkles,
   Square,
-  X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import {
   Attachment,
@@ -21,6 +18,7 @@ import {
   AttachmentPreview,
   AttachmentRemove,
 } from "@/components/ai-elements/attachments";
+import FileLabel from "@/components/files/FileLabel.vue";
 import ComposerEditor from "@/components/chat/ComposerEditor.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
@@ -31,11 +29,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
@@ -58,7 +51,6 @@ const {
   canSend,
   effort,
   attachments,
-  selectedSkills,
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
@@ -97,6 +89,22 @@ const fileInputEl = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 /** 悬浮引用 token 时高亮上方对应的附件 chip */
 const hoveredAttachmentId = ref<string | null>(null);
+const imageUrls = ref(new Map<string, string>());
+
+watch(() => attachments.value.map((att) => att.id), (ids) => {
+  for (const [id, url] of imageUrls.value) {
+    if (!ids.includes(id)) {
+      URL.revokeObjectURL(url);
+      imageUrls.value.delete(id);
+    }
+  }
+});
+
+onBeforeUnmount(() => {
+  for (const url of imageUrls.value.values()) {
+    URL.revokeObjectURL(url);
+  }
+});
 
 const triggers = useComposerTriggers({
   caret: () => editorRef.value?.caretOffset() ?? 0,
@@ -111,18 +119,6 @@ const triggers = useComposerTriggers({
     editorRef.value?.focus();
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
-  onSelectSkill: (item) => {
-    if (item.icon !== "skill") {
-      return false;
-    }
-    chatStore.addSkill({
-      name: item.label,
-      description: item.desc,
-      dir: item.dir,
-      source: item.source,
-    });
-    return true;
-  },
 });
 
 function formatSize(bytes: number): string {
@@ -136,12 +132,13 @@ function formatSize(bytes: number): string {
 }
 
 /** ComposerAttachment → ai-elements AttachmentData（媒体类型供选图标） */
-function attachmentData(att: { id: string; name: string; isImage: boolean }): AttachmentData {
+function attachmentData(att: { id: string; name: string; path: string; isImage: boolean }): AttachmentData {
   return {
     id: att.id,
     type: "file",
     filename: att.name,
-    url: "",
+    path: att.path,
+    url: imageUrls.value.get(att.id) ?? "",
     mediaType: att.isImage ? "image/*" : "application/octet-stream",
   };
 }
@@ -158,14 +155,32 @@ function onKeydown(event: KeyboardEvent) {
   if (event.isComposing) {
     return;
   }
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  // Cmd/Ctrl+Enter：换行（与 Shift+Enter 同语义）
+  if (event.metaKey || event.ctrlKey) {
+    event.preventDefault();
+    editorRef.value?.insertAtCaret("\n");
+    return;
+  }
+  if (!event.shiftKey) {
     event.preventDefault();
     void chatStore.send();
   }
+  // Shift+Enter 不拦截：交给编辑器 beforeinput 的 insertParagraph 换行
 }
 
 function openFilePicker() {
   fileInputEl.value?.click();
+}
+
+function addAttachment(file: File, path: string) {
+  chatStore.addAttachment(file, path);
+  const attachment = attachments.value.at(-1);
+  if (attachment?.isImage) {
+    imageUrls.value.set(attachment.id, URL.createObjectURL(file));
+  }
 }
 
 function onPickFiles(event: Event) {
@@ -173,7 +188,7 @@ function onPickFiles(event: Event) {
   const zen = window.zen;
   for (const file of Array.from(target.files ?? [])) {
     const path = zen ? zen.pathForFile(file) : "";
-    chatStore.addAttachment(file, path);
+    addAttachment(file, path);
     editorRef.value?.insertAtCaret(`$${file.name} `);
   }
   target.value = "";
@@ -217,7 +232,7 @@ function onDrop(event: DragEvent) {
   let refs = "";
   for (const file of files) {
     const path = zen ? zen.pathForFile(file) : "";
-    chatStore.addAttachment(file, path);
+    addAttachment(file, path);
     refs += `$${file.name} `;
   }
   const dropped = editorRef.value?.insertAtPoint(event.clientX, event.clientY, refs) ?? false;
@@ -274,12 +289,8 @@ function removeAttachment(id: string) {
           v-for="att in attachments"
           :key="att.id"
           :data="attachmentData(att)"
-          class="max-w-[240px] bg-[var(--color-side-glass)]"
-          :class="
-            hoveredAttachmentId === att.id
-              ? 'border-[var(--color-accent)]'
-              : 'border-[var(--color-line)]'
-          "
+          class="max-w-[240px]"
+          :class="hoveredAttachmentId === att.id ? 'text-[var(--color-accent)]' : ''"
           @remove="removeAttachment(att.id)"
         >
           <AttachmentPreview />
@@ -303,54 +314,6 @@ function removeAttachment(id: string) {
         @dragleave="onDragLeave"
         @drop="onDrop"
       >
-        <!-- 选中的技能：tag 形式渲染，悬浮展示技能信息 -->
-        <div
-          v-if="selectedSkills.length"
-          class="mb-1.5 flex flex-wrap items-center gap-1.5"
-          aria-label="已选技能"
-        >
-          <span
-            v-for="skill in selectedSkills"
-            :key="skill.name"
-            class="inline-flex max-w-[240px] items-center gap-1 rounded-lg border border-[var(--color-line)] bg-[var(--color-side-glass)] py-1 pl-2 pr-1 text-[11.5px] text-[var(--color-txt-strong)]"
-          >
-            <HoverCard>
-              <HoverCardTrigger as-child>
-                <span class="inline-flex min-w-0 cursor-default items-center gap-1">
-                  <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
-                  <span class="truncate">{{ skill.name }}</span>
-                </span>
-              </HoverCardTrigger>
-              <HoverCardContent :side="'top'" class="w-72">
-                <div class="flex items-center gap-1.5">
-                  <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
-                  <p class="m-0 text-[12.5px] font-medium text-[var(--color-txt-strong)]">
-                    {{ skill.name }}
-                  </p>
-                </div>
-                <p class="m-0 mt-1 text-[11px] leading-relaxed text-[var(--color-mut)]">
-                  {{ skill.description || "暂无描述" }}
-                </p>
-                <p
-                  v-if="skill.dir"
-                  class="m-0 mt-1.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
-                  :title="skill.dir"
-                >
-                  {{ skill.dir }}
-                </p>
-              </HoverCardContent>
-            </HoverCard>
-            <button
-              type="button"
-              class="flex size-4 flex-none items-center justify-center rounded text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-              aria-label="移除技能"
-              @click="chatStore.removeSkill(skill.name)"
-            >
-              <X class="size-3" />
-            </button>
-          </span>
-        </div>
-
         <label class="sr-only" for="chat-input">消息输入</label>
         <ComposerEditor
           id="chat-input"
@@ -491,14 +454,17 @@ function removeAttachment(id: string) {
           @mouseenter="triggers.active.value = index"
           @click="triggers.apply(item)"
         >
-          <Sparkles v-if="item.icon === 'skill'" class="size-3.5 shrink-0 text-[var(--color-mut)]" />
-          <FileText
-            v-else-if="item.icon === 'file'"
-            class="size-3.5 shrink-0 text-[var(--color-mut)]"
+          <FileLabel
+            v-if="item.icon !== 'skill'"
+            :path="item.desc"
+            :kind="item.icon === 'dir' ? 'directory' : 'file'"
+            class="flex-1 text-[12px]"
           />
-          <CornerDownLeft v-else class="size-3.5 shrink-0 text-[var(--color-mut)]" />
-          <span class="shrink-0 text-[12px]">{{ item.label }}</span>
-          <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
+          <template v-else>
+            <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
+            <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
+          </template>
+          <span v-if="item.icon === 'skill'" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
             {{ item.desc }}
           </span>
         </button>
