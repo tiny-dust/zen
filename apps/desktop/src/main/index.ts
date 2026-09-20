@@ -25,6 +25,10 @@ import { registerSessionIpc } from "./session-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerMcpIpc, enabledMcpTools, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
+import { registerBrowserIpc } from "./browser/ipc";
+import { getBrowserService, shutdownBrowserService } from "./browser/service";
+import { registerTerminalIpc } from "./terminal/ipc";
+import { shutdownTerminalService } from "./terminal/service";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import { initZenDir, loadAgentSettings } from "./zen-dir";
@@ -100,12 +104,35 @@ function createWindow(): BrowserWindow {
   // 渲染进程异常退出时自动恢复，避免整窗黑屏
   window.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason !== "clean-exit") {
+      // 先摘掉可能残留的 WebContentsView，再 reload
+      shutdownBrowserService();
       window.webContents.reload();
     }
   });
 
+  // 渲染层整页刷新/热更新后：隐藏并重建浏览器视图，避免旧 WebContentsView 盖在左上角
+  window.webContents.on("did-start-loading", () => {
+    getBrowserService().setVisible(false);
+  });
+  window.webContents.on("did-finish-load", () => {
+    const service = getBrowserService();
+    service.attachToWindow(window);
+    // 不自动 dispose（保留会话），但默认不可见，等 UI 再 setBounds
+    service.setVisible(false);
+  });
+
   window.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    const url = details.url || "";
+    if (/^https?:\/\//i.test(url)) {
+      // 网页一律进右侧浏览器面板，不拉起系统浏览器、也不导航主窗口
+      void getBrowserService()
+        .open(url)
+        .catch(() => undefined);
+      return { action: "deny" };
+    }
+    if (/^(mailto:|tel:)/i.test(url)) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 
@@ -246,6 +273,7 @@ function registerIpc(): void {
         skills,
         skillExtraPaths: agentSettings.skillExtraPaths,
         mcpTools,
+        browserBridge: getBrowserService(),
         emit: emitTo,
       });
       sessions.set(request.sessionId, session);
@@ -370,6 +398,8 @@ app.whenReady().then(() => {
   registerMcpIpc();
   registerSyncIpc();
   registerUpdaterIpc();
+  registerBrowserIpc(broadcast);
+  registerTerminalIpc(broadcast);
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
@@ -390,4 +420,6 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   shutdownMcp();
+  shutdownTerminalService();
+  shutdownBrowserService();
 });

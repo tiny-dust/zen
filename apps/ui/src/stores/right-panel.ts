@@ -65,9 +65,14 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     if (index < 0) {
       return;
     }
+    const closed = tabs.value[index];
     tabs.value.splice(index, 1);
     if (activeId.value === id) {
       activeId.value = tabs.value[Math.max(0, index - 1)].id;
+    }
+    // 关闭浏览器 tab 时立刻隐藏原生视图，避免残留页面盖住 UI
+    if (closed?.kind === "browser") {
+      void window.zen?.browser?.setBounds(null, false).catch(() => undefined);
     }
   }
 

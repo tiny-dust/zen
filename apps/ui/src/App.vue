@@ -5,6 +5,7 @@ import { computed, onMounted, onUnmounted } from "vue";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
+import TerminalPanel from "@/components/bottom/TerminalPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import RightPanel from "@/components/right/RightPanel.vue";
@@ -126,20 +127,9 @@ const sideRail =
 
           <div
             v-if="!bottomCollapsed"
-            class="flex h-24 flex-none flex-col bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
+            class="flex h-[min(42vh,360px)] min-h-[180px] flex-none flex-col bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
           >
-            <div class="flex flex-none items-center gap-1 px-2 pt-1.5">
-              <span
-                class="inline-flex h-7 items-center rounded-t-lg border border-b-0 border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2.5 text-[12px] text-[var(--color-txt)]"
-              >
-                终端
-              </span>
-            </div>
-            <div
-              class="flex min-h-0 flex-1 items-start overflow-auto border-t border-[var(--color-line)] px-3 py-2 font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-dim)]"
-            >
-              底部面板 · 任务进度 / 终端占位
-            </div>
+            <TerminalPanel />
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Check, CircleAlert, Copy, Pencil, Sparkles, TriangleAlert } from "@lucide/vue";
+import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Sparkles, TriangleAlert } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
@@ -14,10 +14,13 @@ import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
 import { groupMessageParts } from "@/components/chat/message-groups";
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Button } from "@/components/ui/button";
+import { formatElementDetail } from "@/lib/browser-element";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
 import type { SelectedSkill } from "@/stores/chat-types";
+import type { ComposerElementMark } from "@/lib/browser-element";
 import type {
+  BrowserElementRef,
   ChatMessage,
   ChatMessagePart,
   ChatRunSummary,
@@ -109,9 +112,22 @@ const skillParts = computed<SelectedSkill[]>(() => {
   return meta?.skills ?? [];
 });
 
-/** 用户气泡正文：隐藏 /skill: 内联 token（上方 tag 已呈现），原始内容保留供「编辑」回填 */
+/** 浏览器标注元素 tag：与技能同构，Globe + 名称，悬浮看明细 */
+const elementParts = computed(() => {
+  const meta = props.message.meta as { elementMarks?: ComposerElementMark[] } | undefined;
+  return meta?.elementMarks ?? [];
+});
+
+function elementHoverTitle(ref: BrowserElementRef): string {
+  return formatElementDetail(ref);
+}
+
+/** 用户气泡正文：隐藏 /skill: 与 $el: 内联 token（上方 tag 已呈现），原始内容保留供「编辑」回填 */
 const userText = computed(() =>
-  props.message.content.replace(/\/skill:[^\s/]+\s?/g, "").trim(),
+  props.message.content
+    .replace(/\/skill:[^\s/]+\s?/g, "")
+    .replace(/\$el:[^\s$]+\s?/g, "")
+    .trim(),
 );
 
 /** 当前助手消息的 run 终态（历史 meta.run 优先；流式中对齐 store） */
@@ -263,8 +279,17 @@ async function copyContent() {
   }
 }
 
-/** 编辑：把消息内容放回输入框修改后重新发送 */
+/** 编辑：把消息内容与元素 marks 放回输入框修改后重新发送 */
 function editContent() {
+  const meta = props.message.meta as { elementMarks?: ComposerElementMark[] } | undefined;
+  if (meta?.elementMarks?.length) {
+    chatStore.elementMarks = meta.elementMarks.map((item) => ({
+      id: item.id,
+      label: item.label,
+      token: item.token,
+      ref: item.ref,
+    }));
+  }
   chatStore.input = props.message.content;
   document.getElementById("chat-input")?.focus();
 }
@@ -308,8 +333,11 @@ function editContent() {
     <div
       class="max-w-[min(760px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
-      <!-- 随消息发送的技能 tag -->
-      <div v-if="skillParts.length" class="mb-1.5 flex flex-wrap justify-end gap-1.5">
+      <!-- 随消息发送的技能 / 页面元素 tag -->
+      <div
+        v-if="skillParts.length || elementParts.length"
+        class="mb-1.5 flex flex-wrap justify-end gap-1.5"
+      >
         <span
           v-for="skill in skillParts"
           :key="skill.name"
@@ -318,6 +346,15 @@ function editContent() {
         >
           <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
           <span class="truncate">{{ skill.name }}</span>
+        </span>
+        <span
+          v-for="el in elementParts"
+          :key="el.id"
+          class="inline-flex max-w-[220px] items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] py-0.5 pl-1.5 pr-2 text-[11px] text-[var(--color-txt)]"
+          :title="elementHoverTitle(el.ref)"
+        >
+          <Globe class="size-3 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+          <span class="truncate">{{ el.label }}</span>
         </span>
       </div>
       <div class="m-0 whitespace-pre-wrap break-words">{{ userText }}</div>

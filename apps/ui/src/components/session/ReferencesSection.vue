@@ -11,6 +11,7 @@ import { computed, ref } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
+import { openAppLink } from "@/lib/browser-element";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
 

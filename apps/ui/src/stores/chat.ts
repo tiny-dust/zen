@@ -7,6 +7,7 @@ import type {
   AgentRunStatus,
   AgentStreamEvent,
   AttachmentRef,
+  BrowserElementRef,
   ChatMessage,
   ChatRunSummary,
   ReasoningEffort,
@@ -16,12 +17,15 @@ import type {
   ToolCallMessageMeta,
 } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, restoreRunSummaryFromMessages } from "@zen/shared";
+import { createElementMark, expandBrowserElementTokens } from "@/lib/browser-element";
+import type { ComposerElementMark } from "@/lib/browser-element";
 import {
   buildHistory,
   compressHistory,
   pathFromToolArgs,
 } from "@/stores/chat-types";
 import { useAgentStore } from "@/stores/agent";
+import { useBrowserStore } from "@/stores/browser";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
@@ -63,6 +67,11 @@ export const useChatStore = defineStore("chat", () => {
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
   const pendingAsk = ref<AskUserQuestionEvent | null>(null);
+  /** 外部模块请求「插入到 composer 光标处」的载荷（浏览器标注等） */
+  const pendingComposerInsert = ref<{ text: string; id: number } | null>(null);
+  /** 浏览器标注元素：正文内 `$el:id` 链接 + tooltip 明细 */
+  const elementMarks = ref<ComposerElementMark[]>([]);
+  let elementSeq = 0;
   const isPaused = ref(false);
   const branch = ref("");
   const repo = ref("");
@@ -218,6 +227,10 @@ export const useChatStore = defineStore("chat", () => {
         break;
       case "tool_start":
         pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
+        // Agent 需要用浏览器时：自动打开右栏浏览器面板并导航
+        if (typeof event.toolName === "string" && event.toolName.startsWith("browser")) {
+          useBrowserStore().onAgentBrowserTool(event.toolName, event.args);
+        }
         break;
       case "tool_progress":
         break;
@@ -458,7 +471,9 @@ export const useChatStore = defineStore("chat", () => {
     // 技能已以内联 token（/skill:名称）写在正文里，随消息直接发给 Agent；
     // meta.skills 供气泡渲染 tag（正文展示时会隐藏 token）
     const skills = extractSkills(text);
-    const agentText = text;
+    // `$el:id` 链接展开为完整元素描述，便于 Agent 定位
+    const usedMarks = elementMarks.value.filter((mark) => text.includes(mark.token));
+    const agentText = expandBrowserElementTokens(text, usedMarks);
 
     lastError.value = "";
     lastDoneReason.value = null;
@@ -468,6 +483,7 @@ export const useChatStore = defineStore("chat", () => {
     lastOutputTokens.value = null;
     input.value = "";
     attachments.value = [];
+    elementMarks.value = [];
 
     // 上传的文件收进悬浮面板「参考 · 用户」（按路径去重）
     if (attachmentRefs.length) {
@@ -498,6 +514,16 @@ export const useChatStore = defineStore("chat", () => {
       meta: {
         ...(skills.length ? { skills } : {}),
         ...(attachmentRefs.length ? { attachments: attachmentRefs } : {}),
+        ...(usedMarks.length
+          ? {
+              elementMarks: usedMarks.map((mark) => ({
+                id: mark.id,
+                label: mark.label,
+                token: mark.token,
+                ref: mark.ref,
+              })),
+            }
+          : {}),
       },
     });
 
@@ -707,6 +733,31 @@ export const useChatStore = defineStore("chat", () => {
     void useGitStore().refreshStatus();
   }
 
+  function insertAtComposerCaret(text: string) {
+    if (!text) {
+      return;
+    }
+    pendingComposerInsert.value = { text, id: Date.now() };
+  }
+
+  /** 浏览器标注：登记元素并以 `$el:标签` tag 插入光标处 */
+  function insertBrowserElement(ref: BrowserElementRef) {
+    elementSeq += 1;
+    const used = new Set(elementMarks.value.map((item) => item.label));
+    const mark = createElementMark(ref, elementSeq, used);
+    elementMarks.value = [...elementMarks.value, mark];
+    insertAtComposerCaret(`${mark.token} `);
+    return mark;
+  }
+
+  function removeElementMark(id: string) {
+    const mark = elementMarks.value.find((item) => item.id === id);
+    elementMarks.value = elementMarks.value.filter((item) => item.id !== id);
+    if (mark && input.value.includes(mark.token)) {
+      input.value = input.value.split(mark.token).join("").replace(/\s{2,}/g, " ");
+    }
+  }
+
   return {
     messages,
     input,
@@ -720,8 +771,13 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     attachments,
+    elementMarks,
+    insertBrowserElement,
+    removeElementMark,
     pendingApproval,
     pendingAsk,
+    pendingComposerInsert,
+    insertAtComposerCaret,
     isPaused,
     isRunning,
     runStartedAt,

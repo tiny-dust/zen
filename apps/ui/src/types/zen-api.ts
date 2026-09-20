@@ -6,6 +6,17 @@ import type {
   AppSettings,
   AskUserAnswer,
   AuthState,
+  BrowserActionResult,
+  BrowserConsoleEntry,
+  BrowserElementRef,
+  BrowserEvalResult,
+  BrowserExtractResult,
+  BrowserOpenResult,
+  BrowserPerformanceMetrics,
+  BrowserScreenshotResult,
+  BrowserSnapshot,
+  BrowserStatus,
+  BrowserViewBounds,
   CatalogMatch,
   CatalogModel,
   CatalogVendor,
@@ -28,11 +39,16 @@ import type {
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  PtyDataEvent,
+  PtyExitEvent,
   ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
   SkillSummary,
   SyncResult,
+  TerminalCreateResult,
+  TerminalSessionInfo,
+  TerminalShellInfo,
   ToolApprovalDecision,
   UpdateStatusInfo,
   UpdateModelInput,
@@ -205,4 +221,50 @@ export interface ZenApi {
     remove(id: string): Promise<void>;
   };
   pathForFile(file: File): string;
+  browser: {
+    status(): Promise<BrowserStatus>;
+    ensureRunning(): Promise<BrowserStatus>;
+    stop(): Promise<BrowserStatus>;
+    setBounds(bounds: BrowserViewBounds | null, visible?: boolean): Promise<BrowserStatus>;
+    setVisible(visible: boolean): Promise<BrowserStatus>;
+    open(url: string): Promise<BrowserOpenResult>;
+    goBack(): Promise<BrowserActionResult>;
+    goForward(): Promise<BrowserActionResult>;
+    reload(ignoreCache?: boolean): Promise<BrowserActionResult>;
+    openExternal(url?: string): Promise<{ ok: boolean; error?: string }>;
+    focusHost(): Promise<{ ok: boolean }>;
+    debug(): Promise<Record<string, unknown>>;
+    snapshot(): Promise<BrowserSnapshot>;
+    extract(): Promise<BrowserExtractResult>;
+    click(selector: string): Promise<BrowserActionResult>;
+    type(
+      selector: string,
+      text: string,
+      options?: { submit?: boolean },
+    ): Promise<BrowserActionResult>;
+    console(limit?: number): Promise<{ entries: BrowserConsoleEntry[] }>;
+    performance(): Promise<BrowserPerformanceMetrics>;
+    screenshot(): Promise<BrowserScreenshotResult>;
+    evaluate(expression: string): Promise<BrowserEvalResult>;
+    pickStart(): Promise<{ ok: boolean; error?: string }>;
+    pickStop(): Promise<{ ok: boolean }>;
+    onStatus(handler: (status: BrowserStatus) => void): () => void;
+    onElementPicked(handler: (ref: BrowserElementRef) => void): () => void;
+  };
+  terminal: {
+    shell(): Promise<TerminalShellInfo>;
+    list(): Promise<TerminalSessionInfo[]>;
+    create(options?: {
+      cwd?: string;
+      cols?: number;
+      rows?: number;
+      shell?: string;
+    }): Promise<TerminalCreateResult>;
+    write(sessionId: string, data: string): Promise<{ ok: boolean }>;
+    resize(sessionId: string, cols: number, rows: number): Promise<{ ok: boolean }>;
+    kill(sessionId: string): Promise<{ ok: boolean }>;
+    openExternal(cwd?: string): Promise<{ ok: boolean; opener?: string; error?: string }>;
+    onData(handler: (event: PtyDataEvent) => void): () => void;
+    onExit(handler: (event: PtyExitEvent) => void): () => void;
+  };
 }

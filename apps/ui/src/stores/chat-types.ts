@@ -35,6 +35,8 @@ export interface ComposerAttachment {
   isImage: boolean;
 }
 
+export type { ComposerElementMark } from "@/lib/browser-element";
+
 /** 随消息发送的技能（发送前从正文内联 token /skill:名称 解析，气泡渲染成 tag） */
 export interface SelectedSkill {
   name: string;

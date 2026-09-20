@@ -6,12 +6,36 @@ import ComposerEditor from "@/components/chat/ComposerEditor.vue";
 
 const wrappers: ReturnType<typeof mount<typeof ComposerEditor>>[] = [];
 
-function editor(source: string, attachments = false) {
+const elementMark = {
+  id: "be_1",
+  label: "登录",
+  token: "$el:登录",
+  ref: {
+    selector: "#login",
+    selectorCandidates: ["#login"],
+    tag: "button",
+    id: "login",
+    className: "btn",
+    text: "登录",
+    name: "",
+    type: "submit",
+    placeholder: "",
+    ariaLabel: "登录按钮",
+    role: "button",
+    href: "",
+    rect: { x: 10, y: 20, width: 80, height: 32 },
+    pageUrl: "https://example.com/",
+    pageTitle: "Example",
+  },
+};
+
+function editor(source: string, attachments = false, elements: typeof elementMark[] = []) {
   const wrapper = mount(ComposerEditor, {
     attachTo: document.body,
     props: {
       modelValue: source,
       attachments: attachments ? [{ id: "file-1", name: "报告.ts", path: "/tmp/报告.ts", size: 1, isImage: false }] : [],
+      elements,
     },
   });
   wrappers.push(wrapper);
@@ -148,5 +172,37 @@ describe("ComposerEditor atomic tokens", () => {
     await wrapper.setProps({ disabled: true });
     wrapper.vm.insertAtCaret("bad");
     expect(wrapper.get(".composer-editor").element.textContent).toBe("/skill:coder");
+  });
+
+  it("renders browser element tokens as globe tags like skills", () => {
+    const wrapper = editor("请点 $el:登录", false, [elementMark]);
+    const token = wrapper.get(".composer-token-element");
+    expect(token.find(".composer-token-prefix").text()).toBe("$el:");
+    expect(token.find(".composer-token-name").text()).toBe("登录");
+    expect(token.find(".lucide").exists()).toBe(true);
+    expect(token.attributes("contenteditable")).toBe("false");
+    expect(wrapper.get(".composer-editor").element.textContent).toBe("请点 $el:登录");
+  });
+
+  it("shows element detail tooltip on hover and hides on leave", async () => {
+    const wrapper = editor("请点 $el:登录", false, [elementMark]);
+    const token = wrapper.get(".composer-token-element");
+    await token.trigger("mouseenter");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const tip = document.querySelector(".composer-el-tooltip");
+    expect(tip).toBeTruthy();
+    expect(tip?.textContent).toContain("登录");
+    expect(tip?.textContent).toContain("#login");
+    expect(tip?.textContent).toContain("https://example.com/");
+    await token.trigger("mouseleave");
+    expect((tip as HTMLElement | null)?.style.display).toBe("none");
+  });
+
+  it("deletes the whole element token on backspace", async () => {
+    const wrapper = editor("$el:登录", false, [elementMark]);
+    wrapper.vm.setCaretSoon(6);
+    await nextTick();
+    beforeInput(wrapper.get(".composer-editor").element, "deleteContentBackward");
+    expect(wrapper.get(".composer-editor").element.textContent).toBe("");
   });
 });

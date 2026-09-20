@@ -16,6 +16,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { useChatStore } from "@/stores/chat";
+import { openAppLink } from "@/lib/browser-element";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -165,7 +166,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
           class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
           target="_blank"
           rel="noreferrer"
-          @click.stop
+          @click.prevent.stop="openAppLink(gitStore.pullRequest.url)"
         >
           <ExternalLink class="size-3.5" aria-hidden="true" />
         </a>

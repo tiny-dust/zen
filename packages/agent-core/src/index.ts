@@ -7,6 +7,12 @@ import { z } from "zod";
 
 import { readSkillById } from "@zen/skills";
 import {
+  formatConsoleForPrompt,
+  formatExtractForPrompt,
+  formatPerformanceForPrompt,
+  formatSnapshotForPrompt,
+} from "@zen/tools-browser";
+import {
   editWorkspaceFile,
   listWorkspaceDir,
   readWorkspaceFile,
@@ -19,6 +25,7 @@ import type {
   AgentDoneReason,
   AgentStreamEvent,
   AskUserQuestionEvent,
+  BrowserAgentBridge,
   ChatTurn,
   PermissionMode,
   ProviderProtocol,
@@ -94,6 +101,8 @@ export interface AgentSessionConfig {
   skillExtraPaths?: string[];
   /** 已启用 MCP server 的工具（动态桥接为 mcp.<server>.<tool>） */
   mcpTools?: McpToolBridge[];
+  /** 内嵌 WebContentsView + CDP 浏览器桥（desktop 注入；缺省时不注册 browser.* 工具） */
+  browserBridge?: BrowserAgentBridge;
   emit: (event: AgentStreamEvent) => void;
 }
 
@@ -124,6 +133,24 @@ function riskForTool(toolName: string): ToolRisk {
   }
   if (toolName === "runTerminal") {
     return "exec";
+  }
+  if (
+    toolName === "browserOpen" ||
+    toolName === "browserClick" ||
+    toolName === "browserType" ||
+    toolName === "browserEvaluate"
+  ) {
+    return "network";
+  }
+  if (
+    toolName === "browserSnapshot" ||
+    toolName === "browserExtract" ||
+    toolName === "browserConsole" ||
+    toolName === "browserPerformance" ||
+    toolName === "browserScreenshot" ||
+    toolName === "browserStatus"
+  ) {
+    return "read";
   }
   if (toolName.startsWith("mcp.")) {
     return "network";
@@ -514,6 +541,73 @@ function buildToolSet(
     }),
   };
 
+  // 内嵌 WebContentsView + CDP：AI 浏览器工具（UI 对照 / 交互验证 / console / 性能）
+  const browserBridge = config.browserBridge;
+  if (browserBridge) {
+    toolSet.browserStatus = tool({
+      description:
+        "Get the product browser status (Electron WebContentsView + CDP). Shows Chromium version bundled with Zen (updates via app update), URL/title.",
+      inputSchema: z.object({}),
+      execute: async () => browserBridge.status(),
+    });
+    toolSet.browserOpen = tool({
+      description:
+        "Open a URL in the product browser (embedded WebContentsView). Use for UI verification and page data collection.",
+      inputSchema: z.object({ url: z.string().describe("http(s) URL to open") }),
+      execute: async ({ url }) => browserBridge.open(url),
+    });
+    toolSet.browserSnapshot = tool({
+      description:
+        "Snapshot the current browser page: title, outline of key UI nodes, visible text, links. Use for UI对照 and understanding structure.",
+      inputSchema: z.object({}),
+      execute: async () => formatSnapshotForPrompt(await browserBridge.snapshot()),
+    });
+    toolSet.browserExtract = tool({
+      description:
+        "Extract page content for AI: visible text, links, buttons, form inputs with selectors. Prefer this when you need actionable selectors.",
+      inputSchema: z.object({}),
+      execute: async () => formatExtractForPrompt(await browserBridge.extract()),
+    });
+    toolSet.browserClick = tool({
+      description: "Click an element in the browser by CSS selector (from extract/element pick).",
+      inputSchema: z.object({ selector: z.string() }),
+      execute: async ({ selector }) => browserBridge.click(selector),
+    });
+    toolSet.browserType = tool({
+      description: "Type text into a browser form field by CSS selector.",
+      inputSchema: z.object({
+        selector: z.string(),
+        text: z.string(),
+        submit: z.boolean().optional().describe("Submit the form after typing"),
+      }),
+      execute: async ({ selector, text, submit }) =>
+        browserBridge.type(selector, text, { submit }),
+    });
+    toolSet.browserConsole = tool({
+      description:
+        "Read recent browser console logs (errors/warnings/log) for UI debugging and交互验证.",
+      inputSchema: z.object({ limit: z.number().optional() }),
+      execute: async ({ limit }) => formatConsoleForPrompt((await browserBridge.console(limit)).entries),
+    });
+    toolSet.browserPerformance = tool({
+      description:
+        "Collect browser performance metrics (navigation timing, FCP, heap, layout counts) for performance分析.",
+      inputSchema: z.object({}),
+      execute: async () => formatPerformanceForPrompt(await browserBridge.performance()),
+    });
+    toolSet.browserScreenshot = tool({
+      description: "Capture a PNG screenshot of the current browser page to local disk.",
+      inputSchema: z.object({}),
+      execute: async () => browserBridge.screenshot(),
+    });
+    toolSet.browserEvaluate = tool({
+      description:
+        "Evaluate a JS expression in the browser page context and return the value. Use sparingly.",
+      inputSchema: z.object({ expression: z.string() }),
+      execute: async ({ expression }) => browserBridge.evaluate(expression),
+    });
+  }
+
   // MCP 工具动态桥接：mcp.<server>.<tool>
   for (const bridge of config.mcpTools ?? []) {
     const toolName = `mcp.${bridge.serverName}.${bridge.name}`;
@@ -586,6 +680,11 @@ function buildInstructions(config: AgentSessionConfig): string | undefined {
   parts.push(
     `当前工作目录：${config.workspaceRoot}\n系统平台：${process.platform}\n今天的日期：${new Date().toISOString().slice(0, 10)}`,
   );
+  if (config.browserBridge) {
+    parts.push(
+      `内置浏览器已接入（WebContentsView + CDP）。需要查看/对照页面时：browserOpen 打开 URL（UI 会自动展开右侧浏览器面板），再用 browserSnapshot/browserExtract/browserClick/browserType/browserConsole/browserPerformance 完成 UI 对照与交互验证。用户消息中的 [页面元素] 已含 selector，可直接用于 click/type。`,
+    );
+  }
   return parts.join("\n\n");
 }
 
