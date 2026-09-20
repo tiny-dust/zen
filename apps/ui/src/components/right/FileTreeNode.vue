@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight } from "@lucide/vue";
 
-import { fileIcon, folderIcon } from "@/lib/file-icons";
+import FileLabel from "@/components/files/FileLabel.vue";
 import { cn } from "@/lib/utils";
 
 import type { FileTreeNode } from "@/components/right/panel-nodes";
@@ -28,12 +28,6 @@ function isOpen() {
   return props.node.isDir && props.expanded.has(props.node.path);
 }
 
-function iconSpec() {
-  if (props.node.isDir) {
-    return folderIcon(props.node.name, isOpen());
-  }
-  return fileIcon(props.node.name);
-}
 </script>
 
 <template>
@@ -62,13 +56,12 @@ function iconSpec() {
         aria-hidden="true"
       />
       <span v-else class="size-3 flex-none" aria-hidden="true" />
-      <component
-        :is="iconSpec().icon"
-        class="size-3.5 flex-none"
-        :class="iconSpec().cls"
-        aria-hidden="true"
+      <FileLabel
+        :path="node.path"
+        :kind="node.isDir ? 'directory' : 'file'"
+        :expanded="isOpen()"
+        class="flex-1"
       />
-      <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
     </button>
     <template v-if="node.isDir && expanded.has(node.path)">
       <FileTreeNode

@@ -9,7 +9,7 @@ export interface TriggerItem {
   label: string;
   desc: string;
   icon: "skill" | "file" | "dir";
-  /** 技能条目附加信息（供 chip 悬浮展示；文件类无） */
+  /** 技能条目附加信息（文件类无） */
   id?: string;
   dir?: string;
   source?: "builtin" | "user";
@@ -17,12 +17,10 @@ export interface TriggerItem {
 
 export type TriggerKind = "skill" | "file";
 
-const MAX_FILES = 200;
-
 /**
- * 模糊匹配打分：query 以子序列命中 haystack；
- * 连续命中与词边界（开头、/ - _ . 空白之后）加分，haystack 越长略微降分。
- * 返回 null 表示不匹配。
+ * 模糊匹配打分：query 以子序列命中 haystack（大小写不敏感）；
+ * 连续命中与词边界（开头、/ - _ . 空白之后、camelCase 大写边界）加分，
+ * haystack 越长略微降分。返回 null 表示不匹配。
  */
 function fuzzyScore(haystack: string, query: string): number | null {
   if (!query) {
@@ -40,11 +38,12 @@ function fuzzyScore(haystack: string, query: string): number | null {
     }
     score += 1;
     if (index === prevIndex + 1) {
-      score += 2;
+      score += 2; // 连续命中
     }
-    const prevChar = index > 0 ? (lower[index - 1] ?? "") : "";
-    if (index === 0 || /[/_.\s-]/.test(prevChar)) {
-      score += 3;
+    const prev = index > 0 ? (haystack[index - 1] ?? "") : "";
+    const curr = haystack[index] ?? "";
+    if (index === 0 || /[/_.\s-]/.test(prev) || (/[a-z]/.test(prev) && /[A-Z]/.test(curr))) {
+      score += 3; // 词边界：起始、路径/扩展名分隔、驼峰大写
     }
     prevIndex = index;
     from = index + 1;
@@ -52,14 +51,14 @@ function fuzzyScore(haystack: string, query: string): number | null {
   return score - haystack.length * 0.01;
 }
 
-/** 按 query 模糊打分排序（不匹配的剔除），保持条目原样返回 */
+/** 按 query 模糊打分排序（不匹配的剔除）；同分时更短的 haystack 排前面 */
 function rankByQuery<T>(entries: Array<{ haystack: string; value: T }>, query: string): T[] {
   return entries
     .flatMap((entry) => {
       const score = fuzzyScore(entry.haystack, query);
-      return score === null ? [] : [{ value: entry.value, score }];
+      return score === null ? [] : [{ value: entry.value, score, len: entry.haystack.length }];
     })
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score || a.len - b.len)
     .map((row) => row.value);
 }
 
@@ -73,8 +72,6 @@ export function useComposerTriggers(options: {
   focus: () => void;
   /** @ 文件补全的根目录；不传则用 main 的默认目录 */
   rootPath?: () => string | undefined;
-  /** 技能选中回调：返回 true 表示已按 chip 消费，不再往正文插入文本 */
-  onSelectSkill?: (item: TriggerItem) => boolean;
 }) {
   const open = ref(false);
   const kind = ref<TriggerKind>("skill");
@@ -110,7 +107,7 @@ export function useComposerTriggers(options: {
       BUILTIN_SKILLS.map((item) => ({
         haystack: `${item.id} ${item.label}`,
         value: {
-          insert: `/${item.id} `,
+          insert: `/skill:${item.id} `,
           label: item.label,
           desc: item.description,
           icon: "skill" as const,
@@ -123,8 +120,9 @@ export function useComposerTriggers(options: {
   });
 
   const fileItems = computed<TriggerItem[]>(() => {
+    // 全量文件参与打分（上限 4000 量级，逐键计算可接受），避免头部截断漏掉深目录文件
     return rankByQuery(
-      files.value.slice(0, MAX_FILES).map((file) => ({
+      files.value.map((file) => ({
         // 文件名在前：文件名命中排在纯路径命中之前
         haystack: `${file.name} ${file.path}`,
         value: {
@@ -176,6 +174,11 @@ export function useComposerTriggers(options: {
     }
 
     const token = match[1];
+    // 已应用的内联技能 token（/skill:xxx）不再唤起弹窗，由用户直接编辑
+    if (token.toLowerCase().startsWith("/skill:")) {
+      close();
+      return;
+    }
     tokenStart.value = cursor - token.length;
     kind.value = token.startsWith("/") ? "skill" : "file";
     query.value = token.slice(1);
@@ -208,15 +211,7 @@ export function useComposerTriggers(options: {
     const value = options.value();
     const cursor = Math.min(Math.max(options.caret(), 0), value.length);
 
-    // 技能以 chip 挂在输入框上方：移除触发 token，不往正文插入文本
-    if (options.onSelectSkill?.(target)) {
-      options.setValue(value.slice(0, tokenStart.value) + value.slice(cursor));
-      close();
-      options.focus();
-      options.setCaret(tokenStart.value);
-      return true;
-    }
-
+    // 技能与文件一致：以 token 形式插入正文（/skill:名称），编辑器渲染成内联技能标签
     const next = value.slice(0, tokenStart.value) + target.insert + value.slice(cursor);
     options.setValue(next);
     close();

@@ -1,8 +1,9 @@
 import { ipcMain } from "electron";
 
-import { McpStdioClient } from "@zen/mcp-client";
+import { createMcpClient } from "@zen/mcp-client";
 
 import type { McpServerConfig, McpServerStatus, McpToolInfo } from "@zen/shared";
+import type { McpClient } from "@zen/mcp-client";
 import { readMcpConfig, writeMcpConfig } from "./zen-dir";
 
 /**
@@ -10,15 +11,15 @@ import { readMcpConfig, writeMcpConfig } from "./zen-dir";
  * agent:run 时从这里取已启用 server 的工具桥接进 ToolLoopAgent。
  */
 
-const clients = new Map<string, McpStdioClient>();
+const clients = new Map<string, McpClient>();
 const toolsCache = new Map<string, McpToolInfo[]>();
 
-function clientFor(config: McpServerConfig): McpStdioClient {
+function clientFor(config: McpServerConfig): McpClient {
   const existing = clients.get(config.id);
   if (existing) {
     return existing;
   }
-  const client = new McpStdioClient(config);
+  const client = createMcpClient(config);
   clients.set(config.id, client);
   return client;
 }

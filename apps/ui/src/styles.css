@@ -7,6 +7,36 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.file-label__icon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  min-width: 14px;
+  min-height: 14px;
+  flex: none;
+  object-fit: contain;
+}
+
+.file-label__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-label--link > .file-label__name {
+  color: var(--color-link);
+}
+
 :root {
   --motion-fast: 0.12s;
   --motion-base: 0.18s;
@@ -35,6 +65,26 @@
   --control-h: 28px;
   /* 图标线宽：lucide 默认 2 偏粗，全局收到 1.5（CSS 覆盖 SVG 呈现属性） */
   --icon-stroke: 1.5;
+
+  --color-file-red: #e05c5c;
+  --color-file-orange: #e0a06c;
+  --color-file-cyan: #5ac8c8;
+  --color-file-typescript: #4d9fd6;
+  --color-file-yellow: #e8c06c;
+  --color-file-blue: #5a9cff;
+  --color-file-purple: #b070d0;
+  --color-file-sky: #5fb8e0;
+  --color-file-neutral: var(--color-mut);
+  --color-file-green: #42b883;
+  --color-file-rust: #e07a4f;
+  --color-file-shell: #8ac890;
+  --color-file-pink: #c878d8;
+  --color-file-rose: #e07aa0;
+  --color-file-violet: #a06ce0;
+  --color-file-indigo: #8a8ad0;
+  --color-file-gold: #e0b06c;
+  --color-file-olive: #b0a060;
+  --color-file-media: #d87858;
 
   /* 层级刻度：弹窗遮罩 40 < reka 浮层 50 < 对话框 70 < 提示 90（后两档预留）；
      壳体（标题栏/侧栏/面板）走正常文档流，不占层级。
@@ -594,36 +644,26 @@
   line-height: 1.7;
 }
 
-/* ---- 正文内文件/目录引用 chip（Response 对行内 code 的装饰） ----
-   图标走 currentColor + mask，不往渲染器 DOM 里插节点 */
-.md-content code.zen-file-ref,
-.md-content code.zen-dir-ref {
+/* 文件引用与文件树共用 FileLabel；链接仅改变文字颜色。 */
+.zen-file-ref,
+.zen-dir-ref {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border: 1px solid var(--color-line);
-  background: var(--color-chip-bg);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-link);
+  font: inherit;
+  vertical-align: middle;
+  cursor: pointer;
 }
 
-.md-content code.zen-file-ref::before,
-.md-content code.zen-dir-ref::before {
-  content: '';
-  width: 10px;
-  height: 10px;
-  flex: none;
-  background-color: currentColor;
-  mask: center / contain no-repeat;
-}
-
-.md-content code.zen-file-ref::before {
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
-}
-
-.md-content code.zen-dir-ref::before {
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
+.zen-file-ref:focus-visible,
+.zen-dir-ref:focus-visible {
+  outline: none;
+  text-decoration: underline;
 }
 
 /* ---- 设置页代码主题预览 ----
@@ -828,7 +868,7 @@
   color: var(--color-mut);
 }
 
-.md-content img {
+.md-content img:not(.file-label__icon) {
   max-width: 100%;
   border-radius: var(--radius-sm);
 }

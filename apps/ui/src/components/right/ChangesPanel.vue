@@ -2,6 +2,7 @@
 import { FolderTree, List, RefreshCw } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
+import FileLabel from "@/components/files/FileLabel.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import ChangeTreeRow from "@/components/right/ChangeTreeRow.vue";
 import DiffView from "@/components/right/DiffView.vue";
@@ -166,9 +167,7 @@ watch(
             >
               {{ gitStore.statusBadge(change).text }}
             </span>
-            <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)]">
-              {{ change.path }}
-            </span>
+            <FileLabel :path="change.path" class="flex-1 font-[family-name:var(--font-mono)]" />
             <span
               class="flex flex-none items-center gap-1 font-[family-name:var(--font-mono)] text-[10px]"
             >
@@ -193,11 +192,10 @@ watch(
 
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div v-if="gitStore.selectedPath" class="flex flex-none items-center gap-1 pb-1">
-          <span
-            class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
-          >
-            {{ gitStore.selectedPath }}
-          </span>
+          <FileLabel
+            :path="gitStore.selectedPath"
+            class="flex-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
+          />
         </div>
         <p
           v-if="!gitStore.selectedPath"

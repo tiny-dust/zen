@@ -6,10 +6,17 @@ export interface ReadFileResult {
   content: string;
 }
 
+export interface WriteFileResult extends ReadFileResult {
+  before: string | null;
+  after: string;
+}
+
 export interface EditFileResult {
   path: string;
   /** 本次替换发生的次数（0 表示未命中） */
   replacements: number;
+  before: string;
+  after: string;
 }
 
 export interface DirListResult {
@@ -69,11 +76,19 @@ export async function writeWorkspaceFile(
   workspaceRoot: string,
   relativePath: string,
   content: string,
-): Promise<ReadFileResult> {
+): Promise<WriteFileResult> {
   const fullPath = resolveWorkspacePath(workspaceRoot, relativePath);
+  let before: string | null = null;
+  try {
+    before = await readFile(fullPath, "utf8");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw new Error(`failed to read ${relativePath} before writing: ${toErrorMessage(error)}`);
+    }
+  }
   try {
     await writeFile(fullPath, content, "utf8");
-    return { path: relativePath, content };
+    return { path: relativePath, content, before, after: content };
   } catch (error) {
     throw new Error(`failed to write ${relativePath}: ${toErrorMessage(error)}`);
   }
@@ -98,7 +113,7 @@ export async function editWorkspaceFile(
     const content = await readFile(fullPath, "utf8");
     const first = content.indexOf(oldString);
     if (first < 0) {
-      return { path: relativePath, replacements: 0 };
+      return { path: relativePath, replacements: 0, before: content, after: content };
     }
     if (!replaceAll && content.indexOf(oldString, first + 1) >= 0) {
       throw new Error(
@@ -110,7 +125,7 @@ export async function editWorkspaceFile(
       : content.slice(0, first) + newString + content.slice(first + oldString.length);
     await writeFile(fullPath, next, "utf8");
     const replacements = replaceAll ? content.split(oldString).length - 1 : 1;
-    return { path: relativePath, replacements };
+    return { path: relativePath, replacements, before: content, after: next };
   } catch (error) {
     throw new Error(`failed to edit ${relativePath}: ${toErrorMessage(error)}`);
   }

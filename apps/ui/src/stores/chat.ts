@@ -52,8 +52,6 @@ export const useChatStore = defineStore("chat", () => {
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
   const attachments = ref<ComposerAttachment[]>([]);
-  /** 输入框选中的技能 chip（发送时以 /skill: 前缀注入消息） */
-  const selectedSkills = ref<SelectedSkill[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
   /** 本 run 内是否调用过 updateTasks（用于 checklist 兜底） */
@@ -86,11 +84,7 @@ export const useChatStore = defineStore("chat", () => {
   });
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
-    () =>
-      (input.value.trim().length > 0 ||
-        attachments.value.length > 0 ||
-        selectedSkills.value.length > 0) &&
-      !isRunning.value,
+    () => (input.value.trim().length > 0 || attachments.value.length > 0) && !isRunning.value,
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
@@ -362,15 +356,24 @@ export const useChatStore = defineStore("chat", () => {
     });
   }
 
-  function addSkill(skill: SelectedSkill) {
-    if (selectedSkills.value.some((item) => item.name === skill.name)) {
-      return;
+  /** 正文里的内联技能 token（/skill:名称）→ SelectedSkill（发送时进 meta.skills 渲染 tag） */
+  function extractSkills(text: string): SelectedSkill[] {
+    const known = useAgentStore().skills;
+    const found: SelectedSkill[] = [];
+    for (const match of text.matchAll(/\/skill:([^\s/]+)/g)) {
+      const name = match[1] ?? "";
+      if (!name || found.some((item) => item.name === name)) {
+        continue;
+      }
+      const info = known.find((item) => item.name === name);
+      found.push({
+        name,
+        description: info?.description ?? "",
+        dir: info?.dir,
+        source: info?.source,
+      });
     }
-    selectedSkills.value.push(skill);
-  }
-
-  function removeSkill(name: string) {
-    selectedSkills.value = selectedSkills.value.filter((item) => item.name !== name);
+    return found;
   }
 
   function removeAttachment(id: string) {
@@ -432,8 +435,7 @@ export const useChatStore = defineStore("chat", () => {
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
-    const skills = selectedSkills.value;
-    if (!zen || isRunning.value || (!text && !attachments.value.length && !skills.length)) {
+    if (!zen || isRunning.value || (!text && !attachments.value.length)) {
       return;
     }
     // 未登录禁止使用（需求 1）：配置保留在本地，但 agent 会话需要 GitHub 登录
@@ -453,10 +455,10 @@ export const useChatStore = defineStore("chat", () => {
       path: item.path,
     }));
 
-    // Agent 收到 /skill: 前缀 + 正文；气泡正文保持干净，技能由 meta.skills 渲染成 tag
-    const agentText = [skills.map((item) => `/skill:${item.name}`).join(" "), text]
-      .filter(Boolean)
-      .join("\n");
+    // 技能已以内联 token（/skill:名称）写在正文里，随消息直接发给 Agent；
+    // meta.skills 供气泡渲染 tag（正文展示时会隐藏 token）
+    const skills = extractSkills(text);
+    const agentText = text;
 
     lastError.value = "";
     lastDoneReason.value = null;
@@ -466,7 +468,6 @@ export const useChatStore = defineStore("chat", () => {
     lastOutputTokens.value = null;
     input.value = "";
     attachments.value = [];
-    selectedSkills.value = [];
 
     // 上传的文件收进悬浮面板「参考 · 用户」（按路径去重）
     if (attachmentRefs.length) {
@@ -618,7 +619,6 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     input.value = "";
     attachments.value = [];
-    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
@@ -672,7 +672,6 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = found.messages;
     input.value = found.session.draft ?? "";
     attachments.value = [];
-    selectedSkills.value = [];
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
@@ -721,7 +720,6 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     attachments,
-    selectedSkills,
     pendingApproval,
     pendingAsk,
     isPaused,
@@ -744,8 +742,6 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit,
     addAttachment,
     removeAttachment,
-    addSkill,
-    removeSkill,
     send,
     cancel,
     pause,

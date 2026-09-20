@@ -35,7 +35,7 @@ export interface ComposerAttachment {
   isImage: boolean;
 }
 
-/** 输入框选中的技能 chip（悬浮展示基本信息，发送时以 /skill: 前缀告知 Agent） */
+/** 随消息发送的技能（发送前从正文内联 token /skill:名称 解析，气泡渲染成 tag） */
 export interface SelectedSkill {
   name: string;
   description: string;

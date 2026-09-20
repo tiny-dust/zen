@@ -2,6 +2,7 @@
 import { ChevronDown, GitGraph as GitGraphIcon, GitBranch, RefreshCw, Tag } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
+import FileLabel from "@/components/files/FileLabel.vue";
 import DiffView from "@/components/right/DiffView.vue";
 import { computeGraphRows } from "@/components/right/git-graph";
 import { Button } from "@/components/ui/button";
@@ -491,10 +492,10 @@ const branchFilter = computed({
                     class="w-3 flex-none text-center font-[family-name:var(--font-mono)] text-[10px]"
                     :class="fileBadge(file.status).cls"
                   >{{ fileBadge(file.status).text }}</span>
-                  <span
-                    class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[var(--color-txt)]"
-                    :title="file.path"
-                  >{{ file.path }}</span>
+                  <FileLabel
+                    :path="file.path"
+                    class="flex-1 font-[family-name:var(--font-mono)] text-[var(--color-txt)]"
+                  />
                   <span class="flex flex-none items-center gap-1 font-[family-name:var(--font-mono)] text-[10px]">
                     <span v-if="file.add" class="text-[var(--color-add)]">+{{ file.add }}</span>
                     <span v-if="file.del" class="text-[var(--color-del)]">-{{ file.del }}</span>

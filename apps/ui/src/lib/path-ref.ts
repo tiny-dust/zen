@@ -8,6 +8,8 @@ const DIR_WITH_SLASH_RE = /^(?:(?:[A-Za-z]:)?[./\\])?(?:[\w@.-]+[\\/])+$/
 const MULTI_SEGMENT_RE = /^(?:(?:[A-Za-z]:)?[./\\])?(?:[\w@.-]+[\\/])+[\w@.-]+$/
 const EXT_SUFFIX_RE = /\.[A-Za-z][\w-]{0,7}(?::\d+|#L\d+)?$/
 const LINE_SUFFIX_RE = /(?::\d+|#L\d+)$/
+// Markdown destinations can contain spaces and Unicode, unlike inline code.
+const LINK_RELATIVE_PATH_RE = /^(?:[\p{L}\p{N}\p{M}_@.%?# -]+[\\/])+[\p{L}\p{N}\p{M}_@.%?# -]+[\\/]?$/u
 
 export type PathRefKind = "file" | "dir" | null
 
@@ -32,4 +34,34 @@ export function classifyPathRef(text: string): PathRefKind {
 
 export function normalizePathRef(text: string): string {
   return text.trim().replace(LINE_SUFFIX_RE, "")
+}
+
+export function localFilePathFromHref(href: string): string | null {
+  const value = href.trim()
+  if (!value || value.startsWith("#") || value.startsWith("//")) {
+    return null
+  }
+
+  try {
+    if (/^file:\/\//i.test(value)) {
+      const url = new URL(value)
+      if (url.hostname && url.hostname !== "localhost") return null
+      const path = decodeURIComponent(normalizePathRef(url.pathname))
+      return /[\u0000-\u001f]/.test(path) || /^[\\/]{2}/.test(path) ? null : path
+    }
+    // Reject all URI schemes, while retaining Windows drive paths.
+    if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[a-z]:[\\/]/i.test(value)
+      && !(/:\d+$/.test(value) && classifyPathRef(value) === "file")) return null
+    if (value.includes("?") || /#(?!L\d+$)/.test(value)) return null
+    const path = decodeURIComponent(normalizePathRef(value))
+    if (/[\u0000-\u001f]/.test(path) || /^[\\/]{2}/.test(path)) return null
+    return classifyPathRef(path)
+      || LINK_RELATIVE_PATH_RE.test(path)
+      || /^(?:\.{1,2}\/|\/|[a-z]:[\\/])/i.test(path)
+      ? path
+      : null
+  }
+  catch {
+    return null
+  }
 }

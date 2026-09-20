@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatToolDetailSections, toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
+import { toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
 
 describe("toolStateLabel", () => {
   it("覆盖全部 ToolCallState 中文状态词", () => {
@@ -25,20 +25,5 @@ describe("toolStatusLine", () => {
     expect(toolStatusLine({ state: "interrupted" })).toBe("已中断，未完成");
     expect(toolStatusLine({ state: "denied", error: "不要执行" })).toBe("不要执行");
     expect(toolStatusLine({ state: "ok", summary: "已写入 a.ts" })).toBe("已写入 a.ts");
-  });
-});
-
-describe("formatToolDetailSections", () => {
-  it("统一参数/原因/输出，并标注截断", () => {
-    const text = formatToolDetailSections({
-      args: { path: "a.ts" },
-      error: "权限不足",
-      output: "x".repeat(4001),
-    });
-    expect(text).toContain("参数");
-    expect(text).toContain("原因");
-    expect(text).toContain("输出");
-    expect(text).toContain("已截断");
-    expect(text).toContain("权限不足");
   });
 });

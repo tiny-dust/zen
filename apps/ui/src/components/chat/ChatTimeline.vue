@@ -5,6 +5,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
 import AskUserCard from "@/components/chat/AskUserCard.vue";
+import { groupTimelineMessages } from "@/components/chat/message-groups";
+import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
 import { useChatStore } from "@/stores/chat";
 
@@ -12,6 +14,7 @@ import { getMessageRun } from "@zen/shared";
 
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
+const timelineItems = computed(() => groupTimelineMessages(messages.value));
 
 const listEl = ref<HTMLElement | null>(null);
 const contentEl = ref<HTMLElement | null>(null);
@@ -129,12 +132,14 @@ onUnmounted(() => {
           >
             {{ lastError }}
           </p>
-          <MessageBubble
-            v-for="message in messages"
-            :key="message.id"
-            :message="message"
-            :streaming="chatStore.isRunning && message.id === messages.at(-1)?.id"
-          />
+          <template v-for="item in timelineItems" :key="item.key">
+            <ToolCallGroup v-if="item.type === 'tools'" :tools="item.tools" />
+            <MessageBubble
+              v-else
+              :message="item.message"
+              :streaming="chatStore.isRunning && item.message.id === messages.at(-1)?.id"
+            />
+          </template>
         </template>
       </div>
     </div>

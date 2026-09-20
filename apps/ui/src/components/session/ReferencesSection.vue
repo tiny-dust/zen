@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import {
-  CircleCheck,
   ExternalLink,
   FileUp,
   FolderOpen,
   Globe,
   Link2,
-  FileText,
-  Image as ImageIcon,
 } from "@lucide/vue";
 import type { Component } from "vue";
 import { computed, ref } from "vue";
 
+import FileLabel from "@/components/files/FileLabel.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
@@ -41,14 +39,6 @@ const groups = computed(() => {
   ].filter((group) => group.items.length);
 });
 
-const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
-
-/** 本地文件行图标：图片扩展名给图片图标，其余统一文件图标 */
-function fileIconOf(name: string): Component {
-  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  return IMAGE_EXT.has(ext) ? ImageIcon : FileText;
-}
-
 /** 本地文件参考：点击在右侧文件面板定位 */
 function reveal(path: string) {
   rightPanel.revealFile(path);
@@ -75,8 +65,8 @@ function reveal(path: string) {
         </p>
         <ul class="m-0 flex list-none flex-col gap-1 p-0">
           <li v-for="item in group.items" :key="item.id" class="flex items-start gap-1.5">
-            <component
-              :is="group.key === 'web' ? Globe : fileIconOf(item.title || item.url)"
+            <Globe
+              v-if="group.key === 'web'"
               class="mt-0.5 size-3 flex-none text-[var(--color-mut)]"
               aria-hidden="true"
             />
@@ -94,11 +84,10 @@ function reveal(path: string) {
             <button
               v-else
               type="button"
-              class="min-w-0 flex-1 truncate text-left font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)] hover:text-[var(--color-txt)]"
-              :title="item.url"
+              class="min-w-0 flex-1 truncate text-left font-[family-name:var(--font-mono)] text-[11px] hover:text-[var(--color-txt)]"
               @click="reveal(item.url)"
             >
-              {{ item.title || item.url }}
+              <FileLabel :path="item.url" :name="group.key === 'user' ? item.title || undefined : undefined" />
             </button>
             <ExternalLink
               v-if="group.key === 'web'"

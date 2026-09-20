@@ -1,22 +1,19 @@
 <script setup lang="ts">
 import { FolderOpen, Plus, RefreshCw, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAgentStore } from "@/stores/agent";
 
-import type { McpServerConfig } from "@zen/shared";
-
 /**
- * 技能与扩展：技能目录扫描（系统目录 + 自定义多路径）与 MCP 服务器配置。
+ * 技能：技能目录扫描（系统目录 + 自定义多路径）。MCP 服务在独立面板配置。
  */
 const agentStore = useAgentStore();
-const { skills, mcpStatuses, settings } = storeToRefs(agentStore);
+const { skills, settings } = storeToRefs(agentStore);
 const newSkillPath = ref("");
-const newServer = ref<{ name: string; command: string }>({ name: "", command: "" });
 
 const SKILL_SYSTEM_DIRS = [
   { path: "~/.zen/skills", label: "Zen 技能" },
@@ -24,13 +21,8 @@ const SKILL_SYSTEM_DIRS = [
   { path: "~/.agents/skills", label: "Agent Skills 通用" },
 ];
 
-const mcpServers = computed<McpServerConfig[]>(
-  () => mcpStatuses.value.map((item) => item.config),
-);
-
 onMounted(() => {
   void agentStore.refreshSkills();
-  void agentStore.refreshMcp();
 });
 
 async function addSkillPath() {
@@ -52,57 +44,10 @@ async function removeSkillPath(path: string) {
   });
   await agentStore.refreshSkills();
 }
-
-async function addServer() {
-  const name = newServer.value.name.trim();
-  const command = newServer.value.command.trim();
-  if (!name || !command) {
-    return;
-  }
-  const [cmd, ...args] = command.split(/\s+/);
-  await agentStore.saveMcpServers([
-    ...mcpServers.value,
-    {
-      id: `${name}-${Date.now().toString(36)}`,
-      name,
-      transport: "stdio",
-      command: cmd ?? command,
-      args,
-      enabled: true,
-    },
-  ]);
-  newServer.value = { name: "", command: "" };
-  await agentStore.refreshMcp();
-}
-
-async function toggleServer(config: McpServerConfig) {
-  await agentStore.saveMcpServers(
-    mcpServers.value.map((item) =>
-      item.id === config.id ? { ...item, enabled: !item.enabled } : item,
-    ),
-  );
-  await agentStore.refreshMcp();
-}
-
-async function removeServer(config: McpServerConfig) {
-  await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== config.id));
-  await agentStore.refreshMcp();
-}
-
-function stateBadge(state: string): "secondary" | "outline" | "default" {
-  if (state === "running") {
-    return "default";
-  }
-  if (state === "error") {
-    return "secondary";
-  }
-  return "outline";
-}
 </script>
 
 <template>
   <div class="flex flex-col gap-5">
-    <!-- 技能 -->
     <section class="flex flex-col gap-2.5">
       <div class="flex items-center justify-between gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">技能</h3>
@@ -171,71 +116,6 @@ function stateBadge(state: string): "secondary" | "outline" | "default" {
             @keydown.enter="addSkillPath"
           />
         </div>
-      </div>
-    </section>
-
-    <!-- MCP -->
-    <section class="flex flex-col gap-2.5">
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">MCP 服务器</h3>
-      <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        stdio 服务器按需启动，工具会以 <code
-          class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]"
-        >mcp.服务器.工具</code> 的形式接入 Agent；配置持久化在 ~/.zen/mcp.json。
-      </p>
-
-      <div v-if="mcpStatuses.length" class="flex flex-col gap-1.5">
-        <div
-          v-for="item in mcpStatuses"
-          :key="item.config.id"
-          class="rounded-xl border border-[var(--color-line)] px-3 py-2"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
-              {{ item.config.name }}
-            </span>
-            <Badge :variant="stateBadge(item.state)" class="text-[10px]">
-              {{ item.state === "running" ? "运行中" : item.state === "error" ? "异常" : "已停止" }}
-            </Badge>
-            <span class="min-w-0 flex-1" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              :aria-label="item.config.enabled ? '禁用' : '启用'"
-              @click="toggleServer(item.config)"
-            >
-              {{ item.config.enabled ? "禁用" : "启用" }}
-            </Button>
-            <Button variant="ghost" size="icon-sm" aria-label="删除" @click="removeServer(item.config)">
-              <Trash2 :size="13" />
-            </Button>
-          </div>
-          <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]">
-            {{ item.config.command }} {{ (item.config.args ?? []).join(" ") }}
-          </p>
-          <p v-if="item.tools.length" class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
-            {{ item.tools.length }} 个工具：{{ item.tools.map((tool) => tool.name).join("、") }}
-          </p>
-          <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-err)]">
-            {{ item.error }}
-          </p>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <Input
-          v-model="newServer.name"
-          class="h-8 w-32 bg-[var(--color-np-btn-bg)] text-[12px]"
-          placeholder="名称"
-        />
-        <Input
-          v-model="newServer.command"
-          class="h-8 flex-1 bg-[var(--color-np-btn-bg)] text-[12px]"
-          placeholder="启动命令，如 npx -y @modelcontextprotocol/server-filesystem ~/docs"
-          @keydown.enter="addServer"
-        />
-        <Button variant="outline" size="sm" @click="addServer">
-          <Plus :size="13" data-icon="inline-start" />添加
-        </Button>
       </div>
     </section>
   </div>
