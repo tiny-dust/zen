@@ -130,3 +130,15 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 密度收紧：消息间距 gap-5→gap-4，user 气泡 py-2.5→py-2，Reasoning 去掉 mb-4（由分段 gap 承担），`.md-content` p/pre/ul 外边距 8→6px。
   - 代码高亮：接入 `@stream-markdown/code`（Shiki 4 + `createJavaScriptRegexEngine` 免 wasm），主题对 github-light/dark，Markdown 显式 `:is-dark="true"`（渲染根节点带 `.dark` 激活 `--shiki-dark` 变量）；Response 与 ReasoningContent 共用 `response/extensions.ts`。
   - 提交图谱分支徽标：提交行渲染 %D refs（当前分支 accent 实底、本地分支描边、远端弱化、tag 蓝色，>3 个收进 +N）；泳道算法本就支持多分支（zen 仓库当前 main 完全并入 develop，单轴即真实形态）。
+- 2026-09-20（浏览器 / 终端 / 内置字体）：
+  - 浏览器改回**方案 1：Electron WebContentsView + CDP**（不再探测系统 Chrome）。主进程 `WebContentsView` 叠在右栏宿主矩形上，bounds 由 `BrowserPanel` 经 `browser:set-bounds` 同步；内核为 Electron 自带 Chromium，随 Zen 应用 `electron-updater` 联网更新。地址栏/选取元素/写入页面结构/控制台/快照；Agent 同一套 `browser*` 工具读写该视图（debugger + executeJavaScript）。
+  - 浏览器壳对齐真实浏览器：**新标签页展示历史**（localStorage `zen.browser.history`）；地址栏**联想历史**（↑↓/Enter）；左侧**后退/前进/刷新**；右侧**系统浏览器打开 / 标注 / 截图**。标注与截图结果经 `chat.insertAtComposerCaret` 插入 **AI 输入框光标处**（ComposerEditor `insertAtCaret`）。
+  - 浏览器标注 tag 与技能同构：输入框内仅 **地球 icon + 元素名**（源文本 `$el:名称`，前缀 `display:none`），chip 底 + 强调色；悬浮 120ms 后弹出 `composer-el-tooltip` 明细（selector/页面等）。发送时展开 `[页面元素]`。
+  - **应用内 http(s) 链接统一进右栏浏览器**：消息 markdown、参考/Git 链接、设置资料页、终端 WebLinks、`app:open-external` / `window.open` 一律打开右侧 BrowserPanel；系统浏览器仅保留面板上显式「在系统浏览器中打开」。
+  - **应用内 http(s) 链接统一进右栏浏览器**：消息 markdown、参考/Git/资料、终端 WebLinks、`window.open`、`app:open-external` 一律打开右侧面板；仅浏览器面板上的「在系统浏览器中打开」仍走系统。
+  - **应用内 http(s) 链接统一进右栏浏览器**：消息 markdown、参考/Git/资料链接、终端输出链接、`window.open`、`app:open-external` 一律走右侧 BrowserPanel；仅面板上显式「在系统浏览器中打开」仍调系统。全局 click 捕获防主窗口被导航。
+  - **应用内 http(s) 链接统一进右栏浏览器**：全局 click 捕获 + `app:open-external`/`window.open` 在 main 侧改走 `BrowserService.open`；消息 markdown、参考、资料、终端链接均打开右侧面板。系统浏览器仅保留面板上的显式「在系统浏览器中打开」。
+  - **应用内 http(s) 链接统一进右栏浏览器**：消息 markdown 链接、参考/Git 链接、设置里资料页、终端 WebLinks、`app:open-external` / `window.open` 一律打开右侧 BrowserPanel（`openAppLink` / `BrowserService.open`）；系统浏览器仅保留面板上显式「在系统浏览器中打开」。
+  - **应用内 http(s) 链接统一进右栏浏览器**：全局 click 捕获 + `app:open-external`/`window.open` 在 main 侧改走 `BrowserService.open`；消息 markdown、参考、资料、终端链接均打开右侧面板。系统浏览器仅保留面板上的显式「在系统浏览器中打开」。
+  - 底部终端落地：`TerminalPanel` = node-pty + xterm，shell 取系统默认（`$SHELL` + `-l` 登录 shell）；头行显示 shell 名，支持重启与「用系统终端打开」。面板高度 `min(42vh,360px)`，保底 180px。
+  - 内置字体：`assets/fonts/` 下 MiSans VF（Apache-2.0 子集 woff2）+ Maple Mono（OFL 400–700）；`--font-sans` 首选 MiSans，`--font-mono` 首选 Maple Mono，中文/系统字体作回落，跨机器渲染更稳定。

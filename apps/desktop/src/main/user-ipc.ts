@@ -332,12 +332,28 @@ export function registerUserIpc(): void {
 
   ipcMain.handle("auth:refresh-profile", async () => refreshProfile());
 
-  ipcMain.handle("app:open-external", async (_event, url: string) => {
-    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+  ipcMain.handle("app:open-external", async (event, url: string) => {
+    if (typeof url !== "string" || !url.trim()) {
       return { ok: false };
     }
-    await shell.openExternal(url);
-    return { ok: true };
+    const target = url.trim();
+    // http(s)：优先应用内右侧浏览器面板（系统浏览器仅作 browser 面板上的显式按钮）
+    if (/^https?:\/\//i.test(target)) {
+      const { getBrowserService } = await import("./browser/service");
+      const { BrowserWindow } = await import("electron");
+      const service = getBrowserService();
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        service.attachToWindow(win);
+      }
+      const result = await service.open(target);
+      return { ok: result.ok, error: result.error };
+    }
+    if (/^(mailto:|tel:)/i.test(target)) {
+      await shell.openExternal(target);
+      return { ok: true };
+    }
+    return { ok: false, error: "仅支持 http(s) 在应用内打开" };
   });
 
   ipcMain.handle("settings:get", async () => loadSettings());

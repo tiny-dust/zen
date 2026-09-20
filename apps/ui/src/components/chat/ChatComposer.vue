@@ -51,6 +51,7 @@ const {
   canSend,
   effort,
   attachments,
+  elementMarks,
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
@@ -120,6 +121,20 @@ const triggers = useComposerTriggers({
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
 });
+
+// 浏览器「标注」等：写入 composer 光标处
+watch(
+  () => chatStore.pendingComposerInsert,
+  (item) => {
+    if (!item?.text) {
+      return;
+    }
+    editorRef.value?.insertAtCaret(item.text);
+    editorRef.value?.focus();
+    chatStore.pendingComposerInsert = null;
+  },
+  { deep: true },
+);
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) {
@@ -320,7 +335,8 @@ function removeAttachment(id: string) {
           ref="editorRef"
           :model-value="input"
           :attachments="attachments"
-          placeholder="描述任务，/ 调用技能，@ 引用文件"
+          :elements="elementMarks"
+          placeholder="描述任务，/ 调用技能；标注页面元素会以 tag 插入，悬浮可看明细"
           :disabled="isRunning"
           @update:model-value="onModelValue"
           @token-hover="onTokenHover"

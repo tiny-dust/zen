@@ -11,6 +11,7 @@ vi.mock("@/stores/chat", () => ({
     runStartedAt: null,
     statusText: "",
     input: "",
+    elementMarks: [] as unknown[],
   }),
 }));
 
@@ -124,6 +125,45 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).toContain("已拒绝");
     expect(wrapper.text()).toContain("执行终端");
     expect(wrapper.text()).toContain("已取消");
+  });
+
+  it("user 消息以 tag 展示页面元素，正文隐藏 $el token", () => {
+    const wrapper = mountMessage({
+      id: "u1",
+      role: "user",
+      content: "请点 $el:登录 提交",
+      createdAt: 1,
+      meta: {
+        elementMarks: [
+          {
+            id: "be_1",
+            label: "登录",
+            token: "$el:登录",
+            ref: {
+              selector: "#login",
+              selectorCandidates: ["#login"],
+              tag: "button",
+              id: "login",
+              className: "btn",
+              text: "登录",
+              name: "",
+              type: "submit",
+              placeholder: "",
+              ariaLabel: "登录按钮",
+              role: "button",
+              href: "",
+              rect: { x: 0, y: 0, width: 80, height: 32 },
+              pageUrl: "https://example.com/",
+              pageTitle: "Example",
+            },
+          },
+        ],
+      },
+    });
+    expect(wrapper.text()).toContain("登录");
+    expect(wrapper.text()).toContain("请点");
+    expect(wrapper.text()).not.toContain("$el:");
+    expect(wrapper.find(".lucide").exists()).toBe(true);
   });
 
   it("正常 stop 显示弱化的已完成，不显示失败文案", () => {

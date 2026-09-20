@@ -84,8 +84,19 @@ export const useLayoutStore = defineStore("layout", () => {
     rightWidth.value = clamp(value, RIGHT_MIN, rightMax());
   }
 
-  /** 窗口尺寸变化后按新边界回收两侧宽度，避免中央区被挤出视口 */
+  /** 窗口尺寸变化后：左右侧栏按比例同步缩放，再按边界钳制（中央区始终保底） */
+  let lastViewportW = typeof window === "undefined" ? 0 : window.innerWidth;
+
   function syncViewport() {
+    const w = viewportWidth();
+    const prev = lastViewportW;
+    lastViewportW = w;
+    // 明显的窗口缩放（含双击最大化）：左右面板宽度按同一比例变化
+    if (prev >= 400 && w >= 400 && Math.abs(w - prev) >= 20) {
+      const scale = w / prev;
+      leftWidth.value = Math.round(leftWidth.value * scale);
+      rightWidth.value = Math.round(rightWidth.value * scale);
+    }
     setLeftWidth(leftWidth.value);
     setRightWidth(rightWidth.value);
   }

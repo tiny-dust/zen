@@ -4,6 +4,7 @@ import type { MarkdownComponentProps } from 'vue-stream-markdown'
 import { useSanitizers } from 'vue-stream-markdown'
 import FileLabel from '@/components/files/FileLabel.vue'
 import { classifyPathRef, localFilePathFromHref, normalizePathRef } from '@/lib/path-ref'
+import { openAppLink } from '@/lib/open-link'
 import { useRightPanelStore } from '@/stores/right-panel'
 
 defineOptions({ inheritAttrs: false })
@@ -30,6 +31,15 @@ function reveal(event: Event) {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' || event.key === ' ') reveal(event)
 }
+
+function onLinkClick(event: Event) {
+  const href = raw.value
+  if (!href) return
+  if (/^https?:\/\//i.test(href) || href.startsWith('//')) {
+    event.preventDefault()
+    void openAppLink(href)
+  }
+}
 </script>
 
 <template>
@@ -46,6 +56,12 @@ function onKeydown(event: KeyboardEvent) {
   >
     <FileLabel :path="path" :kind="kind" variant="link" />
   </span>
-  <a v-else-if="isLink" :href="transformedUrl ?? undefined" :title="String(props.node[1].title ?? '')" data-stream-markdown="link"><slot /></a>
+  <a
+    v-else-if="isLink"
+    :href="transformedUrl ?? undefined"
+    :title="String(props.node[1].title ?? '')"
+    data-stream-markdown="link"
+    @click="onLinkClick"
+  ><slot /></a>
   <code v-else data-stream-markdown="code" dir="ltr"><slot /></code>
 </template>

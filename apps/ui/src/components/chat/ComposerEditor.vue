@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { Sparkles } from "@lucide/vue";
+import { Globe, Sparkles } from "@lucide/vue";
 import { h, nextTick, onBeforeUnmount, onMounted, ref, render as renderVue, watch } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
+import { formatElementDetail } from "@/lib/browser-element";
 
 import type { ComposerAttachment } from "@/stores/chat-types";
+import type { ComposerElementMark } from "@/lib/browser-element";
 
 const props = defineProps<{
   modelValue: string;
   /** 已添加的附件：正文里 `$文件名` 会被渲染成可悬浮的引用 token */
   attachments: ComposerAttachment[];
+  /** 浏览器标注元素：正文里 `$el:id` 渲染为链接 chip，title/明细见 tooltip */
+  elements?: ComposerElementMark[];
   placeholder?: string;
   disabled?: boolean;
 }>();
@@ -91,6 +95,28 @@ function parseSegments(source: string): Segment[] {
         end: match.index + match[0].length,
         segment: { kind: "skill", text: match[0] },
       });
+    }
+  }
+
+  // 浏览器标注元素：`$el:id`（长 token 优先）
+  const elements = [...(props.elements ?? [])].sort((a, b) => b.token.length - a.token.length);
+  for (const item of elements) {
+    const needle = item.token;
+    let from = 0;
+    for (;;) {
+      const index = source.indexOf(needle, from);
+      if (index < 0) {
+        break;
+      }
+      const end = index + needle.length;
+      if (!overlaps(marked, index, end)) {
+        marked.push({
+          start: index,
+          end,
+          segment: { kind: "token", text: needle, attachmentId: item.id },
+        });
+      }
+      from = index + 1;
     }
   }
 
@@ -191,7 +217,102 @@ function renderLink(text: string): HTMLElement {
   return wrapper;
 }
 
+/** 页面元素 tag：与技能同构 —— 地球 icon + 名称；源文本保留 `$el:名称` 供 Agent 展开 */
+function renderElementToken(mark: ComposerElementMark): HTMLElement {
+  const token = el("span", "composer-token composer-token-skill composer-token-element");
+  token.contentEditable = "false";
+  token.dataset.elementId = mark.id;
+  token.setAttribute("aria-label", `页面元素 ${mark.label}`);
+  token.setAttribute("role", "button");
+  token.tabIndex = -1;
+  const icon = el("span", "composer-token-icon");
+  renderVue(h(Globe, { size: 12, "aria-hidden": "true" }), icon);
+  vueContainers.push(icon);
+  // prefix 仅存在于 textContent（display:none），视觉上只有 icon + 名称
+  token.append(
+    el("span", "composer-token-prefix", "$el:"),
+    icon,
+    el("span", "composer-token-name", mark.label),
+  );
+  token.addEventListener("mouseenter", (event) => {
+    emit("tokenHover", mark.id);
+    showElementTooltip(token, mark);
+  });
+  token.addEventListener("mouseleave", () => {
+    emit("tokenHover", null);
+    hideElementTooltip();
+  });
+  return token;
+}
+
+/* ---------- 元素 tag 悬浮明细 ---------- */
+
+let tooltipEl: HTMLElement | null = null;
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+
+function ensureTooltipEl(): HTMLElement {
+  if (tooltipEl && document.body.contains(tooltipEl)) {
+    return tooltipEl;
+  }
+  tooltipEl = document.createElement("div");
+  tooltipEl.className = "composer-el-tooltip";
+  tooltipEl.setAttribute("role", "tooltip");
+  document.body.appendChild(tooltipEl);
+  return tooltipEl;
+}
+
+function showElementTooltip(token: HTMLElement, mark: ComposerElementMark) {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+  }
+  tooltipTimer = setTimeout(() => {
+    const tip = ensureTooltipEl();
+    const detail = formatElementDetail(mark.ref);
+    tip.innerHTML = "";
+    const title = document.createElement("div");
+    title.className = "composer-el-tooltip-title";
+    title.textContent = mark.label;
+    tip.appendChild(title);
+    for (const line of detail.split("\n")) {
+      const row = document.createElement("div");
+      row.className = "composer-el-tooltip-row";
+      row.textContent = line;
+      tip.appendChild(row);
+    }
+    tip.style.display = "block";
+    const rect = token.getBoundingClientRect();
+    const tipW = 280;
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + tipW > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - tipW - 8);
+    }
+    if (top + 140 > window.innerHeight) {
+      top = Math.max(8, rect.top - 8 - 120);
+    }
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }, 120);
+}
+
+function hideElementTooltip() {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+  }
+  if (tooltipEl) {
+    tooltipEl.style.display = "none";
+  }
+}
+
 function renderToken(segment: Segment): HTMLElement {
+  const mark = (props.elements ?? []).find(
+    (item) => item.token === segment.text || item.id === segment.attachmentId,
+  );
+  if (mark) {
+    return renderElementToken(mark);
+  }
+
   const att = props.attachments.find((item) => item.id === segment.attachmentId);
   const name = att?.name ?? segment.text.slice(1);
   const token = el("span", "composer-token composer-token-file");
@@ -458,7 +579,25 @@ onMounted(() => {
   render(props.modelValue, null);
 });
 
-onBeforeUnmount(unmountTokenViews);
+// 元素列表变化（标注插入/删除）后重渲染，保证 tag 立刻出现
+watch(
+  () => props.elements,
+  () => {
+    if (!composing) {
+      render(currentSource(), caretOffset());
+    }
+  },
+  { deep: true },
+);
+
+onBeforeUnmount(() => {
+  hideElementTooltip();
+  if (tooltipEl?.parentElement) {
+    tooltipEl.parentElement.removeChild(tooltipEl);
+  }
+  tooltipEl = null;
+  unmountTokenViews();
+});
 
 defineExpose({
   focus: () => {
@@ -616,5 +755,64 @@ defineExpose({
 /* 技能 token：强调色，与附件引用区分 */
 .composer-token-skill {
   color: var(--color-accent);
+}
+
+/* 页面元素 tag：与技能同构（chip + icon + 名称），仅地球图标区分 */
+.composer-token-element {
+  color: var(--color-accent);
+  background: var(--color-chip-bg);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-line-soft));
+  padding: 1px 8px 1px 6px;
+  gap: 5px;
+}
+
+.composer-token-element .composer-token-icon {
+  color: var(--color-accent);
+}
+
+.composer-token-element .composer-token-name {
+  color: var(--color-txt-strong);
+  font-weight: 500;
+}
+
+.composer-token-element:hover {
+  background: var(--color-menu-active);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
+}
+
+.composer-token-element:hover .composer-token-name {
+  text-decoration: none;
+}
+
+/* 元素 tag 悬浮明细（挂在 body，避免被 editor overflow 裁切） */
+.composer-el-tooltip {
+  display: none;
+  position: fixed;
+  z-index: var(--z-tip, 90);
+  width: 280px;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-tip, var(--shadow-menu));
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-txt);
+}
+
+.composer-el-tooltip-title {
+  margin-bottom: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-txt-strong);
+}
+
+.composer-el-tooltip-row {
+  color: var(--color-mut);
+  word-break: break-all;
 }
 </style>

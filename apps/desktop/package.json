@@ -58,8 +58,11 @@
     "@zen/agent-core": "workspace:*",
     "@zen/skills": "workspace:*",
     "@zen/mcp-client": "workspace:*",
+    "@zen/tools-browser": "workspace:*",
+    "@zen/tools-terminal": "workspace:*",
     "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9",
+    "node-pty": "1.1.0",
     "rattail": "2.2.0"
   },
   "devDependencies": {

@@ -3,8 +3,8 @@
 | # | 需求 | 实现包 | 关键依赖 | Agent 工具名 | UI 组件 |
 |---|------|--------|----------|--------------|---------|
 | 1 | 文件编辑 | `tools/fs` + ui | CodeMirror 6, vue-codemirror, chokidar | `fs.read` `fs.write` `fs.edit` `fs.list` `fs.search` | Explorer, CodeMirror, MergeView |
-| 2 | 终端执行 | `tools/terminal` + desktop | node-pty, @xterm/xterm | `terminal.exec` `terminal.start_session` | TerminalPanel |
-| 3 | 内置浏览器 + 内容理解 | `tools/browser` + desktop | WebContentsView, executeJavaScript, Debugger(CDP) | `browser.open` `browser.snapshot` `browser.extract` `browser.click` `browser.type` | BrowserPanel |
+| 2 | 终端执行 | `tools/terminal` + desktop | node-pty, @xterm/xterm；系统默认 shell（`$SHELL` + login） | `terminal.exec` `terminal.start_session` | TerminalPanel（底部面板） |
+| 3 | 内嵌浏览器 + CDP | `tools/browser` + desktop | WebContentsView + CDP；**全应用 http(s) 链接优先右栏** | `browserOpen` … | BrowserPanel |
 | 4 | MCP | `mcp-client` | @modelcontextprotocol/client v2, @ai-sdk/mcp | `mcp.<server>.<tool>` | MCPManager |
 | 5 | Skills | `skills` | Agent Skills 标准（SKILL.md） | `skills.list` `skills.load` | SkillsPage |
 | 6 | 系统能力 | `tools/system` | Electron clipboard/notification | `system.clipboard` `system.notify` `system.open_path` `system.os_info` | — |
@@ -31,6 +31,7 @@ session:updated
 fs:watch
 pty:data / pty:resize
 browser:extract-result
+```
 auth:status-changed
 ```
 
@@ -53,5 +54,5 @@ GitHub token / LLM API Key：`safeStorage`（Linux 无密钥环时检测 `basic_
 ## 禁止
 
 - 渲染进程直接 `require('fs'|'child_process')`
-- keytar / BrowserView / BrowserView 时代 API / Squirrel.Windows
-- 把 Playwright 当作产品内浏览器
+- keytar / BrowserView 时代 API / Squirrel.Windows
+- 把 Playwright 当作产品内浏览器（产品浏览器 = WebContentsView + CDP；Playwright 仅可选作开发期 E2E）

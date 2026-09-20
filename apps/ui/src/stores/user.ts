@@ -113,11 +113,9 @@ export const useUserStore = defineStore("user", () => {
   }
 
   async function openExternal(url: string) {
-    const zen = window.zen;
-    if (!zen) {
-      return;
-    }
-    await zen.app.openExternal(url);
+    // http(s) 优先右栏浏览器；其余走系统
+    const { openAppLink } = await import("@/lib/open-link");
+    await openAppLink(url);
   }
 
   return {

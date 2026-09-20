@@ -15,16 +15,18 @@
 ## 3. 三件核心工具（P1）
 
 - [ ] `tools/fs` + CodeMirror 6 编辑/diff
-- [ ] `tools/terminal` + xterm/node-pty
+- [ ] `tools/terminal` + xterm/node-pty（系统默认 shell）
 - [ ] `tools/git` + simple-git
 - [ ] `agent-core` 接入 AI SDK v7 ToolLoopAgent，跑通「改文件 → 跑测试 → commit」
+- [x] WebContentsView + CDP 浏览器（元素选取 / snapshot / console / perf / 交互）
+- [x] 内置字体 MiSans + Maple Mono
 
 ## 4. 扩展（P2）
 
 - [ ] MCP client v2（stdio 本地 / HTTP 远程）
 - [ ] Agent Skills 加载（含 `.claude/skills` 兼容）
 - [x] GitHub Device Flow + safeStorage（见 `docs/auth/github-oauth-setup.md`）
-- [ ] WebContentsView 浏览器理解
+- [x] WebContentsView + CDP（产品内浏览器；内核随 Zen 应用更新）
 
 ## 5. 发布（P4）
 
