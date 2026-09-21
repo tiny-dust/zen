@@ -148,3 +148,23 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - **弹窗遮罩统一**：`DialogOverlay`/`DialogScrollContent` 的 `bg-black/10`、`bg-black/80` 全部改 `--color-scrim`，z 从写死 50 收敛到 `--z-overlay`（40）；对话框内容保持与 reka 浮层同层（DOM 顺序保证弹窗内下拉在上），`--z-modal` 标注为预留档（勿直接套内容层，否则弹窗内下拉会被盖）。
   - **反馈体系**：新增 `ui/toast`（`toast.ok/err/info`，走 `--z-toast: 90`）并挂载 `App.vue`；git store 的提交/分批提交/推送/切分支/建分支成败镜像到 toast（内联 `feedback` 保留）。
   - **交互修复**：会话信息卡分支触发器不再是裸"—"（由 EnvInfoSection 显示当前分支名）；BranchPicker 本地/远程分支补空态文案；设置页「更新源地址」改为失焦自动保存（与同页其他设置一致，去掉独立「保存」按钮），导航组「通用/常规」去重为「偏好」；用户块副标题统一为 `displaySub`（不再一侧「未登录」一侧「全功能可用」）；ModelPicker 供应商栏 Unicode `◎` 与选中 `✓` 改 lucide 图标。
+- 2026-09-21（设置弹窗与左侧会话列表治理）：
+  - **模型供应表单回归 `.field-row`**：`ProviderDetail`/`ProviderFields`/`ModelFormDialog` 曾退化为「标签在上、控件在下」的堆叠 FieldGroup（`.field-row` 全仓零引用），现全部改回 label 与控件同行（左标签 88px + 发丝线分隔）；控件高度统一 `h-8`、去掉逐个 `rounded-[10px]` 覆写；协议/端点下拉补 `w-full`；模型表单弹窗能力开关（工具/视觉/推理/媒体）改行式 Switch，删除与 chips 重复的能力徽标（zen-001）。
+  - **模型行列表化**：`ProviderModelList` 模型行从逐行描边卡片（44px）回归 30px `.list-row`（标题 + mono ID + 能力摘要 + 行尾 Switch/编辑），选中态用 `--color-menu-active`；搜索框与侧栏同构（图标内嵌 Input）。
+  - **「删除此供应商」危险化**：ghost 手工染色改 `variant="destructive"`（对齐 09-15 决策）。
+  - **会话行重排（`SessionRow`）**：删除行首常驻空槽（隐藏置顶按钮 28px + 状态占位 20px 曾把标题挤到 ~120px），状态图标与置顶指示改为出现时才内联占位，标题占满整行；置顶/归档/删除收纳行尾操作簇，hover/聚焦时 max-width 折叠展开（不用底色补丁，避免与半透明 hover token 叠加色差）；「需要操作」文字标签去掉，由图标形状 + tooltip 表达。
+  - **侧栏「新建工作区」修复**：`sectionLabelCls` 缺 `group/section` 导致 + 按钮除键盘聚焦外永久隐形，补上分组类。
+  - 验证：`vue-tsc`、vitest 122 用例、dev server 内 OCR+几何复查（同行字段、30px 行、无横向溢出、无控制台报错）。
+- 2026-09-21（第二批 · 悬浮面板 / 会话列表 / 图片 / 终端着色 / sqlite 域）：
+  - **悬浮面板「子 Agent」节空态隐藏**：无子 Agent 时整节（含空态文案）不渲染，其余节照常（用户确认仅隐藏节，不隐藏整卡）。
+  - **设置弹窗左菜单对齐**：导航项 Button 继承 shadcn `justify-center` 导致每行内容居中、图标/文字左缘随标签宽度漂移，补 `justify-start`；「设置」标题 `px-2`→`px-2.5` 与分组标签、搜索框对齐（图标列 24px / 文字列 48px，几何实测）。
+  - **公共区单层化**：删除「公共会话」内层组行，「公共区」节头直接承担分组职责（Globe 图标 + 计数 + hover 新建会话），消除两层重复标签；`groupOpen` 去掉当前组强制展开，修掉「点折叠无反馈」异常（展开分组时经 `setActive` 自动展开）。
+  - **会话行操作簇底色**：行尾置顶/归档/删除簇改不透明 `--color-side-chip(-active)`（dark `#262626`/`#313131` = white 8%/12% 叠 `--color-side` 的等价值），盖住跑马灯滚进按钮区的标题，图标不再与文字叠混。
+  - **消息图片**：markdown 图片本地引用（路径/file://）在 parser 层改写为 `data:image/svg+xml` 标记（harden 放行 data:image），`uiComponents.Image` 换成 `ResponseImage`——反解标记后经 `workspace:preview-file` 换 data URL，响应式缓存 `local-image-cache.ts`；http(s) 图片原样渲染。
+  - **终端输出 ANSI 着色**：`runTerminal` 结果含转义序列时按 SGR 片段着色（`ansi.ts`：16 色 xterm Tango 板、256 色、真彩色、反显、粗/斜/下划线/删除线，剥光标移动/OSC/孤立 CR），与底部终端观感一致；无转义仍走纯文本快路径。
+  - **AI 问询卡上移**：`AskUserCard` 从对话区 sticky 顶移到 composer 上方（附件列表之上），回答动作紧邻输入位置；`ApprovalCard` 维持对话区顶部。
+  - **文件浏览器图片**：`FileViewer` 图片扩展名走 `preview-file` 渲染 `<img>`（点击在适应面板/原始尺寸间切换），不进 CodeMirror、不可编辑。
+  - **独立文件预览面板**：悬浮面板「参考 · 用户上传」点击改为打开 `FilePreviewDialog`（图片缩放/文本只读/二进制提示，reka Dialog），不再走右侧文件浏览器；项目文件仍定位文件面板。
+  - **sqlite 落 ~/.zen**：`model-db-connection` 迁到 `~/.zen/db/zen.sqlite`（ADR-004 用户域），旧 `userData/db` 三件套（-wal/-shm）首次启动整体搬迁，跨盘失败回落旧路径不阻塞。
+  - **自动会话标题**：首条消息发送即记 `autoTitleSessionId`，run 完成走 `session:auto-title`（main 侧 `completeOnce` 生成 ≤20 字标题，净化引号/换行，模型不可用返回 null），成功后沿用 rename 链路落库；等待期间切会话/手动改名则放弃。
+  - 验证：`vue-tsc` / desktop `tsc`、vitest 135 用例（含 ansi 10 例、parser 标记 3 例）、dev server 几何复查（设置导航图标列 25px 齐线、悬浮面板无子 Agent 节）。
