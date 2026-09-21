@@ -28,8 +28,8 @@ function isKnown(id: string) {
     <div class="flex items-center justify-between gap-2 border-b border-[var(--color-line-soft)] px-2.5 py-2 text-[11px] text-[var(--color-mut)]">
       <span>已拉取 {{ rows.length }} 个模型，勾选后添加</span>
       <span class="flex gap-2.5">
-        <button type="button" class="text-[11px] text-[var(--color-link)] hover:underline" @click="emit('all')">全选</button>
-        <button type="button" class="text-[11px] text-[var(--color-link)] hover:underline" @click="emit('clear')">清空</button>
+        <Button variant="link" class="h-auto px-0 text-[11px] font-normal text-[var(--color-link)]" @click="emit('all')">全选</Button>
+        <Button variant="link" class="h-auto px-0 text-[11px] font-normal text-[var(--color-link)]" @click="emit('clear')">清空</Button>
       </span>
     </div>
     <div class="max-h-[220px] overflow-auto">

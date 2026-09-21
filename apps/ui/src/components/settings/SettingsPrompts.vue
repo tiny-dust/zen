@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentStore } from "@/stores/agent";
 
@@ -161,15 +162,15 @@ watch(
         。
       </p>
       <div class="grid gap-2 sm:grid-cols-2">
-        <button
+        <Button
           v-for="preset in presets"
           :key="preset.id"
-          type="button"
-          class="rounded-xl border p-3 text-left transition-colors"
+          variant="ghost"
+          class="h-auto flex flex-col whitespace-normal rounded-xl border p-3 text-left font-normal transition-colors"
           :class="
             settings.prompt.presetId === preset.id
-              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
-              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]'
+              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
           "
           :aria-pressed="settings.prompt.presetId === preset.id"
           @click="selectPreset(preset.id)"
@@ -192,14 +193,14 @@ watch(
           <p class="m-0 mt-1 truncate text-[10.5px] text-[var(--color-dim)]">
             来源：{{ preset.origin }}
           </p>
-        </button>
-        <button
-          type="button"
-          class="rounded-xl border p-3 text-left transition-colors"
+        </Button>
+        <Button
+          variant="ghost"
+          class="h-auto flex flex-col whitespace-normal rounded-xl border p-3 text-left font-normal transition-colors"
           :class="
             settings.prompt.presetId === 'custom'
-              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
-              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]'
+              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
           "
           :aria-pressed="settings.prompt.presetId === 'custom'"
           @click="selectPreset('custom')"
@@ -208,7 +209,7 @@ watch(
           <p class="m-0 mt-1 text-[11.5px] text-[var(--color-mut)]">
             完全按你的规则约束 Agent 的行为与输出。
           </p>
-        </button>
+        </Button>
       </div>
     </section>
 
@@ -221,30 +222,30 @@ watch(
         </h3>
         <span class="text-[11px] font-normal text-[var(--color-dim)]">{{ previewChars }} 字符</span>
         <div class="ml-auto flex items-center gap-1">
-          <button
+          <Button
             v-for="ver in availableVersions"
             :key="ver.id"
-            type="button"
-            class="rounded-md border px-2 py-0.5 text-[11px] transition-colors"
+            variant="ghost"
+            class="h-auto rounded-md border px-2 py-0.5 text-[11px] font-normal transition-colors"
             :class="
               viewVersion === ver.id
-                ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-[var(--color-txt-strong)]'
-                : 'border-[var(--color-line)] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)]'
+                ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]'
+                : 'border-[var(--color-line)] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
             :aria-pressed="viewVersion === ver.id"
             @click="viewVersion = ver.id"
           >
             {{ ver.label }}
-          </button>
-          <button
+          </Button>
+          <Button
             v-if="previewId !== 'custom' && previewText"
-            type="button"
-            class="ml-1 rounded-md border border-[var(--color-line)] px-2 py-0.5 text-[11px] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)]"
+            variant="outline"
+            class="h-auto ml-1 rounded-md border-[var(--color-line)] bg-transparent px-2 py-0.5 text-[11px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-mut)] dark:hover:bg-[var(--color-menu-hover)]"
             title="把当前预览全文写入自定义提示词并立即生效"
             @click="applyPreviewAsCustom"
           >
             用此版本
-          </button>
+          </Button>
         </div>
       </div>
       <p class="m-0 text-[11.5px] text-[var(--color-mut)]">

@@ -211,6 +211,8 @@ export interface ZenApi {
       providerId: string;
       modelId: string;
     }): Promise<{ ok: boolean; report?: string; error?: string }>;
+    /** 订阅一键分析的流式增量（skills:analyze 期间 main 定向推送） */
+    onAnalyzeEvent(handler: (event: { text: string }) => void): () => void;
     userRoot(): Promise<string>;
   };
   mcp: {
@@ -243,6 +245,11 @@ export interface ZenApi {
       messages: ChatMessage[];
       taskLists?: Array<{ version: number; items: import("@zen/shared").TaskItem[]; createdAt?: number }>;
     } | null>;
+    /** 渲染层自建消息落库（上下文压缩摘要卡）；main 侧会校验并拒绝非法载荷 */
+    appendMessage(
+      sessionId: string,
+      message: ChatMessage,
+    ): Promise<{ ok: boolean; error?: string }>;
     rename(id: string, title: string): Promise<void>;
     setDraft(id: string, draft: string): Promise<void>;
     pin(id: string, pinned: boolean): Promise<void>;

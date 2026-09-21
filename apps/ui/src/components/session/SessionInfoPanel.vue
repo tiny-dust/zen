@@ -2,10 +2,12 @@
 import { nextTick, ref } from "vue";
 import { classes } from "rattail";
 
+import AgentsSection from "@/components/session/AgentsSection.vue";
 import CommitPanel from "@/components/session/CommitPanel.vue";
 import EnvInfoSection from "@/components/session/EnvInfoSection.vue";
 import ReferencesSection from "@/components/session/ReferencesSection.vue";
 import TaskListSection from "@/components/session/TaskListSection.vue";
+import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
 
 withDefaults(
@@ -55,11 +57,13 @@ async function openCommitPanel() {
         : 'flex h-full min-w-0 flex-col overflow-hidden bg-transparent p-2'
     "
     aria-label="会话信息"
+    data-select-text
   >
 
     <div :class="embedded ? 'flex flex-col gap-4' : cardCls">
       <EnvInfoSection @open-commit="openCommitPanel" />
       <TaskListSection :class="dividerCls" />
+      <AgentsSection :class="dividerCls" />
       <ReferencesSection :class="dividerCls" />
     </div>
 
@@ -70,9 +74,9 @@ async function openCommitPanel() {
       v-if="gitStore.commitPanelOpen"
       class="pointer-events-none fixed inset-0 z-[var(--z-popup)]"
     >
-      <button
-        type="button"
-        class="pointer-events-auto absolute inset-0 cursor-default"
+      <Button
+        variant="ghost"
+        class="pointer-events-auto absolute inset-0 h-auto cursor-default hover:bg-transparent dark:hover:bg-transparent"
         aria-label="关闭提交面板"
         @click="gitStore.commitPanelOpen = false"
       />

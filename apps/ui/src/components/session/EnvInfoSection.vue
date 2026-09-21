@@ -15,6 +15,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
+import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
 import { openAppLink } from "@/lib/browser-element";
 import { useGitStore } from "@/stores/git";
@@ -82,21 +83,23 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
           {{ contextUsage }}%
         </span>
-        <button
+        <Button
           v-if="chatStore.hasMessages"
-          type="button"
+          variant="ghost"
+          size="icon-sm"
           class="flex-none text-[var(--color-dim)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
           aria-label="压缩上下文：更早对话折叠为摘要"
           title="压缩上下文：把更早对话折叠成「目标/进度/变更」摘要，下一次发送生效"
           @click="chatStore.compressNow()"
         >
           <FoldVertical class="size-3.5" aria-hidden="true" />
-        </button>
+        </Button>
       </div>
 
       <!-- 变更文件 -->
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="actionCls"
         :disabled="!gitStore.hasChanges && !gitStore.loading"
         @click="gitStore.openChangesPanel()"
@@ -113,13 +116,16 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
           <span class="text-[var(--color-del)]">&nbsp;-{{ gitStore.totalDel }}</span>
         </span>
         <ChevronRight class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-      </button>
+      </Button>
 
       <!-- 当前分支 -->
       <div ref="branchAnchor" class="relative flex flex-col">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
           :class="actionCls"
+          aria-label="切换分支"
+          :title="branch ? `当前分支：${branch}（点击切换）` : '选择分支'"
           @click="
             gitStore.branchPickerOpen = !gitStore.branchPickerOpen;
             if (gitStore.branchPickerOpen) gitStore.refreshBranches();
@@ -127,7 +133,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
         >
           <GitBranch :class="envIconCls" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[12px]">
-            {{ branch || "—" }}
+            {{ branch || "选择分支" }}
           </span>
           <span
             v-if="gitStore.status?.ahead || gitStore.status?.behind"
@@ -142,7 +148,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
             </span>
           </span>
           <ChevronDown class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-        </button>
+        </Button>
         <div
           v-if="gitStore.branchPickerOpen"
           class="absolute top-full right-0 left-0 z-[var(--z-popup)] mt-1"
@@ -152,10 +158,15 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
       </div>
 
       <!-- 提交或推送 -->
-      <button type="button" :class="actionCls" @click="emit('openCommit')">
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
+        :class="actionCls"
+        @click="emit('openCommit')"
+      >
         <GitPullRequestArrow :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">提交或推送</span>
-      </button>
+      </Button>
       <div :class="noteIndentCls">
         <span class="min-w-0 flex-1 truncate">
           {{ gitStore.pullRequest ? prLabel : "当前分支暂无拉取请求" }}

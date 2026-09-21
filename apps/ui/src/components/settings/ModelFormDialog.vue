@@ -309,20 +309,20 @@ function protocolOptions() {
         <div>
           <div class="mb-2 text-[12px] text-[var(--color-mut)]">思考强度</div>
           <div class="flex flex-wrap gap-1.5">
-            <button
+            <Button
               v-for="opt in EFFORT_CHIPS"
               :key="opt.id"
-              type="button"
-              class="min-h-[30px] rounded-lg border px-3 text-[12.5px]"
+              variant="ghost"
+              class="h-auto min-h-[30px] rounded-lg border px-3 text-[12.5px] font-normal"
               :class="
                 isEffortActive(opt.id)
-                  ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-[var(--color-txt-strong)]'
-                  : 'border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[var(--color-txt)]'
+                  ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)]'
+                  : 'border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[var(--color-txt)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]'
               "
               @click="toggleEffort(opt.id)"
             >
               {{ opt.label }}
-            </button>
+            </Button>
           </div>
           <div v-if="form.reasoning" class="mt-2 flex flex-wrap gap-1">
             <CapabilityBadge

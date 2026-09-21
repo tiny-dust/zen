@@ -1,34 +1,15 @@
 <script setup lang="ts">
-import {
-  Bot,
-  CheckCircle2,
-  ChevronRight,
-  CircleDashed,
-  Clock3,
-  Loader2,
-  XCircle,
-} from "@lucide/vue";
+import { ChevronRight } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 
-import { useAgentsStore } from "@/stores/agents";
+import { Button } from "@/components/ui/button";
+import { SUB_AGENT_STATUS_META, useAgentsStore } from "@/stores/agents";
 
 import type { SubAgentStatus } from "@zen/shared";
 
 const agentsStore = useAgentsStore();
 const { nodes, root, selected, selectedId, limit, running } = storeToRefs(agentsStore);
-
-const statusMeta: Record<
-  SubAgentStatus,
-  { label: string; icon: typeof Bot; cls: string }
-> = {
-  queued: { label: "排队", icon: CircleDashed, cls: "text-[var(--color-mut)]" },
-  waiting: { label: "等待依赖", icon: Clock3, cls: "text-[var(--color-dim)]" },
-  running: { label: "运行中", icon: Loader2, cls: "text-[var(--color-accent)]" },
-  done: { label: "完成", icon: CheckCircle2, cls: "text-[var(--color-ok,#3d9a6a)]" },
-  error: { label: "失败", icon: XCircle, cls: "text-[var(--color-err,#c45c5c)]" },
-  cancelled: { label: "已取消", icon: XCircle, cls: "text-[var(--color-dim)]" },
-};
 
 const listItems = computed(() => {
   const items: Array<{ id: string; name: string; status: SubAgentStatus; task: string; depth: number; attempts: string; dependsOn: string[] }> = [];
@@ -58,7 +39,7 @@ const listItems = computed(() => {
 });
 
 function meta(status: SubAgentStatus) {
-  return statusMeta[status] ?? statusMeta.queued;
+  return SUB_AGENT_STATUS_META[status] ?? SUB_AGENT_STATUS_META.queued;
 }
 </script>
 
@@ -81,13 +62,13 @@ function meta(status: SubAgentStatus) {
       </p>
       <ul v-else class="m-0 list-none p-1">
         <li v-for="item in listItems" :key="item.id">
-          <button
-            type="button"
-            class="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left"
+          <Button
+            variant="ghost"
+            class="flex h-auto w-full items-start justify-start gap-2 rounded-lg px-2 py-1.5 text-left font-normal"
             :class="
               selectedId === item.id
-                ? 'bg-[var(--color-menu-active)]'
-                : 'hover:bg-[var(--color-menu-hover)]'
+                ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]'
+                : 'hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
             :style="{ paddingLeft: `${8 + item.depth * 14}px` }"
             @click="agentsStore.select(item.id)"
@@ -107,7 +88,7 @@ function meta(status: SubAgentStatus) {
               <span class="mt-0.5 block truncate text-[11px] text-[var(--color-dim)]">{{ item.task }}</span>
             </span>
             <ChevronRight class="mt-0.5 size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-          </button>
+          </Button>
         </li>
       </ul>
     </div>

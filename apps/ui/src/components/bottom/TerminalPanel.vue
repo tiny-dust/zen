@@ -9,32 +9,24 @@ import {
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
-
-import { openAppLink } from "@/lib/open-link";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useTerminalPanes } from "@/composables/useTerminalPanes";
 import { useTerminalStore } from "@/stores/terminal";
 
 import type { TerminalSessionInfo } from "@zen/shared";
 
 const terminalStore = useTerminalStore();
-const { error, sessions, activeId, splitMode, visibleSessions, fontInfo } =
-  storeToRefs(terminalStore);
+const { error, sessions, activeId, splitMode, visibleSessions } = storeToRefs(terminalStore);
+const { entries, setHostRef, mountVisible, disposeEntry, startResizeObserver } =
+  useTerminalPanes();
 
-type TermEntry = { term: Terminal; fit: FitAddon; host: HTMLElement };
-
-const hostEls = ref(new Map<string, HTMLElement>());
-const entries = new Map<string, TermEntry>();
-const booting = new Set<string>();
 const renamingId = ref("");
 const renameDraft = ref("");
-const renameInputEl = ref<HTMLInputElement | null>(null);
+const renameInputEl = ref<InstanceType<typeof Input> | null>(null);
 let unbind: (() => void) | null = null;
-let ro: ResizeObserver | null = null;
 let ipcDataOff: (() => void) | null = null;
 
 const isSplit = computed(() => splitMode.value !== "none");
@@ -61,152 +53,10 @@ function treeStatus(item: TerminalSessionInfo): { label: string; tone: string } 
   return { label: "", tone: "" };
 }
 
-/** 优先系统终端字体（仅内部使用，不在 UI 展示） */
-function fontStack(): string {
-  return (
-    fontInfo.value.fontFamily ||
-    getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() ||
-    '"MesloLGS NF", "0xProto Nerd Font", Menlo, monospace'
-  );
-}
-
-function fontSizePx(): number {
-  return fontInfo.value.fontSize || 12;
-}
-
-function setHostRef(id: string, el: unknown) {
-  if (el instanceof HTMLElement) {
-    hostEls.value.set(id, el);
-  } else {
-    hostEls.value.delete(id);
-  }
-}
-
 function setRenameInput(el: unknown) {
-  if (el instanceof HTMLInputElement) {
-    renameInputEl.value = el;
-  }
+  // Input 是封装组件，函数 ref 收到的是组件实例（expose focus/blur/select）
+  renameInputEl.value = (el as InstanceType<typeof Input> | null) ?? null;
 }
-
-async function createEntry(id: string, host: HTMLElement): Promise<TermEntry> {
-  const existing = entries.get(id);
-  if (existing) {
-    existing.term.dispose();
-    entries.delete(id);
-  }
-  const term = new Terminal({
-    fontFamily: fontStack(),
-    fontSize: fontSizePx(),
-    lineHeight: 1.35,
-    cursorBlink: true,
-    convertEol: true,
-    scrollback: 5000,
-    allowProposedApi: true,
-    logLevel: "warn",
-    theme: {
-      background: "#141414",
-      foreground: "#d8d8d4",
-      cursor: "#ff6a2b",
-      selectionBackground: "#3a3a3a",
-    },
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  try {
-    const { WebLinksAddon } = await import("@xterm/addon-web-links");
-    term.loadAddon(
-      new WebLinksAddon((_event, uri) => {
-        void openAppLink(uri);
-      }),
-    );
-  } catch {
-    // optional
-  }
-  term.open(host);
-  fit.fit();
-  term.onData((data) => {
-    void terminalStore.write(data, id);
-  });
-  const entry: TermEntry = { term, fit, host };
-  entries.set(id, entry);
-  const buf = terminalStore.getBuffer(id);
-  if (buf) {
-    term.write(buf);
-  }
-  return entry;
-}
-
-function disposeEntry(id: string) {
-  const entry = entries.get(id);
-  if (!entry) {
-    return;
-  }
-  entry.term.dispose();
-  entries.delete(id);
-}
-
-async function mountPane(id: string) {
-  if (!id || booting.has(id)) {
-    return;
-  }
-  booting.add(id);
-  try {
-    await nextTick();
-    const host = hostEls.value.get(id);
-    if (!host) {
-      return;
-    }
-    const existing = entries.get(id);
-    if (existing && existing.host === host) {
-      existing.fit.fit();
-      void terminalStore.resize(existing.term.cols, existing.term.rows, id);
-      if (id === activeId.value) {
-        existing.term.focus();
-      }
-      ro?.observe(host);
-      return;
-    }
-    const entry = await createEntry(id, host);
-    entry.fit.fit();
-    void terminalStore.resize(entry.term.cols, entry.term.rows, id);
-    if (id === activeId.value) {
-      entry.term.focus();
-    }
-    ro?.observe(host);
-  } finally {
-    booting.delete(id);
-  }
-}
-
-async function mountVisible() {
-  const ids = visibleSessions.value.map((item) => item.id);
-  if (!ids.length && activeId.value) {
-    ids.push(activeId.value);
-  }
-  for (const id of ids) {
-    await mountPane(id);
-  }
-}
-
-watch(activeId, async () => {
-  await mountVisible();
-});
-watch(splitMode, async () => {
-  await mountVisible();
-});
-watch(
-  () => visibleSessions.value.map((item) => item.id).join(","),
-  async () => {
-    const alive = new Set(sessions.value.map((item) => item.id));
-    for (const id of [...entries.keys()]) {
-      if (!alive.has(id)) {
-        disposeEntry(id);
-        hostEls.value.delete(id);
-      }
-    }
-    await mountVisible();
-  },
-);
 
 onMounted(async () => {
   unbind = terminalStore.bindEvents();
@@ -217,16 +67,7 @@ onMounted(async () => {
       entries.get(event.sessionId)?.term.write(event.data);
     });
   }
-  ro = new ResizeObserver(() => {
-    for (const item of visibleSessions.value) {
-      const entry = entries.get(item.id);
-      if (!entry) {
-        continue;
-      }
-      entry.fit.fit();
-      void terminalStore.resize(entry.term.cols, entry.term.rows, item.id);
-    }
-  });
+  startResizeObserver();
   await nextTick();
   if (!terminalStore.sessions.length) {
     await terminalStore.start(undefined, 80, 24);
@@ -239,10 +80,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   ipcDataOff?.();
   unbind?.();
-  ro?.disconnect();
-  for (const id of [...entries.keys()]) {
-    disposeEntry(id);
-  }
 });
 
 function beginRename(id: string) {
@@ -430,21 +267,22 @@ async function openExternal() {
           />
           <SquareTerminal class="size-3.5 flex-none" aria-hidden="true" />
 
-          <button
+          <Button
             v-if="renamingId !== item.id"
-            type="button"
-            class="min-w-0 flex-1 truncate text-left text-[12px]"
+            variant="ghost"
+            class="h-auto min-w-0 flex-1 justify-start rounded-none px-0 text-left font-normal text-[12px] md:text-[12px] hover:bg-transparent dark:hover:bg-transparent hover:text-inherit"
             :title="item.cwd"
             @click="onSelectSession(item.id)"
             @dblclick="beginRename(item.id)"
           >
             {{ terminalStore.displayName(item.id, index) }}
-          </button>
-          <input
+          </Button>
+          <Input
             v-else
             :ref="(el) => setRenameInput(el)"
             v-model="renameDraft"
-            class="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--color-txt)] outline-none"
+            variant="ghost"
+            class="min-w-0 flex-1 text-[12px] md:text-[12px] text-[var(--color-txt)]"
             aria-label="重命名终端"
             @keydown.enter="commitRename"
             @keydown.esc="cancelRename"

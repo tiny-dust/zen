@@ -192,11 +192,11 @@ function endpointText(config: McpServerConfig): string {
         点击即预填表单；带 {path}/{token} 占位或需 OAuth 的服务，补全后添加。
       </p>
       <div class="flex flex-wrap gap-1.5">
-        <button
+        <Button
           v-for="preset in MCP_SERVER_PRESETS"
           :key="preset.id"
-          type="button"
-          class="group flex items-center gap-1.5 rounded-full border border-[var(--color-line)] px-2.5 py-1 text-left text-[11.5px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-txt-dim)] hover:text-[var(--color-txt)]"
+          variant="ghost"
+          class="group h-auto flex items-center gap-1.5 rounded-full border border-[var(--color-line)] px-2.5 py-1 text-left text-[11.5px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-txt-dim)] hover:text-[var(--color-txt)] hover:bg-transparent dark:hover:bg-transparent"
           :title="`${preset.description}${preset.requires?.length ? `（${preset.requires.join('；')}）` : ''}`"
           @click="applyPreset(preset)"
         >
@@ -205,7 +205,7 @@ function endpointText(config: McpServerConfig): string {
           <span class="text-[10px] text-[var(--color-dim)]">
             {{ transportLabel[preset.transport] }}
           </span>
-        </button>
+        </Button>
       </div>
     </section>
 
@@ -298,7 +298,7 @@ function endpointText(config: McpServerConfig): string {
           <span class="min-w-0 flex-1" />
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="sm"
             :aria-label="item.config.enabled ? '禁用' : '启用'"
             @click="toggleServer(item.config)"
           >

@@ -81,13 +81,14 @@ const ghostActionCls = classes(
 
 <template>
   <div :class="rowCls" :aria-current="active ? 'true' : undefined">
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       :class="[
         slotCls,
         'flex-none',
         session.pinned
-          ? 'text-[var(--color-accent)]'
+          ? 'text-[var(--color-accent)] hover:text-[var(--color-accent)]'
           : [
               'text-[var(--color-mut)] opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 hover:text-[var(--color-txt-strong)]',
               active && 'opacity-100',
@@ -102,7 +103,7 @@ const ghostActionCls = classes(
         :class="session.pinned ? '-rotate-45' : ''"
         aria-hidden="true"
       />
-    </button>
+    </Button>
 
     <span
       v-if="statusMeta"
@@ -134,9 +135,9 @@ const ghostActionCls = classes(
     </span>
     <span v-else class="size-5 flex-none" aria-hidden="true" />
 
-    <button
-      type="button"
-      class="flex h-9 min-w-0 flex-1 items-center gap-1.5 pl-0.5 text-left"
+    <Button
+      variant="ghost"
+      class="h-9 flex min-w-0 flex-1 items-center gap-1.5 pl-0.5 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
       @click="emit('open')"
     >
       <span :class="titleCls">{{ session.title }}</span>
@@ -152,7 +153,7 @@ const ghostActionCls = classes(
       >
         {{ statusMeta.label }}
       </span>
-    </button>
+    </Button>
 
     <div class="flex flex-none items-center gap-px">
       <Button

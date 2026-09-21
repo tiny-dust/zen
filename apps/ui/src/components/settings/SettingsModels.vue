@@ -176,11 +176,11 @@ async function confirmRemoveProvider() {
         </Button>
       </div>
       <div class="flex flex-col gap-0.5 p-[5px]">
-        <button
+        <Button
           v-for="provider in providers"
           :key="provider.id"
-          type="button"
-          :class="railClass(provider.id)"
+          variant="ghost"
+          :class="[railClass(provider.id), 'h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]']"
           :title="provider.name"
           @click="selectProvider(provider)"
         >
@@ -189,7 +189,7 @@ async function confirmRemoveProvider() {
           <span class="shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
             {{ provider.models.filter((m) => m.enabled).length }}/{{ provider.models.length }}
           </span>
-        </button>
+        </Button>
         <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">暂无供应商</p>
       </div>
     </aside>

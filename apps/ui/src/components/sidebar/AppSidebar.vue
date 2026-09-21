@@ -184,18 +184,18 @@ const navBtnCls =
     </header>
 
     <div class="flex flex-col gap-1 px-2 pb-1 pt-1">
-      <button type="button" :class="navBtnCls" @click="chatStore.newTask()">
+      <Button variant="ghost" :class="[navBtnCls, 'font-normal dark:hover:bg-[var(--color-side-hover)]']" @click="chatStore.newTask()">
         <Plus class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         <span>新建任务</span>
-      </button>
-      <button type="button" :class="navBtnCls" @click="skillsOpen = true">
+      </Button>
+      <Button variant="ghost" :class="[navBtnCls, 'font-normal dark:hover:bg-[var(--color-side-hover)]']" @click="skillsOpen = true">
         <Sparkles class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         <span>技能</span>
-      </button>
-      <button type="button" :class="navBtnCls" @click="mcpOpen = true">
+      </Button>
+      <Button variant="ghost" :class="[navBtnCls, 'font-normal dark:hover:bg-[var(--color-side-hover)]']" @click="mcpOpen = true">
         <Cable class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         <span>MCP</span>
-      </button>
+      </Button>
     </div>
 
     <div class="px-2 pb-1">
@@ -224,9 +224,9 @@ const navBtnCls =
           </span>
         </div>
         <div :class="groupRowCls(groupActive('common'))">
-          <button
-            type="button"
-            class="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-left text-[12.5px]"
+          <Button
+            variant="ghost"
+            class="h-full flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-[12.5px] font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-inherit"
             :aria-expanded="groupOpen('common')"
             @click="onGroupToggle('common')"
           >
@@ -240,7 +240,7 @@ const navBtnCls =
               v-if="groupActive('common')"
               class="ml-auto text-[10px] text-[var(--color-mut)]"
             >当前组</span>
-          </button>
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -296,9 +296,9 @@ const navBtnCls =
 
         <div v-for="group in workspaceGroups" :key="group.id" class="mb-0.5">
           <div :class="groupRowCls(groupActive(group.id))">
-            <button
-              type="button"
-              class="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-left text-[12.5px]"
+            <Button
+              variant="ghost"
+              class="h-full flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-[12.5px] font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-inherit"
               :aria-expanded="groupOpen(group.id)"
               :aria-label="`${group.name}`"
               @click="onGroupToggle(group.id)"
@@ -329,7 +329,7 @@ const navBtnCls =
                 v-if="groupActive(group.id)"
                 class="flex-none text-[10px] text-[var(--color-mut)]"
               >当前组</span>
-            </button>
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -360,14 +360,14 @@ const navBtnCls =
               @archive="onArchiveSession(session, $event)"
               @remove="pendingSessionDelete = session"
             />
-            <button
+            <Button
               v-if="group.sessions.filter((item) => !item.archived).length > workspaceStore.PREVIEW_COUNT"
-              type="button"
-              class="flex h-7 w-full items-center rounded-[var(--radius-sm)] px-8 text-left text-[11px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+              variant="ghost"
+              class="h-7 flex w-full items-center rounded-[var(--radius-sm)] px-8 text-left text-[11px] font-normal text-[var(--color-dim)] hover:text-[var(--color-mut)] hover:bg-transparent dark:hover:bg-transparent"
               @click="workspaceStore.toggleExpanded(group.id)"
             >
               {{ workspaceStore.expanded.has(group.id) ? "收起列表" : `展开全部 ${group.sessions.filter((item) => !item.archived).length} 条` }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

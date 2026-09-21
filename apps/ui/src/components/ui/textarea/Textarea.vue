@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import type { TextareaVariants } from '.'
 import { useVModel } from '@vueuse/core'
+import { ref } from 'vue'
 import { cn } from '@/lib/utils'
+import { textareaVariants } from '.'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   class?: HTMLAttributes['class']
   defaultValue?: string | number
   modelValue?: string | number
-}>()
+  /** default：带边框表单输入；ghost：无边框透明，用于内嵌面板、行内编辑等场景 */
+  variant?: TextareaVariants['variant']
+}>(), {
+  variant: 'default',
+})
 
 const emits = defineEmits<{
   (e: 'update:modelValue', payload: string | number): void
@@ -17,12 +24,21 @@ const modelValue = useVModel(props, 'modelValue', emits, {
   passive: true,
   defaultValue: props.defaultValue,
 })
+
+const textareaEl = ref<HTMLTextAreaElement | null>(null)
+
+defineExpose({
+  focus: () => textareaEl.value?.focus(),
+  blur: () => textareaEl.value?.blur(),
+  select: () => textareaEl.value?.select(),
+})
 </script>
 
 <template>
   <textarea
+    ref="textareaEl"
     v-model="modelValue"
     data-slot="textarea"
-    :class="cn('border-border focus-visible:border-ring aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 rounded-lg border bg-transparent px-2.5 py-2 text-base transition-colors md:text-sm flex field-sizing-content min-h-16 w-full outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50', props.class)"
+    :class="cn(textareaVariants({ variant }), props.class)"
   />
 </template>

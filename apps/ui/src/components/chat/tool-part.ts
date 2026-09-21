@@ -1,10 +1,14 @@
 import {
+  Bot,
   FilePen,
   FileSearch,
   FileText,
+  FoldVertical,
   FolderOpen,
   Globe,
   HelpCircle,
+  Hourglass,
+  Inbox,
   ListTodo,
   Plug,
   Sparkles,
@@ -98,11 +102,24 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
       return { icon: ListTodo, label: "更新任务清单" };
     case "askUser":
       return { icon: HelpCircle, label: "询问用户" };
+    case "contextCompact":
+      // 渲染层自建卡：上下文压缩摘要（output 为折叠后的会话摘要全文）
+      return { icon: FoldVertical, label: "上下文压缩" };
+    // 多 Agent 协作工具（multi-agent buildTools）
+    case "spawnAgent":
+      return { icon: Bot, label: "派发子任务" };
+    case "listAgents":
+      return { icon: ListTodo, label: "查看子任务" };
+    case "waitForAgents":
+      return { icon: Hourglass, label: "等待子任务" };
+    case "collectAgentResults":
+      return { icon: Inbox, label: "汇总子任务结果" };
     default:
       if (toolName.startsWith("mcp.")) {
         return { icon: Plug, label: `MCP · ${toolName.slice(4)}` };
       }
-      return { icon: Wrench, label: toolName };
+      // 展示统一中文：未映射的工具名是内部标识符，不直接外显
+      return { icon: Wrench, label: "调用工具" };
   }
 }
 

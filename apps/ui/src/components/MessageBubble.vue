@@ -309,25 +309,27 @@ function editContent() {
       >
         {{ formatTime(message.createdAt) }}
       </time>
-      <button
-        type="button"
-        class="flex size-6 items-center justify-center rounded-md hover:text-[var(--color-txt-strong)]"
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
         :aria-label="copied ? '已复制' : '复制消息'"
         :title="copied ? '已复制' : '复制'"
         @click="copyContent"
       >
         <Check v-if="copied" class="size-3.5" />
         <Copy v-else class="size-3.5" />
-      </button>
-      <button
-        type="button"
-        class="flex size-6 items-center justify-center rounded-md hover:text-[var(--color-txt-strong)]"
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
         aria-label="编辑消息"
         title="编辑"
         @click="editContent"
       >
         <Pencil class="size-3.5" />
-      </button>
+      </Button>
     </div>
 
     <div

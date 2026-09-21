@@ -88,9 +88,11 @@
   --color-file-olive: #b0a060;
   --color-file-media: #d87858;
 
-  /* 层级刻度：弹窗遮罩 40 < reka 浮层 50 < 对话框 70 < 提示 90（后两档预留）；
+  /* 层级刻度：弹窗遮罩 40 < reka 浮层 50 < 提示 90（后两档预留）；
      壳体（标题栏/侧栏/面板）走正常文档流，不占层级。
-     铁律：遮罩必须低于浮层，否则弹窗里的下拉会被遮住。 */
+     铁律：遮罩必须低于浮层，否则弹窗里的下拉会被遮住。
+     注意：对话框内容与 reka 浮层同处 50 层（DOM 顺序保证弹窗内下拉/菜单在上），
+     --z-modal 为预留档，勿直接套在对话框内容上，否则弹窗内的下拉会被盖住。 */
   --z-overlay: 40;
   --z-popup: 50;
   --z-modal: 70;
@@ -132,8 +134,9 @@
 
   --color-txt: #151c13cc;
   --color-txt-strong: #151c13;
-  --color-mut: #151c1399;
-  --color-dim: #151c1366;
+  /* mut/dim 保持 dim < mut < txt 的层级，同时全部满足 WCAG AA（≥4.5:1） */
+  --color-mut: #151c13b3;
+  --color-dim: #151c13a6;
   --color-icon: #5c5c57;
   --color-topbar-icon: #151c1399;
 
@@ -263,13 +266,15 @@
   --color-txt: #f4f4f5;
   --color-txt-strong: #fff;
   --color-mut: #b8b8b8;
-  --color-dim: #777;
+  /* 8a8a8a 在 #181818 上 ≈5.1:1，满足 AA；仍明显弱于 mut */
+  --color-dim: #8a8a8a;
   --color-icon: #d0d0d0;
   --color-topbar-icon: #f4f4f5;
 
   --color-send: #ececec;
   --color-send-fg: #151c13;
-  --color-send-empty: #5a5a5a;
+  /* 置灰发送图标属非文本元素，≥3:1 即可 */
+  --color-send-empty: #6e6e6e;
   --color-link: #3295fb;
   --color-blue: #5a9cff;
 
@@ -423,6 +428,16 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     user-select: none;
+  }
+
+  /* 内容阅读区允许选中复制（报错信息、分析报告、文件内容等）；
+     交互控件与导航保持默认不选中，避免点击/拖拽时误选。 */
+  [aria-label="对话"],
+  [data-slot="dialog-content"],
+  [data-select-text],
+  pre,
+  code {
+    user-select: text;
   }
 
   * {

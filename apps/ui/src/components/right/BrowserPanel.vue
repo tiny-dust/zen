@@ -15,6 +15,7 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { elementLabel, formatElementDetail } from "@/lib/browser-element";
 import { useBrowserStore } from "@/stores/browser";
 import { useLayoutStore } from "@/stores/layout";
@@ -41,7 +42,7 @@ const {
 } = storeToRefs(browserStore);
 
 const viewHost = ref<HTMLElement | null>(null);
-const urlInputEl = ref<HTMLInputElement | null>(null);
+const urlInputEl = ref<InstanceType<typeof Input> | null>(null);
 const suggestOpen = ref(false);
 const suggestIndex = ref(0);
 /** 用户是否用方向键明确选择过联想项 */
@@ -248,10 +249,11 @@ watch(
             :class="suggestOpen && suggestions.length ? 'rounded-b-none border-b-0' : ''"
           >
             <Globe class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-            <input
+            <Input
               ref="urlInputEl"
               v-model="urlInput"
-              class="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-txt)] outline-none placeholder:text-[var(--color-dim)] focus-visible:border-[var(--ring)] [-webkit-app-region:no-drag]"
+              variant="ghost"
+              class="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 font-[family-name:var(--font-mono)] text-[12px] md:text-[12px] text-[var(--color-txt)] outline-none placeholder:text-[var(--color-dim)] focus-visible:border-[var(--ring)] [-webkit-app-region:no-drag]"
               placeholder="输入网址或关键词，Enter 打开"
               spellcheck="false"
               autocomplete="off"
@@ -260,8 +262,10 @@ watch(
               @blur="onBlurUrl"
               @keydown="onUrlKeydown"
             />
-            <button
+            <Button
               type="submit"
+              variant="ghost"
+              size="icon-sm"
               class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
               aria-label="打开地址"
               title="打开"
@@ -269,22 +273,22 @@ watch(
               @mousedown.prevent
             >
               <Search class="size-3.5" />
-            </button>
+            </Button>
           </div>
         </form>
         <div
           v-if="suggestOpen && suggestions.length"
           class="absolute top-full right-0 left-0 z-[var(--z-popup)] max-h-48 overflow-auto rounded-b-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] py-1 shadow-[var(--shadow-menu)]"
         >
-          <button
+          <Button
             v-for="(item, index) in suggestions"
             :key="item.url"
-            type="button"
-            class="flex w-full flex-col gap-0.5 px-2.5 py-1.5 text-left"
+            variant="ghost"
+            class="flex h-auto w-full flex-col items-start justify-start gap-0.5 rounded-none px-2.5 py-1.5 text-left font-normal"
             :class="
               index === suggestIndex
-                ? 'bg-[var(--color-menu-active)]'
-                : 'hover:bg-[var(--color-menu-hover)]'
+                ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]'
+                : 'hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
             @mousedown.prevent="pickSuggestion(item.url)"
           >
@@ -295,7 +299,7 @@ watch(
               class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
               >{{ item.url }}</span
             >
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -351,14 +355,15 @@ watch(
       <span class="truncate font-[family-name:var(--font-mono)]">{{ kernelLabel }}</span>
       <span v-if="annotating" class="flex-none text-[var(--color-accent)]">标注中</span>
       <span class="min-w-0 flex-1 truncate">{{ panelNote }}</span>
-      <button
+      <Button
         v-if="history.length"
-        type="button"
-        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+        variant="ghost"
+        size="xs"
+        class="h-auto flex-none px-0 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)] hover:bg-transparent! hover:text-[var(--color-txt)]"
         @click="browserStore.clearHistory()"
       >
         清空历史
-      </button>
+      </Button>
     </div>
 
     <div v-if="status.error" class="flex-none text-[11px] text-[var(--color-err)]">
@@ -382,9 +387,9 @@ watch(
           <div
             class="group flex items-center gap-2 rounded-[6px] px-1.5 py-1 hover:bg-[var(--color-menu-hover)]"
           >
-            <button
-              type="button"
-              class="min-w-0 flex-1 text-left"
+            <Button
+              variant="ghost"
+              class="h-auto min-w-0 flex-1 flex-col justify-start rounded-none px-0 font-normal hover:bg-transparent!"
               @click="browserStore.openHistoryItem(item)"
             >
               <div class="truncate text-[12px] text-[var(--color-txt)]">
@@ -395,18 +400,19 @@ watch(
               >
                 {{ item.url }}
               </div>
-            </button>
+            </Button>
             <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
               {{ item.timeLabel }}
             </span>
-            <button
-              type="button"
-              class="flex-none opacity-0 group-hover:opacity-100 text-[var(--color-dim)] hover:text-[var(--color-del)]"
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="flex-none text-[var(--color-dim)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-del)]"
               aria-label="删除该历史"
               @click="browserStore.removeHistory(item.url)"
             >
               <X class="size-3.5" />
-            </button>
+            </Button>
           </div>
         </li>
       </ul>

@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight } from "@lucide/vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FileTreeNode } from "@/components/right/panel-nodes";
@@ -32,14 +33,14 @@ function isOpen() {
 
 <template>
   <div>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       :class="
         cn(
-          'flex h-[26px] w-full items-center gap-1 rounded-md pr-1.5 text-left text-[12px]',
+          'flex h-[26px] w-full items-center justify-start gap-1 rounded-md pr-1.5 text-left font-normal text-[12px] md:text-[12px]',
           active()
             ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
-            : 'text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]',
+            : 'text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)] dark:hover:bg-[var(--color-side-hover)]',
         )
       "
       :style="{ paddingLeft: `${pad()}px` }"
@@ -62,7 +63,7 @@ function isOpen() {
         :expanded="isOpen()"
         class="flex-1"
       />
-    </button>
+    </Button>
     <template v-if="node.isDir && expanded.has(node.path)">
       <FileTreeNode
         v-for="child in node.children"

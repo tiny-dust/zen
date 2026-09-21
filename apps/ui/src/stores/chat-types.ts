@@ -1,5 +1,5 @@
 // chat store 的附属类型与纯函数：与 store 分离以控制单文件规模
-import type { ChatMessage, ChatTurn, ToolCallState } from "@zen/shared";
+import type { ChatMessage, ChatTurn, ToolCallMessageMeta, ToolCallState } from "@zen/shared";
 
 export type RunPhase = "thinking" | "answering";
 
@@ -35,6 +35,13 @@ export interface ComposerAttachment {
   isImage: boolean;
 }
 
+/** 运行中插入的排队消息：当前 run 结束后按顺序自动续发 */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  createdAt: number;
+}
+
 export type { ComposerElementMark } from "@/lib/browser-element";
 
 /** 随消息发送的技能（发送前从正文内联 token /skill:名称 解析，气泡渲染成 tag） */
@@ -53,6 +60,49 @@ export function buildHistory(messages: ChatMessage[]): ChatTurn[] {
       role: item.role as "user" | "assistant",
       content: item.content,
     }));
+}
+
+/** 会话里 Agent 读写过的文件路径（流式 parts + 旧数据 tool 消息，去重） */
+export function collectTouchedFiles(messages: ChatMessage[]): string[] {
+  const files: string[] = [];
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      if (part.type !== "tool") {
+        continue;
+      }
+      const path = pathFromToolArgs(part.toolName, part.args);
+      if (path) {
+        files.push(path);
+      }
+    }
+    if (message.role === "tool") {
+      const meta = message.meta as Partial<ToolCallMessageMeta> | undefined;
+      if (meta?.toolName) {
+        const path = pathFromToolArgs(meta.toolName, meta.args);
+        if (path) {
+          files.push(path);
+        }
+      }
+    }
+  }
+  return [...new Set(files)];
+}
+
+/** 历史消息里用户上传过的文件名（去重） */
+export function collectUploads(messages: ChatMessage[]): string[] {
+  const names: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue;
+    }
+    const meta = message.meta as { attachments?: Array<{ name: string }> } | undefined;
+    for (const att of meta?.attachments ?? []) {
+      if (att.name) {
+        names.push(att.name);
+      }
+    }
+  }
+  return [...new Set(names)];
 }
 
 /** 从工具入参里取本地文件路径（仅读写文件类工具） */

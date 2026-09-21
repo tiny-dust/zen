@@ -3,6 +3,7 @@ import { Check, CornerDownLeft, HelpCircle } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 
 /**
@@ -85,17 +86,17 @@ function submitFreeText() {
           role="listbox"
           :aria-multiselectable="isMulti"
         >
-          <button
+          <Button
             v-for="option in chatStore.pendingAsk.options"
             :key="option"
-            type="button"
+            variant="ghost"
             role="option"
             :aria-selected="picked.includes(option)"
-            class="flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12.5px] transition-colors duration-[var(--motion-fast)]"
+            class="h-auto w-full justify-start gap-2 rounded-lg border px-2.5 py-1.5 text-left font-normal text-[12.5px] md:text-[12.5px] transition-colors duration-[var(--motion-fast)]"
             :class="
               picked.includes(option)
-                ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)]'
-                : 'border-[var(--color-line)] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]'
+                ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-[var(--color-txt-strong)]'
+                : 'border-[var(--color-line)] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
             @click="pick(option)"
           >
@@ -107,7 +108,7 @@ function submitFreeText() {
               <Check v-if="picked.includes(option)" class="size-2.5" />
             </span>
             <span class="min-w-0 flex-1 break-words">{{ option }}</span>
-          </button>
+          </Button>
         </div>
 
         <!-- 多选：统一提交按钮 -->
@@ -121,24 +122,26 @@ function submitFreeText() {
           v-if="chatStore.pendingAsk.allowFreeText"
           class="mt-2.5 flex items-center gap-1.5 rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-1"
         >
-          <input
+          <Input
             v-model="freeText"
+            variant="ghost"
             type="text"
-            class="h-7 min-w-0 flex-1 bg-transparent text-[12.5px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-dim)]"
+            class="h-7 min-w-0 flex-1 text-[12.5px] md:text-[12.5px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             :placeholder="isMulti ? '可补充说明后一并发送…' : '或输入你的回答…'"
             aria-label="自由回答"
             @keydown.enter.prevent="submitFreeText"
           />
-          <button
-            type="button"
-            class="flex size-6 flex-none items-center justify-center rounded-lg text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)]"
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="flex-none rounded-lg text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)] disabled:opacity-40"
             aria-label="提交回答"
             :disabled="!freeText.trim() && !picked.length"
             :class="!freeText.trim() && !picked.length && 'opacity-40'"
             @click="submitFreeText"
           >
-            <CornerDownLeft :size="14" />
-          </button>
+            <CornerDownLeft class="size-3.5" />
+          </Button>
         </div>
       </div>
     </div>

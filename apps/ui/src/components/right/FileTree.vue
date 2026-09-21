@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
+import { Button } from "@/components/ui/button";
 
 import type { DirEntry } from "@zen/shared";
 
@@ -65,9 +66,9 @@ function depth() {
         空目录
       </p>
       <div v-for="entry in entries" :key="entry.name">
-        <button
-          type="button"
-          class="flex h-[26px] w-full items-center gap-1 rounded-md pr-1.5 text-left text-[12px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]"
+        <Button
+          variant="ghost"
+          class="flex h-[26px] w-full items-center justify-start gap-1 rounded-md pr-1.5 text-left font-normal text-[12px] md:text-[12px] text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)] dark:hover:bg-[var(--color-side-hover)]"
           :style="{ paddingLeft: `${depth()}px` }"
           @click="toggle(entry)"
         >
@@ -85,7 +86,7 @@ function depth() {
             :expanded="expanded.has(relPath(entry.name))"
             class="flex-1"
           />
-        </button>
+        </Button>
         <FileTree
           v-if="entry.isDir && expanded.has(relPath(entry.name))"
           :root="props.root"
