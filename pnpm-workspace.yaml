@@ -7,7 +7,6 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
-  node-pty: false
   vue-demi: true
 minimumReleaseAgeExclude:
   - '@ai-sdk/gateway@4.0.80'
