@@ -1,3 +1,4 @@
+import { extractChatText, sseDeltaText, stripThinkBlocks } from "./model-api-transform";
 import { inspectModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
@@ -24,6 +25,21 @@ const COMPLETION_TIMEOUT_MS = 60_000;
 /** reasoning 模型的最小补全预算：思考会先消耗 token，预算太小会只输出思考内容 */
 const REASONING_MIN_TOKENS = 4096;
 
+/** 从 HTTP 错误响应体里取供应商给的错误消息，取不到退回状态码 */
+function httpErrorMessage(status: number, bodyText: string): string {
+  let data: unknown = null;
+  try {
+    data = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    data = { raw: bodyText };
+  }
+  const record = data as { error?: { message?: string } | string; message?: string } | null;
+  if (typeof record?.error === "string") {
+    return record.error;
+  }
+  return record?.error?.message ?? record?.message ?? `HTTP ${status}`;
+}
+
 async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -32,6 +48,11 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Pr
     try {
       response = await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `请求超时（${Math.round(timeoutMs / 1000)} 秒）：服务未响应或网络异常，请稍后重试`,
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("ByteString")) {
         throw new Error(
@@ -48,12 +69,7 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Pr
       data = { raw: text };
     }
     if (!response.ok) {
-      const err = (data as { error?: { message?: string } | string } | null)?.error;
-      const message =
-        typeof err === "string"
-          ? err
-          : err?.message || (data as { message?: string } | null)?.message || `HTTP ${response.status}`;
-      throw new Error(message);
+      throw new Error(httpErrorMessage(response.status, text));
     }
     return data;
   } finally {
@@ -167,87 +183,18 @@ function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   return `${base}/v1${path}`;
 }
 
-/** 剥离 reasoning 模型内联在正文里的思考块：<think>…</think>，以及未闭合的前导 <think>… */
-function stripThinkBlocks(text: string): string {
-  return text
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/^\s*<think>[\s\S]*$/i, "")
-    .trim();
-}
-
-/** 从多种 chat/completions 响应形态里抽出最终文本（思考内容不算正文） */
-function extractChatText(data: unknown): string {
-  const payload = data as {
-    choices?: Array<{
-      message?: {
-        content?: unknown;
-        reasoning_content?: string;
-        reasoning?: string;
-        text?: string;
-      };
-      text?: string;
-    }>;
-    output_text?: string;
-  };
-
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return stripThinkBlocks(payload.output_text);
-  }
-
-  const choice = payload?.choices?.[0];
-  const message = choice?.message;
-  if (!message) {
-    return typeof choice?.text === "string" ? stripThinkBlocks(choice.text) : "";
-  }
-
-  // content 可能是 string，或 OpenAI 多模态数组 [{type:'text', text:'...'}]；内联 <think> 时剥离后为空则走兜底
-  if (typeof message.content === "string") {
-    const stripped = stripThinkBlocks(message.content);
-    if (stripped) {
-      return stripped;
-    }
-  }
-  if (Array.isArray(message.content)) {
-    const text = message.content
-      .map((part) => {
-        if (typeof part === "string") {
-          return part;
-        }
-        const p = part as { type?: string; text?: string };
-        return p?.type === "text" || typeof p?.text === "string" ? (p.text ?? "") : "";
-      })
-      .join("")
-      .trim();
-    if (text) {
-      return text;
-    }
-  }
-  if (typeof message.text === "string" && message.text.trim()) {
-    return stripThinkBlocks(message.text);
-  }
-
-  // 部分 reasoning 模型 content 为空时，正文可能落在 reasoning_content
-  const reasoning = message.reasoning_content || message.reasoning;
-  if (typeof reasoning === "string") {
-    const stripped = stripThinkBlocks(reasoning);
-    if (stripped) {
-      return stripped;
-    }
-  }
-  return "";
-}
-
-/** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
-export async function completeOnce(
-  prompt: string,
-  options?: {
-    maxTokens?: number;
-    system?: string;
-    timeoutMs?: number;
-    providerId?: string;
-    modelId?: string;
-  },
-): Promise<string> {
+/** 补全请求的公共准备：解析供应商/模型、密钥、UA、token 预算与请求头 */
+async function resolveCompletion(options?: {
+  maxTokens?: number;
+  providerId?: string;
+  modelId?: string;
+}): Promise<{
+  provider: ProviderSummary;
+  modelId: string;
+  maxTokens: number;
+  url: string;
+  headers: Record<string, string>;
+}> {
   const selection = await getSelection();
   const providerId = options?.providerId || selection.providerId;
   const modelId = options?.modelId || selection.modelId;
@@ -268,20 +215,43 @@ export async function completeOnce(
   if (caps.reasoning) {
     maxTokens = Math.max(maxTokens, 4096);
   }
+  const headers: Record<string, string> =
+    provider.protocol === "anthropic-messages"
+      ? {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "User-Agent": userAgent,
+        }
+      : {
+          "content-type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "User-Agent": userAgent,
+        };
+  return { provider, modelId, maxTokens, url: chatUrl(provider.baseUrl, provider.protocol), headers };
+}
+
+/** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
+export async function completeOnce(
+  prompt: string,
+  options?: {
+    maxTokens?: number;
+    system?: string;
+    timeoutMs?: number;
+    providerId?: string;
+    modelId?: string;
+  },
+): Promise<string> {
+  const { provider, modelId, maxTokens, url, headers } = await resolveCompletion(options);
   // 补全（尤其推理模型 stream:false 全量缓冲）远慢于列表类请求，默认放宽到 120s
   const timeoutMs = options?.timeoutMs ?? 120_000;
 
   if (provider.protocol === "anthropic-messages") {
     const data = await fetchJson(
-      chatUrl(provider.baseUrl, provider.protocol),
+      url,
       {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "User-Agent": userAgent,
-        },
+        headers,
         body: JSON.stringify({
           model: modelId,
           max_tokens: maxTokens,
@@ -306,14 +276,10 @@ export async function completeOnce(
   }
 
   const data = await fetchJson(
-    chatUrl(provider.baseUrl, provider.protocol),
+    url,
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "User-Agent": userAgent,
-      },
+      headers,
       body: JSON.stringify({
         model: modelId,
         max_tokens: maxTokens,
@@ -333,6 +299,106 @@ export async function completeOnce(
     throw new Error("模型未返回文本内容");
   }
   return text;
+}
+
+/** 流式补全：onDelta 逐段回调原始增量（可能含思考块）；resolve 为剥掉思考块的完整正文 */
+export async function completeOnceStream(
+  prompt: string,
+  options?: {
+    maxTokens?: number;
+    system?: string;
+    timeoutMs?: number;
+    providerId?: string;
+    modelId?: string;
+  },
+  onDelta?: (text: string) => void,
+): Promise<string> {
+  const { provider, modelId, maxTokens, url, headers } = await resolveCompletion(options);
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+
+  const body =
+    provider.protocol === "anthropic-messages"
+      ? {
+          model: modelId,
+          max_tokens: maxTokens,
+          stream: true,
+          ...(options?.system ? { system: options.system } : {}),
+          messages: [{ role: "user", content: prompt }],
+        }
+      : {
+          model: modelId,
+          max_tokens: maxTokens,
+          stream: true,
+          messages: options?.system
+            ? [
+                { role: "system", content: options.system },
+                { role: "user", content: prompt },
+              ]
+            : [{ role: "user", content: prompt }],
+        };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型未开始响应或网络异常，请稍后重试`,
+        );
+      }
+      throw error;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(httpErrorMessage(response.status, text));
+    }
+    if (!response.body) {
+      throw new Error("供应商未返回流式响应体");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let full = "";
+    // SSE 事件以空行分隔；同时兼容 \n 与 \r\n（跨 chunk 拆开的行尾也能正确切分）
+    const eventBoundary = /\r?\n\r?\n/;
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk as Uint8Array, { stream: true });
+      let boundary = eventBoundary.exec(buffer);
+      while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        const delta = sseDeltaText(rawEvent);
+        if (delta) {
+          full += delta;
+          onDelta?.(delta);
+        }
+        boundary = eventBoundary.exec(buffer);
+      }
+    }
+
+    const text = stripThinkBlocks(full);
+    if (!text) {
+      throw new Error("模型未返回文本内容");
+    }
+    return text;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型响应中断或网络异常，请稍后重试`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export { normalizeBaseUrl };

@@ -1,0 +1,48 @@
+import { ipcRenderer } from "electron";
+
+import type {
+  DirEntry,
+  ReadFileResult,
+  Workspace,
+  WorkspaceFile,
+  WorkspaceGroup,
+} from "@zen/shared";
+
+export const workspaceApi = {
+  workspace: {
+    listFiles(cwd?: string): Promise<WorkspaceFile[]> {
+      return ipcRenderer.invoke("workspace:list-files", cwd);
+    },
+    readDir(cwd: string | undefined, relPath: string): Promise<DirEntry[] | null> {
+      return ipcRenderer.invoke("workspace:read-dir", cwd, relPath);
+    },
+    readFile(
+      cwd: string | undefined,
+      relPath: string,
+    ): Promise<ReadFileResult | null> {
+      return ipcRenderer.invoke("workspace:read-file", cwd, relPath);
+    },
+    writeFile(
+      cwd: string | undefined,
+      relPath: string,
+      content: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("workspace:write-file", cwd, relPath, content);
+    },
+    list(): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:list");
+    },
+    create(): Promise<Workspace | null> {
+      return ipcRenderer.invoke("workspace:create");
+    },
+    pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:pin", id, pinned);
+    },
+    archive(id: string, archived: boolean): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:archive", id, archived);
+    },
+    remove(id: string): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:delete", id);
+    },
+  },
+};
