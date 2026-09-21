@@ -1,15 +1,54 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
 import { app } from "electron";
 
+import { zenRoot } from "./zen-dir";
+
 let db: Database.Database | null = null;
 
+/** better-sqlite3 报库文件损坏的错误码（SqliteError.code） */
+const CORRUPT_CODES = new Set(["SQLITE_CORRUPT", "SQLITE_NOTADB"]);
+
+function isCorruptError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return (
+    (typeof code === "string" && CORRUPT_CODES.has(code)) ||
+    error.message.includes("malformed") ||
+    error.message.includes("not a database")
+  );
+}
+
+/**
+ * SQLite 全部落在 ~/.zen/db（ADR-004 用户域）；应用更新/重装不丢数据。
+ * 旧版本曾存在 userData/db/zen.sqlite（含 -wal/-shm），首次打开时整体搬迁过来。
+ */
 function dbPath(): string {
-  const dir = join(app.getPath("userData"), "db");
+  const dir = join(zenRoot(), "db");
   mkdirSync(dir, { recursive: true });
-  return join(dir, "zen.sqlite");
+  const target = join(dir, "zen.sqlite");
+  const legacyDir = join(app.getPath("userData"), "db");
+  const legacy = join(legacyDir, "zen.sqlite");
+  if (existsSync(legacy) && !existsSync(target)) {
+    try {
+      // WAL 未合并时数据在 -wal 里，三件套一起搬才不丢
+      renameSync(legacy, target);
+      for (const suffix of ["-wal", "-shm"]) {
+        const part = join(legacyDir, `zen.sqlite${suffix}`);
+        if (existsSync(part)) {
+          renameSync(part, join(dir, `zen.sqlite${suffix}`));
+        }
+      }
+    } catch {
+      // 搬迁失败（跨盘/占用）时保留旧库继续用旧文件，不阻塞启动
+      return legacy;
+    }
+  }
+  return target;
 }
 
 function migrate(conn: Database.Database) {
@@ -152,13 +191,48 @@ function migrate(conn: Database.Database) {
   }
 }
 
+/** 损坏库改名留档（zen.sqlite.corrupt-<时间戳>），供事后 sqlite3 .recover 手工抢救 */
+function quarantineCorruptDb(target: string): void {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  renameSync(target, `${target}.corrupt-${stamp}`);
+  for (const suffix of ["-wal", "-shm"]) {
+    const part = `${target}${suffix}`;
+    if (existsSync(part)) {
+      renameSync(part, `${part}.corrupt-${stamp}`);
+    }
+  }
+}
+
+/** 打开并完成建表/迁移；打开成功但中途失败时先关连接再抛出 */
+function openAndMigrate(path: string): Database.Database {
+  const conn = new Database(path);
+  try {
+    conn.pragma("journal_mode = WAL");
+    conn.pragma("foreign_keys = ON");
+    migrate(conn);
+  } catch (error) {
+    conn.close();
+    throw error;
+  }
+  return conn;
+}
+
 export function getDb(): Database.Database {
   if (db) {
     return db;
   }
-  db = new Database(dbPath());
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  migrate(db);
+  const target = dbPath();
+  try {
+    db = openAndMigrate(target);
+  } catch (error) {
+    // 库文件损坏（进程强杀/磁盘满等）时不能让启动静默中断：
+    // 隔离损坏文件留档，重建空库继续；非损坏错误原样抛出。
+    if (!isCorruptError(error)) {
+      throw error;
+    }
+    quarantineCorruptDb(target);
+    console.warn(`[zen] SQLite 库损坏，已隔离并重建空库: ${target}`, error);
+    db = openAndMigrate(target);
+  }
   return db;
 }

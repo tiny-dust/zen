@@ -22,6 +22,10 @@ export const sessionApi = {
     rename(id: string, title: string): Promise<void> {
       return ipcRenderer.invoke("session:rename", id, title);
     },
+    /** 自动会话标题：main 侧用模型生成，失败返回 null（渲染层保留现有标题） */
+    autoTitle(firstUserMessage: string, assistantReply?: string): Promise<string | null> {
+      return ipcRenderer.invoke("session:auto-title", firstUserMessage, assistantReply);
+    },
     setDraft(id: string, draft: string): Promise<void> {
       return ipcRenderer.invoke("session:set-draft", id, draft);
     },

@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 
 import { AgentSession, registerMcpRuntime, runMockAgent } from "@zen/agent-core";
-import { BrowserWindow, app, ipcMain, nativeImage, shell } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { getWorkspace } from "./workspace-db";
@@ -415,6 +415,14 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+}).catch((error: unknown) => {
+  // 启动链路任一环节失败必须可见：否则进程存活但永远不建窗口，用户只看到"点开没反应"。
+  console.error("[zen] 启动失败:", error);
+  dialog.showErrorBox(
+    "Zen 启动失败",
+    error instanceof Error ? `${error.message}\n\n${error.stack ?? ""}` : String(error),
+  );
+  app.exit(1);
 });
 
 app.on("window-all-closed", () => {
