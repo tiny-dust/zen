@@ -38,7 +38,7 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 2. **禁止手写裸 `<button>` / `<select>` 交互控件**。业务组件里允许保留的原生元素只有两类：
    - 作为 shadcn `as-child` 触发器的自绘按钮（如 `ModelPicker` 的胶囊触发器、`UserBlock` 的用户行）；
    - 纯导航/列表类 button（侧栏导航项、设置页菜单项、模型行），且必须复用 token 样式。
-3. **不新增第二套按钮体系**。`components/base/` 已收敛：`BaseButton`/`IconButton` 已删除，统一用 `Button`（variant + size + `cn()` 覆写）。
+3. **不新增第二套按钮体系**。统一用 `Button`（variant + size + `cn()` 覆写）；**业务组件禁止直接写原生 `<button>` / `<input>` / `<textarea>` / `<input type="range">`**，一律经由 `components/ui/` 封装（Button / Input(支持 ghost 变体) / Textarea(支持 ghost 变体) / SliderRange / reka Trigger）。仅允许的例外：`<input type="file" class="hidden">` 隐藏文件选择器。图标按钮必须带 `aria-label`；`Input`/`Textarea` 暴露 `focus/blur/select`，ref 取组件实例而非原生元素。
 4. **操作图标统一 `@lucide/vue`**，16px 基准；线宽不走组件参数，由 `--icon-stroke`（1.5）在 `styles.css` 里全局覆盖 lucide 的 `stroke-width=2`，组件内不要再逐个传 `stroke-width`。**文件/目录类型图标统一使用 Charmed Icons**，通过 `components/files/FileIcon.vue` / `FileLabel.vue` 展示本地 SVG，保留上游原色，不受 lucide 线宽或 Markdown 图片圆角影响。资源及映射位于 `apps/ui/src/assets/charmed-icons/`，MIT 许可随发行包保留；不再使用通用文件图标加手工颜色模拟语言标识。
 5. **浮层（dropdown/dialog/popover）一律走 reka-ui**（shadcn 封装），自带焦点圈、Esc、外点关闭；不要再写 `document.addEventListener("click")` 式手稿浮层。
 6. **破坏性操作必须危险色 + 二次确认**（`base/ConfirmDialog.vue` + `base/DangerIconButton.vue`）：
@@ -142,3 +142,9 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - **应用内 http(s) 链接统一进右栏浏览器**：全局 click 捕获 + `app:open-external`/`window.open` 在 main 侧改走 `BrowserService.open`；消息 markdown、参考、资料、终端链接均打开右侧面板。系统浏览器仅保留面板上的显式「在系统浏览器中打开」。
   - 底部终端落地：`TerminalPanel` = node-pty + xterm，shell 取系统默认（`$SHELL` + `-l` 登录 shell）；头行显示 shell 名，支持重启与「用系统终端打开」。面板高度 `min(42vh,360px)`，保底 180px。
   - 内置字体：`assets/fonts/` 下 MiSans VF（Apache-2.0 子集 woff2）+ Maple Mono（OFL 400–700）；`--font-sans` 首选 MiSans，`--font-mono` 首选 Maple Mono，中文/系统字体作回落，跨机器渲染更稳定。
+- 2026-09-21（全量 UI/UX 评审修复 · 控件收口与对比度）：
+  - **原生控件清零**（第 3 节第 3 条强化）：业务组件里的原生 `<button>/<input>/<textarea>/<input type="range">` 全量迁移到 `ui/` 封装（session/right/settings/sidebar/chat/bottom 共 40+ 文件）；`Input`/`Textarea` 新增 `variant: default | ghost` 并 `defineExpose({ focus, blur, select })`（ref 一律取组件实例）；range 封装为 `ui/slider/SliderRange.vue`。图标按钮迁移时统一补 `aria-label`。
+  - **文本对比度达标 WCAG AA**：`--color-dim` dark `#777`→`#8a8a8a`（3.97→5.1:1）、light `#151c1366`→`#151c13a6`（2.5→5.4:1）；`--color-mut` light `#151c1399`→`#151c13b3`（3.9→6.4:1）；`--color-send-empty` dark `#5a5a5a`→`#6e6e6e`（非文本 ≥3:1）。层级 dim < mut < txt 保持。
+  - **弹窗遮罩统一**：`DialogOverlay`/`DialogScrollContent` 的 `bg-black/10`、`bg-black/80` 全部改 `--color-scrim`，z 从写死 50 收敛到 `--z-overlay`（40）；对话框内容保持与 reka 浮层同层（DOM 顺序保证弹窗内下拉在上），`--z-modal` 标注为预留档（勿直接套内容层，否则弹窗内下拉会被盖）。
+  - **反馈体系**：新增 `ui/toast`（`toast.ok/err/info`，走 `--z-toast: 90`）并挂载 `App.vue`；git store 的提交/分批提交/推送/切分支/建分支成败镜像到 toast（内联 `feedback` 保留）。
+  - **交互修复**：会话信息卡分支触发器不再是裸"—"（由 EnvInfoSection 显示当前分支名）；BranchPicker 本地/远程分支补空态文案；设置页「更新源地址」改为失焦自动保存（与同页其他设置一致，去掉独立「保存」按钮），导航组「通用/常规」去重为「偏好」；用户块副标题统一为 `displaySub`（不再一侧「未登录」一侧「全功能可用」）；ModelPicker 供应商栏 Unicode `◎` 与选中 `✓` 改 lucide 图标。
