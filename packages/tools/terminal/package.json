@@ -5,8 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@zen/shared": "workspace:*",
-    "node-pty": "1.1.0"
+    "@zen/shared": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
