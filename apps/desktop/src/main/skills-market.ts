@@ -8,7 +8,7 @@ import { ipcMain } from "electron";
 
 import { listSkills } from "@zen/skills";
 
-import { completeOnce } from "./model-api";
+import { completeOnceStream } from "./model-api";
 import { loadAgentSettings, zenSkillsRoot } from "./zen-dir";
 
 import type { SkillMarketHit, SkillSummary } from "@zen/shared";
@@ -141,7 +141,10 @@ async function uninstallSkill(skill: SkillSummary): Promise<{ ok: boolean; error
   }
 }
 
-async function analyzeSkills(req: SkillAnalyzeRequest): Promise<{ ok: boolean; report?: string; error?: string }> {
+async function analyzeSkills(
+  req: SkillAnalyzeRequest,
+  onDelta: (text: string) => void,
+): Promise<{ ok: boolean; report?: string; error?: string }> {
   const settings = await loadAgentSettings();
   const skills = await listSkills(settings.skillExtraPaths);
   if (!skills.length) {
@@ -160,14 +163,20 @@ async function analyzeSkills(req: SkillAnalyzeRequest): Promise<{ ok: boolean; r
 
 ${bodies}`;
   try {
-    const report = await completeOnce(prompt, {
-      system:
-        "你是严谨的本地技能审计助手。只依据提供的技能内容分析，输出可执行建议，不编造。",
-      maxTokens: 4096,
-      timeoutMs: 180_000,
-      providerId: req.providerId,
-      modelId: req.modelId,
-    });
+    // 流式补全：增量实时推给渲染层（折叠面板内边生成边展示），避免
+    // reasoning 模型 stream:false 全量缓冲把补全拖到超时
+    const report = await completeOnceStream(
+      prompt,
+      {
+        system:
+          "你是严谨的本地技能审计助手。只依据提供的技能内容分析，输出可执行建议，不编造。",
+        maxTokens: 4096,
+        timeoutMs: 180_000,
+        providerId: req.providerId,
+        modelId: req.modelId,
+      },
+      onDelta,
+    );
     if (!report.trim()) {
       return { ok: false, error: "模型未返回分析结果" };
     }
@@ -205,11 +214,17 @@ export function registerSkillsMarketIpc(): void {
     return uninstallSkill(skill);
   });
 
-  ipcMain.handle("skills:analyze", async (_e, req: SkillAnalyzeRequest) => {
+  // 流式分析：增量经 skills:analyze-event 定向推给发起方，invoke 返回值仍为最终结果
+  ipcMain.handle("skills:analyze", async (event, req: SkillAnalyzeRequest) => {
     if (!req?.providerId || !req?.modelId) {
       return { ok: false, error: "请先选择分析所用模型" };
     }
-    return analyzeSkills(req);
+    const sender = event.sender;
+    return analyzeSkills(req, (text) => {
+      if (!sender.isDestroyed()) {
+        sender.send("skills:analyze-event", { text });
+      }
+    });
   });
 
   ipcMain.handle("skills:user-root", () => zenSkillsRoot());

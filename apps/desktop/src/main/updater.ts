@@ -31,6 +31,18 @@ function releaseNotesText(notes: unknown): string | null {
   return null;
 }
 
+/** Squirrel.Mac 签名校验失败：ad-hoc 旧包的 DR 钉在旧构建 cdhash 上，重装一次即可恢复 */
+function friendlyUpdateError(message: string): string {
+  if (/did not pass validation|code failed to satisfy/i.test(message)) {
+    return (
+      "更新包签名校验失败（macOS）：当前安装的版本还是旧签名方案，与更新包不一致。" +
+      "请到发布目录手动安装一次最新版（覆盖拖入「应用程序」），之后即可正常自动更新。" +
+      `原始错误：${message}`
+    );
+  }
+  return message;
+}
+
 function wireAutoUpdaterEvents(): void {
   autoUpdater.on("checking-for-update", () => {
     broadcast({ phase: "checking" });
@@ -56,7 +68,10 @@ function wireAutoUpdaterEvents(): void {
     });
   });
   autoUpdater.on("error", (error) => {
-    broadcast({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+    broadcast({
+      phase: "error",
+      message: friendlyUpdateError(error instanceof Error ? error.message : String(error)),
+    });
   });
 }
 
@@ -84,7 +99,9 @@ export function registerUpdaterIpc(): void {
       await autoUpdater.checkForUpdates();
       return { ok: true };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "检查更新失败";
+      const message = friendlyUpdateError(
+        error instanceof Error ? error.message : "检查更新失败",
+      );
       broadcast({ phase: "error", message });
       return { ok: false, error: message };
     }
@@ -100,7 +117,9 @@ export function registerUpdaterIpc(): void {
         await autoUpdater.downloadUpdate();
         return { ok: true };
       } catch (error) {
-        const message = error instanceof Error ? error.message : "下载更新失败";
+        const message = friendlyUpdateError(
+          error instanceof Error ? error.message : "下载更新失败",
+        );
         broadcast({ phase: "error", message });
         return { ok: false, error: message };
       }
