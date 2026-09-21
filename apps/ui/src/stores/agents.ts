@@ -1,4 +1,12 @@
+import {
+  CheckCircle2,
+  CircleDashed,
+  Clock3,
+  Loader2,
+  XCircle,
+} from "@lucide/vue";
 import { defineStore } from "pinia";
+import type { Component } from "vue";
 import { computed, ref } from "vue";
 
 import type { AgentNodeState, AgentStreamEvent, SubAgentStatus } from "@zen/shared";
@@ -7,6 +15,19 @@ import { useRightPanelStore } from "@/stores/right-panel";
 
 /** UI 侧 Agent 节点（与 shared AgentNodeState 对齐） */
 export type AgentNode = AgentNodeState;
+
+/** 子 Agent 状态展示元信息：图标、文案、颜色（AgentsPanel / AgentsSection 共用） */
+export const SUB_AGENT_STATUS_META: Record<
+  SubAgentStatus,
+  { label: string; icon: Component; cls: string }
+> = {
+  queued: { label: "排队", icon: CircleDashed, cls: "text-[var(--color-mut)]" },
+  waiting: { label: "等待依赖", icon: Clock3, cls: "text-[var(--color-dim)]" },
+  running: { label: "运行中", icon: Loader2, cls: "text-[var(--color-accent)]" },
+  done: { label: "完成", icon: CheckCircle2, cls: "text-[var(--color-ok,#3d9a6a)]" },
+  error: { label: "失败", icon: XCircle, cls: "text-[var(--color-err,#c45c5c)]" },
+  cancelled: { label: "已取消", icon: XCircle, cls: "text-[var(--color-dim)]" },
+};
 
 export const useAgentsStore = defineStore("agents", () => {
   const sessionId = ref("");

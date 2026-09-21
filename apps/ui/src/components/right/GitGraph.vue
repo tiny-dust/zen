@@ -4,7 +4,27 @@ import { computed, ref, watch } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import DiffView from "@/components/right/DiffView.vue";
-import { computeGraphRows } from "@/components/right/git-graph";
+import {
+  BADGE_CLS,
+  GRAPH_DOT_R,
+  GRAPH_ROW_H,
+  GRAPH_STROKE,
+  MAX_BADGES,
+  computeGraphRows,
+  detailRowCls,
+  fileBadge,
+  fmtParents,
+  fmtTime,
+  inEdgePath,
+  isBranchTip,
+  isMerge,
+  laneColor,
+  laneX,
+  outEdgePath,
+  refBadges,
+  svgWidth,
+  throughLines,
+} from "@/components/right/git-graph";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -16,10 +36,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useGitStore } from "@/stores/git";
-import { cn } from "@/lib/utils";
 
 import type { GitCommitDetail, GitCommitFile, GitLogEntry } from "@zen/shared";
-import type { GraphEdge, GraphRow } from "@/components/right/git-graph";
 
 const gitStore = useGitStore();
 
@@ -98,150 +116,6 @@ async function toggle(entry: GitLogEntry) {
   }
 }
 
-/** 泳道图渲染参数；色板循环使用主题 token（styles.css 的 --color-graph-*） */
-const GRAPH_UNIT = 16;
-const GRAPH_ROW_H = 40;
-const GRAPH_DOT_R = 4;
-const GRAPH_STROKE = 2;
-const LANE_COLORS = [
-  "var(--color-graph-1)",
-  "var(--color-graph-2)",
-  "var(--color-graph-3)",
-  "var(--color-graph-4)",
-  "var(--color-graph-5)",
-  "var(--color-graph-6)",
-];
-
-function laneColor(lane: number): string {
-  return LANE_COLORS[lane % LANE_COLORS.length] ?? "var(--color-mut)";
-}
-
-function laneX(lane: number): number {
-  return lane * GRAPH_UNIT + 10;
-}
-
-function svgWidth(laneCount: number): number {
-  return GRAPH_UNIT * laneCount + 4;
-}
-
-/** 上一行 → 本行圆点的汇入线（行界处切线垂直，保证跨行拼接平滑） */
-function inEdgePath(edge: GraphEdge): string {
-  const fx = laneX(edge.from);
-  const tx = laneX(edge.to);
-  const mid = GRAPH_ROW_H / 2;
-  if (fx === tx) {
-    return `M ${fx} 0 L ${fx} ${mid}`;
-  }
-  return `M ${fx} 0 C ${fx} ${mid / 2}, ${tx} ${mid / 2}, ${tx} ${mid}`;
-}
-
-/** 本行圆点 → 下一行的延伸/分叉线 */
-function outEdgePath(edge: GraphEdge): string {
-  const fx = laneX(edge.from);
-  const tx = laneX(edge.to);
-  const mid = GRAPH_ROW_H / 2;
-  if (fx === tx) {
-    return `M ${fx} ${mid} L ${fx} ${GRAPH_ROW_H}`;
-  }
-  const bend = (mid + GRAPH_ROW_H) / 2;
-  return `M ${fx} ${mid} C ${fx} ${bend}, ${tx} ${bend}, ${tx} ${GRAPH_ROW_H}`;
-}
-
-/** 详情块内延续的泳道竖线：贯穿泳道 + 本行出边，x 去重，颜色随连线 */
-function throughLines(row: GraphRow): Array<{ x: number; color: string }> {
-  const seen = new Set<number>();
-  const lines: Array<{ x: number; color: string }> = [];
-  for (const lane of row.passThrough) {
-    seen.add(lane);
-    lines.push({ x: laneX(lane), color: laneColor(lane) });
-  }
-  for (const edge of row.outEdges) {
-    if (seen.has(edge.to)) {
-      continue;
-    }
-    seen.add(edge.to);
-    lines.push({ x: laneX(edge.to), color: laneColor(edge.color) });
-  }
-  return lines;
-}
-
-/** HEAD 所在的分支尖端行：圆点加光环标记当前检出位置 */
-function isBranchTip(row: GraphRow): boolean {
-  return refBadges(row.entry.refs).some((badge) => badge.kind === "head");
-}
-
-function fmtTime(ms: number) {
-  const date = new Date(ms);
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
-}
-
-function fileBadge(status: string): { text: string; cls: string } {
-  if (status === "M") {
-    return { text: "M", cls: "text-[var(--color-accent)]" };
-  }
-  if (status === "A") {
-    return { text: "A", cls: "text-[var(--color-add)]" };
-  }
-  if (status === "D") {
-    return { text: "D", cls: "text-[var(--color-del)]" };
-  }
-  if (status === "R" || status === "T") {
-    return { text: status, cls: "text-[var(--color-blue)]" };
-  }
-  return { text: status, cls: "text-[var(--color-mut)]" };
-}
-
-function detailRowCls() {
-  return cn("m-0 flex-none text-[11px] leading-[1.7] text-[var(--color-mut)]");
-}
-
-function fmtParents(parents: string[]): string {
-  return parents.length ? parents.map((p) => p.slice(0, 7)).join(" ") : "（根提交）";
-}
-
-/** 分支/标签徽标：%D 里的 ref 归类（HEAD 当前分支 / 本地 / 远端 / tag） */
-interface RefBadge {
-  label: string;
-  kind: "head" | "local" | "remote" | "tag";
-}
-
-function refBadges(refs: string[]): RefBadge[] {
-  const badges: RefBadge[] = [];
-  for (const raw of refs) {
-    const name = raw.trim();
-    if (!name || name === "origin/HEAD") {
-      // origin/HEAD 只是 origin/main 的别名，展示纯属重复信息
-      continue;
-    }
-    if (name.startsWith("HEAD -> ")) {
-      badges.push({ label: name.slice(8), kind: "head" });
-    } else if (name === "HEAD") {
-      badges.push({ label: "HEAD", kind: "head" });
-    } else if (name.startsWith("tag: ")) {
-      badges.push({ label: name.slice(5), kind: "tag" });
-    } else if (name.includes("/")) {
-      badges.push({ label: name, kind: "remote" });
-    } else {
-      badges.push({ label: name, kind: "local" });
-    }
-  }
-  return badges;
-}
-
-const BADGE_CLS: Record<RefBadge["kind"], string> = {
-  head: "border-transparent bg-[color-mix(in_srgb,var(--color-accent)_18%,transparent)] text-[var(--color-accent)]",
-  local: "border-[var(--color-line-strong)] text-[var(--color-txt)]",
-  remote: "border-[var(--color-line)] text-[var(--color-mut)]",
-  tag: "border-transparent bg-[color-mix(in_srgb,var(--color-blue)_16%,transparent)] text-[var(--color-blue)]",
-};
-
-const MAX_BADGES = 3;
-
-/** 合并提交：列表行淡化展示（Git Graph 同款弱化正文） */
-function isMerge(row: GraphRow): boolean {
-  return row.entry.parents.length > 1;
-}
-
 /** 分支筛选值：Select 不接受空串 value，用 "all" 哨兵映射 ""（= --all） */
 const branchFilter = computed({
   get: () => gitStore.logRef || "all",
@@ -318,20 +192,19 @@ const branchFilter = computed({
       <template v-else>
         <template v-for="row in graphRows" :key="row.entry.hash">
       <!-- 提交行：点击展开/折叠详情 -->
-      <button
-        type="button"
-        class="flex h-10 w-full items-center gap-2 rounded-md pl-1.5 pr-1 text-left"
+      <Button
+        variant="ghost"
+        class="flex h-10 w-full items-center justify-start gap-2 rounded-md pl-1.5 pr-1 text-left font-normal"
         :class="
           expandedHash === row.entry.hash
-            ? 'bg-[var(--color-menu-active)]'
-            : 'hover:bg-[var(--color-menu-hover)]'
+            ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)] aria-expanded:bg-[var(--color-menu-active)]'
+            : 'hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
         "
         :aria-expanded="expandedHash === row.entry.hash"
         @click="toggle(row.entry)"
       >
         <svg
-          :width="svgWidth(row.laneCount)"
-          :height="GRAPH_ROW_H"
+          :style="{ width: `${svgWidth(row.laneCount)}px`, height: `${GRAPH_ROW_H}px` }"
           class="flex-none self-center"
           aria-hidden="true"
         >
@@ -413,7 +286,7 @@ const branchFilter = computed({
             {{ fmtTime(row.entry.time) }}
           </p>
         </div>
-      </button>
+      </Button>
 
       <!-- 详情：泳道竖线穿过，时间轴保持连贯；卡片样式与列表行拉开层次 -->
       <div
@@ -477,9 +350,9 @@ const branchFilter = computed({
                 v-for="file in details.get(row.entry.hash)!.files"
                 :key="file.path"
               >
-                <button
-                  type="button"
-                  class="flex items-center gap-1.5 rounded-md px-0.5 py-[2px] text-left text-[11px] hover:bg-[var(--color-menu-hover)]"
+                <Button
+                  variant="ghost"
+                  class="flex h-auto items-center justify-start gap-1.5 rounded-md px-0.5 py-[2px] text-left font-normal text-[11px] md:text-[11px] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] aria-expanded:bg-transparent"
                   :aria-expanded="openFiles.has(fileKey(row.entry.hash, file.path))"
                   @click="toggleFile(row.entry.hash, file.path)"
                 >
@@ -500,7 +373,7 @@ const branchFilter = computed({
                     <span v-if="file.add" class="text-[var(--color-add)]">+{{ file.add }}</span>
                     <span v-if="file.del" class="text-[var(--color-del)]">-{{ file.del }}</span>
                   </span>
-                </button>
+                </Button>
                 <!-- 文件 patch：点击行内展开 -->
                 <div
                   v-if="openFiles.has(fileKey(row.entry.hash, file.path))"

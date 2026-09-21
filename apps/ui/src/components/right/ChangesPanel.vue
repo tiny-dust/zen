@@ -143,16 +143,16 @@ watch(
         </p>
 
         <template v-else-if="viewMode === 'flat'">
-          <button
+          <Button
             v-for="change in files"
             :key="change.path"
-            type="button"
+            variant="ghost"
             :class="
               cn(
-                'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11.5px]',
+                'flex h-auto w-full items-center justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-normal text-[11.5px] md:text-[11.5px]',
                 gitStore.selectedPath === change.path
                   ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
-                  : 'text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]',
+                  : 'text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]',
               )
             "
             @click="gitStore.selectFile(change.path)"
@@ -174,7 +174,7 @@ watch(
               <span v-if="change.add" class="text-[var(--color-add)]">+{{ change.add }}</span>
               <span v-if="change.del" class="text-[var(--color-del)]">-{{ change.del }}</span>
             </span>
-          </button>
+          </Button>
         </template>
 
         <ChangeTreeRow

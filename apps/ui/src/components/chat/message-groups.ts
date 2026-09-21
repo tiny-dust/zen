@@ -51,8 +51,15 @@ export function legacyToolPart(meta: ToolCallMessageMeta, id: string, content = 
 export function groupTimelineMessages(messages: ChatMessage[]): TimelineItem[] {
   const groups: TimelineItem[] = [];
   for (const message of messages) {
+    // 先按 role 短路：避免读取 user/assistant 消息的 meta（流式期间 meta 会变，
+    // 读取会让分组结果在每次 delta 后全量重算）
+    if (message.role !== "tool") {
+      groups.push({ type: "message", key: message.id, message });
+      continue;
+    }
     const meta = message.meta as Partial<ToolCallMessageMeta> | undefined;
-    if (message.role !== "tool" || typeof meta?.toolName !== "string") {
+    // 压缩摘要卡是渲染层自建的独立卡片，保持单卡渲染（一级折叠），不并入工具组
+    if (typeof meta?.toolName !== "string" || meta.toolName === "contextCompact") {
       groups.push({ type: "message", key: message.id, message });
       continue;
     }

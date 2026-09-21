@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Plus, Search } from "@lucide/vue";
 
 import CapabilityLine from "@/components/settings/CapabilityLine.vue";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -127,9 +128,9 @@ onMounted(() => {
       </div>
 
       <div class="border-b border-[var(--color-line)] px-1.5 pb-2 pt-1.5">
-        <button
-          type="button"
-          class="flex w-full items-start gap-2.5 rounded-[10px] px-2.5 py-2.5 text-left hover:bg-[var(--color-menu-hover)]"
+        <Button
+          variant="ghost"
+          class="h-auto flex w-full items-start gap-2.5 whitespace-normal rounded-[10px] px-2.5 py-2.5 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
           @click="emit('pickCustom', query.trim())"
         >
           <Plus class="mt-0.5 size-4 shrink-0 text-[var(--color-mut)]" />
@@ -139,7 +140,7 @@ onMounted(() => {
               从空白配置开始；搜索内容会预填为模型 ID。
             </p>
           </div>
-        </button>
+        </Button>
         <div class="px-2.5 pb-1 pt-2">
           <div class="text-[12px] text-[var(--color-txt-strong)]">使用模板创建</div>
           <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
@@ -150,9 +151,9 @@ onMounted(() => {
 
       <div class="max-h-[min(420px,55vh)] overflow-auto px-1.5 pb-2.5 pt-1">
         <div v-for="group in groups" :key="group.vendor">
-          <button
-            type="button"
-            class="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-[var(--color-menu-hover)]"
+          <Button
+            variant="ghost"
+            class="h-auto flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
             @click="toggleGroup(group.vendor)"
           >
             <ChevronDown
@@ -167,13 +168,13 @@ onMounted(() => {
             <span class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]">
               {{ group.models.length }}
             </span>
-          </button>
+          </Button>
           <div v-if="expanded.has(group.vendor)" class="flex flex-col gap-0.5 pb-1.5 pl-[22px] pt-0.5">
-            <button
+            <Button
               v-for="model in group.models"
               :key="model.modelKey"
-              type="button"
-              class="flex w-full flex-col items-start gap-[3px] rounded-lg px-2.5 py-2 text-left hover:bg-[var(--color-menu-hover)] disabled:hover:bg-transparent"
+              variant="ghost"
+              class="h-auto flex w-full flex-col items-start gap-[3px] whitespace-normal rounded-lg px-2.5 py-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] disabled:hover:bg-transparent disabled:opacity-100"
               :class="isKnown(model) ? 'opacity-50' : ''"
               :disabled="isKnown(model)"
               @click="emit('pickTemplate', model)"
@@ -186,7 +187,7 @@ onMounted(() => {
                 {{ model.id }}
               </div>
               <CapabilityLine :capabilities="model.capabilities" />
-            </button>
+            </Button>
           </div>
         </div>
         <p v-if="!groups.length" class="m-0 px-2.5 py-3 text-[12px] text-[var(--color-mut)]">

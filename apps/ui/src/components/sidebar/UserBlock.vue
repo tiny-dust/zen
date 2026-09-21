@@ -91,9 +91,9 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
   <div class="w-full">
     <DropdownMenu :open="open" @update:open="onOpenChange">
       <DropdownMenuTrigger as-child>
-        <button
-          type="button"
-          class="flex w-full flex-row items-center gap-2.5 rounded-[10px] border border-transparent bg-transparent p-2.5 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-enter)] hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
+        <Button
+          variant="ghost"
+          class="flex w-full flex-row items-center gap-2.5 rounded-[10px] border border-transparent bg-transparent p-2.5 text-left font-normal hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
         >
           <Avatar class="size-7 flex-none rounded-lg">
             <AvatarImage
@@ -116,7 +116,7 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
               {{ displaySub }}
             </span>
           </span>
-        </button>
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
@@ -141,7 +141,7 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
                 {{ auth.loggedIn ? auth.user?.name || auth.user?.login : "Zen 用户" }}
               </div>
               <div class="truncate text-[11px] text-[var(--color-mut)]">
-                {{ auth.loggedIn ? `@${auth.user?.login}` : "本地模式 · 全功能可用" }}
+                {{ displaySub }}
               </div>
             </div>
           </div>

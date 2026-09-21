@@ -9,6 +9,7 @@ import type {
   GitPullRequest,
   GitStatus,
 } from "@zen/shared";
+import { toast } from "@/components/ui/toast";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -165,9 +166,11 @@ export const useGitStore = defineStore("git", () => {
     if (result.ok) {
       branchPickerOpen.value = false;
       feedback.value = `已切换到 ${name}`;
+      toast.ok(`已切换到 ${name}`);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? "切换分支失败";
+      toast.err(result.error ?? "切换分支失败");
     }
     return result;
   }
@@ -182,9 +185,11 @@ export const useGitStore = defineStore("git", () => {
     if (result.ok) {
       branchPickerOpen.value = false;
       feedback.value = `已创建并切换到 ${name}`;
+      toast.ok(`已创建并切换到 ${name}`);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? "创建分支失败";
+      toast.err(result.error ?? "创建分支失败");
     }
     return result;
   }
@@ -207,9 +212,11 @@ export const useGitStore = defineStore("git", () => {
     });
     if (result.ok) {
       feedback.value = options.push ? "已提交并推送" : "已提交";
+      toast.ok(options.push ? "已提交并推送" : "已提交");
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? "提交失败";
+      toast.err(result.error ?? "提交失败");
     }
     return result;
   }
@@ -227,6 +234,10 @@ export const useGitStore = defineStore("git", () => {
       feedback.value = options.push
         ? `已分 ${result.batches.length} 批提交并推送（${hashes}）`
         : `已分 ${result.batches.length} 批提交（${hashes}）`;
+      toast.ok(feedback.value);
+    }
+    if (!result.ok) {
+      toast.err(result.error ?? "分批提交失败");
     }
     await Promise.all([refreshStatus(), refreshBranches()]);
     return result;
@@ -241,9 +252,11 @@ export const useGitStore = defineStore("git", () => {
     const result = await zen.git.push(root);
     if (result.ok) {
       feedback.value = "已推送";
+      toast.ok("已推送");
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? "推送失败";
+      toast.err(result.error ?? "推送失败");
     }
     return result;
   }

@@ -12,6 +12,7 @@ import { computed, reactive, ref } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
+import { Button } from "@/components/ui/button";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
 
@@ -73,9 +74,9 @@ function toggleGroup(key: string) {
       <p v-if="!refs.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">暂无参考</p>
 
       <div v-for="group in groups" :key="group.key" class="flex flex-col gap-1">
-        <button
-          type="button"
-          class="flex items-center gap-1 px-1 text-left text-[11px] text-[var(--color-dim)] hover:text-[var(--color-mut)]"
+        <Button
+          variant="ghost"
+          class="flex h-auto items-center gap-1 px-1 text-left text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-mut)] dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--color-dim)]"
           :aria-expanded="groupOpen[group.key] !== false"
           @click="toggleGroup(group.key)"
         >
@@ -87,7 +88,7 @@ function toggleGroup(key: string) {
             :class="groupOpen[group.key] === false ? '-rotate-90' : ''"
             aria-hidden="true"
           />
-        </button>
+        </Button>
         <ul
           v-if="groupOpen[group.key] !== false"
           class="m-0 flex list-none flex-col gap-1 p-0"
@@ -109,10 +110,10 @@ function toggleGroup(key: string) {
             >
               {{ item.title || item.url }}
             </a>
-            <button
+            <Button
               v-else
-              type="button"
-              class="min-w-0 flex-1 truncate text-left font-[family-name:var(--font-mono)] text-[11px] hover:text-[var(--color-txt)]"
+              variant="ghost"
+              class="h-auto min-w-0 flex-1 justify-start truncate text-left font-[family-name:var(--font-mono)] text-[11px] font-normal hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent"
               :title="group.key === 'user' ? '当前会话上传文件' : 'Agent 参考过的项目文件'"
               @click="reveal(item.url)"
             >
@@ -120,7 +121,7 @@ function toggleGroup(key: string) {
                 :path="item.url"
                 :name="group.key === 'user' ? item.title || undefined : undefined"
               />
-            </button>
+            </Button>
             <ExternalLink
               v-if="group.key === 'web'"
               class="mt-0.5 size-3 flex-none text-[var(--color-dim)]"

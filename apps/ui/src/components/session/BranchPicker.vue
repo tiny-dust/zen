@@ -3,6 +3,7 @@ import { Check, GitBranch, GitBranchPlus, Loader2 } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -84,10 +85,11 @@ onMounted(() => {
   >
     <div class="flex items-center gap-1.5 px-1">
       <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-      <input
+      <Input
         v-model="filter"
+        variant="default"
         placeholder="筛选分支"
-        class="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
+        class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.escape="emit('close')"
       />
       <Loader2
@@ -108,10 +110,11 @@ onMounted(() => {
     </div>
 
     <div v-if="creating" class="flex items-center gap-1 px-1">
-      <input
+      <Input
         v-model="newBranch"
+        variant="default"
         placeholder="新分支名称"
-        class="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
+        class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.enter="create"
         @keydown.escape="creating = false"
       />
@@ -126,16 +129,16 @@ onMounted(() => {
 
     <div class="min-h-0 flex-1 overflow-auto">
       <p class="m-0 px-1.5 py-1 text-[10.5px] font-medium text-[var(--color-dim)]">本地分支</p>
-      <button
+      <Button
         v-for="item in localBranches"
         :key="`local-${item.name}`"
-        type="button"
+        variant="ghost"
         :class="
           cn(
-            'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px]',
+            'h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px] font-normal',
             item.name === gitStore.branch
               ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
-              : 'text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]',
+              : 'text-[var(--color-txt)]',
           )
         "
         @click="select(item.name)"
@@ -147,19 +150,32 @@ onMounted(() => {
         />
         <span v-else class="size-3.5 flex-none" aria-hidden="true" />
         <span class="truncate">{{ item.name }}</span>
-      </button>
+      </Button>
+
+      <p
+        v-if="!localBranches.length"
+        class="m-0 px-1.5 py-1.5 text-[11px] text-[var(--color-mut)]"
+      >
+        {{ gitStore.branch ? "无匹配分支" : "未绑定仓库，暂无本地分支" }}
+      </p>
 
       <p class="m-0 px-1.5 py-1 pt-2 text-[10.5px] font-medium text-[var(--color-dim)]">远程分支</p>
-      <button
+      <Button
         v-for="item in remoteBranches"
         :key="`remote-${item.name}`"
-        type="button"
-        class="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
+        variant="ghost"
+        class="h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px] font-normal text-[var(--color-txt)]"
         @click="select(item.name)"
       >
         <span class="size-3.5 flex-none" aria-hidden="true" />
         <span class="truncate">{{ item.name }}</span>
-      </button>
+      </Button>
+      <p
+        v-if="!remoteBranches.length"
+        class="m-0 px-1.5 py-1.5 text-[11px] text-[var(--color-mut)]"
+      >
+        暂无远程分支
+      </p>
     </div>
   </div>
 </template>

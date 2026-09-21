@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Search } from "@lucide/vue";
+import { Check, History, Search } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import { useModelsStore } from "@/stores/models";
 
@@ -21,7 +23,7 @@ const activeTab = ref<"model" | "sub" | "external">("model");
 const activeProviderId = ref<string | "recent" | null>(null);
 const recentKeys = ref<string[]>([]);
 const rootEl = ref<HTMLElement | null>(null);
-const searchEl = ref<HTMLInputElement | null>(null);
+const searchEl = ref<InstanceType<typeof Input> | null>(null);
 
 const enabledGroups = computed(() =>
   providers.value
@@ -145,8 +147,8 @@ watch(providers, () => {
 
 <template>
   <div ref="rootEl" class="relative min-w-0">
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
@@ -168,7 +170,7 @@ watch(providers, () => {
       >
         <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-    </button>
+    </Button>
 
     <div
       v-if="open"
@@ -177,15 +179,15 @@ watch(providers, () => {
       aria-label="选择模型"
     >
       <div class="flex gap-3.5 border-b border-[var(--color-line)] px-3.5 pt-2.5">
-        <button
+        <Button
           v-for="tab in [
             { id: 'model', label: '模型' },
             { id: 'sub', label: '子代理' },
             { id: 'external', label: '外部 agent' },
           ]"
           :key="tab.id"
-          type="button"
-          class="relative pb-2 text-[12.5px]"
+          variant="ghost"
+          class="relative h-auto rounded-none px-0 pb-2 text-[12.5px] font-normal hover:bg-transparent"
           :class="
             activeTab === tab.id
               ? 'font-semibold text-[var(--color-txt-strong)] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t after:bg-[var(--color-accent)] after:content-\'\']'
@@ -194,16 +196,17 @@ watch(providers, () => {
           @click="activeTab = tab.id as typeof activeTab"
         >
           {{ tab.label }}
-        </button>
+        </Button>
       </div>
 
       <template v-if="activeTab === 'model'">
         <div class="flex items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
           <Search class="size-3.5 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
-          <input
+          <Input
             ref="searchEl"
             v-model="query"
-            class="h-6 min-w-0 flex-1 border-0 bg-transparent text-[12.5px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-dim)]"
+            variant="ghost"
+            class="h-6 min-w-0 flex-1 text-[12.5px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             type="search"
             placeholder="搜索模型..."
           />
@@ -211,28 +214,28 @@ watch(providers, () => {
 
         <div class="grid min-h-[220px] max-h-[320px] grid-cols-[168px_minmax(0,1fr)]">
           <nav class="flex flex-col gap-0.5 overflow-auto border-r border-[var(--color-line)] bg-[var(--color-sunken)] p-1.5" aria-label="供应商">
-            <button type="button" :class="railClass('recent')" @click="selectProvider('recent')">
-              <span class="w-4 shrink-0 text-center text-[var(--color-mut)]">◎</span>
-              <span class="truncate">最近使用</span>
-            </button>
-            <button
+            <Button variant="ghost" :class="railClass('recent')" @click="selectProvider('recent')">
+              <History class="size-4 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
+              <span class="truncate font-normal">最近使用</span>
+            </Button>
+            <Button
               v-for="group in enabledGroups"
               :key="group.id"
-              type="button"
+              variant="ghost"
               :class="railClass(group.id)"
               @click="selectProvider(group.id)"
             >
               <VendorLogo :vendor="group.name" :size="16" />
-              <span class="truncate">{{ group.name }}</span>
-            </button>
+              <span class="truncate font-normal">{{ group.name }}</span>
+            </Button>
           </nav>
 
           <div class="overflow-auto p-1.5">
-            <button
+            <Button
               v-for="item in filtered"
               :key="itemKey(item.providerId, item.model.id)"
-              type="button"
-              class="flex min-h-[34px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] hover:bg-[var(--color-menu-hover)]"
+              variant="ghost"
+              class="flex min-h-[34px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
               :class="
                 isSelected(item.providerId, item.model.id)
                   ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
@@ -240,20 +243,19 @@ watch(providers, () => {
               "
               @click="pick(item.providerId, item.model.id)"
             >
-              <span
-                class="w-3.5 shrink-0 text-[12px] text-[var(--color-accent)]"
+              <Check
+                class="size-3.5 shrink-0 text-[var(--color-accent)]"
                 :class="isSelected(item.providerId, item.model.id) ? '' : 'invisible'"
-              >
-                ✓
-              </span>
+                aria-hidden="true"
+              />
               <span class="truncate">{{ item.model.name }}</span>
               <span
                 v-if="item.model.custom"
-                class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
+                class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] font-normal text-[var(--color-mut)]"
               >
                 自定义
               </span>
-            </button>
+            </Button>
             <p v-if="!filtered.length" class="m-0 px-3 py-4 text-center text-[12px] text-[var(--color-mut)]">
               无匹配模型
             </p>

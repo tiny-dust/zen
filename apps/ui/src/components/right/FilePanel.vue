@@ -7,6 +7,7 @@ import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useRightPanelStore } from "@/stores/right-panel";
@@ -200,10 +201,11 @@ watch(
           <RefreshCw :class="loading ? 'animate-spin' : ''" />
         </Button>
       </div>
-      <input
+      <Input
         v-model="query"
+        variant="ghost"
+        class="h-7 w-full flex-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] md:text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
         placeholder="筛选文件"
-        class="h-7 w-full flex-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
       />
       <p v-if="!treeRoot" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">公共区未绑定目录</p>
       <p v-else-if="loading && !files.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">

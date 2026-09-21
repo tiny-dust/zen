@@ -2,6 +2,7 @@
 import { ChevronDown, FolderOpen } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,15 +48,16 @@ async function openWith(id: string) {
 <template>
   <DropdownMenu v-if="visible">
     <DropdownMenuTrigger as-child>
-      <button
-        type="button"
-        class="flex h-7 items-center gap-1 rounded-full border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2.5 text-[12px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="flex h-7 items-center gap-1 rounded-full border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2.5 text-[12px] font-normal text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)] dark:hover:bg-[var(--color-menu-hover)] aria-expanded:bg-[var(--color-composer-surface)] aria-expanded:text-[var(--color-txt)]"
         :title="workdir"
       >
         <FolderOpen class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         <span>打开位置</span>
         <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-      </button>
+      </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="min-w-[180px]">
       <DropdownMenuItem

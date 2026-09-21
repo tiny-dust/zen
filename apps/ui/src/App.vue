@@ -13,6 +13,7 @@ import SettingsPage from "@/components/settings/SettingsPage.vue";
 import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
+import { Toaster } from "@/components/ui/toast";
 import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useAgentStore } from "@/stores/agent";
@@ -150,5 +151,6 @@ const sideRail =
 
     <InfoPopup />
     <SettingsPage />
+    <Toaster />
   </div>
 </template>

@@ -93,9 +93,9 @@ function onSelect(model: ProviderModel) {
 
     <ul v-if="filtered.length" class="m-0 flex list-none flex-col gap-1.5 p-0">
       <li v-for="model in filtered" :key="model.id" :class="rowClass(model)">
-        <button
-          type="button"
-          class="min-w-0 flex-1 text-left disabled:cursor-default"
+        <Button
+          variant="ghost"
+          class="block h-auto min-w-0 flex-1 text-left font-normal hover:bg-transparent dark:hover:bg-transparent disabled:cursor-default disabled:opacity-100"
           :disabled="!model.enabled"
           @click="onSelect(model)"
         >
@@ -112,22 +112,23 @@ function onSelect(model: ProviderModel) {
             </span>
             <CapabilityLine :capabilities="model.capabilities" show-limits class="min-w-0" />
           </div>
-        </button>
+        </Button>
         <Switch
           class="shrink-0 scale-90"
           :model-value="model.enabled"
           aria-label="启用模型"
           @update:model-value="(next) => emit('toggleEnabled', model, next === true)"
         />
-        <button
-          type="button"
-          class="flex size-7 shrink-0 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="shrink-0 text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
           aria-label="编辑模型"
           title="编辑模型"
           @click="emit('edit', model)"
         >
           <Pencil class="size-3.5" />
-        </button>
+        </Button>
       </li>
     </ul>
     <p v-else class="m-0 p-3 text-center text-[12px] text-[var(--color-mut)]">无匹配模型</p>

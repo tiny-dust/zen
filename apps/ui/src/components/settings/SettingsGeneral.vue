@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "@/components/ui/toast";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
 
@@ -80,8 +81,13 @@ function installUpdate() {
 
 async function saveFeed() {
   const url = feedDraft.value.trim() || null;
+  // 与同页其他设置保持一致：失焦即保存，未变更时静默返回
+  if ((settings.value.updateFeedUrl ?? null) === url) {
+    return;
+  }
   await settingsStore.setFeedUrl(url);
   feedDraft.value = url ?? "";
+  toast.ok("更新源已保存");
 }
 
 async function checkUpdate() {
@@ -156,8 +162,8 @@ async function downloadUpdate() {
             placeholder="更新源地址，如 http://192.168.1.10:8899"
             aria-label="更新源地址"
             @keydown.enter="saveFeed"
+            @blur="saveFeed"
           />
-          <Button variant="outline" size="sm" class="flex-none" @click="saveFeed">保存</Button>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <Button
@@ -253,20 +259,20 @@ async function downloadUpdate() {
       <CardContent class="flex flex-col gap-3 p-4">
         <p class="mb-0 text-[12px] text-[var(--color-mut)]">切换后窗口 / Dock 图标会立即更新。</p>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
-          <button
+          <Button
             v-for="item in BUILTIN_APP_ICONS"
             :key="item.id"
-            type="button"
-            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
+            variant="ghost"
+            class="h-auto flex flex-col items-center gap-2 whitespace-normal rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
             :class="settings.iconId === item.id ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
             @click="settingsStore.setIcon(item.id)"
           >
             <AppIcon :id="item.id" :size="40" />
             <span>{{ item.label }}</span>
-          </button>
-          <button
-            type="button"
-            class="flex flex-col items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)]"
+          </Button>
+          <Button
+            variant="ghost"
+            class="h-auto flex flex-col items-center gap-2 whitespace-normal rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
             :class="settings.iconId === 'custom' ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
             @click="settingsStore.pickCustomIcon()"
           >
@@ -276,7 +282,7 @@ async function downloadUpdate() {
               :custom-path="settings.customIconPath"
             />
             <span>自定义</span>
-          </button>
+          </Button>
         </div>
         <Button
           variant="outline"

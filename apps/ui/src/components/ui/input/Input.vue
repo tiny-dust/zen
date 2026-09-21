@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import type { InputVariants } from '.'
 import { useVModel } from '@vueuse/core'
+import { ref } from 'vue'
 import { cn } from '@/lib/utils'
+import { inputVariants } from '.'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   defaultValue?: string | number
   modelValue?: string | number
+  /** default：带边框表单输入；ghost：无边框透明，用于浮层搜索、行内编辑等场景 */
+  variant?: InputVariants['variant']
   class?: HTMLAttributes['class']
-}>()
+}>(), {
+  variant: 'default',
+})
 
 const emits = defineEmits<{
   (e: 'update:modelValue', payload: string | number): void
@@ -17,15 +24,21 @@ const modelValue = useVModel(props, 'modelValue', emits, {
   passive: true,
   defaultValue: props.defaultValue,
 })
+
+const inputEl = ref<HTMLInputElement | null>(null)
+
+defineExpose({
+  focus: () => inputEl.value?.focus(),
+  blur: () => inputEl.value?.blur(),
+  select: () => inputEl.value?.select(),
+})
 </script>
 
 <template>
   <input
+    ref="inputEl"
     v-model="modelValue"
     data-slot="input"
-    :class="cn(
-      'border-border focus-visible:border-ring aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors file:h-6 file:text-sm file:font-medium md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-      props.class,
-    )"
+    :class="cn(inputVariants({ variant }), props.class)"
   >
 </template>

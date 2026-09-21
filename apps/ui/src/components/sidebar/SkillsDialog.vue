@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import {
+  ChevronRight,
+  CircleAlert,
   ExternalLink,
+  FileText,
   FolderOpen,
   Loader2,
   PackagePlus,
@@ -10,10 +13,15 @@ import {
   Trash2,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -53,8 +61,52 @@ const newSkillPath = ref("");
 
 const analyzeModelKey = ref("");
 const analyzeBusy = ref(false);
-const analyzeReport = ref("");
 const analyzeError = ref("");
+/** 流式分析输出：边生成边展示；成功后为最终报告全文 */
+const analyzeOutput = ref("");
+type AnalyzePhase = "idle" | "running" | "done" | "error";
+const analyzePhase = ref<AnalyzePhase>("idle");
+const reportOpen = ref(false);
+const reportEl = ref<HTMLElement | null>(null);
+
+const showReportPanel = computed(() => analyzePhase.value !== "idle" || analyzeOutput.value.length > 0);
+const reportLabel = computed(() => {
+  switch (analyzePhase.value) {
+    case "running":
+      return `分析中… ${analyzeOutput.value.length} 字`;
+    case "done":
+      return `分析报告 · ${analyzeOutput.value.length} 字`;
+    case "error":
+      return "分析已中断";
+    default:
+      return "分析报告";
+  }
+});
+
+/** 流式输出自动滚到面板底部（贴底跟随，用户上滚阅读时不打断） */
+watch(analyzeOutput, () => {
+  void nextTick(() => {
+    const el = reportEl.value;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+      el.scrollTop = el.scrollHeight;
+    }
+  });
+});
+
+let disposeAnalyzeEvents: (() => void) | undefined;
+onMounted(() => {
+  const zen = window.zen;
+  disposeAnalyzeEvents =
+    zen?.skills?.onAnalyzeEvent(({ text }) => {
+      if (analyzePhase.value === "running" && text) {
+        analyzeOutput.value += text;
+      }
+    }) ?? undefined;
+});
+onUnmounted(() => {
+  disposeAnalyzeEvents?.();
+  disposeAnalyzeEvents = undefined;
+});
 
 const modelOptions = computed(() =>
   enabledModels.value.map(({ provider, model }) => ({
@@ -150,7 +202,7 @@ async function addSkillPath() {
   await agentStore.refreshSkills();
 }
 
-/** 一键分析：先选 model，再本地汇总 SKILL.md 交由模型审计冲突 */
+/** 一键分析：先选 model，再本地汇总 SKILL.md 交由模型审计冲突；输出流式进折叠面板 */
 async function runAnalyze() {
   const zen = window.zen;
   if (!zen?.skills) {
@@ -168,18 +220,24 @@ async function runAnalyze() {
   }
   analyzeBusy.value = true;
   analyzeError.value = "";
-  analyzeReport.value = "";
+  analyzeOutput.value = "";
+  analyzePhase.value = "running";
+  reportOpen.value = true;
   try {
     const result = await zen.skills.analyze({
       providerId: option.providerId,
       modelId: option.modelId,
     });
     if (result.ok && result.report) {
-      analyzeReport.value = result.report;
+      // 以 invoke 返回的最终报告为准（已剥离思考块）
+      analyzeOutput.value = result.report;
+      analyzePhase.value = "done";
     } else {
+      analyzePhase.value = "error";
       analyzeError.value = result.error || "分析失败";
     }
   } catch (error) {
+    analyzePhase.value = "error";
     analyzeError.value = error instanceof Error ? error.message : String(error);
   } finally {
     analyzeBusy.value = false;
@@ -206,9 +264,21 @@ const tabCls = (id: Tab) =>
       </DialogHeader>
 
       <div class="flex flex-none items-center gap-1 border-b border-[var(--color-line-soft)] px-4 py-2.5">
-        <button type="button" :class="tabCls('installed')" @click="tab = 'installed'">已安装</button>
-        <button type="button" :class="tabCls('market')" @click="tab = 'market'">市场 skills.sh</button>
-        <button type="button" :class="tabCls('analyze')" @click="tab = 'analyze'">一键分析</button>
+        <Button
+          variant="ghost"
+          :class="[tabCls('installed'), tab === 'installed' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
+          @click="tab = 'installed'"
+        >已安装</Button>
+        <Button
+          variant="ghost"
+          :class="[tabCls('market'), tab === 'market' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
+          @click="tab = 'market'"
+        >市场 skills.sh</Button>
+        <Button
+          variant="ghost"
+          :class="[tabCls('analyze'), tab === 'analyze' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
+          @click="tab = 'analyze'"
+        >一键分析</Button>
         <Button
           variant="ghost"
           size="sm"
@@ -391,10 +461,30 @@ const tabCls = (id: Tab) =>
               </Button>
             </div>
             <p v-if="analyzeError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ analyzeError }}</p>
-            <pre
-              v-if="analyzeReport"
-              class="m-0 max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3 text-[12px] leading-relaxed text-[var(--color-txt)]"
-            >{{ analyzeReport }}</pre>
+            <!-- 分析输出折叠面板：流式生成、完成后保留报告，内容可选中复制 -->
+            <Collapsible v-if="showReportPanel" v-model:open="reportOpen" class="min-w-0">
+              <CollapsibleTrigger
+                class="flex w-fit max-w-full flex-wrap items-center gap-1.5 py-0.5 text-[12px] text-[var(--color-mut)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="`${reportOpen ? '收起' : '展开'}分析输出：${reportLabel}`"
+              >
+                <ChevronRight
+                  class="size-3.5 shrink-0 transition-transform duration-[var(--motion-fast)]"
+                  :class="{ 'rotate-90': reportOpen }"
+                  aria-hidden="true"
+                />
+                <Loader2 v-if="analyzePhase === 'running'" class="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                <ShieldCheck v-else-if="analyzePhase === 'done'" class="size-3.5 shrink-0 text-[var(--color-ok)]" aria-hidden="true" />
+                <CircleAlert v-else-if="analyzePhase === 'error'" class="size-3.5 shrink-0 text-[var(--color-err)]" aria-hidden="true" />
+                <FileText v-else class="size-3.5 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 overflow-wrap:anywhere">{{ reportLabel }}</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <pre
+                  ref="reportEl"
+                  class="m-0 mt-1.5 max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3 text-[12px] leading-relaxed text-[var(--color-txt)]"
+                >{{ analyzeOutput }}</pre>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         </template>
       </div>

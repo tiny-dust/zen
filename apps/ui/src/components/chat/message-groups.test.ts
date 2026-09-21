@@ -54,6 +54,17 @@ describe("groupTimelineMessages", () => {
     const malformed: ChatMessage = { id: "2", role: "tool", content: "old format", createdAt: 1 };
     expect(groupTimelineMessages([malformed])[0]).toMatchObject({ type: "message", message: malformed });
   });
+
+  it("keeps the contextCompact card a standalone message instead of a tools group", () => {
+    const card: ChatMessage = {
+      id: "c", role: "tool", content: "", createdAt: 1,
+      meta: { toolName: "contextCompact", ok: true, state: "ok", summary: "已折叠 4 轮更早对话" },
+    };
+    // 紧邻旧版工具消息也不并入组，保持单卡一级折叠
+    const groups = groupTimelineMessages([legacy("1"), card]);
+    expect(groups.map((group) => group.type)).toEqual(["tools", "message"]);
+    expect(groups[1]).toMatchObject({ type: "message", message: card });
+  });
 });
 
 describe("summarizeTools", () => {

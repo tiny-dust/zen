@@ -61,15 +61,15 @@ async function rebuild() {
         控制读写文件、执行终端、访问网络等操作是否需要你逐次确认。
       </p>
       <div class="grid gap-2 sm:grid-cols-3">
-        <button
+        <Button
           v-for="item in PERMISSION_MODES"
           :key="item.id"
-          type="button"
-          class="rounded-xl border p-3 text-left transition-colors"
+          variant="ghost"
+          class="h-auto flex flex-col whitespace-normal rounded-xl border p-3 text-left font-normal transition-colors"
           :class="
             settings.permissionMode === item.id
-              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
-              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]'
+              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
           "
           :aria-pressed="settings.permissionMode === item.id"
           @click="pickMode(item.id)"
@@ -83,7 +83,7 @@ async function rebuild() {
           <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-mut)]">
             {{ item.description }}
           </p>
-        </button>
+        </Button>
       </div>
       <div
         v-if="settings.permissionMode === 'full'"
@@ -103,25 +103,25 @@ async function rebuild() {
         >{{ sandboxDir || '~/.zen/sandbox' }}</code> 下操作，源目录不受影响。
       </p>
       <div class="flex gap-2">
-        <button
+        <Button
           v-for="item in [
             { id: 'direct' as SandboxMode, label: '直接在项目目录操作', desc: '适合自己的项目，速度最快' },
             { id: 'isolated' as SandboxMode, label: '在隔离区操作', desc: '适合不熟悉的仓库，保护源目录' },
           ]"
           :key="item.id"
-          type="button"
-          class="flex-1 rounded-xl border p-3 text-left transition-colors"
+          variant="ghost"
+          class="h-auto flex flex-col flex-1 whitespace-normal rounded-xl border p-3 text-left font-normal transition-colors"
           :class="
             settings.sandboxMode === item.id
-              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
-              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]'
+              ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)]'
+              : 'border-[var(--color-line)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
           "
           :aria-pressed="settings.sandboxMode === item.id"
           @click="pickSandbox(item.id)"
         >
           <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ item.label }}</span>
           <p class="m-0 mt-1 text-[11.5px] text-[var(--color-mut)]">{{ item.desc }}</p>
-        </button>
+        </Button>
       </div>
       <div
         v-if="settings.sandboxMode === 'isolated' && currentProject"

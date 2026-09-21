@@ -69,15 +69,16 @@ function tabCls(id: string) {
             aria-hidden="true"
           />
           <span class="min-w-0 truncate">{{ tab.title }}</span>
-          <button
+          <Button
             v-if="tabs.length > 1"
-            type="button"
-            class="ml-0.5 flex size-4 flex-none items-center justify-center rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+            variant="ghost"
+            size="icon-xs"
+            class="ml-0.5 size-4 flex-none rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
             aria-label="关闭标签"
             @click.stop="rightPanel.closeTab(tab.id)"
           >
             <X class="size-3" />
-          </button>
+          </Button>
         </div>
       </div>
 

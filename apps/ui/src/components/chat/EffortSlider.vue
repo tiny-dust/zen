@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
+import { Button } from "@/components/ui/button";
+import { SliderRange } from "@/components/ui/slider";
+
 import { REASONING_EFFORTS } from "@zen/shared";
 
 import type { ReasoningEffort } from "@zen/shared";
@@ -45,8 +48,7 @@ const filledBars = computed(() => {
   return Math.min(3, Math.max(1, Math.ceil(((index.value + 1) / steps.value.length) * 3)));
 });
 
-function onInput(event: Event) {
-  const next = Number((event.target as HTMLInputElement).value);
+function onInput(next: number) {
   const id = steps.value[next];
   if (id) {
     emit("update:modelValue", id);
@@ -86,9 +88,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="relative">
-    <button
-      type="button"
-      class="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-1.5 text-[12px] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
+    <Button
+      variant="ghost"
+      class="h-auto min-h-8 gap-1.5 px-1.5 font-normal text-[12px] md:text-[12px] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)] aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)] disabled:cursor-not-allowed disabled:opacity-55"
       :disabled="steps.length <= 1"
       :aria-expanded="open"
       aria-label="思考强度"
@@ -109,7 +111,7 @@ onBeforeUnmount(() => {
         />
       </span>
       <span>{{ label }}</span>
-    </button>
+    </Button>
 
     <div
       v-if="open"
@@ -121,15 +123,14 @@ onBeforeUnmount(() => {
         <span class="text-[12.5px] font-semibold text-[var(--color-txt-strong)]">思考强度</span>
         <span class="text-[12.5px] font-semibold text-[var(--color-accent)]">{{ label }}</span>
       </div>
-      <input
-        class="slider-range h-1.5 w-full cursor-pointer appearance-none rounded-full outline-none"
-        type="range"
-        min="0"
+      <SliderRange
+        :model-value="index"
+        :min="0"
         :max="sliderMax"
-        step="1"
-        :value="index"
+        :step="1"
+        aria-label="思考强度"
         :aria-valuetext="label"
-        @input="onInput"
+        @update:model-value="onInput"
       />
       <div class="mt-1.5 flex justify-between text-[10px] text-[var(--color-dim)]">
         <span v-for="id in steps" :key="id">

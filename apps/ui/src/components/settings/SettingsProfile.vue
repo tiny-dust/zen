@@ -7,6 +7,7 @@ import zenAvatar from "@/assets/agent-logos/zen.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
@@ -161,11 +162,10 @@ function onOpenBlog() {
           <div class="flex items-center justify-between gap-2">
             <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">配置云同步</div>
             <label class="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-[var(--color-mut)]">
-              <input
-                type="checkbox"
-                class="accent-[var(--color-accent)]"
-                :checked="agentSettings.syncEnabled"
-                @change="agentStore.updateSettings({ syncEnabled: !agentSettings.syncEnabled })"
+              <Checkbox
+                :model-value="agentSettings.syncEnabled"
+                aria-label="允许同步"
+                @update:model-value="agentStore.updateSettings({ syncEnabled: !agentSettings.syncEnabled })"
               />
               允许同步
             </label>
@@ -211,16 +211,16 @@ function onOpenBlog() {
         </p>
         <div v-if="deviceCode && loading" class="text-[12px] text-[var(--color-txt)]">
           浏览器若未预填，请输入设备码
-          <button
-            type="button"
-            class="ml-1 inline-flex items-center gap-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 align-middle font-[family-name:var(--font-mono)] tracking-[0.08em] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
+          <Button
+            variant="ghost"
+            class="h-auto ml-1 inline-flex items-center gap-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 align-middle font-[family-name:var(--font-mono)] text-[13px] font-normal tracking-[0.08em] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
             :aria-label="codeCopied ? '设备码已复制' : '点击复制设备码'"
             :title="codeCopied ? '已复制' : '点击复制'"
             @click="userStore.copyUserCode()"
           >
             {{ deviceCode.userCode }}
             <Check v-if="codeCopied" class="size-3 text-[var(--color-ok)]" aria-hidden="true" />
-          </button>
+          </Button>
           <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">已复制，可直接粘贴</span>
         </div>
         <p v-if="loginError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ loginError }}</p>

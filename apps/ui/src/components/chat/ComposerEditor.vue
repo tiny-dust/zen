@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Globe, Sparkles } from "@lucide/vue";
-import { h, nextTick, onBeforeUnmount, onMounted, ref, render as renderVue, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import FileLabel from "@/components/files/FileLabel.vue";
-import { formatElementDetail } from "@/lib/browser-element";
+import { caretOffsetIn, selectionOffsetsIn, setCaretAt } from "@/lib/composer-caret";
+import { parseSegments, snapToToken } from "@/lib/composer-segments";
+import { createTokenView } from "@/lib/composer-token-view";
 
 import type { ComposerAttachment } from "@/stores/chat-types";
 import type { ComposerElementMark } from "@/lib/browser-element";
@@ -27,412 +27,18 @@ const editorEl = ref<HTMLDivElement | null>(null);
 /** IME 组合期间跳过重渲染，避免打断中文输入 */
 let composing = false;
 
+// ---------- 装饰渲染：token 视图（含 tooltip）由工厂持有，状态随编辑器实例隔离 ----------
+
+const tokenView = createTokenView({
+  onTokenHover: (id) => emit("tokenHover", id),
+  attachments: () => props.attachments,
+  elements: () => props.elements,
+});
+
 // ---------- 源文本模型：DOM 的 textContent 即 markdown 源文本，装饰只改样式不改字符 ----------
-
-type SegmentKind = "text" | "bold" | "link" | "marker" | "token" | "skill";
-
-interface Segment {
-  kind: SegmentKind;
-  text: string;
-  attachmentId?: string;
-}
-
-interface MarkedRange {
-  start: number;
-  end: number;
-  segment: Segment;
-}
-
-const vueContainers: HTMLElement[] = [];
-
-function unmountTokenViews(): void {
-  for (const container of vueContainers) {
-    renderVue(null, container);
-  }
-  vueContainers.length = 0;
-}
-
-function overlaps(marked: MarkedRange[], start: number, end: number): boolean {
-  return marked.some((range) => start < range.end && end > range.start);
-}
-
-/** 把 source 解析成装饰分段：token（附件引用）> 行首清单标记 > 加粗 > 链接，其余为纯文本 */
-function parseSegments(source: string): Segment[] {
-  const marked: MarkedRange[] = [];
-
-  // 附件引用 token：`$文件名`（长名优先，避免同名前缀互相吞并）
-  const attachments = [...props.attachments].sort((a, b) => b.name.length - a.name.length);
-  for (const att of attachments) {
-    const needle = `$${att.name}`;
-    let from = 0;
-    for (;;) {
-      const index = source.indexOf(needle, from);
-      if (index < 0) {
-        break;
-      }
-      const end = index + needle.length;
-      if (!overlaps(marked, index, end)) {
-        marked.push({
-          start: index,
-          end,
-          segment: { kind: "token", text: needle, attachmentId: att.id },
-        });
-      }
-      from = index + 1;
-    }
-  }
-
-  // 技能 token：`/skill:名称`（从 / 弹窗选中后内联在正文里）
-  const skillRe = /\/skill:[^\s/]+/g;
-  for (;;) {
-    const match = skillRe.exec(source);
-    if (!match || !match[0]) {
-      break;
-    }
-    if (!overlaps(marked, match.index, match.index + match[0].length)) {
-      marked.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        segment: { kind: "skill", text: match[0] },
-      });
-    }
-  }
-
-  // 浏览器标注元素：`$el:id`（长 token 优先）
-  const elements = [...(props.elements ?? [])].sort((a, b) => b.token.length - a.token.length);
-  for (const item of elements) {
-    const needle = item.token;
-    let from = 0;
-    for (;;) {
-      const index = source.indexOf(needle, from);
-      if (index < 0) {
-        break;
-      }
-      const end = index + needle.length;
-      if (!overlaps(marked, index, end)) {
-        marked.push({
-          start: index,
-          end,
-          segment: { kind: "token", text: needle, attachmentId: item.id },
-        });
-      }
-      from = index + 1;
-    }
-  }
-
-  scanMarkdown(source, marked);
-
-  marked.sort((a, b) => a.start - b.start);
-  const segments: Segment[] = [];
-  let cursor = 0;
-  for (const range of marked) {
-    if (range.start > cursor) {
-      segments.push({ kind: "text", text: source.slice(cursor, range.start) });
-    }
-    segments.push(range.segment);
-    cursor = range.end;
-  }
-  if (cursor < source.length) {
-    segments.push({ kind: "text", text: source.slice(cursor) });
-  }
-  return segments;
-}
-
-/** 在源文本上扫描 markdown 装饰（与 token 区间重叠的丢弃） */
-function scanMarkdown(source: string, marked: MarkedRange[]): void {
-  const mark = (start: number, end: number, segment: Segment) => {
-    if (!overlaps(marked, start, end)) {
-      marked.push({ start, end, segment });
-    }
-  };
-
-  // 清单标记：行首的 - / * / 1.（含缩进），只弱化标记符本身
-  const markerRe = /^[ \t]*([-*+]|\d+\.)[ \t]/gm;
-  for (;;) {
-    const match = markerRe.exec(source);
-    if (!match || !match[1]) {
-      break;
-    }
-    const markerText = match[1];
-    // match[0] = 缩进 + 标记符 + 一个空白；标记符起点从行尾往回推
-    const start = match.index + match[0].length - markerText.length - 1;
-    mark(start, start + markerText.length, { kind: "marker", text: markerText });
-  }
-
-  // 加粗：**文字**
-  const boldRe = /\*\*([^*\n]+)\*\*/g;
-  for (;;) {
-    const match = boldRe.exec(source);
-    if (!match) {
-      break;
-    }
-    mark(match.index, match.index + match[0].length, { kind: "bold", text: match[0] });
-  }
-
-  // 链接：[文字](url)
-  const linkRe = /\[([^\]\n]+)\]\(([^()\s]+)\)/g;
-  for (;;) {
-    const match = linkRe.exec(source);
-    if (!match) {
-      break;
-    }
-    mark(match.index, match.index + match[0].length, { kind: "link", text: match[0] });
-  }
-}
-
-// ---------- 渲染：按分段构建 DOM（手动建节点，scoped 样式命中不了，用 composer- 前缀全局类） ----------
-
-function el(tag: string, className: string, text?: string): HTMLElement {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) {
-    node.textContent = text;
-  }
-  return node;
-}
-
-function renderBold(text: string): HTMLElement {
-  const wrapper = el("span", "composer-md-bold");
-  wrapper.append(
-    el("span", "composer-md-mark", "**"),
-    el("span", "composer-md-bold-text", text.slice(2, -2)),
-    el("span", "composer-md-mark", "**"),
-  );
-  return wrapper;
-}
-
-function renderLink(text: string): HTMLElement {
-  const match = /^\[([^\]]+)\]\(([^()]*)\)$/.exec(text);
-  if (!match || !match[1]) {
-    return el("span", "composer-md-link-label", text);
-  }
-  const wrapper = el("span", "composer-md-link");
-  wrapper.append(
-    el("span", "composer-md-mark", "["),
-    el("span", "composer-md-link-label", match[1]),
-    el("span", "composer-md-mark", "]("),
-    el("span", "composer-md-url", match[2] ?? ""),
-    el("span", "composer-md-mark", ")"),
-  );
-  return wrapper;
-}
-
-/** 页面元素 tag：与技能同构 —— 地球 icon + 名称；源文本保留 `$el:名称` 供 Agent 展开 */
-function renderElementToken(mark: ComposerElementMark): HTMLElement {
-  const token = el("span", "composer-token composer-token-skill composer-token-element");
-  token.contentEditable = "false";
-  token.dataset.elementId = mark.id;
-  token.setAttribute("aria-label", `页面元素 ${mark.label}`);
-  token.setAttribute("role", "button");
-  token.tabIndex = -1;
-  const icon = el("span", "composer-token-icon");
-  renderVue(h(Globe, { size: 12, "aria-hidden": "true" }), icon);
-  vueContainers.push(icon);
-  // prefix 仅存在于 textContent（display:none），视觉上只有 icon + 名称
-  token.append(
-    el("span", "composer-token-prefix", "$el:"),
-    icon,
-    el("span", "composer-token-name", mark.label),
-  );
-  token.addEventListener("mouseenter", (event) => {
-    emit("tokenHover", mark.id);
-    showElementTooltip(token, mark);
-  });
-  token.addEventListener("mouseleave", () => {
-    emit("tokenHover", null);
-    hideElementTooltip();
-  });
-  return token;
-}
-
-/* ---------- 元素 tag 悬浮明细 ---------- */
-
-let tooltipEl: HTMLElement | null = null;
-let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
-
-function ensureTooltipEl(): HTMLElement {
-  if (tooltipEl && document.body.contains(tooltipEl)) {
-    return tooltipEl;
-  }
-  tooltipEl = document.createElement("div");
-  tooltipEl.className = "composer-el-tooltip";
-  tooltipEl.setAttribute("role", "tooltip");
-  document.body.appendChild(tooltipEl);
-  return tooltipEl;
-}
-
-function showElementTooltip(token: HTMLElement, mark: ComposerElementMark) {
-  if (tooltipTimer) {
-    clearTimeout(tooltipTimer);
-  }
-  tooltipTimer = setTimeout(() => {
-    const tip = ensureTooltipEl();
-    const detail = formatElementDetail(mark.ref);
-    tip.innerHTML = "";
-    const title = document.createElement("div");
-    title.className = "composer-el-tooltip-title";
-    title.textContent = mark.label;
-    tip.appendChild(title);
-    for (const line of detail.split("\n")) {
-      const row = document.createElement("div");
-      row.className = "composer-el-tooltip-row";
-      row.textContent = line;
-      tip.appendChild(row);
-    }
-    tip.style.display = "block";
-    const rect = token.getBoundingClientRect();
-    const tipW = 280;
-    let left = rect.left;
-    let top = rect.bottom + 6;
-    if (left + tipW > window.innerWidth - 8) {
-      left = Math.max(8, window.innerWidth - tipW - 8);
-    }
-    if (top + 140 > window.innerHeight) {
-      top = Math.max(8, rect.top - 8 - 120);
-    }
-    tip.style.left = `${left}px`;
-    tip.style.top = `${top}px`;
-  }, 120);
-}
-
-function hideElementTooltip() {
-  if (tooltipTimer) {
-    clearTimeout(tooltipTimer);
-    tooltipTimer = null;
-  }
-  if (tooltipEl) {
-    tooltipEl.style.display = "none";
-  }
-}
-
-function renderToken(segment: Segment): HTMLElement {
-  const mark = (props.elements ?? []).find(
-    (item) => item.token === segment.text || item.id === segment.attachmentId,
-  );
-  if (mark) {
-    return renderElementToken(mark);
-  }
-
-  const att = props.attachments.find((item) => item.id === segment.attachmentId);
-  const name = att?.name ?? segment.text.slice(1);
-  const token = el("span", "composer-token composer-token-file");
-  token.contentEditable = "false";
-  if (segment.attachmentId) {
-    token.dataset.attachmentId = segment.attachmentId;
-  }
-  const label = el("span", "composer-token-name");
-  renderVue(h(FileLabel, { path: att?.path ?? name, name, variant: "link" }), label);
-  vueContainers.push(label);
-  token.append(el("span", "composer-token-prefix", "$"), label);
-  token.addEventListener("mouseenter", () => emit("tokenHover", segment.attachmentId ?? null));
-  token.addEventListener("mouseleave", () => emit("tokenHover", null));
-  return token;
-}
-
-/** 前缀保留在 textContent 中，但不参与 token 的布局。 */
-function renderSkillToken(text: string): HTMLElement {
-  const name = text.slice("/skill:".length);
-  const token = el("span", "composer-token composer-token-skill");
-  token.contentEditable = "false";
-  token.title = `技能：${name}`;
-  const icon = el("span", "composer-token-icon");
-  renderVue(h(Sparkles, { size: 12, "aria-hidden": "true" }), icon);
-  vueContainers.push(icon);
-  token.append(
-    el("span", "composer-token-prefix", "/skill:"),
-    icon,
-    el("span", "composer-token-name", name),
-  );
-  return token;
-}
-
-function renderSegments(segments: Segment[]): Node[] {
-  return segments.map((segment) => {
-    switch (segment.kind) {
-      case "bold":
-        return renderBold(segment.text);
-      case "link":
-        return renderLink(segment.text);
-      case "marker":
-        return el("span", "composer-md-marker", segment.text);
-      case "token":
-        return renderToken(segment);
-      case "skill":
-        return renderSkillToken(segment.text);
-      default:
-        return document.createTextNode(segment.text);
-    }
-  });
-}
-
-// ---------- 光标：以「源文本偏移」为唯一坐标，重渲染前后互相换算 ----------
 
 function currentSource(): string {
   return editorEl.value?.textContent ?? "";
-}
-
-function caretOffset(): number {
-  const el = editorEl.value;
-  const selection = window.getSelection();
-  if (!el || !selection || selection.rangeCount === 0) {
-    return currentSource().length;
-  }
-  const range = selection.getRangeAt(0);
-  if (!el.contains(range.startContainer)) {
-    return currentSource().length;
-  }
-  const probe = document.createRange();
-  probe.selectNodeContents(el);
-  probe.setEnd(range.startContainer, range.startOffset);
-  return probe.toString().length;
-}
-
-function setCaretAt(offset: number): void {
-  const el = editorEl.value;
-  const selection = window.getSelection();
-  if (!el || !selection) {
-    return;
-  }
-  // 非聚焦时不抢选区（外部 setValue 场景）
-  if (document.activeElement !== el) {
-    return;
-  }
-  const range = document.createRange();
-  let remaining = Math.max(0, offset);
-  let placed = false;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => {
-      if (node.parentElement?.closest(".composer-token")) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      return node.nodeType === Node.TEXT_NODE || (node instanceof Element && node.matches(".composer-token"))
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP;
-    },
-  });
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const length = node.textContent?.length ?? 0;
-    if (remaining <= length) {
-      if (node instanceof Element && node.matches(".composer-token")) {
-        if (remaining <= length / 2) {
-          range.setStartBefore(node);
-        } else {
-          range.setStartAfter(node);
-        }
-      } else {
-        range.setStart(node, remaining);
-      }
-      placed = true;
-      break;
-    }
-    remaining -= length;
-  }
-  if (!placed) {
-    range.setStart(el, el.childNodes.length);
-  }
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
 }
 
 /** 全量重渲染（装饰不改字符，重渲染后按偏移恢复光标） */
@@ -441,10 +47,12 @@ function render(source: string, caret: number | null): void {
   if (!el) {
     return;
   }
-  unmountTokenViews();
-  el.replaceChildren(...renderSegments(parseSegments(source)));
+  tokenView.unmountTokenViews();
+  el.replaceChildren(
+    ...tokenView.renderSegments(parseSegments(source, props.attachments, props.elements)),
+  );
   if (caret !== null) {
-    setCaretAt(caret);
+    setCaretAt(el, caret);
   }
 }
 
@@ -454,29 +62,18 @@ function applySource(source: string, caret: number): void {
   render(source, caret);
 }
 
+// ---------- 光标与插入 ----------
+
+function caretOffset(): number {
+  return caretOffsetIn(editorEl.value);
+}
+
 function tokenBoundary(offset: number, edge: "start" | "end" | "nearest"): number {
-  let start = 0;
-  for (const segment of parseSegments(currentSource())) {
-    const end = start + segment.text.length;
-    if ((segment.kind === "token" || segment.kind === "skill") && offset > start && offset < end) {
-      return edge === "start" || (edge === "nearest" && offset - start <= end - offset) ? start : end;
-    }
-    start = end;
-  }
-  return offset;
+  return snapToToken(parseSegments(currentSource(), props.attachments, props.elements), offset, edge);
 }
 
 function selectionOffsets(): { start: number; end: number } {
-  const start = caretOffset();
-  const selection = window.getSelection();
-  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-  if (!range || !editorEl.value?.contains(range.endContainer)) {
-    return { start, end: start };
-  }
-  const probe = document.createRange();
-  probe.selectNodeContents(editorEl.value);
-  probe.setEnd(range.endContainer, range.endOffset);
-  return { start, end: probe.toString().length };
+  return selectionOffsetsIn(editorEl.value);
 }
 
 function insertSourceAt(offset: number, text: string, replaceSelection = false): void {
@@ -591,12 +188,8 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  hideElementTooltip();
-  if (tooltipEl?.parentElement) {
-    tooltipEl.parentElement.removeChild(tooltipEl);
-  }
-  tooltipEl = null;
-  unmountTokenViews();
+  tokenView.disposeTooltip();
+  tokenView.unmountTokenViews();
 });
 
 defineExpose({
@@ -606,7 +199,7 @@ defineExpose({
   caretOffset,
   /** 在下一次重渲染完成后设置光标（供 setValue 之后的落点） */
   setCaretSoon: (offset: number) => {
-    void nextTick(() => setCaretAt(offset));
+    void nextTick(() => setCaretAt(editorEl.value, offset));
   },
   /** 在光标处插入源文本 */
   insertAtCaret: (text: string) => {

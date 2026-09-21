@@ -9,6 +9,7 @@ import {
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -18,6 +19,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -187,9 +189,9 @@ const rowCls = cn(
     <div class="px-2.5 pt-1.5 pb-0.5">
       <DropdownMenu v-model:open="branchMenuOpen">
         <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            class="flex items-center gap-1.5 self-start rounded-[6px] px-1 py-0.5 text-[13px] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)]"
+          <Button
+            variant="ghost"
+            class="flex h-auto items-center gap-1.5 self-start rounded-[6px] px-1 py-0.5 text-[13px] font-normal text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)]"
             @mouseenter="ensureBranches"
           >
             <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
@@ -209,7 +211,7 @@ const rowCls = cn(
               </span>
             </span>
             <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" class="max-h-[280px] w-[200px] overflow-auto">
           <DropdownMenuGroup>
@@ -244,24 +246,25 @@ const rowCls = cn(
     </div>
 
     <div class="px-2.5 py-2">
-      <textarea
+      <Textarea
         v-model="message"
         rows="2"
+        variant="ghost"
         :placeholder="messagePlaceholder"
         :disabled="generating"
-        class="w-full resize-none bg-transparent text-[13px] leading-relaxed text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] disabled:opacity-70"
+        class="w-full resize-none bg-transparent text-[13px] leading-relaxed text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] disabled:opacity-70 field-sizing-fixed md:text-[13px]"
       />
       <div class="flex items-center justify-end pt-0.5">
-        <button
-          type="button"
-          class="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-[var(--color-dim)] hover:text-[var(--color-txt)] disabled:pointer-events-none disabled:opacity-40"
+        <Button
+          variant="ghost"
+          class="flex h-auto items-center gap-1 rounded px-1 py-0.5 text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent disabled:pointer-events-none disabled:opacity-40"
           :disabled="generating || !gitStore.hasChanges"
           title="AI 生成提交信息"
           @click="generateMessage"
         >
           <RefreshCw class="size-3" :class="generating ? 'animate-spin' : ''" aria-hidden="true" />
           {{ generating ? "生成中" : "AI 生成" }}
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -287,15 +290,22 @@ const rowCls = cn(
     <div class="mt-1 h-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
 
     <div class="flex flex-col py-0.5">
-      <button type="button" :class="rowCls" :disabled="!canSubmit()" @click="submit('commit')">
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
+        :class="rowCls"
+        :disabled="!canSubmit()"
+        @click="submit('commit')"
+      >
         <ArrowRight class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         <span class="flex-1">提交</span>
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]">
           ⌘↵
         </span>
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="rowCls"
         :disabled="!canSubmit()"
         @click="submit('commit-push')"
@@ -311,9 +321,10 @@ const rowCls = cn(
           aria-hidden="true"
         />
         <span class="flex-1">提交并推送</span>
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="rowCls"
         :disabled="!gitStore.branch || busy"
         @click="submit('push')"
@@ -329,7 +340,7 @@ const rowCls = cn(
           aria-hidden="true"
         />
         <span class="flex-1">推送</span>
-      </button>
+      </Button>
     </div>
   </div>
 </template>

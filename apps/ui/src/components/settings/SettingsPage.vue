@@ -23,7 +23,7 @@ const search = ref("");
 
 const navGroups = computed(() => [
   {
-    title: "通用",
+    title: "偏好",
     items: [
       { id: "general" as const, label: "常规", icon: Settings2 },
       { id: "shortcuts" as const, label: "键盘快捷键", icon: Keyboard },
@@ -122,6 +122,7 @@ watch(
       role="dialog"
       aria-modal="true"
       aria-label="设置"
+      data-select-text
     >
       <aside
         class="flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-settings-nav)] p-3.5"
@@ -139,11 +140,11 @@ watch(
               <div class="px-2.5 pb-1.5 text-[11px] text-[var(--color-dim)]">
                 {{ group.title }}
               </div>
-              <button
+              <Button
                 v-for="item in group.items"
                 :key="item.id"
-                type="button"
-                class="flex min-h-8 w-full flex-row items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
+                variant="ghost"
+                class="flex min-h-8 w-full flex-row items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
                 :class="
                   activeTab === item.id
                     ? 'bg-[var(--color-side-active)] font-medium text-[var(--color-txt-strong)]'
@@ -153,7 +154,7 @@ watch(
               >
                 <component :is="item.icon" class="size-[15px] flex-none" />
                 <span>{{ item.label }}</span>
-              </button>
+              </Button>
             </div>
           </div>
         </div>

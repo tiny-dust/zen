@@ -3,6 +3,7 @@ import { Circle, CircleCheck, ListChecks } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
+import { Button } from "@/components/ui/button";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { cn } from "@/lib/utils";
 
@@ -47,24 +48,25 @@ watch(
         role="tablist"
         aria-label="任务清单版本"
       >
-        <button
+        <Button
           v-for="item in versions"
           :key="item.id"
-          type="button"
+          variant="ghost"
+          size="xs"
           role="tab"
           :aria-selected="item.id === activeId"
           :class="
             cn(
-              'h-6 flex-none rounded-full px-2 text-[11px]',
+              'h-6 flex-none rounded-full px-2 text-[11px] font-normal',
               item.id === activeId
-                ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]'
-                : 'text-[var(--color-mut)] hover:text-[var(--color-txt)]',
+                ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-active)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-menu-active)]'
+                : 'text-[var(--color-mut)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent',
             )
           "
           @click="select(item.id)"
         >
           v{{ item.version }}
-        </button>
+        </Button>
       </div>
 
       <ul class="m-0 flex list-none flex-col gap-1 p-0">

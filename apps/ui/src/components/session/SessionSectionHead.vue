@@ -2,6 +2,8 @@
 import { ChevronDown } from "@lucide/vue";
 import type { Component } from "vue";
 
+import { Button } from "@/components/ui/button";
+
 /** 会话信息卡节头：icon + 标题 + 计数徽标 + 折叠箭头，三节共用保证左对齐 */
 defineProps<{
   icon: Component;
@@ -17,9 +19,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <button
-    type="button"
-    class="flex min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] px-1 text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:text-[var(--color-txt)]"
+  <Button
+    variant="ghost"
+    class="flex h-auto min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] px-1 text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)]"
     :aria-expanded="open"
     @click="emit('toggle')"
   >
@@ -36,5 +38,5 @@ const emit = defineEmits<{
       :class="open ? '' : '-rotate-90'"
       aria-hidden="true"
     />
-  </button>
+  </Button>
 </template>

@@ -6,44 +6,29 @@ import type {
   AgentDoneReason,
   AgentRunStatus,
   AgentStreamEvent,
+  AskUserQuestionEvent,
   AttachmentRef,
-  BrowserElementRef,
   ChatMessage,
   ChatRunSummary,
   ReasoningEffort,
   SessionRecord,
-  TaskItem,
-  ToolApprovalDecision,
-  ToolCallMessageMeta,
 } from "@zen/shared";
-import { applyStreamToMessage, getMessageRun, restoreRunSummaryFromMessages } from "@zen/shared";
-import { createElementMark, expandBrowserElementTokens } from "@/lib/browser-element";
-import { playNotifySound } from "@/lib/notify-sound";
-import type { ComposerElementMark } from "@/lib/browser-element";
-import {
-  buildHistory,
-  compressHistory,
-  pathFromToolArgs,
-} from "@/stores/chat-types";
+import { restoreRunSummaryFromMessages } from "@zen/shared";
+import { expandBrowserElementTokens } from "@/lib/browser-element";
 import { useAgentStore } from "@/stores/agent";
 import { useAgentsStore } from "@/stores/agents";
-import { useBrowserStore } from "@/stores/browser";
+import { createChatEventGateway } from "@/stores/chat-events";
+import type { ComposerAttachment, PendingApproval, RunPhase } from "@/stores/chat-types";
+import { createCompressionDomain } from "@/stores/chat-compress";
+import { createComposerDomain } from "@/stores/chat-composer";
+import { createMessageQueue } from "@/stores/chat-queue";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
-import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
-
-import type {
-  ComposerAttachment,
-  PendingApproval,
-  RunPhase,
-  SelectedSkill,
-} from "@/stores/chat-types";
-import type { AskUserQuestionEvent } from "@zen/shared";
 
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([]);
@@ -61,8 +46,8 @@ export const useChatStore = defineStore("chat", () => {
   const attachments = ref<ComposerAttachment[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
-  /** 本 run 内是否调用过 updateTasks（用于 checklist 兜底） */
-  let usedUpdateTasks = false;
+  /** 本 run 是否调用过 updateTasks（done 时决定是否走 checklist 兜底） */
+  const usedUpdateTasks = ref(false);
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   const pendingToolArgs = new Map<string, { toolName: string; args: unknown }>();
   /** 手动压缩开关：点「压缩上下文」后置位，本会话后续发送都走摘要历史 */
@@ -70,11 +55,6 @@ export const useChatStore = defineStore("chat", () => {
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
   const pendingAsk = ref<AskUserQuestionEvent | null>(null);
-  /** 外部模块请求「插入到 composer 光标处」的载荷（浏览器标注等） */
-  const pendingComposerInsert = ref<{ text: string; id: number } | null>(null);
-  /** 浏览器标注元素：正文内 `$el:id` 链接 + tooltip 明细 */
-  const elementMarks = ref<ComposerElementMark[]>([]);
-  let elementSeq = 0;
   const isPaused = ref(false);
   const branch = ref("");
   const repo = ref("");
@@ -86,9 +66,26 @@ export const useChatStore = defineStore("chat", () => {
 
   const { flushDraft } = useSessionDraft(input, sessionId);
 
+  // ---------- 输入框域：附件 / 浏览器标注 / 技能 token / 外部插入 ----------
+  const composer = createComposerDomain({ input, attachments });
+  const {
+    elementMarks,
+    pendingComposerInsert,
+    addAttachment,
+    removeAttachment,
+    extractSkills,
+    insertAtComposerCaret,
+    insertBrowserElement,
+    removeElementMark,
+  } = composer;
+
   const isRunning = computed(() =>
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
   );
+
+  // ---------- 插入消息队列：运行中入队，run 正常结束后按序续发 ----------
+  const queue = createMessageQueue({ input, isRunning, send });
+
   /** 本轮运行起点：消息流里展示已运行时长（审批等待计入本轮） */
   const runStartedAt = ref<number | null>(null);
   const sessionStatusStore = useSessionStatusStore();
@@ -113,6 +110,15 @@ export const useChatStore = defineStore("chat", () => {
     return Math.min(100, Math.round((lastInputTokens.value / contextWindow) * 100));
   });
 
+  // ---------- 历史压缩域：手动压缩 / 发送前折叠 / 摘要卡 ----------
+  const compressionDomain = createCompressionDomain({
+    messages,
+    sessionId,
+    statusText,
+    forceCompress,
+    contextUsage: () => contextUsage.value,
+  });
+
   async function refreshGit() {
     const zen = window.zen;
     if (!zen?.git) {
@@ -128,236 +134,32 @@ export const useChatStore = defineStore("chat", () => {
     messages.value.push(message);
   }
 
-  /**
-   * 兜底：模型没调 updateTasks、却在正文里写了 markdown 任务清单时，
-   * 从最后一条助手消息提取 `- [ ]` / `- [x]` 列表，灌入会话信息卡。
-   */
-  function applyChecklistFallback() {
-    const last = [...messages.value].reverse().find((item) => item.role === "assistant");
-    if (!last?.content) {
-      return;
-    }
-    const items: TaskItem[] = [];
-    for (const line of last.content.split("\n")) {
-      const match = /^\s*[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
-      if (match) {
-        items.push({
-          id: `auto-${items.length + 1}`,
-          label: (match[2] ?? "").trim(),
-          done: (match[1] ?? " ") !== " ",
-        });
-      }
-    }
-    if (items.length < 2) {
-      return;
-    }
-    const version = (useSessionInfoStore().versions.at(-1)?.version ?? 0) + 1;
-    useSessionInfoStore().applyTasksUpdated(sessionId.value, version, items);
-  }
-
-  function lastAssistant(): ChatMessage | undefined {
-    const last = messages.value.at(-1);
-    return last?.role === "assistant" ? last : undefined;
-  }
-
-  /** 流式助手消息：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
-  function ensureAssistantMessage(): ChatMessage {
-    let last = lastAssistant();
-    if (!last) {
-      const message: ChatMessage = {
-        id: uuid(),
-        role: "assistant",
-        content: "",
-        parts: [],
-        createdAt: Date.now(),
-      };
-      messages.value.push(message);
-      last = message;
-    }
-    last.parts ??= [];
-    return last;
-  }
-
-  function applyToLiveAssistant(event: AgentStreamEvent): void {
-    applyStreamToMessage(ensureAssistantMessage(), event);
-  }
-
-  function syncRunRefsFromMessage(message: ChatMessage): void {
-    const summary = getMessageRun(message);
-    if (!summary) {
-      return;
-    }
-    runSummary.value = summary;
-    if (summary.reason) lastDoneReason.value = summary.reason;
-    if (summary.step != null) currentStep.value = summary.step;
-    if (summary.usage) {
-      lastInputTokens.value = summary.usage.inputTokens;
-      lastOutputTokens.value = summary.usage.outputTokens;
-    }
-    if (summary.error) lastError.value = summary.error;
-  }
-
-  function handleStreamEvent(event: AgentStreamEvent) {
-    if (event.sessionId !== sessionId.value) {
-      return;
-    }
-
-    // 与 main 共用消息级 reducer：parts / content / run summary / 未完成工具终态
-    if (
-      event.type === "delta" ||
-      event.type === "reasoning_delta" ||
-      event.type === "reasoning_end" ||
-      event.type === "tool_input_start" ||
-      event.type === "tool_start" ||
-      event.type === "tool_progress" ||
-      event.type === "tool_end" ||
-      event.type === "approval_request" ||
-      event.type === "approval_resolved" ||
-      event.type === "step_start" ||
-      event.type === "usage" ||
-      event.type === "error" ||
-      event.type === "done"
-    ) {
-      applyToLiveAssistant(event);
-    }
-
-    switch (event.type) {
-      case "delta":
-        phase.value = "answering";
-        break;
-      case "reasoning_delta":
-        phase.value = "thinking";
-        break;
-      case "reasoning_end":
-        break;
-      case "tool_input_start":
-        break;
-      case "tool_start":
-        pendingToolArgs.set(event.toolCallId, { toolName: event.toolName, args: event.args });
-        // Agent 需要用浏览器时：自动打开右栏浏览器面板并导航
-        if (typeof event.toolName === "string" && event.toolName.startsWith("browser")) {
-          useBrowserStore().onAgentBrowserTool(event.toolName, event.args);
-        }
-        break;
-      case "tool_progress":
-        break;
-      case "tool_end": {
-        // 读写文件成功 → 收进悬浮面板「参考 · 项目」（按路径去重）
-        const pending = pendingToolArgs.get(event.toolCallId);
-        pendingToolArgs.delete(event.toolCallId);
-        const touchedPath = pending ? pathFromToolArgs(pending.toolName, pending.args) : "";
-        if (touchedPath && event.ok) {
-          useSessionInfoStore().addReference(event.sessionId, {
-            id: "",
-            title: touchedPath.split("/").pop() || touchedPath,
-            url: touchedPath,
-            source: "project",
-          });
-        }
-        if (event.toolName === "writeFile" || event.toolName === "editFile") {
-          filesRevision.value += 1;
-        }
-        statusText.value = event.summary;
-        break;
-      }
-      case "approval_request":
-        pendingApproval.value = {
-          approvalId: event.request.approvalId,
-          toolCallId: event.request.toolCallId,
-          toolName: event.request.toolName,
-          prompt: event.request.reason ?? `需要审批工具调用：${event.request.toolName}`,
-          input: event.request.input,
-        };
-        statusText.value = "等待工具审批";
-        sessionStatusStore.set(sessionId.value, "needs_action");
-        playNotifySound("needsAction");
-        break;
-      case "approval_resolved":
-        if (pendingApproval.value?.approvalId === event.approvalId) {
-          pendingApproval.value = null;
-        }
-        statusText.value = event.approved ? "已批准，等待执行" : "已拒绝";
-        if (isRunning.value && !pendingApproval.value && !pendingAsk.value) {
-          sessionStatusStore.set(sessionId.value, "running");
-        }
-        break;
-      case "ask_user":
-        pendingAsk.value = event.question;
-        statusText.value = "等待你的回答";
-        sessionStatusStore.set(sessionId.value, "needs_action");
-        playNotifySound("needsAction");
-        break;
-      case "ask_resolved":
-        if (pendingAsk.value?.askId === event.askId) {
-          pendingAsk.value = null;
-        }
-        if (isRunning.value && !pendingApproval.value && !pendingAsk.value) {
-          sessionStatusStore.set(sessionId.value, "running");
-        }
-        break;
-      case "status":
-        status.value = event.status;
-        if (event.status === "paused") {
-          isPaused.value = true;
-          statusText.value = "已暂停";
-        } else if (event.status === "awaiting-approval") {
-          isPaused.value = false;
-          statusText.value = "等待工具审批";
-        } else {
-          isPaused.value = false;
-        }
-        break;
-      case "error":
-        lastError.value = event.message;
-        statusText.value = event.message;
-        syncRunRefsFromMessage(ensureAssistantMessage());
-        break;
-      case "step_start":
-        currentStep.value = event.step;
-        break;
-      case "usage":
-        lastInputTokens.value = event.inputTokens;
-        lastOutputTokens.value = event.outputTokens;
-        break;
-      case "done": {
-        const message = ensureAssistantMessage();
-        syncRunRefsFromMessage(message);
-        const reason = runSummary.value?.reason ?? event.reason;
-        lastDoneReason.value = reason;
-        status.value = reason === "error" ? "error" : "idle";
-        isPaused.value = false;
-        pendingApproval.value = null;
-        pendingAsk.value = null;
-        statusText.value =
-          reason === "cancelled"
-            ? "已取消"
-            : reason === "max_steps"
-              ? "已达到步骤上限"
-              : reason === "error"
-                ? (lastError.value || "运行失败")
-                : "已完成";
-        sessionStatusStore.set(sessionId.value, reason === "error" ? "error" : "done");
-        playNotifySound(reason === "error" ? "error" : "done");
-        if (!usedUpdateTasks && reason === "stop") {
-          applyChecklistFallback();
-        }
-        usedUpdateTasks = false;
-        pendingToolArgs.clear();
-        void refreshGit();
-        void useGitStore().refreshStatus();
-        break;
-      }
-      case "tasks_updated": {
-        // 任务清单只更新会话信息卡（悬浮面板）；不再往时间线插快照卡片
-        usedUpdateTasks = true;
-        useSessionInfoStore().applyTasksUpdated(event.sessionId, event.version, event.items);
-        break;
-      }
-      case "reference_found":
-        useSessionInfoStore().addReference(event.sessionId, event.reference);
-        break;
-    }
-  }
+  // ---------- 流事件网关：事件归约 + 审批/提问应答 ----------
+  const { handleStreamEvent, approve, submitAsk, dismissApproval } = createChatEventGateway({
+    sessionId,
+    messages,
+    status,
+    phase,
+    statusText,
+    lastError,
+    isRunning,
+    isPaused,
+    runSummary,
+    lastDoneReason,
+    currentStep,
+    lastInputTokens,
+    lastOutputTokens,
+    pendingApproval,
+    pendingAsk,
+    pendingToolArgs,
+    filesRevision,
+    usedUpdateTasks,
+    queuedMessages: queue.queuedMessages,
+    scheduleQueuedDispatch: queue.scheduleDispatch,
+    refreshGit: () => {
+      void refreshGit();
+    },
+  });
 
   function bootstrap(): () => void {
     const zen = window.zen;
@@ -379,96 +181,18 @@ export const useChatStore = defineStore("chat", () => {
     return zen.agent.onEvent(handleStreamEvent);
   }
 
-  function addAttachment(file: File, path: string) {
-    attachments.value.push({
-      id: uuid(),
-      name: file.name,
-      path,
-      size: file.size,
-      isImage: file.type.startsWith("image/"),
-    });
-  }
-
-  /** 正文里的内联技能 token（/skill:名称）→ SelectedSkill（发送时进 meta.skills 渲染 tag） */
-  function extractSkills(text: string): SelectedSkill[] {
-    const known = useAgentStore().skills;
-    const found: SelectedSkill[] = [];
-    for (const match of text.matchAll(/\/skill:([^\s/]+)/g)) {
-      const name = match[1] ?? "";
-      if (!name || found.some((item) => item.name === name)) {
-        continue;
-      }
-      const info = known.find((item) => item.name === name);
-      found.push({
-        name,
-        description: info?.description ?? "",
-        dir: info?.dir,
-        source: info?.source,
-      });
-    }
-    return found;
-  }
-
-  function removeAttachment(id: string) {
-    attachments.value = attachments.value.filter((item) => item.id !== id);
-  }
-
-  /** 会话里 Agent 读写过的文件路径（流式 parts + 旧数据 tool 消息，去重） */
-  function collectTouchedFiles(): string[] {
-    const files: string[] = [];
-    for (const message of messages.value) {
-      for (const part of message.parts ?? []) {
-        if (part.type !== "tool") {
-          continue;
-        }
-        const path = pathFromToolArgs(part.toolName, part.args);
-        if (path) {
-          files.push(path);
-        }
-      }
-      if (message.role === "tool") {
-        const meta = message.meta as Partial<ToolCallMessageMeta> | undefined;
-        if (meta?.toolName) {
-          const path = pathFromToolArgs(meta.toolName, meta.args);
-          if (path) {
-            files.push(path);
-          }
-        }
-      }
-    }
-    return [...new Set(files)];
-  }
-
-  /** 历史消息里用户上传过的文件名（去重） */
-  function collectUploads(): string[] {
-    const names: string[] = [];
-    for (const message of messages.value) {
-      if (message.role !== "user") {
-        continue;
-      }
-      const meta = message.meta as { attachments?: Array<{ name: string }> } | undefined;
-      for (const att of meta?.attachments ?? []) {
-        if (att.name) {
-          names.push(att.name);
-        }
-      }
-    }
-    return [...new Set(names)];
-  }
-
-  /** 手动压缩：下一次发送起使用摘要历史（会话内保持） */
-  function compressNow() {
-    if (!hasMessages.value) {
-      return;
-    }
-    forceCompress.value = true;
-    statusText.value = "已开启压缩：下一次发送起，更早对话将折叠为摘要";
-  }
-
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
-    if (!zen || isRunning.value || (!text && !attachments.value.length)) {
+    if (!zen || (!text && !attachments.value.length)) {
+      return;
+    }
+    // 运行中不打断当前 run：消息插入队列，输入框顶部队列条可编辑/删除/插队
+    if (isRunning.value) {
+      if (text) {
+        queue.enqueue(text);
+        input.value = "";
+      }
       return;
     }
     // 免登录可用：会话与本地 Agent 功能不依赖 GitHub；仅云同步等账号功能需登录
@@ -546,23 +270,13 @@ export const useChatStore = defineStore("chat", () => {
 
     status.value = "thinking";
     isPaused.value = false;
-    usedUpdateTasks = false;
+    usedUpdateTasks.value = false;
     pendingApproval.value = null;
     phase.value = "thinking";
     statusText.value = "Agent 思考中…";
 
     // 滚动摘要 + 超限双保险：手动压缩或上下文用量超阈值时折叠旧轮次
-    const sessionInfo = useSessionInfoStore();
-    const compression = compressHistory(buildHistory(messages.value).slice(0, -1), {
-      tasks: sessionInfo.activeTasks.map((item) => ({ label: item.label, done: item.done })),
-      touchedFiles: collectTouchedFiles(),
-      uploads: collectUploads(),
-      force: forceCompress.value,
-      overThreshold: (contextUsage.value ?? 0) >= 70,
-    });
-    if (compression.compressed) {
-      statusText.value = "已压缩上下文 · Agent 思考中…";
-    }
+    const { compression } = compressionDomain.prepareCompression();
 
     const result = await zen.agent.run({
       sessionId: sessionId.value,
@@ -607,34 +321,24 @@ export const useChatStore = defineStore("chat", () => {
     await zen.agent.resume(sessionId.value);
   }
 
-  async function approve(approved: boolean, always = false) {
-    const zen = window.zen;
-    const approval = pendingApproval.value;
-    if (!zen || !approval) {
-      return;
-    }
-    const decision: ToolApprovalDecision = {
-      approvalId: approval.approvalId,
-      approved,
-      ...(always ? { always } : {}),
-    };
-    await zen.agent.resolveApproval(sessionId.value, decision);
-  }
-
-  /** 回答 askUser 提问（选项或自由输入） */
-  async function submitAsk(answer: string) {
-    const zen = window.zen;
-    const ask = pendingAsk.value;
-    if (!zen || !ask || !answer.trim()) {
-      return;
-    }
-    pendingAsk.value = null;
-    await zen.agent.resolveAsk(sessionId.value, { askId: ask.askId, answer: answer.trim() });
-  }
-
-  function dismissApproval() {
+  /** 切换/新建会话时的运行态复位（消息、输入、队列由调用方各自处理） */
+  function resetRunState() {
+    status.value = "idle";
+    phase.value = "answering";
+    isPaused.value = false;
+    queue.clear();
+    usedUpdateTasks.value = false;
     pendingApproval.value = null;
-    statusText.value = "审批提示已收起";
+    pendingAsk.value = null;
+    statusText.value = "";
+    lastError.value = "";
+    lastInputTokens.value = null;
+    lastOutputTokens.value = null;
+    currentStep.value = null;
+    lastDoneReason.value = null;
+    runSummary.value = null;
+    forceCompress.value = false;
+    pendingToolArgs.clear();
   }
 
   /** 新会话：在工作区（缺省为当前工作区）建立持久会话 */
@@ -662,22 +366,8 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = [];
     input.value = "";
     attachments.value = [];
-    status.value = "idle";
-    phase.value = "answering";
-    isPaused.value = false;
-    usedUpdateTasks = false;
-    pendingApproval.value = null;
-    pendingAsk.value = null;
-    statusText.value = "";
-    lastError.value = "";
-    lastInputTokens.value = null;
-    lastOutputTokens.value = null;
-    currentStep.value = null;
-    lastDoneReason.value = null;
-    runSummary.value = null;
+    resetRunState();
     sessionName.value = "新会话";
-    forceCompress.value = false;
-    pendingToolArgs.clear();
     useSessionInfoStore().clear();
 
     sessionWorkspaceId.value = target;
@@ -715,21 +405,7 @@ export const useChatStore = defineStore("chat", () => {
     messages.value = found.messages;
     input.value = found.session.draft ?? "";
     attachments.value = [];
-    status.value = "idle";
-    phase.value = "answering";
-    isPaused.value = false;
-    usedUpdateTasks = false;
-    pendingApproval.value = null;
-    pendingAsk.value = null;
-    statusText.value = "";
-    lastError.value = "";
-    lastInputTokens.value = null;
-    lastOutputTokens.value = null;
-    currentStep.value = null;
-    lastDoneReason.value = null;
-    runSummary.value = null;
-    forceCompress.value = false;
-    pendingToolArgs.clear();
+    resetRunState();
     useSessionInfoStore().clear();
     useSessionInfoStore().ensureSession(sessionId.value);
     useSessionInfoStore().restoreFromSession(found);
@@ -748,31 +424,6 @@ export const useChatStore = defineStore("chat", () => {
     useGitStore().reset();
     void refreshGit();
     void useGitStore().refreshStatus();
-  }
-
-  function insertAtComposerCaret(text: string) {
-    if (!text) {
-      return;
-    }
-    pendingComposerInsert.value = { text, id: Date.now() };
-  }
-
-  /** 浏览器标注：登记元素并以 `$el:标签` tag 插入光标处 */
-  function insertBrowserElement(ref: BrowserElementRef) {
-    elementSeq += 1;
-    const used = new Set(elementMarks.value.map((item) => item.label));
-    const mark = createElementMark(ref, elementSeq, used);
-    elementMarks.value = [...elementMarks.value, mark];
-    insertAtComposerCaret(`${mark.token} `);
-    return mark;
-  }
-
-  function removeElementMark(id: string) {
-    const mark = elementMarks.value.find((item) => item.id === id);
-    elementMarks.value = elementMarks.value.filter((item) => item.id !== id);
-    if (mark && input.value.includes(mark.token)) {
-      input.value = input.value.split(mark.token).join("").replace(/\s{2,}/g, " ");
-    }
   }
 
   return {
@@ -797,6 +448,10 @@ export const useChatStore = defineStore("chat", () => {
     insertAtComposerCaret,
     isPaused,
     isRunning,
+    queuedMessages: queue.queuedMessages,
+    editQueued: queue.edit,
+    removeQueued: queue.remove,
+    promoteQueued: queue.promote,
     runStartedAt,
     hasMessages,
     canSend,
@@ -822,7 +477,7 @@ export const useChatStore = defineStore("chat", () => {
     approve,
     submitAsk,
     dismissApproval,
-    compressNow,
+    compressNow: compressionDomain.compressNow,
     newTask,
     loadSession,
   };
