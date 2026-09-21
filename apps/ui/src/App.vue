@@ -20,6 +20,7 @@ import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
 import { useSettingsStore } from "@/stores/settings";
+import { useTerminalStore } from "@/stores/terminal";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -63,9 +64,14 @@ useGlobalShortcuts({
       case "workbench.action.toggleSidebarVisibility":
         layoutStore.toggleLeft();
         break;
-      case "workbench.action.terminal.toggleTerminal":
+      case "workbench.action.terminal.toggleTerminal": {
+        const opening = layoutStore.bottomCollapsed;
         layoutStore.toggleBottom();
+        if (opening) {
+          void useTerminalStore().ensureForWorkspace();
+        }
         break;
+      }
     }
   },
 });

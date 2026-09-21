@@ -240,11 +240,17 @@ function extractChatText(data: unknown): string {
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
 export async function completeOnce(
   prompt: string,
-  options?: { maxTokens?: number; system?: string; timeoutMs?: number },
+  options?: {
+    maxTokens?: number;
+    system?: string;
+    timeoutMs?: number;
+    providerId?: string;
+    modelId?: string;
+  },
 ): Promise<string> {
   const selection = await getSelection();
-  const providerId = selection.providerId;
-  const modelId = selection.modelId;
+  const providerId = options?.providerId || selection.providerId;
+  const modelId = options?.modelId || selection.modelId;
   if (!providerId || !modelId) {
     throw new Error("未配置模型，无法生成");
   }

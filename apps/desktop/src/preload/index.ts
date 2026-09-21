@@ -368,6 +368,23 @@ const zen = {
       return ipcRenderer.invoke("cache:roots");
     },
   },
+  skills: {
+    marketSearch(query: string) {
+      return ipcRenderer.invoke("skills:market-search", query);
+    },
+    marketInstall(hit: import("@zen/shared").SkillMarketHit) {
+      return ipcRenderer.invoke("skills:market-install", hit);
+    },
+    uninstall(skill: import("@zen/shared").SkillSummary) {
+      return ipcRenderer.invoke("skills:uninstall", skill);
+    },
+    analyze(req: { providerId: string; modelId: string }) {
+      return ipcRenderer.invoke("skills:analyze", req);
+    },
+    userRoot(): Promise<string> {
+      return ipcRenderer.invoke("skills:user-root");
+    },
+  },
   mcp: {
     list(): Promise<McpServerStatus[]> {
       return ipcRenderer.invoke("mcp:list");

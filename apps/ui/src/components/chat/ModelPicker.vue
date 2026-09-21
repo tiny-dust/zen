@@ -7,6 +7,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import { useModelsStore } from "@/stores/models";
 
+const props = defineProps<{
+  /** 小屏底栏：只显示厂商 icon，完整名称进 title */
+  compact?: boolean;
+}>();
+
 const modelsStore = useModelsStore();
 const { providers, selection, selectedLabel } = storeToRefs(modelsStore);
 
@@ -142,13 +147,20 @@ watch(providers, () => {
   <div ref="rootEl" class="relative min-w-0">
     <button
       type="button"
-      class="inline-flex max-w-[220px] items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12px] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
+      class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
+      :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
+      :title="selection.model?.name || selectedLabel"
+      :aria-label="`模型：${selection.model?.name || selectedLabel}`"
       @click="toggleOpen"
     >
-      <VendorLogo :vendor="selection.provider?.name || selection.model?.id" :size="16" />
-      <span class="truncate font-medium">{{ selection.model?.name || selectedLabel }}</span>
+      <VendorLogo
+        :vendor="selection.provider?.name || selection.model?.id"
+        :size="compact ? 16 : 16"
+      />
+      <span v-if="!compact" class="truncate font-medium">{{ selection.model?.name || selectedLabel }}</span>
       <svg
+        v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"
         viewBox="0 0 12 12"
         fill="none"

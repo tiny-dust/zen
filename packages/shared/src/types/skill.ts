@@ -11,3 +11,12 @@ export interface SkillDefinition extends SkillFrontmatter {
   body: string;
   source: "builtin" | "user";
 }
+
+/** skills.sh 市场检索结果 */
+export interface SkillMarketHit {
+  id: string;
+  skillId: string;
+  name: string;
+  source: string;
+  installs: number;
+}

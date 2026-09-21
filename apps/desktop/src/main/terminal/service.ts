@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
@@ -59,7 +60,7 @@ export class TerminalService {
       const shellInfo = resolveDefaultShell();
       const shellPath = options?.shell?.trim() || shellInfo.path;
       const args = options?.shell?.trim() ? [] : shellInfo.args;
-      const cwd = options?.cwd?.trim() || process.cwd();
+      const cwd = options?.cwd?.trim() || homedir();
       const cols = options?.cols && options.cols > 0 ? options.cols : 80;
       const rows = options?.rows && options.rows > 0 ? options.rows : 24;
       const id = randomUUID();
@@ -146,7 +147,7 @@ export class TerminalService {
 
   /** 在系统默认终端 App 中打开工作区（展示优先走系统终端） */
   openExternal(cwd: string): { ok: boolean; opener?: string; error?: string } {
-    const dir = cwd || process.cwd();
+    const dir = cwd || homedir();
     if (process.platform === "darwin") {
       const child = spawn("open", ["-a", "Terminal", dir], { detached: true, stdio: "ignore" });
       child.unref();

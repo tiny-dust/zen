@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
+import { useTerminalStore } from "@/stores/terminal";
 
 defineProps<{
   isWide: boolean;
@@ -14,8 +15,17 @@ defineProps<{
 
 const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
+const terminalStore = useTerminalStore();
 const { sessionName } = storeToRefs(chatStore);
 const { leftCollapsed, rightCollapsed, bottomCollapsed } = storeToRefs(layoutStore);
+
+function toggleBottomPanel() {
+  const opening = bottomCollapsed.value;
+  layoutStore.toggleBottom();
+  if (opening) {
+    void terminalStore.ensureForWorkspace();
+  }
+}
 
 function toggleButtonClass(active: boolean) {
   return cn(
@@ -86,7 +96,7 @@ function toggleButtonClass(active: boolean) {
         :class="toggleButtonClass(!bottomCollapsed)"
         aria-label="底部面板"
         title="底部面板"
-        @click="layoutStore.toggleBottom()"
+        @click="toggleBottomPanel"
       >
         <PanelBottom />
       </Button>

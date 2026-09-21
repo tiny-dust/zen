@@ -471,12 +471,7 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen || isRunning.value || (!text && !attachments.value.length)) {
       return;
     }
-    // 未登录禁止使用（需求 1）：配置保留在本地，但 agent 会话需要 GitHub 登录
-    if (!useUserStore().auth.loggedIn) {
-      lastError.value = "请先在「个人资料」中登录 GitHub 后再使用";
-      statusText.value = lastError.value;
-      return;
-    }
+    // 免登录可用：会话与本地 Agent 功能不依赖 GitHub；仅云同步等账号功能需登录
 
     const modelsStore = useModelsStore();
     if (!modelsStore.selection.providerId || !modelsStore.selection.modelId) {

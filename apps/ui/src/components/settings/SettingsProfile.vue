@@ -3,6 +3,7 @@ import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, watch } from "vue";
 
+import zenAvatar from "@/assets/agent-logos/zen.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -195,9 +196,18 @@ function onOpenBlog() {
 
     <Card v-else size="sm" class="settings-card">
       <CardContent class="flex flex-col items-start gap-3 p-4">
-        <div class="text-[14px] font-semibold text-[var(--color-txt-strong)]">未登录</div>
+        <div class="flex items-center gap-2.5">
+          <Avatar class="size-10 flex-none rounded-xl">
+            <AvatarImage :src="zenAvatar" alt="Zen" />
+            <AvatarFallback>Z</AvatarFallback>
+          </Avatar>
+          <div>
+            <div class="text-[14px] font-semibold text-[var(--color-txt-strong)]">Zen 用户</div>
+            <div class="text-[12px] text-[var(--color-mut)]">本地模式 · 未登录</div>
+          </div>
+        </div>
         <p class="m-0 text-[12px] leading-normal text-[var(--color-mut)]">
-          使用 GitHub Device Flow 登录后，这里会显示头像、简介与仓库统计。
+          对话、模型、终端、Git、技能与 MCP 等功能均可直接使用。登录 GitHub 后可同步个人资料与配置到云端；不登录不影响本地能力。
         </p>
         <div v-if="deviceCode && loading" class="text-[12px] text-[var(--color-txt)]">
           浏览器若未预填，请输入设备码
@@ -214,9 +224,14 @@ function onOpenBlog() {
           <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">已复制，可直接粘贴</span>
         </div>
         <p v-if="loginError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ loginError }}</p>
-        <Button size="sm" :disabled="loading" @click="userStore.login()">
-          {{ loading ? "等待授权…" : "使用 GitHub 登录" }}
-        </Button>
+        <div class="flex flex-wrap gap-2">
+          <Button size="sm" :disabled="loading" @click="userStore.login()">
+            {{ loading ? "等待授权…" : "使用 GitHub 登录" }}
+          </Button>
+          <Button size="sm" variant="outline" disabled title="登录后可用">
+            配置云同步（需登录）
+          </Button>
+        </div>
       </CardContent>
     </Card>
   </section>

@@ -14,7 +14,8 @@ import type { SessionRecord } from "@zen/shared";
 const props = defineProps<{
   session: SessionRecord;
   active: boolean;
-  depth?: number;
+  /** 是否为当前会话所在分组内的列表项（用于辅助说明） */
+  inActiveGroup?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -44,41 +45,52 @@ const statusMeta = computed(() => {
   }
 });
 
+/**
+ * 当前会话：底色 + 标题加粗 + 「当前」文字徽标（不只靠颜色）。
+ * 非当前行保持低对比，悬停才提亮。
+ */
 const rowCls = classes(
-  "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-0.5 text-left text-[12.5px] text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)]",
-  "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
+  "group/session relative flex h-9 w-full items-center gap-1 rounded-[var(--radius-sm)] pr-1 pl-1 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
+  "text-[var(--color-side-item)]",
+  [
+    !props.active,
+    "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
+  ],
   [
     props.active,
-    "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] hover:bg-[var(--color-side-sel)]",
+    "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
   ],
-  [
-    runtimeStatus.value === "needs_action",
-    "text-[var(--color-txt-strong)]",
-  ],
+  [runtimeStatus.value === "needs_action", "text-[var(--color-txt-strong)]"],
 );
 
-/** 左右图标按钮同规格，保证与标题光学对齐 */
+const titleCls = classes(
+  "min-w-0 flex-1 truncate",
+  [props.active, "font-semibold"],
+  [!props.active && props.session.archived, "text-[var(--color-dim)]"],
+);
+
 const slotCls = "flex size-7 flex-none items-center justify-center rounded-[6px]";
 const ghostActionCls = classes(
   slotCls,
   "text-[var(--color-mut)] opacity-0 transition-opacity duration-[var(--motion-fast)]",
   "hover:text-[var(--color-txt-strong)]",
   "group-hover/session:opacity-100 focus-visible:opacity-100",
+  [props.active, "opacity-100 text-[var(--color-mut)]"],
 );
 </script>
 
 <template>
-  <div :class="rowCls">
-    <!-- 置顶：固定最左槽位，已置顶常显，未置顶悬停出现 -->
+  <div :class="rowCls" :aria-current="active ? 'true' : undefined">
     <button
       type="button"
       :class="[
         slotCls,
-        'ml-0.5 flex-none',
+        'flex-none',
         session.pinned
           ? 'text-[var(--color-accent)]'
           : [
               'text-[var(--color-mut)] opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 hover:text-[var(--color-txt-strong)]',
+              active && 'opacity-100',
             ],
       ]"
       :aria-label="session.pinned ? '取消置顶' : '置顶'"
@@ -92,7 +104,6 @@ const ghostActionCls = classes(
       />
     </button>
 
-    <!-- 运行态指示：进行中 / 需要操作 / 已完成 / 失败 -->
     <span
       v-if="statusMeta"
       class="flex size-5 flex-none items-center justify-center"
@@ -107,7 +118,7 @@ const ghostActionCls = classes(
       />
       <CircleAlert
         v-else-if="statusMeta.tone === 'needs'"
-        class="size-3.5 shrink-0 text-[var(--color-accent-2)]"
+        class="size-3.5 shrink-0 text-[var(--color-accent-2,#ff8a4c)]"
         aria-hidden="true"
       />
       <CircleCheck
@@ -125,24 +136,25 @@ const ghostActionCls = classes(
 
     <button
       type="button"
-      class="flex h-8 min-w-0 flex-1 items-center pl-0.5 text-left"
+      class="flex h-9 min-w-0 flex-1 items-center gap-1.5 pl-0.5 text-left"
       @click="emit('open')"
     >
+      <span :class="titleCls">{{ session.title }}</span>
       <span
-        class="min-w-0 flex-1 truncate"
-        :class="session.archived ? 'text-[var(--color-dim)]' : ''"
+        v-if="active"
+        class="flex-none rounded-[4px] bg-[var(--color-menu-active)] px-1.5 py-px text-[10px] font-medium text-[var(--color-txt-strong)]"
       >
-        {{ session.title }}
+        当前
       </span>
       <span
-        v-if="statusMeta && statusMeta.tone === 'needs'"
-        class="ml-1 flex-none text-[10.5px] text-[var(--color-accent-2)]"
+        v-else-if="statusMeta && statusMeta.tone === 'needs'"
+        class="flex-none text-[10.5px] text-[var(--color-accent-2,#ff8a4c)]"
       >
         {{ statusMeta.label }}
       </span>
     </button>
 
-    <div class="flex flex-none items-center gap-px pr-0.5">
+    <div class="flex flex-none items-center gap-px">
       <Button
         variant="ghost"
         size="icon-sm"
