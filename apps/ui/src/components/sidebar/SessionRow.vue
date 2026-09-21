@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { Archive, ArchiveRestore, Pin, Trash2 } from "@lucide/vue";
+import { Archive, ArchiveRestore, CircleCheck, CircleAlert, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
+import { storeToRefs } from "pinia";
+import { computed } from "vue";
 import { classes } from "rattail";
 
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Button } from "@/components/ui/button";
+import { useSessionStatusStore } from "@/stores/session-status";
 
+import type { SessionRuntimeStatus } from "@/stores/session-status";
 import type { SessionRecord } from "@zen/shared";
 
 const props = defineProps<{
@@ -20,12 +24,36 @@ const emit = defineEmits<{
   remove: [];
 }>();
 
+const sessionStatus = useSessionStatusStore();
+const { byId } = storeToRefs(sessionStatus);
+
+const runtimeStatus = computed<SessionRuntimeStatus>(() => byId.value[props.session.id] ?? "idle");
+
+const statusMeta = computed(() => {
+  switch (runtimeStatus.value) {
+    case "running":
+      return { label: "进行中", tone: "running" as const };
+    case "needs_action":
+      return { label: "需要操作", tone: "needs" as const };
+    case "done":
+      return { label: "已完成", tone: "done" as const };
+    case "error":
+      return { label: "失败", tone: "error" as const };
+    default:
+      return null;
+  }
+});
+
 const rowCls = classes(
   "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-0.5 text-left text-[12.5px] text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)]",
   "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
   [
     props.active,
     "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] hover:bg-[var(--color-side-sel)]",
+  ],
+  [
+    runtimeStatus.value === "needs_action",
+    "text-[var(--color-txt-strong)]",
   ],
 );
 
@@ -64,6 +92,37 @@ const ghostActionCls = classes(
       />
     </button>
 
+    <!-- 运行态指示：进行中 / 需要操作 / 已完成 / 失败 -->
+    <span
+      v-if="statusMeta"
+      class="flex size-5 flex-none items-center justify-center"
+      :title="statusMeta.label"
+      :aria-label="statusMeta.label"
+      role="status"
+    >
+      <LoaderCircle
+        v-if="statusMeta.tone === 'running'"
+        class="size-3.5 shrink-0 animate-spin text-[var(--color-accent)]"
+        aria-hidden="true"
+      />
+      <CircleAlert
+        v-else-if="statusMeta.tone === 'needs'"
+        class="size-3.5 shrink-0 text-[var(--color-accent-2)]"
+        aria-hidden="true"
+      />
+      <CircleCheck
+        v-else-if="statusMeta.tone === 'done'"
+        class="size-3.5 shrink-0 text-[var(--color-ok)]"
+        aria-hidden="true"
+      />
+      <CircleAlert
+        v-else-if="statusMeta.tone === 'error'"
+        class="size-3.5 shrink-0 text-[var(--color-danger-fg)]"
+        aria-hidden="true"
+      />
+    </span>
+    <span v-else class="size-5 flex-none" aria-hidden="true" />
+
     <button
       type="button"
       class="flex h-8 min-w-0 flex-1 items-center pl-0.5 text-left"
@@ -74,6 +133,12 @@ const ghostActionCls = classes(
         :class="session.archived ? 'text-[var(--color-dim)]' : ''"
       >
         {{ session.title }}
+      </span>
+      <span
+        v-if="statusMeta && statusMeta.tone === 'needs'"
+        class="ml-1 flex-none text-[10.5px] text-[var(--color-accent-2)]"
+      >
+        {{ statusMeta.label }}
       </span>
     </button>
 

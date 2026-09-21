@@ -184,6 +184,14 @@ export interface ZenApi {
     onSettingsChanged(handler: (settings: AgentSettings) => void): () => void;
     onEvent(handler: (event: AgentStreamEvent) => void): () => void;
   };
+  cache: {
+    savePaste(payload: {
+      name: string;
+      mime?: string;
+      data: ArrayBuffer | Uint8Array;
+    }): Promise<{ ok: boolean; path?: string; error?: string }>;
+    roots(): Promise<{ root: string; paste: string; screenshots: string }>;
+  };
   mcp: {
     list(): Promise<McpServerStatus[]>;
     setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]>;
@@ -253,6 +261,8 @@ export interface ZenApi {
   };
   terminal: {
     shell(): Promise<TerminalShellInfo>;
+    /** 系统终端字体（含 Nerd Font 回退栈） */
+    font(): Promise<import("@zen/shared").TerminalFontSettings>;
     list(): Promise<TerminalSessionInfo[]>;
     create(options?: {
       cwd?: string;

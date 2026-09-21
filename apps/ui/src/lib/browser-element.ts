@@ -57,6 +57,7 @@ export function formatElementForPrompt(ref: BrowserElementRef): string {
   if (ref.role) bits.push(`role=${ref.role}`);
   bits.push(`rect=${ref.rect.width}x${ref.rect.height}@(${ref.rect.x},${ref.rect.y})`);
   bits.push(`page=${ref.pageUrl}`);
+  bits.push(`提示=browserOpen(page)后用browserClick(selector)`);
   return `[页面元素] ${bits.join(" ")}`;
 }
 
