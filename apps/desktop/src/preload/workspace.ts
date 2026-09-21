@@ -2,6 +2,7 @@ import { ipcRenderer } from "electron";
 
 import type {
   DirEntry,
+  FilePreview,
   ReadFileResult,
   Workspace,
   WorkspaceFile,
@@ -21,6 +22,10 @@ export const workspaceApi = {
       relPath: string,
     ): Promise<ReadFileResult | null> {
       return ipcRenderer.invoke("workspace:read-file", cwd, relPath);
+    },
+    /** 文件预览：图片 data URL / 文本截断 / 二进制 unsupported；path 可为绝对路径 */
+    previewFile(cwd: string | undefined, path: string): Promise<FilePreview | null> {
+      return ipcRenderer.invoke("workspace:preview-file", cwd, path);
     },
     writeFile(
       cwd: string | undefined,

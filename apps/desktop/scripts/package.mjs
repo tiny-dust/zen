@@ -17,8 +17,7 @@
  *     已安装应用检查更新即可看到新版本
  *
  * 平台备注：
- *   - win/linux 从 mac 交叉打包：better-sqlite3 / node-pty 均有 darwin+win32 预编译；
- *     node-pty 没有 linux 预编译，linux 包需在 Linux 机器/容器上构建。
+ *   - better-sqlite3 / @lydell/node-pty 均自带全平台预编译，三平台都可从 mac 交叉打包。
  *   - 未配置代码签名：mac 为 ad-hoc 签名，Windows 安装包会有 SmartScreen 提示。
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -47,7 +46,6 @@ const TOKENS = {
 };
 
 const NOTES = {
-  linux: "⚠ node-pty 没有 linux 预编译，linux 包需在 Linux 机器/容器上构建（本机交叉打包会失败）",
   win: "Windows 包未签名，运行时会有 SmartScreen 提示",
 };
 

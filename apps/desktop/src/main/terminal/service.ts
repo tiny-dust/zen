@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 
-import type { IPty } from "node-pty";
-import * as pty from "node-pty";
+import type { IPty } from "@lydell/node-pty";
+import * as pty from "@lydell/node-pty";
 
 import { resolveDefaultShell } from "@zen/tools-terminal";
 

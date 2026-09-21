@@ -1,9 +1,23 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { ipcMain } from "electron";
 
-import type { DirEntry, ReadFileResult, WorkspaceFile } from "@zen/shared";
+import type { DirEntry, FilePreview, ReadFileResult, WorkspaceFile } from "@zen/shared";
+
+/** 常见图片扩展名 → MIME；预览与消息图片共用 */
+const IMAGE_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  avif: "image/avif",
+  ico: "image/x-icon",
+};
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 const IGNORED_DIRS = new Set([
   "node_modules",
@@ -141,6 +155,56 @@ export function registerWorkspaceIpc(): void {
         return { ok: true };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : "write failed" };
+      }
+    },
+  );
+
+  // 文件预览：图片走 data URL，文本 512KB 截断，其余二进制报 unsupported。
+  // 绝对路径直接放行（用户上传/Agent 产物可在工作区外），相对路径按 cwd 解析。
+  ipcMain.handle(
+    "workspace:preview-file",
+    async (_event, cwd?: string, path?: string): Promise<FilePreview | null> => {
+      if (!path) {
+        return null;
+      }
+      let ref = path;
+      if (/^file:\/\//i.test(ref)) {
+        try {
+          ref = decodeURIComponent(new URL(ref).pathname);
+        } catch {
+          return null;
+        }
+      }
+      const root = cwd || process.cwd();
+      const target = isAbsolute(ref) ? ref : resolve(root, ref);
+      try {
+        const info = await stat(target);
+        if (info.isDirectory()) {
+          return null;
+        }
+        const ext = target.includes(".") ? target.split(".").pop()!.toLowerCase() : "";
+        const mime = IMAGE_MIME[ext];
+        if (mime) {
+          if (info.size > MAX_IMAGE_BYTES) {
+            return { kind: "unsupported", size: info.size };
+          }
+          const buffer = await readFile(target);
+          return {
+            kind: "image",
+            dataUrl: `data:${mime};base64,${buffer.toString("base64")}`,
+            size: info.size,
+          };
+        }
+        const MAX = 512 * 1024;
+        const buffer = await readFile(target);
+        const truncated = buffer.length > MAX;
+        const slice = truncated ? buffer.subarray(0, MAX) : buffer;
+        if (slice.includes(0)) {
+          return { kind: "unsupported", size: buffer.length };
+        }
+        return { kind: "text", content: slice.toString("utf8"), size: buffer.length, truncated };
+      } catch {
+        return null;
       }
     },
   );

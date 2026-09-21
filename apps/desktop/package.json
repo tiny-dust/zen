@@ -1,6 +1,6 @@
 {
   "name": "@zen/desktop",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "private": true,
   "productName": "Zen",
   "desktopName": "zen.desktop",
@@ -38,6 +38,9 @@
       "syncDesktopName": true
     },
     "npmRebuild": false,
+    "asarUnpack": [
+      "**/node_modules/@lydell/node-pty-*/prebuilds/**"
+    ],
     "publish": {
       "provider": "generic",
       "url": "http://localhost:8899"
@@ -61,9 +64,15 @@
     "@zen/mcp-client": "workspace:*",
     "@zen/tools-browser": "workspace:*",
     "@zen/tools-terminal": "workspace:*",
+    "@lydell/node-pty": "1.2.0-beta.15",
+    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-x64": "1.2.0-beta.15",
     "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9",
-    "node-pty": "1.1.0",
     "rattail": "2.2.0"
   },
   "devDependencies": {
