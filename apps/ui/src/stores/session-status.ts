@@ -6,6 +6,8 @@ export type SessionRuntimeStatus = "idle" | "running" | "needs_action" | "done" 
 
 export const useSessionStatusStore = defineStore("session-status", () => {
   const byId = ref<Record<string, SessionRuntimeStatus>>({});
+  /** 有「已完成 / 失败」结果但还没被重新打开过的会话（侧栏小圆点，打开后清除） */
+  const unseenResults = ref<Record<string, true>>({});
   const revision = ref(0);
 
   const snapshot = computed(() => {
@@ -13,26 +15,47 @@ export const useSessionStatusStore = defineStore("session-status", () => {
     return byId.value;
   });
 
-  function get(id: string): SessionRuntimeStatus {
-    revision.value;
-    return byId.value[id] ?? "idle";
-  }
+  const get = (id: string): SessionRuntimeStatus => byId.value[id] ?? "idle";
 
   function set(id: string, status: SessionRuntimeStatus) {
     if (!id) {
       return;
     }
     byId.value = { ...byId.value, [id]: status };
+    if (status === "done" || status === "error") {
+      unseenResults.value = { ...unseenResults.value, [id]: true };
+    } else if (id in unseenResults.value) {
+      // 回到运行/等待态说明结果已过时，撤销未读标记
+      const next = { ...unseenResults.value };
+      delete next[id];
+      unseenResults.value = next;
+    }
     revision.value += 1;
   }
 
+  /** 用户重新打开会话：清除结果未读标记 */
+  function markSeen(id: string) {
+    if (!(id in unseenResults.value)) {
+      return;
+    }
+    const next = { ...unseenResults.value };
+    delete next[id];
+    unseenResults.value = next;
+    revision.value += 1;
+  }
+
+  const hasUnseenResult = (id: string): boolean => !!unseenResults.value[id];
+
   function clear(id: string) {
-    if (!(id in byId.value)) {
+    if (!(id in byId.value) && !(id in unseenResults.value)) {
       return;
     }
     const next = { ...byId.value };
     delete next[id];
     byId.value = next;
+    const nextUnseen = { ...unseenResults.value };
+    delete nextUnseen[id];
+    unseenResults.value = nextUnseen;
     revision.value += 1;
   }
 
@@ -41,6 +64,8 @@ export const useSessionStatusStore = defineStore("session-status", () => {
     snapshot,
     get,
     set,
+    markSeen,
+    hasUnseenResult,
     clear,
   };
 });

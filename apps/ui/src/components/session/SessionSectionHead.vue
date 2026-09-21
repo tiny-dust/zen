@@ -21,7 +21,7 @@ const emit = defineEmits<{
 <template>
   <Button
     variant="ghost"
-    class="flex h-auto min-h-8 w-full items-center gap-1.5 rounded-[var(--radius-sm)] px-1 text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)]"
+    class="flex h-auto min-h-8 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left text-[13px] font-semibold text-[var(--color-txt-strong)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)]"
     :aria-expanded="open"
     @click="emit('toggle')"
   >

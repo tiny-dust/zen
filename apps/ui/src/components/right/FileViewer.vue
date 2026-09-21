@@ -12,6 +12,8 @@ import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+import { isImagePath } from "@/lib/image-file";
+
 const props = defineProps<{
   /** 文件相对路径（含文件名，用于推断语言）；空表示未选择 */
   path?: string;
@@ -30,6 +32,10 @@ const truncated = ref(false);
 const dirty = ref(false);
 const saving = ref(false);
 const saveError = ref("");
+/** 图片文件：走 preview-file 的 data URL 渲染，不进 CodeMirror */
+const imageDataUrl = ref("");
+/** 图片缩放：fit（适应面板）↔ actual（原始尺寸） */
+const imageZoomed = ref(false);
 let view: EditorView | null = null;
 /** 当前已加载的磁盘内容，用于脏检查与保存 */
 let loadedContent = "";
@@ -112,7 +118,9 @@ function render() {
   dirty.value = false;
   saveError.value = "";
   loadedContent = "";
-  if (!hostEl.value || !props.path || !props.root) {
+  imageDataUrl.value = "";
+  imageZoomed.value = false;
+  if (!props.path || !props.root) {
     return;
   }
   const zen = window.zen;
@@ -120,6 +128,20 @@ function render() {
     return;
   }
   const requestId = `${props.root}::${props.path}`;
+  // 图片：preview-file 返回 data URL，居中展示，不支持编辑
+  if (isImagePath(props.path)) {
+    void zen.workspace.previewFile(props.root, props.path).then((preview) => {
+      if (requestId !== `${props.root}::${props.path}`) {
+        return;
+      }
+      if (preview?.kind !== "image") {
+        failed.value = true;
+        return;
+      }
+      imageDataUrl.value = preview.dataUrl;
+    });
+    return;
+  }
   void zen.workspace.readFile(props.root, props.path).then((result) => {
     // 异步返回时组件可能已切换文件
     if (requestId !== `${props.root}::${props.path}` || !hostEl.value) {
@@ -211,6 +233,26 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
         role="status"
       >
         无法读取该文件（二进制或超出大小限制）。
+      </p>
+      <!-- 图片：点击在适应面板 / 原始尺寸间切换 -->
+      <div
+        v-else-if="imageDataUrl"
+        class="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-[var(--radius-sm)] bg-[var(--color-code-bg)]"
+      >
+        <img
+          :src="imageDataUrl"
+          :alt="path"
+          class="block"
+          :class="imageZoomed ? 'max-w-none cursor-zoom-out' : 'max-h-full max-w-full cursor-zoom-in'"
+          @click="imageZoomed = !imageZoomed"
+        >
+      </div>
+      <p
+        v-else-if="isImagePath(path)"
+        class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
+        role="status"
+      >
+        读取中…
       </p>
       <template v-else>
         <p

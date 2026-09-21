@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import DiffView from "@/components/right/DiffView.vue";
+import { ansiToSpans, hasAnsi } from "./ansi";
 import { toolFileDiff } from "./tool-file-diff";
 import { codeLines } from "./tool-result";
 
@@ -14,12 +15,23 @@ const replacementLines = computed(() => props.result.kind === "replacement" ? [
   ...codeLines(props.result.before).map((text) => ({ kind: "del", text })),
   ...codeLines(props.result.after).map((text) => ({ kind: "add", text })),
 ] : []);
+/** 终端输出带 ANSI 色时按片段着色渲染，否则保持纯文本 */
+const terminalSpans = computed(() => {
+  if (props.result.kind !== "terminal" || !hasAnsi(props.result.text)) {
+    return null;
+  }
+  return ansiToSpans(props.result.text);
+});
 </script>
 
 <template>
   <div class="tool-result" :data-kind="result.kind">
     <template v-if="result.kind === 'terminal'">
-      <pre v-if="result.text" class="tool-output" aria-label="终端输出">{{ result.text }}</pre>
+      <pre v-if="terminalSpans" class="tool-output" aria-label="终端输出"><template
+          v-for="(span, index) in terminalSpans"
+          :key="index"
+        ><span :class="span.cls" :style="span.style">{{ span.text }}</span></template></pre>
+      <pre v-else-if="result.text" class="tool-output" aria-label="终端输出">{{ result.text }}</pre>
       <p v-else class="tool-result-note">无终端输出</p>
       <pre v-if="result.error" class="tool-output tool-result-error">{{ result.error }}</pre>
       <div v-if="result.exitCode != null" class="tool-result-footer" :class="{ 'tool-result-error': result.exitCode !== 0 }">
@@ -98,6 +110,13 @@ const replacementLines = computed(() => props.result.kind === "replacement" ? [
 .tool-result-error { color: var(--color-err); }
 .tool-added { color: var(--color-add); }
 .tool-deleted { color: var(--color-del); }
+
+/* ANSI 布尔修饰（颜色由解析器内联 style 输出） */
+.tool-output .ansi-b { font-weight: 600; }
+.tool-output .ansi-dim { opacity: 0.6; }
+.tool-output .ansi-i { font-style: italic; }
+.tool-output .ansi-u { text-decoration: underline; }
+.tool-output .ansi-strike { text-decoration: line-through; }
 
 .tool-code { padding: 8px 0; }
 .tool-code-line { display: flex; align-items: flex-start; min-width: 0; }

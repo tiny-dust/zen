@@ -64,9 +64,12 @@ const actionCls = cn(
   "flex min-h-8 w-full items-center gap-2 rounded-[var(--radius-sm)] px-1 text-left text-[13px] text-[var(--color-txt)]",
   "hover:bg-[var(--color-menu-hover)]",
 );
-const envIconCls = "mt-0.5 size-3.5 flex-none text-[var(--color-mut)]";
-/** 说明行缩进：与上方行内文本对齐（行内边距 4px + 图标 14px + 间距 8px） */
-const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12px] text-[var(--color-dim)]";
+/** 节内行图标：行是 items-center，勿加 mt（加了会沉到文字中心下方 1px） */
+const envIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
+/** 首行对齐图标：仅用于 items-start 的行（图标与第一行文字光学对齐） */
+const envIconStartCls = cn(envIconCls, "mt-0.5");
+/** 说明行缩进：与上方行内文本同列（按钮 1px 边框 + 行内边距 4px + 图标 14px + 间距 8px = 27px） */
+const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12px] text-[var(--color-dim)]";
 </script>
 
 <template>
@@ -76,9 +79,9 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
     <div v-if="open" class="mt-1 flex flex-col">
       <div
         v-if="contextUsage != null"
-        class="flex min-h-8 items-start gap-2 px-1 py-1 text-[12.5px] text-[var(--color-txt)]"
+        class="flex min-h-8 items-start gap-2 px-[5px] py-1 text-[12.5px] text-[var(--color-txt)]"
       >
-        <Gauge :class="envIconCls" aria-hidden="true" />
+        <Gauge :class="envIconStartCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">上下文</span>
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
           {{ contextUsage }}%
@@ -182,7 +185,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[26px] text-[12
           <ExternalLink class="size-3.5" aria-hidden="true" />
         </a>
       </div>
-      <p v-if="gitStore.feedback" class="m-0 pl-[26px] text-[11px] text-[var(--color-mut)]" role="status">
+      <p v-if="gitStore.feedback" class="m-0 pl-[27px] text-[11px] text-[var(--color-mut)]" role="status">
         {{ gitStore.feedback }}
       </p>
     </div>

@@ -4,7 +4,6 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
-import AskUserCard from "@/components/chat/AskUserCard.vue";
 import { groupTimelineMessages } from "@/components/chat/message-groups";
 import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
@@ -222,14 +221,13 @@ onUnmounted(() => {
       class="flex h-full flex-col overflow-auto px-4 pb-3 pt-4 [overflow-anchor:none]"
       @scroll.passive="onScroll"
     >
-      <!-- Agent 提问与工具审批固定在对话区顶部，随时可见、方便操作 -->
+      <!-- 工具审批固定在对话区顶部，随时可见；Agent 提问卡在输入框上方（见 ChatComposer） -->
       <div
-        v-if="chatStore.pendingApproval || chatStore.pendingAsk"
+        v-if="chatStore.pendingApproval"
         class="sticky top-0 z-10 -mx-4 mb-1 flex flex-col gap-2 bg-[var(--color-main-bg)] px-4 pb-2 pt-3"
       >
         <div class="mx-auto flex w-full max-w-[860px] flex-col gap-2">
           <ApprovalCard />
-          <AskUserCard />
         </div>
       </div>
 

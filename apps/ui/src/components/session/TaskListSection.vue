@@ -40,7 +40,7 @@ watch(
       @toggle="open = !open"
     />
 
-    <div v-if="open" class="mt-1 flex flex-col gap-1.5">
+    <div v-if="open" class="mt-1 flex flex-col gap-1.5 pl-[5px]">
       <div
         v-if="versions.length > 1"
         ref="tabsEl"
@@ -90,7 +90,8 @@ watch(
         </li>
       </ul>
 
-      <p v-if="!tasks.length" class="m-0 text-[12px] text-[var(--color-dim)]">暂无任务</p>
+      <!-- 空态文字与节内行文字同列（容器 5px + 22px = 27px） -->
+      <p v-if="!tasks.length" class="m-0 pl-[22px] text-[12px] text-[var(--color-dim)]">暂无任务</p>
     </div>
   </section>
 </template>
