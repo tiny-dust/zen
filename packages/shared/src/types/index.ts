@@ -7,5 +7,6 @@ export * from "./skill";
 export * from "./mcp";
 export * from "./mcp-presets";
 export * from "./prompts";
+export * from "./multi-agent";
 export * from "./user";
 export * from "./workspace";

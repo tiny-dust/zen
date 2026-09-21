@@ -404,6 +404,18 @@ export type AgentStreamEvent =
   | { type: "usage"; sessionId: string; inputTokens: number; outputTokens: number }
   | { type: "tasks_updated"; sessionId: string; version: number; items: TaskItem[] }
   | { type: "reference_found"; sessionId: string; reference: ReferenceItem }
+  | {
+      type: "agent_tree";
+      sessionId: string;
+      agents: import("./multi-agent").AgentNodeState[];
+      concurrency: { limit: number; running: number };
+    }
+  | {
+      type: "agent_status";
+      sessionId: string;
+      agent: import("./multi-agent").AgentNodeState;
+      concurrency: { limit: number; running: number };
+    }
   | { type: "done"; sessionId: string; reason: AgentDoneReason }
   | { type: "error"; sessionId: string; message: string };
 

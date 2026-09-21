@@ -26,6 +26,27 @@ export interface TerminalOpenExternalResult {
   error?: string;
 }
 
+/** 终端字体：优先系统终端配置，并保证 Nerd Font / icon 可回退 */
+export interface TerminalFontSettings {
+  /** CSS font-family 列表（已含 Nerd Font 回退） */
+  fontFamily: string;
+  fontSize: number;
+  /** 解析出的主字体显示名 */
+  primaryFamily: string;
+  /** 主字体来源 */
+  source:
+    | "vscode"
+    | "cursor"
+    | "iterm"
+    | "terminal-app"
+    | "windows-terminal"
+    | "alacritty"
+    | "kitty"
+    | "fallback";
+  /** 主字体是否为 Nerd Font（含 icon 字形） */
+  isNerdFont: boolean;
+}
+
 export interface PtyDataEvent {
   sessionId: string;
   data: string;
