@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
 import { BrowserWindow, WebContentsView, app, shell } from "electron";
 
@@ -12,6 +11,9 @@ import {
   formatPerformanceForPrompt,
   formatSnapshotForPrompt,
 } from "@zen/tools-browser";
+
+import { screenshotCacheDir } from "../cache-ipc";
+import { zenCacheRoot } from "../zen-dir";
 
 import type {
   BrowserActionResult,
@@ -33,10 +35,11 @@ type StatusListener = (status: BrowserStatus) => void;
 type PickListener = (ref: BrowserElementRef) => void;
 
 function screenshotDir(): string {
+  // 临时截图一律进用户域 ~/.zen/cache/screenshots，不写入应用包/userData
   try {
-    return join(app.getPath("userData"), "screenshots");
+    return screenshotCacheDir();
   } catch {
-    return join(homedir(), ".zen", "screenshots");
+    return join(zenCacheRoot(), "screenshots");
   }
 }
 
@@ -473,8 +476,45 @@ export class BrowserService implements BrowserAgentBridge {
     )) as T;
   }
 
+  /** localhost / IPv6 字面量：本地 dev server 常只监听 ::1 或 127.0.0.1，逐个候选重试 */
+  private localhostCandidates(raw: string): string[] {
+    const target = raw.trim();
+    if (!target) {
+      return [];
+    }
+    let url: URL;
+    try {
+      url = new URL(target);
+    } catch {
+      return [target];
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return [target];
+    }
+    const host = url.hostname.toLowerCase();
+    const isLocalHost =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host === "0.0.0.0";
+    if (!isLocalHost) {
+      return [target];
+    }
+    const port = url.port ? `:${url.port}` : "";
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    const proto = url.protocol;
+    return [
+      target,
+      `${proto}//127.0.0.1${port}${path}`,
+      `${proto}//[::1]${port}${path}`,
+      `${proto}//localhost${port}${path}`,
+    ];
+  }
+
   async open(url: string): Promise<BrowserOpenResult> {
     const token = ++this.navigateToken;
+    const candidates = this.localhostCandidates(url);
     try {
       const status = await this.ensureRunning();
       if (status.state === "error") {
@@ -493,18 +533,30 @@ export class BrowserService implements BrowserAgentBridge {
       this.applyBounds();
 
       this.setStatus({ error: undefined });
-      // loadURL：超时要有明确失败，避免 UI 一直「加载中」
-      await withTimeout(wc.loadURL(target), 15_000, "页面加载");
-      if (token !== this.navigateToken) {
-        return { ok: true, url: wc.getURL() || target, title: wc.getTitle() || "" };
+      let lastError: Error | null = null;
+      for (const candidate of candidates) {
+        try {
+          await withTimeout(wc.loadURL(candidate), 15_000, "页面加载");
+          if (token !== this.navigateToken) {
+            return { ok: true, url: wc.getURL() || candidate, title: wc.getTitle() || "" };
+          }
+          this.refreshMetaSync(wc);
+          this.applyBounds();
+          return { ok: true, url: this.state.url || candidate, title: this.state.title };
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          // ERR_CONNECTION_REFUSED / 超时 → 换下一候选（IPv4/IPv6）
+        }
       }
-      this.refreshMetaSync(wc);
-      this.applyBounds();
-      return { ok: true, url: this.state.url || target, title: this.state.title };
+      throw lastError || new Error("打开页面失败");
     } catch (error) {
       const message = error instanceof Error ? error.message : "打开页面失败";
-      this.setStatus({ error: message });
-      return { ok: false, url, title: "", error: message };
+      const hint =
+        /ERR_|超时|failed|refused|not allowed|无法/i.test(message) && candidates.length > 1
+          ? `${message}（已尝试：${candidates.join(" / ")}）`
+          : message;
+      this.setStatus({ error: hint });
+      return { ok: false, url, title: "", error: hint };
     }
   }
 
