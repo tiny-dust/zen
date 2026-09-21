@@ -45,7 +45,8 @@ export const useLayoutStore = defineStore("layout", () => {
 
   const leftCollapsed = ref(false);
   const rightCollapsed = ref(false);
-  const bottomCollapsed = ref(false);
+  /** 终端默认关闭；展开时由调用方按项目路径定位 cwd */
+  const bottomCollapsed = ref(true);
   const sessionOpen = ref(true);
   const infoOpen = ref(false);
 

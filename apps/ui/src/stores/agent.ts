@@ -10,6 +10,7 @@ import type {
   SyncResult,
 } from "@zen/shared";
 import { DEFAULT_AGENT_SETTINGS, PERMISSION_MODES } from "@zen/shared";
+import { useUserStore } from "@/stores/user";
 
 /** Agent 域设置（~/.zen/config.json）+ 技能/MCP/提示词/同步的 UI 状态 */
 export const useAgentStore = defineStore("agent", () => {
@@ -97,6 +98,9 @@ export const useAgentStore = defineStore("agent", () => {
     if (!zen?.sync) {
       return { ok: false, error: "bridge 未就绪" };
     }
+    if (!useUserStore().auth.loggedIn) {
+      return { ok: false, error: "配置云同步需要登录 GitHub" };
+    }
     syncBusy.value = true;
     try {
       lastSync.value = await zen.sync.upload();
@@ -110,6 +114,9 @@ export const useAgentStore = defineStore("agent", () => {
     const zen = window.zen;
     if (!zen?.sync) {
       return { ok: false, error: "bridge 未就绪" };
+    }
+    if (!useUserStore().auth.loggedIn) {
+      return { ok: false, error: "配置云同步需要登录 GitHub" };
     }
     syncBusy.value = true;
     try {

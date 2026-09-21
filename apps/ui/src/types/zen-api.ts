@@ -192,6 +192,27 @@ export interface ZenApi {
     }): Promise<{ ok: boolean; path?: string; error?: string }>;
     roots(): Promise<{ root: string; paste: string; screenshots: string }>;
   };
+  skills: {
+    marketSearch(query: string): Promise<{
+      ok: boolean;
+      items: import("@zen/shared").SkillMarketHit[];
+      error?: string;
+    }>;
+    marketInstall(hit: import("@zen/shared").SkillMarketHit): Promise<{
+      ok: boolean;
+      dir?: string;
+      error?: string;
+    }>;
+    uninstall(skill: import("@zen/shared").SkillSummary): Promise<{
+      ok: boolean;
+      error?: string;
+    }>;
+    analyze(req: {
+      providerId: string;
+      modelId: string;
+    }): Promise<{ ok: boolean; report?: string; error?: string }>;
+    userRoot(): Promise<string>;
+  };
   mcp: {
     list(): Promise<McpServerStatus[]>;
     setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]>;

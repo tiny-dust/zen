@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { HelpCircle, LogOut, Power, Settings } from "@lucide/vue";
+import { CloudOff, HelpCircle, LogOut, Power, Settings } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 
+import zenAvatar from "@/assets/agent-logos/zen.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,15 +25,7 @@ const { auth, loading, loginError, deviceCode } = storeToRefs(userStore);
 
 const open = ref(false);
 
-watch(
-  () => auth.value.loggedIn,
-  (loggedIn) => {
-    if (!loggedIn) {
-      open.value = false;
-    }
-  },
-);
-
+/** 免登录默认身份：本地可用，云同步/资料需登录 */
 const displayName = computed(() => {
   if (loading.value) {
     return deviceCode.value ? "在浏览器确认设备码" : "正在申请登录…";
@@ -40,7 +33,7 @@ const displayName = computed(() => {
   if (auth.value.loggedIn && auth.value.user) {
     return auth.value.user.name || auth.value.user.login;
   }
-  return "未登录";
+  return "Zen 用户";
 });
 
 const displaySub = computed(() => {
@@ -50,25 +43,26 @@ const displaySub = computed(() => {
   if (auth.value.loggedIn && auth.value.user) {
     return `@${auth.value.user.login}`;
   }
-  return "GitHub 授权登录";
+  return "本地模式 · 未登录";
 });
 
 const initials = computed(() => {
-  const login = auth.value.user?.login;
-  return login ? login.slice(0, 1).toUpperCase() : "?";
+  if (auth.value.loggedIn && auth.value.user?.login) {
+    return auth.value.user.login.slice(0, 1).toUpperCase();
+  }
+  return "Z";
 });
 
 function onOpenChange(next: boolean) {
-  if (!auth.value.loggedIn) {
-    open.value = false;
-    void userStore.login();
-    return;
-  }
   open.value = next;
 }
 
 function openSettings() {
   settingsStore.openSettings("general");
+}
+
+function openProfile() {
+  settingsStore.openSettings("profile");
 }
 
 function onLogout() {
@@ -103,9 +97,14 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
         >
           <Avatar class="size-7 flex-none rounded-lg">
             <AvatarImage
-              v-if="auth.user?.avatarUrl"
+              v-if="auth.loggedIn && auth.user?.avatarUrl"
               :src="auth.user.avatarUrl"
               :alt="auth.user.login"
+            />
+            <AvatarImage
+              v-else
+              :src="zenAvatar"
+              alt="Zen"
             />
             <AvatarFallback class="text-[11px] font-semibold">{{ initials }}</AvatarFallback>
           </Avatar>
@@ -121,7 +120,6 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        v-if="auth.loggedIn"
         align="start"
         side="top"
         :side-offset="8"
@@ -131,17 +129,20 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
           <div class="flex items-center gap-2.5">
             <Avatar class="size-8 flex-none rounded-lg">
               <AvatarImage
-                v-if="auth.user?.avatarUrl"
+                v-if="auth.loggedIn && auth.user?.avatarUrl"
                 :src="auth.user.avatarUrl"
                 :alt="auth.user.login"
               />
+              <AvatarImage v-else :src="zenAvatar" alt="Zen" />
               <AvatarFallback>{{ initials }}</AvatarFallback>
             </Avatar>
             <div class="min-w-0 flex flex-col">
               <div class="truncate text-[13px] font-semibold text-[var(--color-txt-strong)]">
-                {{ auth.user?.name || auth.user?.login }}
+                {{ auth.loggedIn ? auth.user?.name || auth.user?.login : "Zen 用户" }}
               </div>
-              <div class="truncate text-[11px] text-[var(--color-mut)]">@{{ auth.user?.login }}</div>
+              <div class="truncate text-[11px] text-[var(--color-mut)]">
+                {{ auth.loggedIn ? `@${auth.user?.login}` : "本地模式 · 全功能可用" }}
+              </div>
             </div>
           </div>
         </DropdownMenuLabel>
@@ -154,7 +155,15 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
             <span>设置</span>
             <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="menuItemCls" disabled>
+          <DropdownMenuItem :class="menuItemCls" @select="openProfile">
+            <CloudOff v-if="!auth.loggedIn" :class="menuIconCls" />
+            <HelpCircle v-else :class="menuIconCls" />
+            <span>{{ auth.loggedIn ? "个人资料与同步" : "登录以启用云同步" }}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem v-if="!auth.loggedIn" :class="menuItemCls" :disabled="loading" @select="userStore.login()">
+            <span>{{ loading ? "授权中…" : "登录 GitHub" }}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem v-else :class="menuItemCls" disabled>
             <HelpCircle :class="menuIconCls" />
             <span>帮助与反馈</span>
           </DropdownMenuItem>
@@ -163,7 +172,7 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
-          <DropdownMenuItem :class="[menuItemCls, menuDanger]" @select="onLogout">
+          <DropdownMenuItem v-if="auth.loggedIn" :class="[menuItemCls, menuDanger]" @select="onLogout">
             <LogOut :class="menuIconCls" />
             <span>退出登录</span>
           </DropdownMenuItem>

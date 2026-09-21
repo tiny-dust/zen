@@ -6,6 +6,7 @@ import type {
   TerminalSessionInfo,
   TerminalShellInfo,
 } from "@zen/shared";
+import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 /** 分屏：none=单栏；columns=左右；rows=上下 */
@@ -284,6 +285,25 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
   }
 
+  /** 展开底部面板时：按当前会话项目路径定位；非项目会话落到用户主目录 */
+  async function ensureForWorkspace() {
+    const workspace = useWorkspaceStore();
+    const chat = useChatStore();
+    const cwd =
+      workspace.pathOf(chat.sessionWorkspaceId) ||
+      workspace.activePath ||
+      undefined;
+    if (!sessions.value.length) {
+      await start(cwd);
+      return;
+    }
+    // 已有终端时不强杀；仅在目录不一致且无运行输出时重启到正确 cwd
+    const current = sessions.value.find((item) => item.id === activeId.value);
+    if (current?.cwd && cwd && current.cwd !== cwd && !buffers.get(current.id)?.trim()) {
+      await restart(cwd);
+    }
+  }
+
   async function openExternal() {
     if (!window.zen?.terminal) {
       return { ok: false, error: "终端 IPC 不可用" };
@@ -321,6 +341,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     resize,
     restart,
     close,
+    ensureForWorkspace,
     openExternal,
   };
 });

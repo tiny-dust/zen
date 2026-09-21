@@ -1,7 +1,5 @@
 import type { PromptPreset } from "@zen/shared";
 
-import chatgptEn from "./prompt-texts/chatgpt-en.md?raw";
-import chatgptZh from "./prompt-texts/chatgpt-zh.md?raw";
 import claudeEn from "./prompt-texts/claude-code-en.md?raw";
 import claudeZh from "./prompt-texts/claude-code-zh.md?raw";
 import codexEn from "./prompt-texts/codex-en.md?raw";
@@ -12,6 +10,9 @@ import cursorEn from "./prompt-texts/cursor-en.md?raw";
 import cursorZh from "./prompt-texts/cursor-zh.md?raw";
 import deepseekEn from "./prompt-texts/deepseek-en.md?raw";
 import deepseekZh from "./prompt-texts/deepseek-zh.md?raw";
+import mimoZh from "./prompt-texts/mimo-zh.md?raw";
+import dimagentEn from "./prompt-texts/dimagent-en.md?raw";
+import dimagentZh from "./prompt-texts/dimagent-zh.md?raw";
 import zenEn from "./prompt-texts/zen-en-full.md?raw";
 import zenZh from "./prompt-texts/zen-zh-full.md?raw";
 import { DIMAGENT_PARSED, MIMO_DESKTOP_FULL } from "./prompt-fulltexts";
@@ -81,15 +82,6 @@ const CLAUDE_CODE_DISTILLED = `你是 Zen，运行在用户桌面端里的编码
 - 多步任务高频使用任务清单，完成即标记。
 
 禁止编造或猜测 URL；不确定就明说，绝不编造。`;
-
-const CHATGPT_DISTILLED = `你是 Zen，运行在用户桌面端里的 AI 助手。
-
-- 人设：有见地、鼓励式、带分寸的幽默；像聪明的朋友一样平等对话，教学时循序渐进。
-- 准确性：不确定就说不确定；给答案前先衡量置信度，不硬凑确定语气。
-- 收尾纪律：不用「要不要我…/需要我…吗」式追问收尾；必要的澄清问题最多一个，且放在开头。
-- 隐私红线：用户未明确要求时，不把敏感个人信息（健康、宗教、政治倾向、精确位置等）写入任何持久存储。
-- 版权：不逐字复述受版权保护的材料（歌词、长段书籍原文）。
-- 遇到编码任务时：先理解上下文再动手，修改走工具落地，不在对话里贴大段补丁。`;
 
 const DEEPSEEK_DISTILLED = `你是 Zen，运行在用户桌面端里的 AI 编程助手。
 
@@ -179,16 +171,6 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     en: claudeEn.trim(),
   }),
   versioned({
-    id: "chatgpt-style",
-    name: "ChatGPT 风格",
-    description: "通用助手：人设、收尾纪律、隐私红线",
-    origin: "GPT-5 泄露系统提示词（多渠道交叉）",
-    kind: "full",
-    distilled: CHATGPT_DISTILLED,
-    zh: chatgptZh.trim(),
-    en: chatgptEn.trim(),
-  }),
-  versioned({
     id: "deepseek-style",
     name: "DeepSeek 风格",
     description: "短、强身份、领域聚焦",
@@ -221,48 +203,40 @@ export const PROMPT_PRESETS: PromptPreset[] = [
   }),
   versioned({
     id: "mimo-desktop",
-    name: "Zen 完整原文",
+    name: "MIMO Desktop",
     description:
-      "桌面端完整运行时提示词（含工具与产品环境约定）；身份已统一为 Zen",
-    origin: "素材提取自 Xiaomi MiMo.app app.asar electron/prompts/（身份已改写为 Zen）",
+      "小米 MiMo Desktop 完整运行时提示词（base + desktop 环境）；设置页可切换中/英",
+    origin: "Xiaomi MiMo.app app.asar electron/prompts/（本机提取）",
     kind: "full",
-    distilled: "（无单独提炼版，运行时将注入完整原文）",
+    distilled: "（无单独提炼版；运行时注入英文完整原文）",
     en: MIMO_DESKTOP_FULL,
+    zh: mimoZh.trim(),
     defaultView: "en",
   }),
   versioned({
     id: "dimagent-parsed",
-    name: "Zen 桌面行为（解析版）",
-    description: "桌面场景行为规则解析版；身份已统一为 Zen",
-    origin: "素材整理自本机会话上下文（身份已改写为 Zen）",
-    kind: "distilled",
-    distilled: DIMAGENT_PARSED,
-    zh: DIMAGENT_PARSED,
+    name: "DimAgent",
+    description: "本机 DimAgent 运行时行为规则整理版；中/英对照",
+    origin: "DimAgent.app app.asar + 运行时上下文解析（docs/research/prompts/）",
+    kind: "full",
+    distilled: dimagentZh.trim(),
+    zh: dimagentZh.trim(),
+    en: dimagentEn.trim(),
     defaultView: "zh",
   }),
 ];
 
-// MiMo/DimAgent 预设中的产品身份已统一为 Zen；origin 仍标注素材来源
+// MIMO Desktop：运行时注入英文完整原文；中/英分开展示
 const mimo = PROMPT_PRESETS.find((item) => item.id === "mimo-desktop");
 if (mimo?.versions) {
   mimo.versions.distilled = undefined;
-  mimo.versions.en = (mimo.versions.en ?? MIMO_DESKTOP_FULL)
-    .replace(/MiMo Desktop/g, "Zen")
-    .replace(/MiMo 助手/g, "Zen 助手")
-    .replace(/you are the MiMo assistant/gi, "you are Zen")
-    .replace(/MIMO DESKTOP BASE INSTRUCTIONS/g, "ZEN DESKTOP BASE INSTRUCTIONS");
-  mimo.versions.zh = mimo.versions.en;
-  mimo.text = mimo.versions.en;
+  mimo.text = mimo.versions.en ?? MIMO_DESKTOP_FULL;
 }
 
+// DimAgent：运行时默认中文完整版
 const dimagent = PROMPT_PRESETS.find((item) => item.id === "dimagent-parsed");
 if (dimagent?.versions) {
-  const normalized = DIMAGENT_PARSED.replace(/DimAgent desktop app/g, "Zen desktop app")
-    .replace(/DIMAGENT RUNTIME INSTRUCTIONS/g, "ZEN RUNTIME INSTRUCTIONS")
-    .replace(/DimAgent/g, "Zen");
-  dimagent.versions.distilled = normalized;
-  dimagent.versions.zh = normalized;
-  dimagent.text = normalized;
+  dimagent.text = dimagent.versions.zh || dimagent.versions.en || DIMAGENT_PARSED;
 }
 
 export function resolvePromptText(settings: AgentSettingsLike): string {

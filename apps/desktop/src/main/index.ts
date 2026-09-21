@@ -28,6 +28,7 @@ import { registerSyncIpc } from "./config-sync";
 import { registerBrowserIpc } from "./browser/ipc";
 import { getBrowserService, shutdownBrowserService } from "./browser/service";
 import { registerCacheIpc } from "./cache-ipc";
+import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
 import { resolvePromptText } from "./prompt-presets";
@@ -399,6 +400,7 @@ app.whenReady().then(() => {
   registerAgentIpc(broadcast);
   registerMcpIpc();
   registerCacheIpc();
+  registerSkillsMarketIpc();
   registerSyncIpc();
   registerUpdaterIpc();
   registerBrowserIpc(broadcast);
