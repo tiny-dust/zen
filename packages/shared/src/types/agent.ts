@@ -19,6 +19,16 @@ export interface ReadFileResult {
   truncated: boolean;
 }
 
+/**
+ * 文件预览结果（workspace:preview-file）：
+ * 图片按扩展名识别走 data URL；文本 512KB 截断；其余二进制报 unsupported。
+ * path 允许绝对路径（用户上传/Agent 产物在工作区外的情况），相对路径按 cwd 解析。
+ */
+export type FilePreview =
+  | { kind: "image"; dataUrl: string; size: number }
+  | { kind: "text"; content: string; size: number; truncated: boolean }
+  | { kind: "unsupported"; size: number };
+
 /** git status --porcelain 的文件级变更（X=暂存区，Y=工作区） */
 export interface GitFileChange {
   path: string;
