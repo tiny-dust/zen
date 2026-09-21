@@ -37,6 +37,15 @@ import type {
   ToolRisk,
 } from "@zen/shared";
 
+import {
+  MultiAgentOrchestrator,
+  ResourceLock,
+  multiAgentInstructions,
+  subAgentInstructions,
+} from "./multi-agent";
+
+export * from "./multi-agent";
+
 const MOCK_REPLY_PREFIX =
   "【Mock Agent】已收到你的消息。后续将接入 AI SDK ToolLoopAgent，完成「改文件 → 跑测试 → commit」闭环。\n\n你刚才说：";
 
@@ -103,6 +112,8 @@ export interface AgentSessionConfig {
   mcpTools?: McpToolBridge[];
   /** 内嵌 WebContentsView + CDP 浏览器桥（desktop 注入；缺省时不注册 browser.* 工具） */
   browserBridge?: BrowserAgentBridge;
+  /** 是否启用多 Agent 协作工具（spawnAgent 等）；子 Agent 应为 false */
+  multiAgent?: boolean;
   emit: (event: AgentStreamEvent) => void;
 }
 
@@ -124,7 +135,11 @@ function riskForTool(toolName: string): ToolRisk {
     toolName === "updateTasks" ||
     toolName === "webSearch" ||
     toolName === "loadSkill" ||
-    toolName === "askUser"
+    toolName === "askUser" ||
+    toolName === "spawnAgent" ||
+    toolName === "listAgents" ||
+    toolName === "waitForAgents" ||
+    toolName === "collectAgentResults"
   ) {
     return "read";
   }
@@ -308,12 +323,32 @@ interface ToolHooks {
   emitAskResolved(askId: string, toolCallId: string, answer: string): void;
 }
 
+interface ToolSetRuntime {
+  resourceLock?: ResourceLock;
+  ownerLabel?: string;
+  multiAgentTools?: ToolSet;
+}
+
+async function exclusive<T>(
+  runtime: ToolSetRuntime | undefined,
+  kind: "write" | "terminal" | "browser",
+  fn: () => Promise<T>,
+): Promise<T> {
+  const lock = runtime?.resourceLock;
+  const owner = runtime?.ownerLabel ?? "agent";
+  if (!lock) {
+    return await fn();
+  }
+  return lock.run(owner, kind, fn);
+}
+
 function buildToolSet(
   workspaceRoot: string,
   emit: (event: AgentStreamEvent) => void,
   sessionId: string,
   config: AgentSessionConfig,
   hooks: ToolHooks,
+  runtime?: ToolSetRuntime,
 ): ToolSet {
   const toolSet: ToolSet = {
     readFile: tool({
@@ -331,7 +366,9 @@ function buildToolSet(
         content: z.string().describe("Full file content to write."),
       }),
       execute: async ({ path, content }) => {
-        return await writeWorkspaceFile(workspaceRoot, path, content);
+        return exclusive(runtime, "write", () =>
+          writeWorkspaceFile(workspaceRoot, path, content),
+        );
       },
     }),
     editFile: tool({
@@ -344,17 +381,21 @@ function buildToolSet(
         replaceAll: z.boolean().optional().describe("Replace every occurrence (default false)."),
       }),
       execute: async ({ path, oldString, newString, replaceAll }) => {
-        const result = await editWorkspaceFile(
-          workspaceRoot,
-          path,
-          oldString,
-          newString,
-          replaceAll ?? false,
-        );
-        if (result.replacements === 0) {
-          throw new Error(`oldString not found in ${path}; read the file first and copy exact text`);
-        }
-        return result;
+        return exclusive(runtime, "write", async () => {
+          const result = await editWorkspaceFile(
+            workspaceRoot,
+            path,
+            oldString,
+            newString,
+            replaceAll ?? false,
+          );
+          if (result.replacements === 0) {
+            throw new Error(
+              `oldString not found in ${path}; read the file first and copy exact text`,
+            );
+          }
+          return result;
+        });
       },
     }),
     listDir: tool({
@@ -398,34 +439,36 @@ function buildToolSet(
           .describe("Timeout in ms (default 120000, max 300000)."),
       }),
       execute: async ({ command, timeoutMs }) => {
-        return await new Promise((resolve) => {
-          exec(
-            command,
-            {
-              cwd: workspaceRoot,
-              timeout: Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000),
-              maxBuffer: 1024 * 1024,
-              windowsHide: true,
-              env: process.env,
-            },
-            (error, stdout, stderr) => {
-              const exitCode =
-                typeof (error as { code?: unknown } | null)?.code === "number"
-                  ? (error as unknown as { code: number }).code
-                  : error
-                    ? 1
-                    : 0;
-              const output = truncateOutput(
-                `${stdout || ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim() ||
-                  "(no output)",
-              );
-              resolve({
-                ok: !error,
-                exitCode,
-                output,
-              });
-            },
-          );
+        return exclusive(runtime, "terminal", async () => {
+          return await new Promise((resolve) => {
+            exec(
+              command,
+              {
+                cwd: workspaceRoot,
+                timeout: Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000),
+                maxBuffer: 1024 * 1024,
+                windowsHide: true,
+                env: process.env,
+              },
+              (error, stdout, stderr) => {
+                const exitCode =
+                  typeof (error as { code?: unknown } | null)?.code === "number"
+                    ? (error as unknown as { code: number }).code
+                    : error
+                      ? 1
+                      : 0;
+                const output = truncateOutput(
+                  `${stdout || ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim() ||
+                    "(no output)",
+                );
+                resolve({
+                  ok: !error,
+                  exitCode,
+                  output,
+                });
+              },
+            );
+          });
         });
       },
     }),
@@ -541,6 +584,10 @@ function buildToolSet(
     }),
   };
 
+  if (runtime?.multiAgentTools) {
+    Object.assign(toolSet, runtime.multiAgentTools);
+  }
+
   // 内嵌 WebContentsView + CDP：AI 浏览器工具（UI 对照 / 交互验证 / console / 性能）
   const browserBridge = config.browserBridge;
   if (browserBridge) {
@@ -552,9 +599,11 @@ function buildToolSet(
     });
     toolSet.browserOpen = tool({
       description:
-        "Open a URL in the product browser (embedded WebContentsView). Use for UI verification and page data collection.",
+        "Open a URL in the product browser (embedded WebContentsView). Prefer the pageUrl from [页面元素]. " +
+        "Local dev servers: use http://127.0.0.1:<port> or http://[::1]:<port> if localhost fails (IPv6-only listeners). " +
+        "After open succeeds, use browserClick with the selector from [页面元素].",
       inputSchema: z.object({ url: z.string().describe("http(s) URL to open") }),
-      execute: async ({ url }) => browserBridge.open(url),
+      execute: async ({ url }) => exclusive(runtime, "browser", () => browserBridge.open(url)),
     });
     toolSet.browserSnapshot = tool({
       description:
@@ -571,7 +620,8 @@ function buildToolSet(
     toolSet.browserClick = tool({
       description: "Click an element in the browser by CSS selector (from extract/element pick).",
       inputSchema: z.object({ selector: z.string() }),
-      execute: async ({ selector }) => browserBridge.click(selector),
+      execute: async ({ selector }) =>
+        exclusive(runtime, "browser", () => browserBridge.click(selector)),
     });
     toolSet.browserType = tool({
       description: "Type text into a browser form field by CSS selector.",
@@ -581,7 +631,7 @@ function buildToolSet(
         submit: z.boolean().optional().describe("Submit the form after typing"),
       }),
       execute: async ({ selector, text, submit }) =>
-        browserBridge.type(selector, text, { submit }),
+        exclusive(runtime, "browser", () => browserBridge.type(selector, text, { submit })),
     });
     toolSet.browserConsole = tool({
       description:
@@ -598,13 +648,14 @@ function buildToolSet(
     toolSet.browserScreenshot = tool({
       description: "Capture a PNG screenshot of the current browser page to local disk.",
       inputSchema: z.object({}),
-      execute: async () => browserBridge.screenshot(),
+      execute: async () => exclusive(runtime, "browser", () => browserBridge.screenshot()),
     });
     toolSet.browserEvaluate = tool({
       description:
         "Evaluate a JS expression in the browser page context and return the value. Use sparingly.",
       inputSchema: z.object({ expression: z.string() }),
-      execute: async ({ expression }) => browserBridge.evaluate(expression),
+      execute: async ({ expression }) =>
+        exclusive(runtime, "browser", () => browserBridge.evaluate(expression)),
     });
   }
 
@@ -677,12 +728,17 @@ function buildInstructions(config: AgentSessionConfig): string | undefined {
       .join("\n");
     parts.push(`已连接的 MCP 工具（调用前注意这些是外部服务）：\n${lines}`);
   }
+  if (config.multiAgent !== false) {
+    parts.push(multiAgentInstructions());
+  }
   parts.push(
     `当前工作目录：${config.workspaceRoot}\n系统平台：${process.platform}\n今天的日期：${new Date().toISOString().slice(0, 10)}`,
   );
   if (config.browserBridge) {
     parts.push(
-      `内置浏览器已接入（WebContentsView + CDP）。需要查看/对照页面时：browserOpen 打开 URL（UI 会自动展开右侧浏览器面板），再用 browserSnapshot/browserExtract/browserClick/browserType/browserConsole/browserPerformance 完成 UI 对照与交互验证。用户消息中的 [页面元素] 已含 selector，可直接用于 click/type。`,
+      `内置浏览器已接入（WebContentsView + CDP）。流程：browserOpen 打开 [页面元素] 里的 page= URL → browserClick/browserType 使用同一元素的 selector。` +
+        `本地 dev server 若打开失败：依次改试 http://127.0.0.1:<port> 与 http://[::1]:<port>（IPv6-only 监听时 localhost 可能连不上）。` +
+        `不要因一次 open 失败就放弃浏览器工具改去盲猜组件；先确认 URL 再定位代码。`,
     );
   }
   return parts.join("\n\n");
@@ -798,6 +854,9 @@ export class AgentSession {
   private readonly pendingAsks = new Map<string, PendingAsk>();
   /** 会话内已放行的工具（「全部允许」记忆；网络类确认一次后同样放行） */
   private readonly rememberedTools = new Set<string>();
+  /** 多 Agent：写/终端/浏览器互斥 + 编排器（主会话） */
+  private readonly resourceLock = new ResourceLock();
+  private readonly orchestrator: MultiAgentOrchestrator | null;
 
   constructor(config: AgentSessionConfig) {
     this.config = config;
@@ -838,9 +897,25 @@ export class AgentSession {
         });
       },
     };
+
+    this.orchestrator =
+      config.multiAgent === false
+        ? null
+        : new MultiAgentOrchestrator({
+            parentSessionId: config.sessionId,
+            emit: config.emit,
+            resourceLock: this.resourceLock,
+            runChild: (spec) => this.runSubAgent(spec),
+          });
+
+    const multiAgentTools = this.orchestrator?.buildTools();
     this.agent = new ToolLoopAgent({
       model: createLanguageModel(config),
-      tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks),
+      tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
+        resourceLock: this.resourceLock,
+        ownerLabel: config.sessionId,
+        multiAgentTools,
+      }),
       instructions: buildInstructions(config),
       stopWhen: isStepCount(30),
       providerOptions: buildProviderOptions(config) as never,
@@ -862,6 +937,81 @@ export class AgentSession {
 
   get sessionId(): string {
     return this.config.sessionId;
+  }
+
+  get agentTree() {
+    return this.orchestrator?.snapshot() ?? null;
+  }
+
+  /** 启动并等待一个子 Agent；子会话不启用 multiAgent、不阻塞审批（smart→full） */
+  private async runSubAgent(spec: {
+    agentId: string;
+    name: string;
+    task: string;
+    signal: AbortSignal;
+    onLog: (text: string) => void;
+  }): Promise<{ ok: boolean; text: string; error?: string }> {
+    if (spec.signal.aborted) {
+      return { ok: false, text: "", error: "cancelled" };
+    }
+    let collected = "";
+    let childError = "";
+    const child = new AgentSession({
+      ...this.config,
+      sessionId: `${this.config.sessionId}::${spec.agentId}`,
+      multiAgent: false,
+      permissionMode: "full",
+      systemPrompt: `${subAgentInstructions({
+        name: spec.name,
+        parentSessionId: this.config.sessionId,
+      })}\n\n${this.config.systemPrompt ?? ""}`.trim(),
+      browserBridge: this.config.browserBridge,
+      emit: (event) => {
+        if (event.type === "delta" && event.text) {
+          collected += event.text;
+          spec.onLog(event.text.slice(0, 120));
+          return;
+        }
+        if (event.type === "error") {
+          childError = event.message;
+          spec.onLog(`错误：${event.message}`);
+          return;
+        }
+        if (event.type === "tool_start") {
+          spec.onLog(`工具 ${event.toolName}`);
+          return;
+        }
+        if (event.type === "done" && event.reason === "error") {
+          childError = childError || "子任务失败";
+        }
+      },
+    });
+    const onAbort = () => {
+      void child.cancel();
+    };
+    spec.signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      await child.start(spec.task);
+      if (spec.signal.aborted) {
+        return { ok: false, text: collected, error: "cancelled" };
+      }
+      if (childError) {
+        return { ok: false, text: collected, error: childError };
+      }
+      const text = collected.trim();
+      if (!text) {
+        return { ok: false, text: "", error: "子任务未产生输出" };
+      }
+      return { ok: true, text };
+    } catch (error) {
+      return {
+        ok: false,
+        text: collected,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      spec.signal.removeEventListener("abort", onAbort);
+    }
   }
 
   async start(userMessage: string, history?: ChatTurn[]): Promise<void> {
@@ -960,6 +1110,7 @@ export class AgentSession {
 
   async cancel(): Promise<void> {
     const waiting = this.paused || this.pending != null || this.pendingAsks.size > 0;
+    this.orchestrator?.dispose();
     if (this.controller) {
       this.controller.abort();
     }
