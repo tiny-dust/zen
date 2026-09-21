@@ -32,6 +32,7 @@ pnpm updates:serve        # 或 PORT=9000 指定端口
 
 - 开发模式（electron-vite dev）不支持在线更新，UI 会提示使用打包版本。
 - macOS 未配置 Developer ID 证书，打包为 ad-hoc 签名；跨机器分发时 macOS Gatekeeper 会拦截（右键打开），正式分发前需要接签名与公证。
+- 无证书时 `scripts/mac-after-sign.mjs` 会在 electron-builder afterSign 阶段对 `.app` 做完整 ad-hoc 重签（生成 `CodeResources`），否则 Squirrel.Mac 安装更新会报 `code has no resources but signature indicates they must be present`。
 - `package.json` 的 `build.publish` 只是让 electron-builder 生成 `latest-mac.yml`；运行时实际拉取地址以应用设置里的 `updateFeedUrl` 为准（`autoUpdater.setFeedURL` 覆盖）。
 - 同一台机器自测：起 `python3 -m http.server` 后填 `http://127.0.0.1:8899`。
 - 差量下载依赖 blockmap；若换目录/改名导致 blockmap 404，electron-updater 会自动回退全量下载。
