@@ -24,9 +24,11 @@ let server: Server;
 let origin = "";
 let workspaceRoot = "";
 
-type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow";
+type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop";
 
 const routes = new Map<string, RouteKind>();
+/** tool-loop 路由的请求计数：每次请求返回唯一 toolCallId，模拟持续调工具的模型 */
+let toolLoopSeq = 0;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,6 +111,27 @@ function blocksFor(kind: RouteKind): string[] {
       chunk({}, "stop"),
       "data: [DONE]\n\n",
     ]);
+  }
+  if (kind === "tool-loop") {
+    toolLoopSeq += 1;
+    return [
+      chunk({ role: "assistant", content: "" }, null),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: `call_loop_${toolLoopSeq}`,
+              type: "function",
+              function: { name: "readFile", arguments: JSON.stringify({ path: "loop.txt" }) },
+            },
+          ],
+        },
+        null,
+      ),
+      chunk({}, "tool_calls"),
+      "data: [DONE]\n\n",
+    ];
   }
   return [
     chunk({ role: "assistant", content: "" }, null),
@@ -215,6 +238,20 @@ describe("AgentSession 状态链路", () => {
     await session.start("hello");
     expect(doneReasons(events)).toEqual(["stop"]);
   });
+
+  it("步数预算耗尽自动续跑，run 上限才发 done(max_steps)，不伪装成 stop", async () => {
+    const events: AgentStreamEvent[] = [];
+    writeFileSync(join(workspaceRoot, "loop.txt"), "loop");
+    const session = createSession(events, "life-loop", "tool-loop");
+    await session.start("keep calling the tool");
+
+    // 单次 stream 预算是 30 步：步数远超 30 说明预算耗尽后自动续跑了
+    const stepStarts = events.filter((event) => event.type === "step_start").length;
+    expect(stepStarts).toBeGreaterThan(30);
+    // 从不中途发 done，直到 run 总预算耗尽才以 max_steps 终止
+    expect(doneReasons(events)).toEqual(["max_steps"]);
+    expect(events.at(-1)?.type).toBe("done");
+  }, 30_000);
 
   it("暂停不发 done，取消后补 done(cancelled) 与工具终态", async () => {
     const events: AgentStreamEvent[] = [];
