@@ -49,20 +49,17 @@ function extraLine(node: AgentNode): string {
 </script>
 
 <template>
-  <section class="flex flex-col">
+  <!-- 无子 Agent 时整节隐藏（含空态文案），不再占一节位置 -->
+  <section v-if="nodes.length" class="flex flex-col">
     <SessionSectionHead
       :icon="Bot"
       title="子 Agent"
       :open="open"
-      :count="nodes.length ? `${nodes.filter((item) => item.status === 'running').length}/${nodes.length}` : undefined"
+      :count="`${nodes.filter((item) => item.status === 'running').length}/${nodes.length}`"
       @toggle="open = !open"
     />
 
     <div v-if="open" class="mt-1 flex flex-col gap-1">
-      <p v-if="!nodes.length" class="m-0 text-[12px] text-[var(--color-dim)]">
-        暂无子 Agent。主 Agent 可拆分并行子任务。
-      </p>
-
       <div
         v-for="node in nodes"
         :key="node.id"
@@ -71,7 +68,7 @@ function extraLine(node: AgentNode): string {
       >
         <Button
           variant="ghost"
-          class="h-auto min-h-7 w-full justify-start gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+          class="h-auto min-h-7 w-full justify-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)]"
           :aria-expanded="expandedId === node.id"
           @click="toggleDetail(node)"
         >

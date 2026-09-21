@@ -23,6 +23,7 @@ import type {
   ChatMessage,
   DeviceCodeInfo,
   DirEntry,
+  FilePreview,
   FetchModelsResult,
   GitBranches,
   GitCommitBatch,
@@ -227,6 +228,8 @@ export interface ZenApi {
     listFiles(cwd?: string): Promise<WorkspaceFile[]>;
     readDir(cwd: string | undefined, relPath: string): Promise<DirEntry[] | null>;
     readFile(cwd: string | undefined, relPath: string): Promise<ReadFileResult | null>;
+    /** 文件预览：图片 data URL / 文本截断 / 二进制 unsupported；path 可为绝对路径 */
+    previewFile(cwd: string | undefined, path: string): Promise<FilePreview | null>;
     writeFile(
       cwd: string | undefined,
       relPath: string,
@@ -251,6 +254,8 @@ export interface ZenApi {
       message: ChatMessage,
     ): Promise<{ ok: boolean; error?: string }>;
     rename(id: string, title: string): Promise<void>;
+    /** 自动会话标题：main 侧用模型生成，失败返回 null（渲染层保留现有标题） */
+    autoTitle(firstUserMessage: string, assistantReply?: string): Promise<string | null>;
     setDraft(id: string, draft: string): Promise<void>;
     pin(id: string, pinned: boolean): Promise<void>;
     archive(id: string, archived: boolean): Promise<void>;

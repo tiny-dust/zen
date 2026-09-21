@@ -134,6 +134,39 @@ export const useChatStore = defineStore("chat", () => {
     messages.value.push(message);
   }
 
+  // ---------- 自动会话标题：首条消息发送后记下，run 完成时用模型升级 ----------
+  const autoTitleSessionId = ref("");
+  const autoTitleUserText = ref("");
+
+  async function maybeAutoTitle() {
+    const zen = window.zen;
+    if (!zen || !autoTitleSessionId.value || autoTitleSessionId.value !== sessionId.value) {
+      return;
+    }
+    const targetId = autoTitleSessionId.value;
+    const userText = autoTitleUserText.value;
+    // 只升级一次；重复触发直接跳过
+    autoTitleSessionId.value = "";
+    const titleBefore = sessionName.value;
+    // tsconfig lib 低于 es2023，不用 Array.prototype.findLast
+    let lastReply: string | undefined;
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      const message = messages.value[i];
+      if (message?.role === "assistant") {
+        lastReply = message.content;
+        break;
+      }
+    }
+    const title = await zen.session.autoTitle(userText, lastReply || undefined);
+    // 等待期间切换会话或用户手动改过名 → 放弃
+    if (!title || sessionId.value !== targetId || sessionName.value !== titleBefore) {
+      return;
+    }
+    sessionName.value = title;
+    void zen.session.rename(targetId, title);
+    useWorkspaceStore().renameSessionLocal(targetId, title);
+  }
+
   // ---------- 流事件网关：事件归约 + 审批/提问应答 ----------
   const { handleStreamEvent, approve, submitAsk, dismissApproval } = createChatEventGateway({
     sessionId,
@@ -158,6 +191,9 @@ export const useChatStore = defineStore("chat", () => {
     scheduleQueuedDispatch: queue.scheduleDispatch,
     refreshGit: () => {
       void refreshGit();
+    },
+    onRunFinished: () => {
+      void maybeAutoTitle();
     },
   });
 
@@ -245,6 +281,11 @@ export const useChatStore = defineStore("chat", () => {
       // 侧栏标题同步：落库 + 本地分组刷新
       void zen.session.rename(sessionId.value, sessionName.value);
       useWorkspaceStore().renameSessionLocal(sessionId.value, sessionName.value);
+      // 首次发送即记录，run 完成后用模型生成更好的标题
+      if (text) {
+        autoTitleSessionId.value = sessionId.value;
+        autoTitleUserText.value = text;
+      }
     }
 
     appendMessage({
@@ -400,6 +441,8 @@ export const useChatStore = defineStore("chat", () => {
     }
     flushDraft();
     sessionId.value = record.id;
+    // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
+    sessionStatusStore.markSeen(record.id);
     sessionName.value = found.session.title;
     sessionWorkspaceId.value = found.session.workspaceId ?? "common";
     messages.value = found.messages;

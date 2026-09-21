@@ -108,6 +108,9 @@
   --color-side-active: #f1f0ec;
   --color-side-sel: #eeedec;
   --color-side-item: #4a4a4a;
+  /* 会话行行尾悬浮操作簇底色：不透明（盖住跑马灯滚过的标题文字），随行状态变化 */
+  --color-side-chip: #f1f0ec;
+  --color-side-chip-active: #eeedec;
   --color-raise: var(--color-panel); /* 悬浮信息卡（会话信息卡） */
   --color-sunken: var(--color-side-glass);
   --color-set-card: #fff;
@@ -240,6 +243,9 @@
   --color-side-active: #ffffff1f;
   --color-side-sel: #ffffff1f;
   --color-side-item: #e0e0e0;
+  /* 会话行行尾悬浮操作簇底色：white 8% / 12% 叠在 --color-side 上的不透明等价值 */
+  --color-side-chip: #262626;
+  --color-side-chip-active: #313131;
   --color-raise: #191919; /* 悬浮信息卡（会话信息卡） */
   --color-sunken: #2e2e2e;
   --color-set-card: #1a1a1a;
@@ -940,4 +946,39 @@
 
 .zen-code-viewer .cm-scroller {
   overflow: auto;
+}
+
+/* ---- 侧栏会话行：标题跑马灯 + 行尾悬浮操作 ----
+   标题溢出时由 SessionRow 挂 .session-title-scroll（--marquee-shift 为溢出距离），
+   行 hover 时解除宽度钳制并往返滚动，免去「展开操作簇挤压标题 / 前后留白」。
+   操作按钮悬浮在行尾，标题右缘同时间淡出，避免文字与按钮硬碰撞。 */
+@keyframes session-title-scroll {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(var(--marquee-shift, 0px));
+  }
+}
+
+.group\/session:hover .session-title-scroll {
+  max-width: none;
+  animation: session-title-scroll 5s ease-in-out infinite alternate;
+}
+
+.group\/session:hover .session-title-mask {
+  mask-image: linear-gradient(to right, black calc(100% - 92px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 92px), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group\/session:hover .session-title-scroll {
+    animation: none;
+  }
+  .group\/session:hover .session-title-mask {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
 }

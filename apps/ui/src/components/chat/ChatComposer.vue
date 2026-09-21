@@ -19,6 +19,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import FileLabel from "@/components/files/FileLabel.vue";
 import ComposerEditor from "@/components/chat/ComposerEditor.vue";
+import AskUserCard from "@/components/chat/AskUserCard.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import PermissionPicker from "@/components/chat/PermissionPicker.vue";
@@ -234,6 +235,9 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
   <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
+      <!-- Agent 提问卡：贴在输入框上方，回答动作紧邻输入位置 -->
+      <AskUserCard v-if="chatStore.pendingAsk" class="mb-2" />
+
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
       <Attachments v-if="attachments.length" variant="inline" class="mb-2">
         <Attachment

@@ -127,7 +127,7 @@ watch(
       <aside
         class="flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-settings-nav)] p-3.5"
       >
-        <div class="px-2 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">设置</div>
+        <div class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">设置</div>
         <Input
           v-model="search"
           class="h-[30px] w-full flex-none bg-[var(--color-np-btn-bg)] text-[13px]"
@@ -144,7 +144,7 @@ watch(
                 v-for="item in group.items"
                 :key="item.id"
                 variant="ghost"
-                class="flex min-h-8 w-full flex-row items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
+                class="flex min-h-8 w-full flex-row items-center justify-start gap-2 rounded-lg px-2.5 text-left text-[13px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
                 :class="
                   activeTab === item.id
                     ? 'bg-[var(--color-side-active)] font-medium text-[var(--color-txt-strong)]'

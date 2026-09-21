@@ -45,9 +45,10 @@ function rowClass(model: ProviderModel) {
   const selected =
     props.selectionProviderId === props.providerId && props.selectionModelId === model.id;
   return classes(
-    "flex items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-2 hover:border-[var(--color-line-strong)]",
-    [selected, "border-[color-mix(in_srgb,var(--color-accent)_40%,var(--color-line))]"],
+    "list-row w-full text-[var(--color-txt)] transition-colors",
+    [selected, "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"],
     [!model.enabled, "opacity-55"],
+    [!selected && model.enabled, "hover:bg-[var(--color-menu-hover)]"],
   );
 }
 
@@ -82,37 +83,44 @@ function onSelect(model: ProviderModel) {
       </div>
     </div>
 
-    <div class="flex h-9 items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3">
-      <Search class="size-3.5 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
+    <div class="relative">
+      <Search
+        class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-mut)]"
+        aria-hidden="true"
+      />
       <Input
         v-model="query"
-        class="h-8 border-0 bg-transparent p-0 text-[12.5px] shadow-none"
+        class="h-8 pl-7 text-[12.5px]"
         placeholder="搜索模型名称或 ID"
       />
     </div>
 
-    <ul v-if="filtered.length" class="m-0 flex list-none flex-col gap-1.5 p-0">
+    <ul v-if="filtered.length" class="m-0 flex list-none flex-col p-0">
       <li v-for="model in filtered" :key="model.id" :class="rowClass(model)">
         <Button
           variant="ghost"
-          class="block h-auto min-w-0 flex-1 text-left font-normal hover:bg-transparent dark:hover:bg-transparent disabled:cursor-default disabled:opacity-100"
+          class="h-full flex min-w-0 flex-1 items-center gap-2 px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
           :disabled="!model.enabled"
           @click="onSelect(model)"
         >
-          <div class="flex min-w-0 items-center gap-2">
-            <VendorLogo :vendor="model.id" :size="16" />
-            <span class="truncate text-[13px] font-semibold text-[var(--color-txt-strong)]">
-              {{ model.name }}
-            </span>
-            <span
-              v-if="model.custom"
-              class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
-            >
-              自定义
-            </span>
-            <CapabilityLine :capabilities="model.capabilities" show-limits class="min-w-0" />
-          </div>
+          <VendorLogo :vendor="model.id" :size="16" />
+          <span class="truncate text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            {{ model.name }}
+          </span>
+          <span
+            v-if="model.custom"
+            class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
+          >
+            自定义
+          </span>
+          <span
+            v-if="model.id !== model.name"
+            class="min-w-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
+          >
+            {{ model.id }}
+          </span>
         </Button>
+        <CapabilityLine :capabilities="model.capabilities" show-limits class="shrink-0" />
         <Switch
           class="shrink-0 scale-90"
           :model-value="model.enabled"

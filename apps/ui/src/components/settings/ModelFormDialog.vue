@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
 
-import CapabilityBadge from "@/components/settings/CapabilityBadge.vue";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -206,57 +205,51 @@ function protocolOptions() {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="flex flex-col gap-3">
-        <div class="grid grid-cols-2 gap-3">
-          <div class="flex flex-col gap-1.5">
-            <Label class="text-[12px] text-[var(--color-mut)]" for="mf-id">模型 ID</Label>
-            <Input
-              id="mf-id"
-              v-model="form.id"
-              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
-              placeholder="deepseek-v4-flash"
-            />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label class="text-[12px] text-[var(--color-mut)]" for="mf-name">显示名称</Label>
-            <Input
-              id="mf-name"
-              v-model="form.name"
-              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
-              placeholder="DeepSeek V4 Flash"
-            />
-          </div>
+      <div class="flex flex-col">
+        <div class="field-row">
+          <Label class="field-row-label font-normal" for="mf-id">模型 ID</Label>
+          <Input
+            id="mf-id"
+            v-model="form.id"
+            class="h-8 font-[family-name:var(--font-mono)] text-[12.5px]"
+            placeholder="deepseek-v4-flash"
+          />
         </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div class="flex flex-col gap-1.5">
-            <Label class="text-[12px] text-[var(--color-mut)]" for="mf-ctx">上下文长度</Label>
-            <Input
-              id="mf-ctx"
-              v-model.number="form.contextWindow"
-              type="number"
-              min="0"
-              step="1000"
-              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
-            />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <Label class="text-[12px] text-[var(--color-mut)]" for="mf-out">最大输出</Label>
-            <Input
-              id="mf-out"
-              v-model.number="form.maxOutputTokens"
-              type="number"
-              min="0"
-              step="1000"
-              class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]"
-            />
-          </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal" for="mf-name">显示名称</Label>
+          <Input
+            id="mf-name"
+            v-model="form.name"
+            class="h-8 text-[13px]"
+            placeholder="DeepSeek V4 Flash"
+          />
         </div>
-
-        <div class="flex flex-col gap-1.5">
-          <Label class="text-[12px] text-[var(--color-mut)]">对话端点</Label>
+        <div class="field-row">
+          <Label class="field-row-label font-normal" for="mf-ctx">上下文长度</Label>
+          <Input
+            id="mf-ctx"
+            v-model.number="form.contextWindow"
+            type="number"
+            min="0"
+            step="1000"
+            class="h-8 text-[13px]"
+          />
+        </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal" for="mf-out">最大输出</Label>
+          <Input
+            id="mf-out"
+            v-model.number="form.maxOutputTokens"
+            type="number"
+            min="0"
+            step="1000"
+            class="h-8 text-[13px]"
+          />
+        </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">对话端点</Label>
           <Select v-model="form.chatEndpoint">
-            <SelectTrigger class="h-9 rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
+            <SelectTrigger class="h-8 w-full text-[13px]">
               <SelectValue placeholder="自动" />
             </SelectTrigger>
             <SelectContent>
@@ -272,48 +265,38 @@ function protocolOptions() {
             </SelectContent>
           </Select>
         </div>
-
-        <div class="grid grid-cols-2 gap-2.5">
-          <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
-          >
-            <span>工具</span>
-            <Switch v-model="form.toolCall" />
-          </label>
-          <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
-          >
-            <span>视觉</span>
-            <Switch v-model="form.vision" />
-          </label>
-          <label
-            class="flex min-h-[42px] cursor-pointer items-center justify-between gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-3 text-[13px] text-[var(--color-txt-strong)]"
-          >
-            <span>推理</span>
-            <Switch v-model="form.reasoning" />
-          </label>
-        </div>
-
-        <div
-          class="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3"
-        >
-          <div>
-            <div class="text-[13px] text-[var(--color-txt-strong)]">媒体能力</div>
-            <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
-              选择该模型可用于哪些媒体操作。
-            </p>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">工具调用</Label>
+          <div class="flex justify-end">
+            <Switch v-model="form.toolCall" aria-label="工具调用" />
           </div>
-          <Switch v-model="form.media" />
         </div>
-
-        <div>
-          <div class="mb-2 text-[12px] text-[var(--color-mut)]">思考强度</div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">视觉</Label>
+          <div class="flex justify-end">
+            <Switch v-model="form.vision" aria-label="视觉" />
+          </div>
+        </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">推理</Label>
+          <div class="flex justify-end">
+            <Switch v-model="form.reasoning" aria-label="推理" />
+          </div>
+        </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">媒体能力</Label>
+          <div class="flex justify-end">
+            <Switch v-model="form.media" aria-label="媒体能力" />
+          </div>
+        </div>
+        <div class="field-row">
+          <span class="field-row-label font-normal">思考强度</span>
           <div class="flex flex-wrap gap-1.5">
             <Button
               v-for="opt in EFFORT_CHIPS"
               :key="opt.id"
               variant="ghost"
-              class="h-auto min-h-[30px] rounded-lg border px-3 text-[12.5px] font-normal"
+              class="h-auto min-h-[26px] rounded-lg border px-2.5 text-[12px] font-normal"
               :class="
                 isEffortActive(opt.id)
                   ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)]'
@@ -323,14 +306,6 @@ function protocolOptions() {
             >
               {{ opt.label }}
             </Button>
-          </div>
-          <div v-if="form.reasoning" class="mt-2 flex flex-wrap gap-1">
-            <CapabilityBadge
-              v-for="item in [...form.efforts]"
-              :key="item"
-              :label="REASONING_EFFORTS.find((e) => e.id === item)?.label ?? item"
-              tone="accent"
-            />
           </div>
         </div>
       </div>

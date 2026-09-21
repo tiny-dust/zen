@@ -171,8 +171,9 @@ function onSaveModel(payload: {
   emit("addModel", payload);
 }
 
-const fieldLabel = "text-[12px] text-[var(--color-mut)]";
-const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
+const fieldLabel = "field-row-label font-normal";
+const ctrl = "h-8 text-[13px] bg-[var(--color-np-btn-bg)]";
+const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
 </script>
 
 <template>
@@ -188,11 +189,11 @@ const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
       <Switch v-model="form.enabled" aria-label="启用供应商" @update:model-value="markDirty" />
     </header>
 
-    <div class="flex flex-col gap-3">
-      <div class="flex flex-col gap-1.5">
-        <Label for="pd-protocol" :class="fieldLabel">协议</Label>
+    <div class="flex flex-col">
+      <div class="field-row">
+        <Label for="pd-protocol" :class="fieldLabel">消息协议</Label>
         <Select v-model="form.protocol" @update:model-value="markDirty">
-          <SelectTrigger id="pd-protocol" :class="ctrl">
+          <SelectTrigger id="pd-protocol" :class="selectCtrl">
             <SelectValue placeholder="选择协议" />
           </SelectTrigger>
           <SelectContent>
@@ -204,15 +205,15 @@ const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
           </SelectContent>
         </Select>
       </div>
-      <div class="flex flex-col gap-1.5">
+      <div class="field-row">
         <Label for="pd-name" :class="fieldLabel">名称</Label>
         <Input id="pd-name" v-model="form.name" :class="ctrl" @input="markDirty" />
       </div>
-      <div class="flex flex-col gap-1.5">
+      <div class="field-row">
         <Label for="pd-base" :class="fieldLabel">基础 URL</Label>
         <Input id="pd-base" v-model="form.baseUrl" :class="ctrl" @input="markDirty" />
       </div>
-      <div class="flex flex-col gap-1.5">
+      <div class="field-row">
         <Label for="pd-key" :class="fieldLabel">API 密钥</Label>
         <Input
           id="pd-key"
@@ -223,16 +224,18 @@ const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
           @input="markDirty"
         />
       </div>
-      <div class="flex flex-col gap-1.5">
+      <div class="field-row">
         <Label for="pd-ua" :class="fieldLabel">User-Agent</Label>
-        <Input
-          id="pd-ua"
-          v-model="form.userAgent"
-          :class="ctrl"
-          placeholder="Mozilla/5.0 ..."
-          @input="markDirty"
-        />
-        <p class="m-0 text-[11.5px] text-[var(--color-dim)]">留空则使用运行时默认值。仅应用于此供应商的模型获取和模型请求。</p>
+        <div class="min-w-0">
+          <Input
+            id="pd-ua"
+            v-model="form.userAgent"
+            :class="ctrl + ' w-full'"
+            placeholder="Mozilla/5.0 ..."
+            @input="markDirty"
+          />
+          <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-dim)]">留空则使用运行时默认值。仅应用于此供应商的模型获取和模型请求。</p>
+        </div>
       </div>
     </div>
 
@@ -255,7 +258,7 @@ const ctrl = "h-9 rounded-[10px] text-[13px] bg-[var(--color-np-btn-bg)]";
     />
 
     <div class="flex justify-center px-0 py-1">
-      <Button variant="ghost" size="sm" class="text-[var(--color-del)]" @click="emit('removeProvider')">
+      <Button variant="destructive" size="sm" @click="emit('removeProvider')">
         <Trash2 data-icon="inline-start" />
         删除此供应商
       </Button>

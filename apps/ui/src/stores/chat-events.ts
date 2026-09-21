@@ -53,6 +53,8 @@ export interface ChatEventContext {
   scheduleQueuedDispatch: () => void;
   /** done 后刷新参考文件与 git 状态 */
   refreshGit: () => void;
+  /** run 结束后触发自动会话标题（首次对话完成时升级占位标题） */
+  onRunFinished: () => void;
 }
 
 function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
@@ -278,6 +280,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (!ctx.usedUpdateTasks.value && reason === "stop") {
           applyChecklistFallback();
         }
+        ctx.onRunFinished();
         ctx.usedUpdateTasks.value = false;
         ctx.pendingToolArgs.clear();
         ctx.refreshGit();

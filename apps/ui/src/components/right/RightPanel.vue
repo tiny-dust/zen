@@ -135,7 +135,7 @@ function tabCls(id: string) {
         </Button>
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon-xs"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
           aria-label="收起面板"
           title="收起面板"
