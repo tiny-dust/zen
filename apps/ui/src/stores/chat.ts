@@ -18,6 +18,7 @@ import type {
 } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, restoreRunSummaryFromMessages } from "@zen/shared";
 import { createElementMark, expandBrowserElementTokens } from "@/lib/browser-element";
+import { playNotifySound } from "@/lib/notify-sound";
 import type { ComposerElementMark } from "@/lib/browser-element";
 import {
   buildHistory,
@@ -25,11 +26,13 @@ import {
   pathFromToolArgs,
 } from "@/stores/chat-types";
 import { useAgentStore } from "@/stores/agent";
+import { useAgentsStore } from "@/stores/agents";
 import { useBrowserStore } from "@/stores/browser";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
 import { useSessionInfoStore } from "@/stores/session-info";
+import { useSessionStatusStore } from "@/stores/session-status";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
@@ -88,8 +91,12 @@ export const useChatStore = defineStore("chat", () => {
   );
   /** 本轮运行起点：消息流里展示已运行时长（审批等待计入本轮） */
   const runStartedAt = ref<number | null>(null);
+  const sessionStatusStore = useSessionStatusStore();
   watch(isRunning, (running) => {
     runStartedAt.value = running ? (runStartedAt.value ?? Date.now()) : null;
+    if (running && !pendingApproval.value && !pendingAsk.value) {
+      sessionStatusStore.set(sessionId.value, "running");
+    }
   });
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
@@ -262,20 +269,30 @@ export const useChatStore = defineStore("chat", () => {
           input: event.request.input,
         };
         statusText.value = "等待工具审批";
+        sessionStatusStore.set(sessionId.value, "needs_action");
+        playNotifySound("needsAction");
         break;
       case "approval_resolved":
         if (pendingApproval.value?.approvalId === event.approvalId) {
           pendingApproval.value = null;
         }
         statusText.value = event.approved ? "已批准，等待执行" : "已拒绝";
+        if (isRunning.value && !pendingApproval.value && !pendingAsk.value) {
+          sessionStatusStore.set(sessionId.value, "running");
+        }
         break;
       case "ask_user":
         pendingAsk.value = event.question;
         statusText.value = "等待你的回答";
+        sessionStatusStore.set(sessionId.value, "needs_action");
+        playNotifySound("needsAction");
         break;
       case "ask_resolved":
         if (pendingAsk.value?.askId === event.askId) {
           pendingAsk.value = null;
+        }
+        if (isRunning.value && !pendingApproval.value && !pendingAsk.value) {
+          sessionStatusStore.set(sessionId.value, "running");
         }
         break;
       case "status":
@@ -319,6 +336,8 @@ export const useChatStore = defineStore("chat", () => {
               : reason === "error"
                 ? (lastError.value || "运行失败")
                 : "已完成";
+        sessionStatusStore.set(sessionId.value, reason === "error" ? "error" : "done");
+        playNotifySound(reason === "error" ? "error" : "done");
         if (!usedUpdateTasks && reason === "stop") {
           applyChecklistFallback();
         }
@@ -355,6 +374,7 @@ export const useChatStore = defineStore("chat", () => {
     void refreshGit();
     void useGitStore().refreshStatus();
     useSessionInfoStore().ensureSession(sessionId.value);
+    useAgentsStore().ensureSession(sessionId.value);
 
     return zen.agent.onEvent(handleStreamEvent);
   }
@@ -484,6 +504,8 @@ export const useChatStore = defineStore("chat", () => {
     input.value = "";
     attachments.value = [];
     elementMarks.value = [];
+    sessionStatusStore.set(sessionId.value, "running");
+    useAgentsStore().ensureSession(sessionId.value);
 
     // 上传的文件收进悬浮面板「参考 · 用户」（按路径去重）
     if (attachmentRefs.length) {

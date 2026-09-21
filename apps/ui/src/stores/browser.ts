@@ -66,7 +66,8 @@ export function normalizeBrowserUrl(raw: string): string {
   if (/^(https?:\/\/|about:|file:)/i.test(value)) {
     return value;
   }
-  if (/^localhost(:\d+)?(\/|$)/i.test(value) || /^127\.0\.0\.1(:\d+)?(\/|$)/.test(value)) {
+  if (/^localhost(:\d+)?(\/|$)/i.test(value) || /^127\.0\.0\.1(:\d+)?(\/|$)/.test(value) || /^\[::1\](:\d+)?(\/|$)/i.test(value)) {
+    // 保留原始 host（含 [::1]），主进程会按 IPv4/IPv6 候选重试
     return `http://${value}`;
   }
   // 域名启发式（含路径）

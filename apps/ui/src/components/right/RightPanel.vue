@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import GraphPanel from "@/components/right/GitGraph.vue";
-import { FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, X } from "@lucide/vue";
+import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
+import AgentsPanel from "@/components/right/AgentsPanel.vue";
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
 import ChangesPanel from "@/components/right/ChangesPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
@@ -26,6 +27,9 @@ function iconFor(kind: string) {
   }
   if (kind === "graph") {
     return GitGraph;
+  }
+  if (kind === "agents") {
+    return Bot;
   }
   return RefreshCw;
 }
@@ -120,6 +124,16 @@ function tabCls(id: string) {
         </Button>
         <Button
           variant="ghost"
+          size="icon-xs"
+          :disabled="rightPanel.hasKind('agents')"
+          :aria-label="rightPanel.hasKind('agents') ? 'Agents 面板已打开' : '打开 Agents 面板'"
+          title="Agents"
+          @click="rightPanel.ensureTab('agents')"
+        >
+          <Bot />
+        </Button>
+        <Button
+          variant="ghost"
           size="icon-sm"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
           aria-label="收起面板"
@@ -136,6 +150,7 @@ function tabCls(id: string) {
       <BrowserPanel v-else-if="activeTab?.kind === 'browser'" />
       <ChangesPanel v-else-if="activeTab?.kind === 'changes'" />
       <GraphPanel v-else-if="activeTab?.kind === 'graph'" />
+      <AgentsPanel v-else-if="activeTab?.kind === 'agents'" />
     </div>
   </aside>
 </template>

@@ -7,6 +7,8 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Bot,
+  Settings2,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -25,14 +27,18 @@ import ModelPicker from "@/components/chat/ModelPicker.vue";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
+import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -55,9 +61,36 @@ const {
   sessionWorkspaceId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
-const { permissionMode, permissionLabel } = storeToRefs(agentStore);
+const { permissionMode, permissionLabel, settings: agentSettings, presets } = storeToRefs(agentStore);
+const settingsStore = useSettingsStore();
 
 const loggedIn = computed(() => userStore.auth.loggedIn);
+
+const activePromptName = computed(() => {
+  if (agentSettings.value.prompt.presetId === "custom") {
+    return "自定义";
+  }
+  return (
+    presets.value.find((item) => item.id === agentSettings.value.prompt.presetId)?.name ??
+    "Zen 默认"
+  );
+});
+
+async function selectPromptPreset(id: unknown) {
+  if (typeof id !== "string" || !id) {
+    return;
+  }
+  await agentStore.updateSettings({
+    prompt: {
+      presetId: id,
+      customText: agentSettings.value.prompt.customText,
+    },
+  });
+}
+
+function openPromptSettings() {
+  settingsStore.openSettings("prompts");
+}
 
 const permissionModes = PERMISSION_MODES;
 
@@ -209,6 +242,53 @@ function onPickFiles(event: Event) {
   target.value = "";
 }
 
+/** 粘贴板：文本交给编辑器默认行为；文件/图像作为附件（无路径时落到 ~/.zen/cache） */
+async function onPaste(event: ClipboardEvent) {
+  const data = event.clipboardData;
+  if (!data) {
+    return;
+  }
+  const fileItems = Array.from(data.files ?? []);
+  const pathItems = Array.from(data.items ?? []).filter((item) => item.kind === "file");
+  const files: File[] = [];
+  if (fileItems.length) {
+    files.push(...fileItems);
+  } else {
+    for (const item of pathItems) {
+      const file = item.getAsFile();
+      if (file) {
+        files.push(file);
+      }
+    }
+  }
+  if (!files.length) {
+    // 纯文本：不拦截，交给 contenteditable
+    return;
+  }
+  event.preventDefault();
+  const zen = window.zen;
+  for (const file of files) {
+    let path = zen ? zen.pathForFile(file) : "";
+    if (!path && zen?.cache?.savePaste) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const saved = await zen.cache.savePaste({
+          name: file.name || (file.type.startsWith("image/") ? "pasted-image.png" : "pasted.bin"),
+          mime: file.type,
+          data: buffer,
+        });
+        if (saved.ok && saved.path) {
+          path = saved.path;
+        }
+      } catch {
+        path = "";
+      }
+    }
+    addAttachment(file, path);
+    editorRef.value?.insertAtCaret(`$${file.name} `);
+  }
+}
+
 // ---------- 拖放：只接管文件；纯文本拖放不拦截，交给编辑器 beforeinput ----------
 
 let dragDepth = 0;
@@ -328,6 +408,7 @@ function removeAttachment(id: string) {
         @dragover="onDragOver"
         @dragleave="onDragLeave"
         @drop="onDrop"
+        @paste="onPaste"
       >
         <label class="sr-only" for="chat-input">消息输入</label>
         <ComposerEditor
@@ -351,11 +432,65 @@ function removeAttachment(id: string) {
               type="button"
               class="flex size-7 items-center justify-center rounded-lg text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
               aria-label="添加文件"
-              title="添加文件"
+              title="添加文件（也可直接粘贴文件/图像）"
               @click="openFilePicker"
             >
               <Plus class="size-4" />
             </button>
+            <!-- 系统提示词风格：快速切换 + 跳转设置页 -->
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  type="button"
+                  class="flex h-7 max-w-[160px] items-center gap-1 rounded-lg px-1.5 text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+                  aria-label="选择系统提示词风格"
+                  :title="`系统提示词：${activePromptName}`"
+                >
+                  <Bot class="size-3.5 flex-none" />
+                  <span class="truncate text-[11px]">{{ activePromptName }}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" class="w-72">
+                <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
+                  系统提示词风格
+                </DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  :model-value="agentSettings.prompt.presetId"
+                  @update:model-value="selectPromptPreset"
+                >
+                  <DropdownMenuRadioItem
+                    v-for="preset in presets"
+                    :key="preset.id"
+                    :value="preset.id"
+                    class="items-start gap-2 py-1.5"
+                  >
+                    <div class="flex min-w-0 flex-col gap-0.5">
+                      <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+                        {{ preset.name }}
+                      </span>
+                      <span class="text-[11px] leading-snug text-[var(--color-mut)]">
+                        {{ preset.description }}
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="custom" class="items-start gap-2 py-1.5">
+                    <div class="flex min-w-0 flex-col gap-0.5">
+                      <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+                        自定义
+                      </span>
+                      <span class="text-[11px] text-[var(--color-mut)]">
+                        使用设置页中的自定义提示词
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem class="gap-2" @select="openPromptSettings">
+                  <Settings2 class="size-3.5" />
+                  <span class="text-[12px]">前往设置 · 提示词</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <div class="flex items-center gap-1.5">

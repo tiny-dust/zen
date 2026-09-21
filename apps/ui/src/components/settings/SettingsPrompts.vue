@@ -6,44 +6,90 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentStore } from "@/stores/agent";
 
+import type { PromptPreset, PromptViewVersion } from "@zen/shared";
+
 /**
- * 提示词配置：可选知名工具的内置系统提示词（见 docs/research/agent-system-prompts.md），
- * 也可完全自定义；选择即生效，下一次会话使用。
+ * 提示词配置：内置预设可切换 中 / 英 / 提炼版（推荐）预览；
+ * 选择预设即写入 agent 设置，下一次会话使用。
  */
 const agentStore = useAgentStore();
 const { settings, presets } = storeToRefs(agentStore);
 const previewId = ref("");
+const viewVersion = ref<PromptViewVersion>("distilled");
+
+const activePreset = computed(
+  () => presets.value.find((item) => item.id === settings.value.prompt.presetId) ?? null,
+);
 
 const activePresetName = computed(() => {
   if (settings.value.prompt.presetId === "custom") {
     return "自定义";
   }
-  return (
-    presets.value.find((item) => item.id === settings.value.prompt.presetId)?.name ??
-    "Zen 默认"
-  );
+  return activePreset.value?.name ?? "Zen 默认";
+});
+
+const previewPreset = computed(() => {
+  if (!previewId.value || previewId.value === "custom") {
+    return null;
+  }
+  return presets.value.find((item) => item.id === previewId.value) ?? null;
+});
+
+const availableVersions = computed(() => {
+  const versions = previewPreset.value?.versions;
+  if (!versions) {
+    return [] as Array<{ id: PromptViewVersion; label: string }>;
+  }
+  const list: Array<{ id: PromptViewVersion; label: string }> = [];
+  if (versions.zh) {
+    list.push({ id: "zh", label: "中" });
+  }
+  if (versions.en) {
+    list.push({ id: "en", label: "英" });
+  }
+  if (versions.distilled) {
+    list.push({ id: "distilled", label: "提炼版（推荐）" });
+  }
+  return list;
 });
 
 const previewText = computed(() => {
   if (previewId.value === "custom") {
     return settings.value.prompt.customText || "（尚未填写自定义提示词）";
   }
-  if (previewId.value) {
-    return (
-      presets.value.find((item) => item.id === previewId.value)?.text ?? ""
-    );
+  const preset = previewPreset.value;
+  if (!preset?.versions) {
+    return preset?.text ?? "";
   }
-  if (settings.value.prompt.presetId === "custom") {
-    return settings.value.prompt.customText || "（尚未填写自定义提示词）";
+  const map = preset.versions;
+  if (viewVersion.value === "zh" && map.zh) {
+    return map.zh;
   }
-  return presets.value.find((item) => item.id === previewId.value)?.text ?? "";
+  if (viewVersion.value === "en" && map.en) {
+    return map.en;
+  }
+  if (viewVersion.value === "distilled" && map.distilled) {
+    return map.distilled;
+  }
+  return map.distilled || map.zh || map.en || preset.text;
 });
 
-/** 预览字数：让「提炼版 / 完整原文」的体量差异一目了然 */
 const previewChars = computed(() => previewText.value.length.toLocaleString());
+
+const versionNote = computed(() => {
+  if (viewVersion.value === "distilled") {
+    return "运行时默认注入提炼版";
+  }
+  if (viewVersion.value === "en") {
+    return "完整英文原文（对照用；选用预设仍默认提炼版）";
+  }
+  return "完整中文版（对照用；选用预设仍默认提炼版）";
+});
 
 function selectPreset(id: string) {
   previewId.value = id;
+  const preset = presets.value.find((item) => item.id === id);
+  viewVersion.value = preset?.defaultView ?? "distilled";
   if (id === "custom") {
     void agentStore.updateSettings({
       prompt: { presetId: "custom", customText: settings.value.prompt.customText },
@@ -55,13 +101,21 @@ function selectPreset(id: string) {
   });
 }
 
+function applyPreviewAsCustom() {
+  if (!previewText.value || previewId.value === "custom") {
+    return;
+  }
+  void agentStore.updateSettings({
+    prompt: { presetId: "custom", customText: previewText.value },
+  });
+}
+
 function onCustomInput(event: Event) {
   const value = (event.target as HTMLTextAreaElement).value;
   settings.value = {
     ...settings.value,
     prompt: { presetId: "custom", customText: value },
   };
-  // 输入时本地更新，失焦保存，避免逐键写盘
   watchOnce();
 }
 
@@ -84,6 +138,8 @@ watch(
   () => settings.value.prompt.presetId,
   (id) => {
     previewId.value = id;
+    const preset = presets.value.find((item) => item.id === id) as PromptPreset | undefined;
+    viewVersion.value = preset?.defaultView ?? "distilled";
   },
   { immediate: true },
 );
@@ -97,11 +153,12 @@ watch(
         <Badge variant="secondary">当前：{{ activePresetName }}</Badge>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        「提炼」预设是公开主流工具系统提示词的中文提炼（调研见
+        「提炼版」为运行时默认注入；「中 / 英」为完整原文或完整中文版，供对照阅读。
+        调研见
         <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/agent-system-prompts.md</code>
-        ）；「完整原文」预设提取自本机安装包，未做改写（原文存
-        <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/prompts/</code>
-        ）。选择后对新会话生效。
+        ，原文存
+        <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">apps/desktop/src/main/prompt-texts/</code>
+        。
       </p>
       <div class="grid gap-2 sm:grid-cols-2">
         <button
@@ -126,7 +183,7 @@ watch(
               class="bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]!"
               variant="secondary"
             >
-              完整原文
+              含完整原文
             </Badge>
           </div>
           <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-mut)]">
@@ -156,12 +213,42 @@ watch(
     </section>
 
     <section class="flex flex-col gap-2">
-      <h3 class="m-0 flex items-center gap-2 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-        {{ settings.prompt.presetId === 'custom' ? '编辑自定义提示词' : '预览' }}
+      <div
+        class="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-[var(--color-txt-strong)]"
+      >
+        <h3 class="m-0">
+          {{ settings.prompt.presetId === 'custom' ? '编辑自定义提示词' : '预览' }}
+        </h3>
         <span class="text-[11px] font-normal text-[var(--color-dim)]">{{ previewChars }} 字符</span>
-      </h3>
+        <div class="ml-auto flex items-center gap-1">
+          <button
+            v-for="ver in availableVersions"
+            :key="ver.id"
+            type="button"
+            class="rounded-md border px-2 py-0.5 text-[11px] transition-colors"
+            :class="
+              viewVersion === ver.id
+                ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-[var(--color-txt-strong)]'
+                : 'border-[var(--color-line)] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)]'
+            "
+            :aria-pressed="viewVersion === ver.id"
+            @click="viewVersion = ver.id"
+          >
+            {{ ver.label }}
+          </button>
+          <button
+            v-if="previewId !== 'custom' && previewText"
+            type="button"
+            class="ml-1 rounded-md border border-[var(--color-line)] px-2 py-0.5 text-[11px] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)]"
+            title="把当前预览全文写入自定义提示词并立即生效"
+            @click="applyPreviewAsCustom"
+          >
+            用此版本
+          </button>
+        </div>
+      </div>
       <p class="m-0 text-[11.5px] text-[var(--color-mut)]">
-        Zen 会自动附加工作目录、平台、日期、可用技能与 MCP 清单；这里的内容是核心行为规则。
+        {{ versionNote }}。Zen 另会自动附加工作目录、平台、日期、可用技能与 MCP 清单。
       </p>
       <Textarea
         v-if="settings.prompt.presetId === 'custom'"
