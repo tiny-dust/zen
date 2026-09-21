@@ -8,54 +8,19 @@ import { tool } from "ai";
 import type { ToolSet } from "ai";
 import { z } from "zod";
 
+import { ResourceLock } from "./resource-lock";
+import { multiAgentInstructions, subAgentInstructions } from "./multi-agent-instructions";
+
 /** 子 Agent 并发上限，避免模型/API/文件系统资源被并行打爆 */
 export const MAX_CONCURRENT_SUBAGENTS = 2;
+
+/** 子 Agent 单次执行超时：超时自动取消本轮，交回编排器按重试策略处理 */
+export const SUB_AGENT_TIMEOUT_MS = 10 * 60_000;
 
 const MAX_LOG_LINES = 40;
 const MAX_RETRY = 2;
 
-/** 工作区写/终端/浏览器互斥：串行化独占资源，降低多 Agent 写竞争 */
-export class ResourceLock {
-  private queue: Promise<void> = Promise.resolve();
-  private holder: string | null = null;
-
-  get currentHolder(): string | null {
-    return this.holder;
-  }
-
-  async run<T>(ownerId: string, label: "write" | "terminal" | "browser", fn: () => Promise<T>): Promise<T> {
-    const previous = this.queue;
-    let release!: () => void;
-    this.queue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    this.holder = ownerId;
-    this.lastLabel = label;
-    this.onHold?.(ownerId, label);
-    try {
-      return await fn();
-    } finally {
-      this.holder = null;
-      this.lastLabel = null;
-      this.onHold?.(null, null);
-      release();
-    }
-  }
-
-  private lastLabel: "write" | "terminal" | "browser" | null = null;
-  /** 资源占用变化回调（UI 可展示 busyResource） */
-  onHold: ((ownerId: string | null, label: "write" | "terminal" | "browser" | null) => void) | null =
-    null;
-}
-
-export interface SubAgentSpec {
-  id: string;
-  name: string;
-  task: string;
-  dependsOn: string[];
-  maxAttempts: number;
-}
+export { ResourceLock, multiAgentInstructions, subAgentInstructions };
 
 export interface MultiAgentDeps {
   parentSessionId: string;
@@ -70,6 +35,8 @@ export interface MultiAgentDeps {
   emit: (event: AgentStreamEvent) => void;
   resourceLock: ResourceLock;
   concurrencyLimit?: number;
+  /** 子 Agent 单次执行超时（毫秒），缺省 SUB_AGENT_TIMEOUT_MS */
+  subAgentTimeoutMs?: number;
 }
 
 function now(): number {
@@ -91,12 +58,14 @@ export class MultiAgentOrchestrator {
   private readonly runs = new Map<string, Promise<void>>();
   private readonly aborts = new Map<string, AbortController>();
   private readonly limit: number;
+  private readonly timeoutMs: number;
   private pumping = false;
   private disposed = false;
 
   constructor(deps: MultiAgentDeps) {
     this.deps = deps;
     this.limit = deps.concurrencyLimit ?? MAX_CONCURRENT_SUBAGENTS;
+    this.timeoutMs = deps.subAgentTimeoutMs ?? SUB_AGENT_TIMEOUT_MS;
     deps.resourceLock.onHold = (ownerId, label) => {
       for (const agent of this.nodes.values()) {
         if (agent.status === "running") {
@@ -151,11 +120,6 @@ export class MultiAgentOrchestrator {
       agent: { ...agent, log: [...agent.log], dependsOn: [...agent.dependsOn] },
       concurrency: this.concurrency(),
     });
-  }
-
-  private upsert(agent: AgentNodeState): void {
-    this.nodes.set(agent.id, agent);
-    this.emitStatus(agent);
   }
 
   private appendLog(agent: AgentNodeState, text: string): void {
@@ -270,17 +234,46 @@ export class MultiAgentOrchestrator {
     this.aborts.set(agent.id, controller);
 
     const promise = (async () => {
+      // 超时兜底：子任务挂死时中断本轮，按可重试失败处理
+      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+      let timedOut = false;
+      const timeoutPromise = new Promise<"timeout">((resolve) => {
+        timeoutTimer = setTimeout(() => {
+          timedOut = true;
+          // 中断子会话（runChild 内部监听 signal 并取消子 Agent）
+          controller.abort();
+          resolve("timeout");
+        }, this.timeoutMs);
+      });
       try {
-        const result = await this.deps.runChild({
-          agentId: agent.id,
-          name: agent.name,
-          task: agent.task,
-          signal: controller.signal,
-          onLog: (text) => {
-            this.appendLog(agent, text);
-            this.emitStatus(agent);
-          },
-        });
+        const raced = await Promise.race([
+          this.deps.runChild({
+            agentId: agent.id,
+            name: agent.name,
+            task: agent.task,
+            signal: controller.signal,
+            onLog: (text) => {
+              this.appendLog(agent, text);
+              this.emitStatus(agent);
+            },
+          }),
+          timeoutPromise,
+        ]);
+        if (raced === "timeout") {
+          const message = `子任务执行超时（超过 ${Math.round(this.timeoutMs / 60_000)} 分钟），已自动取消`;
+          agent.error = message;
+          this.appendLog(agent, message);
+          if (agent.attempts < agent.maxAttempts) {
+            agent.status = "queued";
+            this.appendLog(agent, "将重试");
+            return;
+          }
+          agent.status = "error";
+          agent.reason = "error";
+          agent.endedAt = now();
+          return;
+        }
+        const result = raced;
         if (controller.signal.aborted && !result.ok) {
           agent.status = "cancelled";
           agent.reason = "cancelled";
@@ -309,11 +302,14 @@ export class MultiAgentOrchestrator {
         agent.endedAt = now();
       } catch (error) {
         agent.error = error instanceof Error ? error.message : String(error);
-        agent.status = controller.signal.aborted ? "cancelled" : "error";
-        agent.reason = controller.signal.aborted ? "cancelled" : "error";
+        agent.status = controller.signal.aborted && !timedOut ? "cancelled" : "error";
+        agent.reason = controller.signal.aborted && !timedOut ? "cancelled" : "error";
         agent.endedAt = now();
         this.appendLog(agent, `异常：${agent.error}`);
       } finally {
+        if (timeoutTimer != null) {
+          clearTimeout(timeoutTimer);
+        }
         this.aborts.delete(agent.id);
         this.emitStatus(agent);
         this.emitTree();
@@ -465,29 +461,6 @@ export class MultiAgentOrchestrator {
     };
     return tools;
   }
-}
-
-/** 主会话 system prompt 附加的多 Agent 约定 */
-export function multiAgentInstructions(): string {
-  return [
-    "【多 Agent 协作】",
-    "- 复杂可并行任务可用 spawnAgent 拆分；用 dependsOn 表达依赖；用 waitForAgents 等待完成；用 collectAgentResults 汇总。",
-    "- 并发有上限；写文件/终端/浏览器独占资源会串行化，不要为绕过锁把临时文件写进软件包目录。",
-    "- 临时文件一律放到用户目录下 .zen/cache（由系统能力处理），禁止写入应用安装目录。",
-    "- 子 Agent 只报告结构化结果；主 Agent 负责整合并向用户交付自包含结论。",
-    "- 右侧面板可查看各 Agent 状态与日志。",
-  ].join("\n");
-}
-
-/** 子 Agent 系统提示词前缀 */
-export function subAgentInstructions(spec: { name: string; parentSessionId: string }): string {
-  return [
-    `你是 Zen 主会话派生的子 Agent「${spec.name}」（父会话 ${spec.parentSessionId}）。`,
-    "只完成分配给你的任务，不要扩权、不要 spawn 更多子 Agent、不要 git commit。",
-    "优先只读探索与最小改动；修改必须用编辑工具落地。",
-    "临时文件放到 ~/.zen/cache，禁止写入软件安装目录。",
-    "结束时输出结构化摘要：结论、改动文件、验证结果、未解决问题。",
-  ].join("\n");
 }
 
 export type { SubAgentStatus };
