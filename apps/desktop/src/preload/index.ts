@@ -356,6 +356,18 @@ const zen = {
       };
     },
   },
+  cache: {
+    savePaste(payload: {
+      name: string;
+      mime?: string;
+      data: ArrayBuffer | Uint8Array;
+    }): Promise<{ ok: boolean; path?: string; error?: string }> {
+      return ipcRenderer.invoke("cache:save-paste", payload);
+    },
+    roots(): Promise<{ root: string; paste: string; screenshots: string }> {
+      return ipcRenderer.invoke("cache:roots");
+    },
+  },
   mcp: {
     list(): Promise<McpServerStatus[]> {
       return ipcRenderer.invoke("mcp:list");
@@ -529,6 +541,9 @@ const zen = {
   terminal: {
     shell(): Promise<TerminalShellInfo> {
       return ipcRenderer.invoke("terminal:shell");
+    },
+    font(): Promise<import("@zen/shared").TerminalFontSettings> {
+      return ipcRenderer.invoke("terminal:font");
     },
     list(): Promise<TerminalSessionInfo[]> {
       return ipcRenderer.invoke("terminal:list");

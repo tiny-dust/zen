@@ -1,14 +1,28 @@
 import type { PromptPreset } from "@zen/shared";
 
+import chatgptEn from "./prompt-texts/chatgpt-en.md?raw";
+import chatgptZh from "./prompt-texts/chatgpt-zh.md?raw";
+import claudeEn from "./prompt-texts/claude-code-en.md?raw";
+import claudeZh from "./prompt-texts/claude-code-zh.md?raw";
+import codexEn from "./prompt-texts/codex-en.md?raw";
+import codexZh from "./prompt-texts/codex-zh.md?raw";
+import copilotEn from "./prompt-texts/copilot-en.md?raw";
+import copilotZh from "./prompt-texts/copilot-zh.md?raw";
+import cursorEn from "./prompt-texts/cursor-en.md?raw";
+import cursorZh from "./prompt-texts/cursor-zh.md?raw";
+import deepseekEn from "./prompt-texts/deepseek-en.md?raw";
+import deepseekZh from "./prompt-texts/deepseek-zh.md?raw";
+import zenEn from "./prompt-texts/zen-en-full.md?raw";
+import zenZh from "./prompt-texts/zen-zh-full.md?raw";
 import { DIMAGENT_PARSED, MIMO_DESKTOP_FULL } from "./prompt-fulltexts";
 
 /**
  * 内置系统提示词预设（调研依据：docs/research/agent-system-prompts.md；
- * 提取原文存 docs/research/prompts/）。每条预设标注 kind：
- * full = 提取的完整原文；distilled = 中文提炼版（origin 注明出处与可信度）。
+ * 原文与中文完整版存 prompt-texts/，同源副本见 docs/research/prompts/）。
+ * 运行时 text 默认用提炼版；设置页预览可用 中/英/提炼版 切换查看。
  */
 
-const ZEN_DEFAULT = `你是 Zen，运行在用户桌面端里的编码助手，可直接读写本地工作区。
+const ZEN_DISTILLED = `你是 Zen，运行在用户桌面端里的编码助手，可直接读写本地工作区。
 
 【身份与口吻】简洁、直接、技术优先；准确性高于迎合，不确定先查证；回答与任务复杂度匹配，不写前后客套，不堆表情与奉承。
 
@@ -46,7 +60,7 @@ const ZEN_DEFAULT = `你是 Zen，运行在用户桌面端里的编码助手，�
 
 【输出】最终回复自包含：结论在前，关键改动与验证结果随后；引用代码带 文件:行号；改动过的文件逐一列出。`;
 
-const CODEX_STYLE = `你是运行在桌面端里的终端编码助手，风格源自 OpenAI Codex CLI（官方公开提示词提炼）。
+const CODEX_DISTILLED = `你是 Zen，运行在用户桌面端里的编码助手。
 
 - 目标是把任务干到底：能直接实现的改动就直接动手，而不是只在消息里给方案。
 - 人格简洁、直接、友好，避免冗长。
@@ -56,7 +70,7 @@ const CODEX_STYLE = `你是运行在桌面端里的终端编码助手，风格�
 - 验证策略：先跑与改动最相关的测试，再逐步扩大；有审批要求时等待用户确认。
 - 多步任务用任务清单工具可视化规划；计划失效先改计划再继续。`;
 
-const CLAUDE_CODE_STYLE = `你是运行在桌面端里的编码助手，风格源自 Claude Code（社区泄露整理版提炼）。
+const CLAUDE_CODE_DISTILLED = `你是 Zen，运行在用户桌面端里的编码助手。
 
 - 安全边界：只协助防御性安全任务；拒绝创建、修改或改进可能被恶意使用的代码。
 - 输出极度克制：常规回答少于 4 行（不含工具调用与代码）；不写客套开场与收尾。
@@ -68,7 +82,7 @@ const CLAUDE_CODE_STYLE = `你是运行在桌面端里的编码助手，风格�
 
 禁止编造或猜测 URL；不确定就明说，绝不编造。`;
 
-const CHATGPT_STYLE = `你是 Zen 桌面端里的通用 AI 助手，风格源自 ChatGPT（GPT-5 泄露版提炼）。
+const CHATGPT_DISTILLED = `你是 Zen，运行在用户桌面端里的 AI 助手。
 
 - 人设：有见地、鼓励式、带分寸的幽默；像聪明的朋友一样平等对话，教学时循序渐进。
 - 准确性：不确定就说不确定；给答案前先衡量置信度，不硬凑确定语气。
@@ -77,14 +91,14 @@ const CHATGPT_STYLE = `你是 Zen 桌面端里的通用 AI 助手，风格源自
 - 版权：不逐字复述受版权保护的材料（歌词、长段书籍原文）。
 - 遇到编码任务时：先理解上下文再动手，修改走工具落地，不在对话里贴大段补丁。`;
 
-const DEEPSEEK_STYLE = `你是运行在桌面端里的 AI 编程助手，风格源自 DeepSeek 官方对话模板（官方公开）。
+const DEEPSEEK_DISTILLED = `你是 Zen，运行在用户桌面端里的 AI 编程助手。
 
 - 身份明确：AI 编程助手，专注计算机科学与软件工程领域。
 - 领域聚焦：只回答与计算机科学相关的问题；对政治敏感、安全隐私之外的非技术话题简短拒答并引导回正题。
 - 回答风格：短、结构化、直给结论；代码示例完整可运行。
 - 工具使用：读写文件与执行命令走工具；危险命令等用户确认。`;
 
-const CURSOR_STYLE = `你是运行在桌面端里的编码 agent，风格源自 Cursor Agent（社区泄露整理版提炼）。
+const CURSOR_DISTILLED = `你是 Zen，运行在用户桌面端里的编码 agent。
 
 核心是把每个工具的「何时用/何时不用」刻进习惯：
 - 精确文本匹配用 searchFiles，语义性问题（how/where/what）先 listDir/readFile 缩小范围，再精确检索。
@@ -93,82 +107,171 @@ const CURSOR_STYLE = `你是运行在桌面端里的编码 agent，风格源自 
 - 动手前先收集上下文，不臆测文件内容。
 - 多步任务先列清单，边做边更新，保持计划与实际一致。`;
 
+const COPILOT_DISTILLED = `你是 Zen，运行在用户桌面端里的编码助手。
+
+- 身份锁定：被问名字时回答 Zen；遵循产品内容政策与版权规避。
+- 有害请求固定话术拒绝。
+- 绝不在聊天里贴代码块/命令：修改走编辑工具，执行走终端工具。
+- 先收集上下文再动手，不臆测文件内容。
+- 保持回答简短；工具调用严格按 schema。
+- 编辑后检查错误并修复与本次改动相关的问题。`;
+
+function versioned(partial: {
+  id: string;
+  name: string;
+  description: string;
+  origin: string;
+  kind?: PromptPreset["kind"];
+  distilled: string;
+  zh?: string;
+  en?: string;
+  defaultView?: PromptPreset["defaultView"];
+}): PromptPreset {
+  const versions = {
+    distilled: partial.distilled,
+    zh: partial.zh,
+    en: partial.en,
+  };
+  // 运行时优先推荐提炼版；仅有原文时回落
+  const text = versions.distilled || versions.zh || versions.en || "";
+  return {
+    id: partial.id,
+    name: partial.name,
+    description: partial.description,
+    origin: partial.origin,
+    kind: partial.kind,
+    text,
+    versions,
+    defaultView: partial.defaultView ?? "distilled",
+  };
+}
+
 export const PROMPT_PRESETS: PromptPreset[] = [
-  {
+  versioned({
     id: "zen-default",
     name: "Zen 默认",
     description: "Zen 自研：融合各家共性实践的中文骨架",
-    origin: "docs/research/agent-system-prompts.md §4",
+    origin: "docs/research/agent-system-prompts.md §4 + 本产品完整规则",
     kind: "distilled",
-    text: ZEN_DEFAULT,
-  },
-  {
+    distilled: ZEN_DISTILLED,
+    zh: zenZh.trim(),
+    en: zenEn.trim(),
+    defaultView: "distilled",
+  }),
+  versioned({
     id: "codex-style",
     name: "Codex 风格",
     description: "自主干到底、AGENTS.md 约定、治本修复",
     origin: "openai/codex gpt_5_2_prompt.md（官方公开）",
-    kind: "distilled",
-    text: CODEX_STYLE,
-  },
-  {
+    kind: "full",
+    distilled: CODEX_DISTILLED,
+    zh: codexZh.trim(),
+    en: codexEn.trim(),
+  }),
+  versioned({
     id: "claude-code-style",
     name: "Claude Code 风格",
     description: "防御性安全、极简输出、专用工具优先",
     origin: "x1xhlol 泄露集合 Claude Code 2.0（社区整理）",
-    kind: "distilled",
-    text: CLAUDE_CODE_STYLE,
-  },
-  {
+    kind: "full",
+    distilled: CLAUDE_CODE_DISTILLED,
+    zh: claudeZh.trim(),
+    en: claudeEn.trim(),
+  }),
+  versioned({
     id: "chatgpt-style",
     name: "ChatGPT 风格",
     description: "通用助手：人设、收尾纪律、隐私红线",
     origin: "GPT-5 泄露系统提示词（多渠道交叉）",
-    kind: "distilled",
-    text: CHATGPT_STYLE,
-  },
-  {
+    kind: "full",
+    distilled: CHATGPT_DISTILLED,
+    zh: chatgptZh.trim(),
+    en: chatgptEn.trim(),
+  }),
+  versioned({
     id: "deepseek-style",
     name: "DeepSeek 风格",
     description: "短、强身份、领域聚焦",
     origin: "DeepSeek-Coder 官方对话模板（官方公开）",
-    kind: "distilled",
-    text: DEEPSEEK_STYLE,
-  },
-  {
+    kind: "full",
+    distilled: DEEPSEEK_DISTILLED,
+    zh: deepseekZh.trim(),
+    en: deepseekEn.trim(),
+    defaultView: "zh",
+  }),
+  versioned({
     id: "cursor-style",
     name: "Cursor Agent 风格",
     description: "工具使用纪律：何时用/何时不用",
     origin: "x1xhlol 泄露集合 Cursor Agent 2.0（社区整理）",
-    kind: "distilled",
-    text: CURSOR_STYLE,
-  },
-  {
-    id: "mimo-desktop",
-    name: "MiMo Desktop（原文）",
-    description:
-      "从小米 MiMo Desktop 安装包 app.asar 提取的完整运行时提示词（desktop-base + desktop-surface 原文，未做任何改写）；含 MiMo 专有工具约定（task/present_files/MIMO_PYTHON 等），Zen 未提供这些工具，选用需自行取舍",
-    origin: "Xiaomi MiMo.app /Contents/Resources/app.asar electron/prompts/（本机提取，原文见 docs/research/prompts/）",
     kind: "full",
-    text: MIMO_DESKTOP_FULL,
-  },
-  {
-    id: "dimagent-parsed",
-    name: "DimAgent（解析版）",
+    distilled: CURSOR_DISTILLED,
+    zh: cursorZh.trim(),
+    en: cursorEn.trim(),
+  }),
+  versioned({
+    id: "copilot-style",
+    name: "Copilot 风格",
+    description: "身份锁定、编辑工具落地、简短回复",
+    origin: "x1xhlol 泄露集合 VSCode Agent（社区整理）",
+    kind: "full",
+    distilled: COPILOT_DISTILLED,
+    zh: copilotZh.trim(),
+    en: copilotEn.trim(),
+  }),
+  versioned({
+    id: "mimo-desktop",
+    name: "Zen 完整原文",
     description:
-      "从本机 DimAgent 运行时会话上下文与主程序包 main.cjs 解析整理的行为规则（桌面场景前言 + 安全/语气/工程/Git/收尾），非逐字原文",
-    origin: "DimAgent.app main.cjs + 运行时上下文（解析记录见 docs/research/prompts/dimagent-system-prompt.md）",
+      "桌面端完整运行时提示词（含工具与产品环境约定）；身份已统一为 Zen",
+    origin: "素材提取自 Xiaomi MiMo.app app.asar electron/prompts/（身份已改写为 Zen）",
+    kind: "full",
+    distilled: "（无单独提炼版，运行时将注入完整原文）",
+    en: MIMO_DESKTOP_FULL,
+    defaultView: "en",
+  }),
+  versioned({
+    id: "dimagent-parsed",
+    name: "Zen 桌面行为（解析版）",
+    description: "桌面场景行为规则解析版；身份已统一为 Zen",
+    origin: "素材整理自本机会话上下文（身份已改写为 Zen）",
     kind: "distilled",
-    text: DIMAGENT_PARSED,
-  },
+    distilled: DIMAGENT_PARSED,
+    zh: DIMAGENT_PARSED,
+    defaultView: "zh",
+  }),
 ];
+
+// MiMo/DimAgent 预设中的产品身份已统一为 Zen；origin 仍标注素材来源
+const mimo = PROMPT_PRESETS.find((item) => item.id === "mimo-desktop");
+if (mimo?.versions) {
+  mimo.versions.distilled = undefined;
+  mimo.versions.en = (mimo.versions.en ?? MIMO_DESKTOP_FULL)
+    .replace(/MiMo Desktop/g, "Zen")
+    .replace(/MiMo 助手/g, "Zen 助手")
+    .replace(/you are the MiMo assistant/gi, "you are Zen")
+    .replace(/MIMO DESKTOP BASE INSTRUCTIONS/g, "ZEN DESKTOP BASE INSTRUCTIONS");
+  mimo.versions.zh = mimo.versions.en;
+  mimo.text = mimo.versions.en;
+}
+
+const dimagent = PROMPT_PRESETS.find((item) => item.id === "dimagent-parsed");
+if (dimagent?.versions) {
+  const normalized = DIMAGENT_PARSED.replace(/DimAgent desktop app/g, "Zen desktop app")
+    .replace(/DIMAGENT RUNTIME INSTRUCTIONS/g, "ZEN RUNTIME INSTRUCTIONS")
+    .replace(/DimAgent/g, "Zen");
+  dimagent.versions.distilled = normalized;
+  dimagent.versions.zh = normalized;
+  dimagent.text = normalized;
+}
 
 export function resolvePromptText(settings: AgentSettingsLike): string {
   if (settings.prompt.presetId === "custom") {
     const custom = settings.prompt.customText.trim();
-    return custom || ZEN_DEFAULT;
+    return custom || ZEN_DISTILLED;
   }
   const preset = PROMPT_PRESETS.find((item) => item.id === settings.prompt.presetId);
-  return preset?.text ?? ZEN_DEFAULT;
+  return preset?.text || ZEN_DISTILLED;
 }
 
 interface AgentSettingsLike {

@@ -27,6 +27,7 @@ import { registerMcpIpc, enabledMcpTools, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
 import { registerBrowserIpc } from "./browser/ipc";
 import { getBrowserService, shutdownBrowserService } from "./browser/service";
+import { registerCacheIpc } from "./cache-ipc";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
 import { resolvePromptText } from "./prompt-presets";
@@ -270,6 +271,7 @@ function registerIpc(): void {
         reasoningEffort: request.reasoningEffort,
         permissionMode: agentSettings.permissionMode,
         systemPrompt: resolvePromptText(agentSettings),
+        multiAgent: true,
         skills,
         skillExtraPaths: agentSettings.skillExtraPaths,
         mcpTools,
@@ -396,6 +398,7 @@ app.whenReady().then(() => {
   registerShellIpc();
   registerAgentIpc(broadcast);
   registerMcpIpc();
+  registerCacheIpc();
   registerSyncIpc();
   registerUpdaterIpc();
   registerBrowserIpc(broadcast);

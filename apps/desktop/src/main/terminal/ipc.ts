@@ -4,9 +4,11 @@ import type {
   PtyDataEvent,
   PtyExitEvent,
   TerminalCreateResult,
+  TerminalFontSettings,
   TerminalSessionInfo,
   TerminalShellInfo,
 } from "@zen/shared";
+import { resolveSystemTerminalFont } from "@zen/tools-terminal";
 import { getTerminalService } from "./service";
 
 export function registerTerminalIpc(
@@ -22,6 +24,9 @@ export function registerTerminalIpc(
   });
 
   ipcMain.handle("terminal:shell", (): TerminalShellInfo => service.defaultShell());
+
+  /** 读取系统终端字体（VS Code/iTerm/Terminal.app），并带 Nerd Font 回退 */
+  ipcMain.handle("terminal:font", (): TerminalFontSettings => resolveSystemTerminalFont());
 
   ipcMain.handle("terminal:list", (): TerminalSessionInfo[] => service.list());
 
