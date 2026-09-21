@@ -40,7 +40,6 @@ import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 import { useSettingsStore } from "@/stores/settings";
-import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
@@ -50,7 +49,6 @@ import { PERMISSION_MODES } from "@zen/shared";
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
 const agentStore = useAgentStore();
-const userStore = useUserStore();
 const {
   input,
   isRunning,
@@ -100,10 +98,6 @@ const isCompactBar = computed(() => {
   }
   return bottomBarWidth.value > 0 && bottomBarWidth.value < 720;
 });
-
-const activePreset = computed(
-  () => presets.value.find((item) => item.id === agentSettings.value.prompt.presetId) ?? null,
-);
 
 const activePromptName = computed(() => {
   if (agentSettings.value.prompt.presetId === "custom") {
@@ -395,7 +389,6 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
   <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
-      <template>
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
       <Attachments v-if="attachments.length" variant="inline" class="mb-2">
         <Attachment
@@ -618,7 +611,6 @@ function removeAttachment(id: string) {
           </div>
         </div>
       </div>
-      </template>
 
       <div
         class="mt-1.5 flex h-4 items-center justify-center text-[11px] text-[var(--color-dim)]"
