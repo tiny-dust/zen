@@ -10,6 +10,21 @@
 
 技能路径以本机实际安装为准（常见：`~/.agents/skills/`、`~/.config/mimocode/skills/`、项目 `.mimocode/skills/`）。
 
+## 铁律（必须遵守）
+
+### 跨三方系统可运行
+
+**所有功能必须在三方系统（macOS、Windows、Linux）上都能正常运行。**
+
+- 禁止写死仅某一平台可用的路径、命令、API、字体、shell、终端配置格式。
+- 读取系统配置（终端字体、shell、默认应用、用户目录等）时，必须按 `process.platform` 分别解析：
+  - **macOS**：`~/Library/...`、`defaults` / `plutil` 等
+  - **Windows**：`%APPDATA%`、`%LOCALAPPDATA%`、Windows Terminal / VS Code 等
+  - **Linux**：`~/.config/...`、常见终端/编辑器配置文件
+- 平台特有能力要有安全降级：读不到配置时使用合理默认值，不得让功能在另两方系统上直接不可用。
+- 新增系统相关能力时：实现 + 注释标明各平台分支；验证时至少静态检查三平台路径/分支完整，条件允许则在对应系统实测。
+- UI/交互文案与快捷键说明需考虑平台差异（如 ⌘ vs Ctrl），不得默认只按 macOS 编写而不影响其它系统运行。
+
 ## 项目速览
 
 Zen：Electron + Vue3 + better-sqlite3 的 AI 编程桌面端。
