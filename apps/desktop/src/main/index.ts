@@ -443,6 +443,8 @@ app.whenReady().then(() => {
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
+  // 旧 safeStorage 凭据就地升级为 aes:v1（更新后不再丢密钥/掉登录）；auth token 迁移在 loadStoredAuth 内
+  void import("./model-db").then(({ migrateProviderSecrets }) => migrateProviderSecrets());
   // 记忆：~/.zen/memory 缺设备快照时自动采集（PATH 工具扫描），失败不阻塞启动
   void initDeviceMemory();
   void initUserState();

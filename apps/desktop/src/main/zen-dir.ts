@@ -8,8 +8,8 @@ import type { AgentSettings, McpServerConfig } from "@zen/shared";
 import { DEFAULT_AGENT_SETTINGS } from "@zen/shared";
 
 /**
- * ~/.zen 用户域目录（ADR-004）：技能、MCP、隔离区、agent 设置。
- * 密钥一律不落这里（safeStorage 在 userData 域）。
+ * ~/.zen 用户域目录（ADR-004）：技能、MCP、隔离区、agent 设置、本地加密密钥。
+ * 凭据密文落 userData / SQLite，加密密钥为 ~/.zen/db/.secret-key（aes:v1，见 secret.ts）。
  */
 
 export function zenRoot(): string {

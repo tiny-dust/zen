@@ -16,7 +16,7 @@ import {
   prettyModelName,
   resolveModelCapabilities,
 } from "./model-capabilities";
-import { decryptSecret, encryptSecret, maskSecret } from "./secret";
+import { decryptSecret, encryptSecret, maskSecret, migrateSecretBlob } from "./secret";
 
 /** HTTP header 必须是 ByteString（0–255）；含中文/替换符会让 fetch 抛 TypeError */
 export function sanitizeUserAgent(value: string | undefined | null): string | null {
@@ -458,4 +458,17 @@ export async function loadProviderUserAgent(providerId: string): Promise<string 
     .prepare(`SELECT user_agent FROM model_providers WHERE id = ?`)
     .get(providerId) as { user_agent: string | null } | undefined;
   return row?.user_agent || undefined;
+}
+
+/** 启动迁移：旧 safeStorage 密文就地升级为 aes:v1，避免每次更新后密钥解密失败 */
+export async function migrateProviderSecrets(): Promise<void> {
+  const rows = getDb()
+    .prepare(`SELECT id, api_key_enc FROM model_providers`)
+    .all() as Array<{ id: string; api_key_enc: string }>;
+  for (const row of rows) {
+    const next = await migrateSecretBlob(row.api_key_enc);
+    if (next) {
+      getDb().prepare(`UPDATE model_providers SET api_key_enc = ? WHERE id = ?`).run(next, row.id);
+    }
+  }
 }
