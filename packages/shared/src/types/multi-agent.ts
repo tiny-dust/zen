@@ -1,9 +1,16 @@
 import type { AgentDoneReason } from "./agent";
 
-/** 子 Agent 运行状态 */
+/**
+ * 子 Agent 运行状态机：
+ * waiting_deps → queued → running ⇄ waiting_user → done | error | cancelled
+ * - waiting_user：askUser 等待用户回答（不是假「执行中」）
+ * - waiting_deps：依赖未满足
+ * running / waiting_user 均占用并发槽
+ */
 export type SubAgentStatus =
   | "queued"
-  | "waiting"
+  | "waiting_deps"
+  | "waiting_user"
   | "running"
   | "done"
   | "error"
@@ -37,6 +44,8 @@ export interface AgentNodeState {
   tokens?: { input: number; output: number };
   /** 是否正在占用写锁 / 终端 / 浏览器等独占资源 */
   busyResource?: "write" | "terminal" | "browser" | null;
+  /** 是否在等待用户回答（与 status=waiting_user 等价的冗余标记，便于旧 UI） */
+  waitingUser?: boolean;
 }
 
 export interface AgentTreeSnapshot {
