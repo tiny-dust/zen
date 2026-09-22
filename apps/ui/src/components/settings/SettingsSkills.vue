@@ -6,6 +6,7 @@ import { onMounted, ref } from "vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { skillSourceLabel } from "@/lib/skill-source";
 import { useAgentStore } from "@/stores/agent";
 
 /**
@@ -75,7 +76,7 @@ async function removeSkillPath(path: string) {
               {{ skill.name }}
             </span>
             <Badge variant="secondary" class="text-[10px]">
-              {{ skill.source === "user" ? "Zen" : "系统目录" }}
+              {{ skillSourceLabel(skill) }}
             </Badge>
           </div>
           <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-[var(--color-mut)]">

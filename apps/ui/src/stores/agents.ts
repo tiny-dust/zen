@@ -11,8 +11,6 @@ import { computed, ref } from "vue";
 
 import type { AgentNodeState, AgentStreamEvent, SubAgentStatus } from "@zen/shared";
 
-import { useRightPanelStore } from "@/stores/right-panel";
-
 /** UI 侧 Agent 节点（与 shared AgentNodeState 对齐） */
 export type AgentNode = AgentNodeState;
 
@@ -116,10 +114,8 @@ export const useAgentsStore = defineStore("agents", () => {
       return;
     }
     if (event.type === "agent_status") {
+      // 只更新悬浮信息卡列表；右栏消息面板由用户点击子 Agent 打开
       applyStatus(event);
-      if (event.agent.status === "running" || event.agent.status === "queued") {
-        useRightPanelStore().ensureTab("agents");
-      }
     }
   }
 

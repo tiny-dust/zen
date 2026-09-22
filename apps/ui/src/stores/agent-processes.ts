@@ -1,0 +1,171 @@
+import { defineStore } from "pinia";
+import { computed, ref } from "vue";
+
+import type { AgentStreamEvent, ToolCallState } from "@zen/shared";
+
+export type AgentProcessStatus = ToolCallState | "running";
+
+/** Agent runTerminal 调起的一次终端进程（悬浮信息卡「进程」节） */
+export interface AgentProcess {
+  id: string;
+  sessionId: string;
+  command: string;
+  status: AgentProcessStatus;
+  startedAt: number;
+  endedAt?: number;
+  summary?: string;
+  output?: string;
+  error?: string;
+}
+
+export const PROCESS_STATUS_META: Record<
+  AgentProcessStatus,
+  { label: string; cls: string }
+> = {
+  "input-streaming": { label: "准备中", cls: "text-[var(--color-mut)]" },
+  "awaiting-approval": { label: "待审批", cls: "text-[var(--color-mut)]" },
+  running: { label: "运行中", cls: "text-[var(--color-accent)]" },
+  ok: { label: "完成", cls: "text-[var(--color-ok,#3d9a6a)]" },
+  error: { label: "失败", cls: "text-[var(--color-err,#c45c5c)]" },
+  denied: { label: "已拒绝", cls: "text-[var(--color-dim)]" },
+  cancelled: { label: "已取消", cls: "text-[var(--color-dim)]" },
+  interrupted: { label: "已中断", cls: "text-[var(--color-dim)]" },
+};
+
+function commandOf(args: unknown): string {
+  if (typeof args !== "object" || args === null) {
+    return "";
+  }
+  const value = (args as Record<string, unknown>).command;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function exitCodeOf(output: unknown): number | undefined {
+  if (typeof output !== "object" || output === null) {
+    return undefined;
+  }
+  const code = (output as Record<string, unknown>).exitCode;
+  return typeof code === "number" ? code : undefined;
+}
+
+function outputTextOf(output: unknown): string | undefined {
+  if (typeof output === "string") {
+    return output;
+  }
+  if (typeof output !== "object" || output === null) {
+    return undefined;
+  }
+  const text = (output as Record<string, unknown>).output;
+  return typeof text === "string" ? text : undefined;
+}
+
+/**
+ * 会话信息卡「进程」：收集 Agent 调起的 runTerminal。
+ * 按 sessionId 隔离；切会话时清空。
+ */
+export const useAgentProcessesStore = defineStore("agentProcesses", () => {
+  const ownerSessionId = ref("");
+  const items = ref<AgentProcess[]>([]);
+  const expandedId = ref("");
+
+  const runningCount = computed(
+    () => items.value.filter((item) => item.status === "running").length,
+  );
+
+  function ensureSession(sessionId: string) {
+    if (ownerSessionId.value && ownerSessionId.value !== sessionId) {
+      items.value = [];
+      expandedId.value = "";
+    }
+    ownerSessionId.value = sessionId;
+  }
+
+  function noteToolStart(sessionId: string, toolCallId: string, toolName: string, args: unknown) {
+    if (toolName !== "runTerminal") {
+      return;
+    }
+    ensureSession(sessionId);
+    const existing = items.value.find((item) => item.id === toolCallId);
+    if (existing) {
+      existing.status = "running";
+      existing.endedAt = undefined;
+      existing.summary = undefined;
+      existing.output = undefined;
+      existing.error = undefined;
+      return;
+    }
+    items.value.push({
+      id: toolCallId,
+      sessionId,
+      command: commandOf(args),
+      status: "running",
+      startedAt: Date.now(),
+    });
+  }
+
+  function noteToolEnd(
+    sessionId: string,
+    toolCallId: string,
+    toolName: string,
+    payload: {
+      ok: boolean;
+      state?: ToolCallState;
+      summary: string;
+      output?: unknown;
+    },
+  ) {
+    if (toolName !== "runTerminal") {
+      return;
+    }
+    ensureSession(sessionId);
+    const item = items.value.find((entry) => entry.id === toolCallId);
+    if (!item) {
+      return;
+    }
+    const exitCode = exitCodeOf(payload.output);
+    item.status = payload.state ?? (payload.ok ? "ok" : "error");
+    item.endedAt = Date.now();
+    item.summary = exitCode != null ? `${payload.summary} · exit ${exitCode}` : payload.summary;
+    item.output = outputTextOf(payload.output);
+    item.error = payload.ok ? undefined : payload.summary;
+  }
+
+  function toggle(id: string) {
+    expandedId.value = expandedId.value === id ? "" : id;
+  }
+
+  function clear() {
+    ownerSessionId.value = "";
+    items.value = [];
+    expandedId.value = "";
+  }
+
+  /** 流事件入口：chat 事件网关转发 runTerminal 生命周期 */
+  function handleStreamEvent(event: AgentStreamEvent) {
+    if (event.type === "tool_start") {
+      noteToolStart(event.sessionId, event.toolCallId, event.toolName, event.args);
+      return;
+    }
+    if (event.type === "tool_end") {
+      noteToolEnd(event.sessionId, event.toolCallId, event.toolName, {
+        ok: event.ok,
+        state: event.state,
+        summary: event.summary,
+        output: event.output,
+      });
+    }
+  }
+
+  return {
+    ownerSessionId,
+    items,
+    expandedId,
+    runningCount,
+    ensureSession,
+    noteToolStart,
+    noteToolEnd,
+    toggle,
+    clear,
+    handleStreamEvent,
+  };
+});

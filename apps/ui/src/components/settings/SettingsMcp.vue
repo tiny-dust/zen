@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, RefreshCw, Trash2, Wand2 } from "@lucide/vue";
+import { Download, Plus, RefreshCw, ScanSearch, Trash2, Wand2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
@@ -15,16 +15,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAgentStore } from "@/stores/agent";
+import { useChatStore } from "@/stores/chat";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 import { MCP_SERVER_PRESETS } from "@zen/shared";
 
-import type { McpServerConfig, McpServerPreset, McpTransport } from "@zen/shared";
+import type { McpDiscoveredServer, McpServerConfig, McpServerPreset, McpTransport } from "@zen/shared";
 
 /**
  * MCP 服务：stdio 本地子进程 / SSE 旧版远程 / Streamable HTTP 新版远程。
- * 预设目录覆盖官方与知名托管服务，选中即预填，占位参数由用户补全。
+ * 预设目录覆盖官方与知名托管服务，选中即预填，占位参数由用户补全；
+ * 也可扫描当前仓库与系统里已有的 MCP 配置（Claude Code / Desktop / Cursor 等）一键导入。
  */
 const agentStore = useAgentStore();
+const chatStore = useChatStore();
+const workspaceStore = useWorkspaceStore();
 const { mcpStatuses } = storeToRefs(agentStore);
 
 const form = ref<{
@@ -43,6 +48,9 @@ const form = ref<{
 
 const appliedPreset = ref<McpServerPreset | null>(null);
 const formError = ref("");
+const scanBusy = ref(false);
+const scanned = ref<McpDiscoveredServer[]>([]);
+const scannedNote = ref("");
 
 const mcpServers = computed<McpServerConfig[]>(
   () => mcpStatuses.value.map((item) => item.config),
@@ -132,6 +140,42 @@ async function removeServer(config: McpServerConfig) {
   await agentStore.refreshMcp();
 }
 
+/** 扫描当前仓库与系统里已有的 MCP 配置 */
+async function runScan() {
+  scanBusy.value = true;
+  scannedNote.value = "";
+  try {
+    const workspaceRoot =
+      workspaceStore.pathOf(chatStore.sessionWorkspaceId) || workspaceStore.activePath;
+    const found = await agentStore.scanMcp(workspaceRoot);
+    scanned.value = found;
+    const imported = found.filter((item) => !item.alreadyImported).length;
+    scannedNote.value = found.length
+      ? `发现 ${found.length} 个服务，其中 ${imported} 个未导入`
+      : "没有在当前仓库或系统里发现 MCP 配置";
+  } finally {
+    scanBusy.value = false;
+  }
+}
+
+async function importDiscovered(item: McpDiscoveredServer) {
+  if (item.alreadyImported) {
+    return;
+  }
+  await agentStore.saveMcpServers([
+    ...mcpServers.value,
+    { ...item.config, id: `${item.config.name}-${Date.now().toString(36)}` },
+  ]);
+  await agentStore.refreshMcp();
+  // 更新本条扫描结果为已导入
+  scanned.value = scanned.value.map((found) =>
+    found.sourcePath === item.sourcePath && found.config.name === item.config.name
+      ? { ...found, alreadyImported: true }
+      : found,
+  );
+  scannedNote.value = `已导入 ${item.config.name}`;
+}
+
 function stateBadge(state: string): "secondary" | "outline" | "default" {
   if (state === "running") {
     return "default";
@@ -206,6 +250,52 @@ function endpointText(config: McpServerConfig): string {
             {{ transportLabel[preset.transport] }}
           </span>
         </Button>
+      </div>
+    </section>
+
+    <!-- 扫描已有配置 -->
+    <section class="flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+          扫描已有服务
+        </h3>
+        <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
+          <ScanSearch :size="13" data-icon="inline-start" />
+          {{ scanBusy ? "扫描中…" : "扫描当前仓库与系统" }}
+        </Button>
+      </div>
+      <p class="m-0 text-[11.5px] text-[var(--color-dim)]">
+        检查当前仓库的 .mcp.json / .vscode/mcp.json，以及 Claude Code、Claude Desktop、Cursor、
+        Windsurf、VS Code 的用户级配置，发现后可一键导入。
+      </p>
+      <p v-if="scannedNote" class="m-0 text-[11.5px] text-[var(--color-mut)]">
+        {{ scannedNote }}
+      </p>
+      <div v-if="scanned.length" class="flex flex-col gap-1">
+        <div
+          v-for="item in scanned"
+          :key="`${item.sourcePath}-${item.config.name}`"
+          class="flex items-center gap-2 rounded-lg border border-[var(--color-line-soft)] px-2.5 py-1.5"
+        >
+          <span class="text-[12px] font-medium text-[var(--color-txt)]">{{ item.config.name }}</span>
+          <Badge variant="outline" class="flex-none text-[10px]">{{ item.source }}</Badge>
+          <span
+            class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+            :title="item.sourcePath"
+          >
+            {{ endpointText(item.config) }}
+          </span>
+          <Button
+            v-if="!item.alreadyImported"
+            variant="ghost"
+            size="sm"
+            :aria-label="`导入 ${item.config.name}`"
+            @click="importDiscovered(item)"
+          >
+            <Download :size="12" data-icon="inline-start" />导入
+          </Button>
+          <Badge v-else variant="secondary" class="flex-none text-[10px]">已导入</Badge>
+        </div>
       </div>
     </section>
 

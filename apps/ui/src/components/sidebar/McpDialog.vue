@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useAgentStore } from "@/stores/agent";
 
 import type { McpServerConfig, McpTransport } from "@zen/shared";
@@ -28,6 +29,9 @@ const open = defineModel<boolean>("open", { default: false });
 
 const agentStore = useAgentStore();
 const { mcpStatuses } = storeToRefs(agentStore);
+
+// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
+useBrowserOverlayGuard(open);
 
 const form = ref({
   name: "",

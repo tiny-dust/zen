@@ -66,8 +66,6 @@ const actionCls = cn(
 );
 /** 节内行图标：行是 items-center，勿加 mt（加了会沉到文字中心下方 1px） */
 const envIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
-/** 首行对齐图标：仅用于 items-start 的行（图标与第一行文字光学对齐） */
-const envIconStartCls = cn(envIconCls, "mt-0.5");
 /** 说明行缩进：与上方行内文本同列（按钮 1px 边框 + 行内边距 4px + 图标 14px + 间距 8px = 27px） */
 const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12px] text-[var(--color-dim)]";
 </script>
@@ -79,11 +77,11 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
     <div v-if="open" class="mt-1 flex flex-col">
       <div
         v-if="contextUsage != null"
-        class="flex min-h-8 items-start gap-2 px-[5px] py-1 text-[12.5px] text-[var(--color-txt)]"
+        class="flex min-h-8 items-center gap-2 px-[5px] text-[13px] text-[var(--color-txt)]"
       >
-        <Gauge :class="envIconStartCls" aria-hidden="true" />
+        <Gauge :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">上下文</span>
-        <span class="flex-none font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
+        <span class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
           {{ contextUsage }}%
         </span>
         <Button

@@ -5,6 +5,7 @@ import { classes } from "rattail";
 import AgentsSection from "@/components/session/AgentsSection.vue";
 import CommitPanel from "@/components/session/CommitPanel.vue";
 import EnvInfoSection from "@/components/session/EnvInfoSection.vue";
+import ProcessesSection from "@/components/session/ProcessesSection.vue";
 import ReferencesSection from "@/components/session/ReferencesSection.vue";
 import TaskListSection from "@/components/session/TaskListSection.vue";
 import { Button } from "@/components/ui/button";
@@ -23,8 +24,9 @@ const gitStore = useGitStore();
 const rootEl = ref<HTMLElement | null>(null);
 const commitPos = ref({ top: 0, left: 0 });
 
+/** 信息卡：整体可滚动（各节内容超高时不溢出），滚动条按规范收窄 */
 const cardCls = classes(
-  "flex min-h-0 flex-1 flex-col gap-4",
+  "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto [scrollbar-width:thin]",
   "rounded-2xl border border-[var(--color-line-soft)] bg-[var(--color-raise)] p-3",
 );
 
@@ -63,6 +65,7 @@ async function openCommitPanel() {
     <div :class="embedded ? 'flex flex-col gap-4' : cardCls">
       <EnvInfoSection @open-commit="openCommitPanel" />
       <TaskListSection :class="dividerCls" />
+      <ProcessesSection :class="dividerCls" />
       <AgentsSection :class="dividerCls" />
       <ReferencesSection :class="dividerCls" />
     </div>

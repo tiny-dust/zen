@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import GraphPanel from "@/components/right/GitGraph.vue";
-import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, X } from "@lucide/vue";
+import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
 import AgentsPanel from "@/components/right/AgentsPanel.vue";
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
 import ChangesPanel from "@/components/right/ChangesPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
+import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
 import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
@@ -17,6 +18,9 @@ const layoutStore = useLayoutStore();
 const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
 const { tabs, activeId, activeTab } = storeToRefs(rightPanel);
+
+// 头部只保留文件 / 浏览器 / 变更 / 图谱；
+// 终端与子 Agent 由悬浮信息卡「进程」「子 Agent」进入，不再放开关。
 
 function iconFor(kind: string) {
   if (kind === "files") {
@@ -30,6 +34,9 @@ function iconFor(kind: string) {
   }
   if (kind === "agents") {
     return Bot;
+  }
+  if (kind === "terminals") {
+    return SquareTerminal;
   }
   return RefreshCw;
 }
@@ -126,16 +133,6 @@ function tabCls(id: string) {
         <Button
           variant="ghost"
           size="icon-xs"
-          :disabled="rightPanel.hasKind('agents')"
-          :aria-label="rightPanel.hasKind('agents') ? 'Agents 面板已打开' : '打开 Agents 面板'"
-          title="Agents"
-          @click="rightPanel.ensureTab('agents')"
-        >
-          <Bot />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
           aria-label="收起面板"
           title="收起面板"
@@ -152,6 +149,7 @@ function tabCls(id: string) {
       <ChangesPanel v-else-if="activeTab?.kind === 'changes'" />
       <GraphPanel v-else-if="activeTab?.kind === 'graph'" />
       <AgentsPanel v-else-if="activeTab?.kind === 'agents'" />
+      <RightTerminalsPanel v-else-if="activeTab?.kind === 'terminals'" />
     </div>
   </aside>
 </template>

@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 
 import { useLayoutStore } from "@/stores/layout";
 
-export type RightPanelKind = "files" | "browser" | "changes" | "graph" | "agents";
+export type RightPanelKind = "files" | "browser" | "changes" | "graph" | "agents" | "terminals";
 
 export interface RightPanelTab {
   id: string;
@@ -17,6 +17,7 @@ const TITLE: Record<RightPanelKind, string> = {
   changes: "变更",
   graph: "图谱",
   agents: "Agents",
+  terminals: "终端",
 };
 
 /**

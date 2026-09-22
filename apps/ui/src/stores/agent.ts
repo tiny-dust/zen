@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import type {
   AgentSettings,
+  McpDiscoveredServer,
   McpServerConfig,
   McpServerStatus,
   PromptPreset,
@@ -70,6 +71,15 @@ export const useAgentStore = defineStore("agent", () => {
       return;
     }
     mcpStatuses.value = await zen.mcp.list();
+  }
+
+  /** 扫描当前仓库与系统里已有的 MCP 配置（Claude Code / Desktop / Cursor 等） */
+  async function scanMcp(workspaceRoot?: string): Promise<McpDiscoveredServer[]> {
+    const zen = window.zen;
+    if (!zen?.mcp) {
+      return [];
+    }
+    return zen.mcp.scan(workspaceRoot);
   }
 
   async function saveMcpServers(servers: McpServerConfig[]): Promise<void> {
@@ -141,6 +151,7 @@ export const useAgentStore = defineStore("agent", () => {
     updateSettings,
     refreshSkills,
     refreshMcp,
+    scanMcp,
     saveMcpServers,
     pickDirectory,
     rebuildSandbox,

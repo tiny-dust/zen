@@ -16,6 +16,7 @@ import type {
 import { restoreRunSummaryFromMessages } from "@zen/shared";
 import { expandBrowserElementTokens } from "@/lib/browser-element";
 import { useAgentStore } from "@/stores/agent";
+import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { createChatEventGateway } from "@/stores/chat-events";
 import type { ComposerAttachment, PendingApproval, RunPhase } from "@/stores/chat-types";
@@ -27,6 +28,7 @@ import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
+import { useSkillUsageStore } from "@/stores/skill-usage";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 
@@ -213,6 +215,7 @@ export const useChatStore = defineStore("chat", () => {
     void useGitStore().refreshStatus();
     useSessionInfoStore().ensureSession(sessionId.value);
     useAgentsStore().ensureSession(sessionId.value);
+    useAgentProcessesStore().ensureSession(sessionId.value);
 
     return zen.agent.onEvent(handleStreamEvent);
   }
@@ -246,6 +249,10 @@ export const useChatStore = defineStore("chat", () => {
     // 技能已以内联 token（/skill:名称）写在正文里，随消息直接发给 Agent；
     // meta.skills 供气泡渲染 tag（正文展示时会隐藏 token）
     const skills = extractSkills(text);
+    // 输入框上方「本会话调用」tag：用户随消息携带的技能即刻可见
+    if (skills.length) {
+      useSkillUsageStore().noteSkills(sessionId.value, skills.map((item) => item.name));
+    }
     // `$el:id` 链接展开为完整元素描述，便于 Agent 定位
     const usedMarks = elementMarks.value.filter((mark) => text.includes(mark.token));
     const agentText = expandBrowserElementTokens(text, usedMarks);
@@ -261,6 +268,7 @@ export const useChatStore = defineStore("chat", () => {
     elementMarks.value = [];
     sessionStatusStore.set(sessionId.value, "running");
     useAgentsStore().ensureSession(sessionId.value);
+    useAgentProcessesStore().ensureSession(sessionId.value);
 
     // 上传的文件收进悬浮面板「参考 · 用户」（按路径去重）
     if (attachmentRefs.length) {
@@ -410,6 +418,8 @@ export const useChatStore = defineStore("chat", () => {
     resetRunState();
     sessionName.value = "新会话";
     useSessionInfoStore().clear();
+    useAgentsStore().clear();
+    useAgentProcessesStore().clear();
 
     sessionWorkspaceId.value = target;
     if (record) {
@@ -419,6 +429,8 @@ export const useChatStore = defineStore("chat", () => {
       sessionId.value = uuid();
     }
     useSessionInfoStore().ensureSession(sessionId.value);
+    useAgentsStore().ensureSession(sessionId.value);
+    useAgentProcessesStore().ensureSession(sessionId.value);
     void refreshGit();
     void useGitStore().refreshStatus();
   }
@@ -450,7 +462,11 @@ export const useChatStore = defineStore("chat", () => {
     attachments.value = [];
     resetRunState();
     useSessionInfoStore().clear();
+    useAgentsStore().clear();
+    useAgentProcessesStore().clear();
     useSessionInfoStore().ensureSession(sessionId.value);
+    useAgentsStore().ensureSession(sessionId.value);
+    useAgentProcessesStore().ensureSession(sessionId.value);
     useSessionInfoStore().restoreFromSession(found);
     // 从最后一条 assistant 的 meta.run 恢复 run summary
     const restored = restoreRunSummaryFromMessages(found.messages);

@@ -45,6 +45,10 @@ export const useUserStore = defineStore("user", () => {
       if (!state.error) {
         loginError.value = null;
       }
+      // 账号切换后侧栏会话按新账号重新拉取（主进程按登录账号过滤）
+      void import("@/stores/workspace").then(({ useWorkspaceStore }) => {
+        void useWorkspaceStore().refresh();
+      });
     });
 
     const offDeviceCode = zen.auth.onDeviceCode((info) => {
