@@ -59,7 +59,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   syncRepo: null,
 };
 
-/** Agent 向用户提问（askUser 工具触发，展示在输入框上方） */
+/** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */
 export interface AskUserQuestionEvent {
   askId: string;
   toolCallId: string;
@@ -70,6 +70,10 @@ export interface AskUserQuestionEvent {
   multiSelect?: boolean;
   /** 允许自由输入；默认 true */
   allowFreeText: boolean;
+  /** 来源子 Agent 展示名（主 Agent 提问时无） */
+  agentName?: string;
+  /** 发起提问的会话 id（子 Agent 为 parent::agentId，便于排错） */
+  sourceSessionId?: string;
 }
 
 /** 用户对 askUser 提问的回答 */
