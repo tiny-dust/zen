@@ -100,26 +100,26 @@ async function tryLoadSkill(dir: string): Promise<LoadedSkill | null> {
   }
 }
 
-/** 汇总扫描：系统目录 + 额外路径，去重后返回（禁用列表由调用方叠加） */
+/** 汇总扫描：系统目录 + 额外路径，按名称去重后返回（禁用列表由调用方叠加） */
 export async function listSkills(extraPaths: string[]): Promise<SkillSummary[]> {
   const dirs = [...builtinSkillDirs(), ...extraPaths.filter((item) => item.trim())];
-  const seen = new Set<string>();
-  const all: LoadedSkill[] = [];
+  const removableRoots = builtinSkillDirs();
+  // 同名技能会互相抢触发词，按目录优先级只保留一个（~/.zen > ~/.claude > ~/.agents > 自定义）
+  const byName = new Map<string, LoadedSkill>();
   for (const dir of dirs) {
     for (const skill of await scanSkillDir(dir)) {
-      if (seen.has(skill.id)) {
-        continue;
+      if (!byName.has(skill.name)) {
+        byName.set(skill.name, skill);
       }
-      seen.add(skill.id);
-      all.push(skill);
     }
   }
-  return all.map((skill) => ({
+  return [...byName.values()].map((skill) => ({
     id: skill.id,
     name: skill.name,
     description: skill.description,
     dir: skill.dir,
     source: skill.dir.startsWith(join(homedir(), ".zen")) ? "user" : "builtin",
+    removable: removableRoots.some((root) => skill.dir.startsWith(root)),
     disabled: false,
   }));
 }
