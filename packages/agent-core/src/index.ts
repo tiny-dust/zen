@@ -11,9 +11,15 @@
  * - multi-agent / resource-lock / multi-agent-instructions：多 Agent 协作
  */
 export { AgentSession } from "./agent-session";
+export type { AgentImageAttachment } from "./agent-session";
 export { runMockAgent } from "./mock-agent";
 export { registerMcpRuntime } from "./mcp-runtime";
-export type { AgentSkillHint, McpToolBridge, AgentSessionConfig } from "./agent-config";
+export type {
+  AgentSkillHint,
+  McpToolBridge,
+  MemoryAgentBridge,
+  AgentSessionConfig,
+} from "./agent-config";
 
 export * from "./multi-agent";
 export * from "./resource-lock";
