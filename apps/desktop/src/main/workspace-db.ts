@@ -186,11 +186,11 @@ export function getWorkspace(id: string | null | undefined): Workspace | undefin
   return row ? toWorkspace(row) : undefined;
 }
 
-export function createSession(workspaceId: string | null): SessionRecord {
+export function createSession(workspaceId: string | null, id?: string): SessionRecord {
   const db = getDb();
   const effective = workspaceId && getWorkspace(workspaceId) ? workspaceId : null;
   const row: SessionRow = {
-    id: randomUUID(),
+    id: id?.trim() || randomUUID(),
     title: "新会话",
     workspace_id: effective === COMMON_ID ? null : effective,
     draft: "",
@@ -200,10 +200,24 @@ export function createSession(workspaceId: string | null): SessionRecord {
     created_at: Date.now(),
     updated_at: Date.now(),
   };
+  // 指定 id 重复创建（补建竞态）不报错，返回既有记录
   db.prepare(
-    "INSERT INTO chat_sessions (id, title, workspace_id, draft, pinned, archived, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    `INSERT OR IGNORE INTO chat_sessions (id, title, workspace_id, draft, pinned, archived, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.title, row.workspace_id, row.draft, row.pinned, row.archived, row.user_id, row.created_at, row.updated_at);
-  return toSession(row);
+  const existing = db.prepare("SELECT * FROM chat_sessions WHERE id = ?").get(row.id) as
+    | SessionRow
+    | undefined;
+  return existing ? toSession(existing) : toSession(row);
+}
+
+/** 会话迁移到其它工作区/公共区（composer 底栏选择器）；common 映射为无归属 */
+export function setSessionWorkspace(id: string, workspaceId: string | null): void {
+  const effective = workspaceId && getWorkspace(workspaceId) ? workspaceId : null;
+  getDb()
+    .prepare(
+      `UPDATE chat_sessions SET workspace_id = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`,
+    )
+    .run(effective === COMMON_ID ? null : effective, Date.now(), id, ...ownerParams());
 }
 
 export function getSession(id: string):
@@ -317,14 +331,15 @@ export function appendMessage(sessionId: string, message: ChatMessage): void {
   }
   // parts 并入 meta_json 持久化，避免改表结构
   const meta = encodeChatMessageMeta(message);
-  // 任务快照按 version 覆盖；其余消息 INSERT OR IGNORE 防重复
-  const isTaskSnapshot =
-    message.role === "tool" &&
-    (message.meta as { kind?: string } | undefined)?.kind === "tasks";
-  const sql = isTaskSnapshot
+  // 任务快照与压缩摘要卡同 id 反复写入（摘要滚动更新）：冲突时覆盖；
+  // 其余消息 INSERT OR IGNORE 防重复
+  const metaKind = message.meta as { kind?: string; toolName?: string } | undefined;
+  const upsert =
+    (message.role === "tool" && metaKind?.kind === "tasks") || metaKind?.toolName === "contextCompact";
+  const sql = upsert
     ? `INSERT INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(session_id, id) DO UPDATE SET meta_json = excluded.meta_json, created_at = excluded.created_at`
+       ON CONFLICT(session_id, id) DO UPDATE SET content = excluded.content, meta_json = excluded.meta_json, created_at = excluded.created_at`
     : `INSERT OR IGNORE INTO chat_messages (id, session_id, role, content, reasoning, reasoning_ms, meta_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
   getDb()
@@ -339,5 +354,19 @@ export function appendMessage(sessionId: string, message: ChatMessage): void {
       meta ? JSON.stringify(meta) : null,
       message.createdAt,
     );
+  getDb().prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").run(Date.now(), sessionId);
+}
+
+/** 编辑插入/重试分叉：删除该时刻起的消息（含边界），保留更早轮次 */
+export function trimMessagesFrom(sessionId: string, fromCreatedAt: number): void {
+  const owned = getDb()
+    .prepare(`SELECT 1 FROM chat_sessions WHERE id = ? AND ${ownerSql()}`)
+    .get(sessionId, ...ownerParams());
+  if (!owned) {
+    return;
+  }
+  getDb()
+    .prepare("DELETE FROM chat_messages WHERE session_id = ? AND created_at >= ?")
+    .run(sessionId, fromCreatedAt);
   getDb().prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").run(Date.now(), sessionId);
 }

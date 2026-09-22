@@ -439,7 +439,7 @@ const navBtnCls =
             <Button
               v-if="group.sessions.filter((item) => !item.archived).length > workspaceStore.PREVIEW_COUNT"
               variant="ghost"
-              class="h-7 flex w-full items-center rounded-[var(--radius-sm)] px-8 text-left text-[11px] font-normal text-[var(--color-dim)] hover:text-[var(--color-mut)] hover:bg-transparent dark:hover:bg-transparent"
+              class="h-7 flex w-full items-center justify-start rounded-[var(--radius-sm)] px-8 text-left text-[11px] font-normal text-[var(--color-dim)] hover:text-[var(--color-mut)] hover:bg-transparent dark:hover:bg-transparent"
               @click="workspaceStore.toggleExpanded(group.id)"
             >
               {{ workspaceStore.expanded.has(group.id) ? "收起列表" : `展开全部 ${group.sessions.filter((item) => !item.archived).length} 条` }}
