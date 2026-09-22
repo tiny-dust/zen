@@ -14,6 +14,7 @@ import type {
   UpdateModelInput,
 } from "@zen/shared";
 
+import { toPlain } from "@/lib/utils";
 import type { ModelSelectionState } from "@/types/zen-api";
 
 export const useModelsStore = defineStore("models", () => {
@@ -119,7 +120,8 @@ export const useModelsStore = defineStore("models", () => {
 
   async function addProvider(input: ProviderInput) {
     const provider = await runModelAction(null, "添加供应商失败", async (zen) => {
-      const created = await zen.models.addProvider(input);
+      // 响应式对象（含嵌套 capabilities 数组）不能过 IPC 结构化克隆
+      const created = await zen.models.addProvider(toPlain(input));
       await refresh();
       activeProviderId.value = created.id;
       return created;
@@ -129,7 +131,7 @@ export const useModelsStore = defineStore("models", () => {
 
   async function updateProvider(id: string, patch: Partial<ProviderInput>) {
     return runModelAction(null, "更新供应商失败", async (zen) => {
-      const provider = await zen.models.updateProvider(id, patch);
+      const provider = await zen.models.updateProvider(id, toPlain(patch));
       await refresh();
       return provider;
     });
@@ -155,7 +157,7 @@ export const useModelsStore = defineStore("models", () => {
     capabilities?: ModelCapabilities;
   }) {
     return runModelAction(null, "添加模型失败", async (zen) => {
-      const provider = await zen.models.addModel(input);
+      const provider = await zen.models.addModel(toPlain(input));
       selection.value = await zen.models.selection();
       await refresh();
       return provider;
@@ -164,7 +166,7 @@ export const useModelsStore = defineStore("models", () => {
 
   async function updateModel(input: UpdateModelInput) {
     return runModelAction(null, "更新模型失败", async (zen) => {
-      const provider = await zen.models.updateModel(input);
+      const provider = await zen.models.updateModel(toPlain(input));
       selection.value = await zen.models.selection();
       await refresh();
       return provider;
@@ -173,7 +175,9 @@ export const useModelsStore = defineStore("models", () => {
 
   async function setModelsEnabled(providerId: string, modelIds: string[], enabled: boolean) {
     return runModelAction(null, "批量启用失败", async (zen) => {
-      const provider = await zen.models.setEnabled({ providerId, modelIds, enabled });
+      const provider = await zen.models.setEnabled(
+        toPlain({ providerId, modelIds, enabled }),
+      );
       selection.value = await zen.models.selection();
       await refresh();
       return provider;
@@ -205,7 +209,7 @@ export const useModelsStore = defineStore("models", () => {
     fetching.value = true;
     error.value = null;
     try {
-      return await zen.models.previewModels(input);
+      return await zen.models.previewModels(toPlain(input));
     } catch (err) {
       error.value = err instanceof Error ? err.message : "拉取模型列表失败";
       return null;

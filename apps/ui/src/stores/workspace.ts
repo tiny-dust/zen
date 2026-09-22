@@ -167,6 +167,15 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     groups.value = await zen.workspace.pin(id, pinned);
   }
 
+  /** 工作区重命名（右键菜单）：只改侧栏显示名 */
+  async function rename(id: string, name: string) {
+    const zen = window.zen;
+    if (!zen || !name.trim()) {
+      return;
+    }
+    groups.value = await zen.workspace.rename(id, name.trim());
+  }
+
   async function archive(id: string, archived: boolean) {
     const zen = window.zen;
     if (!zen) {
@@ -213,6 +222,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     refresh,
     create,
     pin,
+    rename,
     archive,
     remove,
   };

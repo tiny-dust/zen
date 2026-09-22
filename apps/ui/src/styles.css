@@ -608,7 +608,8 @@
   .field-row {
     display: grid;
     grid-template-columns: var(--field-label-w, 88px) minmax(0, 1fr);
-    align-items: center;
+    /* 顶对齐：右侧多行（输入 + 说明）时 label 仍贴住首个控件 */
+    align-items: start;
     gap: 10px;
     min-height: 30px;
     padding: 4px 0;
@@ -619,8 +620,11 @@
   }
 
   .field-row-label {
+    /* 与 30px 控件视觉中线对齐（4px 行 padding + (30-12*1.2)/2） */
+    line-height: 30px;
     font-size: 12px;
     color: var(--color-mut);
+    white-space: nowrap;
   }
 
   .field-row-value {

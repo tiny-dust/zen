@@ -15,12 +15,15 @@ import { applyStreamToMessage, getMessageRun } from "@zen/shared";
 import { toolDisplay } from "@/components/chat/tool-part";
 import { playNotifySound } from "@/lib/notify-sound";
 import { useAgentStore } from "@/stores/agent";
+import { useAgentProcessesStore } from "@/stores/agent-processes";
+import { useAgentsStore } from "@/stores/agents";
 import { useBrowserStore } from "@/stores/browser";
 import { pathFromToolArgs } from "@/stores/chat-types";
 import type { PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-types";
 import { useGitStore } from "@/stores/git";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
+import { useSkillUsageStore } from "@/stores/skill-usage";
 
 /**
  * 流事件处理的会话状态与回调：由 chat store 注入，事件网关只依赖这个窄接口。
@@ -145,6 +148,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       return;
     }
 
+    // 子 Agent 树 / runTerminal 进程：悬浮信息卡数据源
+    if (event.type === "agent_tree" || event.type === "agent_status") {
+      useAgentsStore().handleStreamEvent(event);
+    }
+    useAgentProcessesStore().handleStreamEvent(event);
+
     // 与 main 共用消息级 reducer：parts / content / run summary / 未完成工具终态
     if (
       event.type === "delta" ||
@@ -181,6 +190,8 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (typeof event.toolName === "string" && event.toolName.startsWith("browser")) {
           useBrowserStore().onAgentBrowserTool(event.toolName, event.args);
         }
+        // 技能/MCP 调用感知：输入框上方弹出 tag
+        useSkillUsageStore().noteToolStart(event.sessionId, event.toolName, event.args);
         break;
       case "tool_end": {
         // 读写文件成功 → 收进悬浮面板「参考 · 项目」（按路径去重）
@@ -198,9 +209,18 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (event.toolName === "writeFile" || event.toolName === "editFile") {
           ctx.filesRevision.value += 1;
         }
+        useSkillUsageStore().noteToolEnd(
+          event.sessionId,
+          event.toolName,
+          event.ok,
+          pending?.args,
+        );
         ctx.statusText.value = event.summary;
         break;
       }
+      case "agent_tree":
+      case "agent_status":
+        break;
       case "approval_request":
         ctx.pendingApproval.value = {
           approvalId: event.request.approvalId,
@@ -283,6 +303,8 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.onRunFinished();
         ctx.usedUpdateTasks.value = false;
         ctx.pendingToolArgs.clear();
+        // run 终态：落定所有「进行中」的技能/MCP tag
+        useSkillUsageStore().endRun(event.sessionId);
         ctx.refreshGit();
         void useGitStore().refreshStatus();
         // 正常收尾且还有插入消息 → 稍候自动续发队首（取消/出错时保留队列待用户处理）

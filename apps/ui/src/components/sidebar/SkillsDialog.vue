@@ -1,27 +1,10 @@
 <script setup lang="ts">
-import {
-  ChevronRight,
-  CircleAlert,
-  ExternalLink,
-  FileText,
-  FolderOpen,
-  Loader2,
-  PackagePlus,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  Trash2,
-} from "@lucide/vue";
+import { ExternalLink, FolderOpen, Loader2, PackagePlus, RefreshCw, Search, ShieldCheck, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { ref, watch } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -30,26 +13,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useAgentStore } from "@/stores/agent";
-import { useModelsStore } from "@/stores/models";
+import { useChatStore } from "@/stores/chat";
+import { useWorkspaceStore } from "@/stores/workspace";
+import { skillSourceLabel } from "@/lib/skill-source";
 
 import type { SkillMarketHit, SkillSummary } from "@zen/shared";
 
 const open = defineModel<boolean>("open", { default: false });
 
 const agentStore = useAgentStore();
-const modelsStore = useModelsStore();
 const { skills, settings } = storeToRefs(agentStore);
-const { enabledModels } = storeToRefs(modelsStore);
 
-type Tab = "installed" | "market" | "analyze";
+type Tab = "installed" | "market";
 const tab = ref<Tab>("installed");
 const marketQuery = ref("coder");
 const marketItems = ref<SkillMarketHit[]>([]);
@@ -59,63 +36,8 @@ const busyId = ref("");
 const statusMsg = ref("");
 const newSkillPath = ref("");
 
-const analyzeModelKey = ref("");
-const analyzeBusy = ref(false);
-const analyzeError = ref("");
-/** 流式分析输出：边生成边展示；成功后为最终报告全文 */
-const analyzeOutput = ref("");
-type AnalyzePhase = "idle" | "running" | "done" | "error";
-const analyzePhase = ref<AnalyzePhase>("idle");
-const reportOpen = ref(false);
-const reportEl = ref<HTMLElement | null>(null);
-
-const showReportPanel = computed(() => analyzePhase.value !== "idle" || analyzeOutput.value.length > 0);
-const reportLabel = computed(() => {
-  switch (analyzePhase.value) {
-    case "running":
-      return `分析中… ${analyzeOutput.value.length} 字`;
-    case "done":
-      return `分析报告 · ${analyzeOutput.value.length} 字`;
-    case "error":
-      return "分析已中断";
-    default:
-      return "分析报告";
-  }
-});
-
-/** 流式输出自动滚到面板底部（贴底跟随，用户上滚阅读时不打断） */
-watch(analyzeOutput, () => {
-  void nextTick(() => {
-    const el = reportEl.value;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
-      el.scrollTop = el.scrollHeight;
-    }
-  });
-});
-
-let disposeAnalyzeEvents: (() => void) | undefined;
-onMounted(() => {
-  const zen = window.zen;
-  disposeAnalyzeEvents =
-    zen?.skills?.onAnalyzeEvent(({ text }) => {
-      if (analyzePhase.value === "running" && text) {
-        analyzeOutput.value += text;
-      }
-    }) ?? undefined;
-});
-onUnmounted(() => {
-  disposeAnalyzeEvents?.();
-  disposeAnalyzeEvents = undefined;
-});
-
-const modelOptions = computed(() =>
-  enabledModels.value.map(({ provider, model }) => ({
-    value: `${provider.id}::${model.id}`,
-    label: `${provider.name} / ${model.name || model.id}`,
-    providerId: provider.id,
-    modelId: model.id,
-  })),
-);
+// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
+useBrowserOverlayGuard(open);
 
 watch(open, (value) => {
   if (!value) {
@@ -123,12 +45,7 @@ watch(open, (value) => {
   }
   void agentStore.refreshSkills();
   void agentStore.refreshMcp();
-  void modelsStore.refresh();
   statusMsg.value = "";
-});
-
-onMounted(() => {
-  void agentStore.refreshSkills();
 });
 
 async function searchMarket() {
@@ -158,9 +75,10 @@ async function installSkill(hit: SkillMarketHit) {
     return;
   }
   busyId.value = hit.id;
-  statusMsg.value = `正在安装 ${hit.name}…`;
+  statusMsg.value = `正在安装 ${hit.name}…（克隆仓库可能需要约一分钟）`;
   try {
-    const result = await zen.skills.marketInstall(hit);
+    // hit 是响应式代理，ipcRenderer.invoke 结构化克隆不支持 Proxy，必须传纯对象
+    const result = await zen.skills.marketInstall({ ...hit });
     if (result.ok) {
       statusMsg.value = `已安装 ${hit.name}${result.dir ? ` → ${result.dir}` : ""}`;
       await agentStore.refreshSkills();
@@ -168,6 +86,8 @@ async function installSkill(hit: SkillMarketHit) {
     } else {
       statusMsg.value = result.error || "安装失败";
     }
+  } catch (error) {
+    statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
     busyId.value = "";
   }
@@ -181,9 +101,12 @@ async function uninstallSkill(skill: SkillSummary) {
   busyId.value = skill.id;
   statusMsg.value = `正在卸载 ${skill.name}…`;
   try {
-    const result = await zen.skills.uninstall(skill);
+    // skill 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
+    const result = await zen.skills.uninstall({ ...skill });
     statusMsg.value = result.ok ? `已卸载 ${skill.name}` : result.error || "卸载失败";
     await agentStore.refreshSkills();
+  } catch (error) {
+    statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
     busyId.value = "";
   }
@@ -202,46 +125,26 @@ async function addSkillPath() {
   await agentStore.refreshSkills();
 }
 
-/** 一键分析：先选 model，再本地汇总 SKILL.md 交由模型审计冲突；输出流式进折叠面板 */
-async function runAnalyze() {
-  const zen = window.zen;
-  if (!zen?.skills) {
-    analyzeError.value = "技能分析 IPC 不可用";
-    return;
-  }
-  if (!analyzeModelKey.value) {
-    analyzeError.value = "请先选择分析所用 model";
-    return;
-  }
-  const option = modelOptions.value.find((item) => item.value === analyzeModelKey.value);
-  if (!option) {
-    analyzeError.value = "模型选择无效";
-    return;
-  }
-  analyzeBusy.value = true;
-  analyzeError.value = "";
-  analyzeOutput.value = "";
-  analyzePhase.value = "running";
-  reportOpen.value = true;
-  try {
-    const result = await zen.skills.analyze({
-      providerId: option.providerId,
-      modelId: option.modelId,
-    });
-    if (result.ok && result.report) {
-      // 以 invoke 返回的最终报告为准（已剥离思考块）
-      analyzeOutput.value = result.report;
-      analyzePhase.value = "done";
-    } else {
-      analyzePhase.value = "error";
-      analyzeError.value = result.error || "分析失败";
-    }
-  } catch (error) {
-    analyzePhase.value = "error";
-    analyzeError.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    analyzeBusy.value = false;
-  }
+/** 一键分析提示词：在公共区新会话中交给 Agent，由 Agent 读取各技能 SKILL.md 后给出冲突审计 */
+const ANALYZE_PROMPT = `请对本机已安装的技能（skills）做一次冲突分析：
+1. 列出技能清单（名称、来源目录、一句话用途）；
+2. 找出功能重叠 / 触发条件冲突的技能；
+3. 找出可能抢同一条用户指令的技能组合；
+4. 指出工作流矛盾（例如同时要求 TDD 与直接实现）；
+5. 给出保留 / 禁用 / 合并建议。
+
+技能目录：~/.zen/skills、~/.claude/skills、~/.agents/skills（均以含 SKILL.md 的文件夹为单位，另见用户自定义扫描目录）。请先读取各技能的 SKILL.md 了解用途与触发方式，再下结论。
+输出用中文 Markdown：先给结论表，再逐条建议；不要编造不存在的技能。`;
+
+/** 一键分析：在公共区新建会话，预填提示词并直接发送 */
+async function analyzeInNewSession() {
+  open.value = false;
+  const workspaceStore = useWorkspaceStore();
+  workspaceStore.setActive("common");
+  const chat = useChatStore();
+  await chat.newTask("common");
+  chat.input = ANALYZE_PROMPT;
+  await chat.send();
 }
 
 const tabCls = (id: Tab) =>
@@ -259,7 +162,7 @@ const tabCls = (id: Tab) =>
       <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
         <DialogTitle class="text-[15px]">技能</DialogTitle>
         <DialogDescription class="text-[12.5px]">
-          管理本地技能、从 skills.sh 安装流行技能，并用所选 model 一键分析冲突。
+          管理本地技能、从 skills.sh 安装流行技能，或用一键分析审计技能冲突。
         </DialogDescription>
       </DialogHeader>
 
@@ -275,14 +178,18 @@ const tabCls = (id: Tab) =>
           @click="tab = 'market'"
         >市场 skills.sh</Button>
         <Button
-          variant="ghost"
-          :class="[tabCls('analyze'), tab === 'analyze' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
-          @click="tab = 'analyze'"
-        >一键分析</Button>
+          variant="outline"
+          size="sm"
+          class="ml-auto h-7 text-[12px]"
+          title="在公共区新建会话并分析技能冲突"
+          @click="analyzeInNewSession"
+        >
+          <ShieldCheck class="size-3.5" data-icon="inline-start" />
+          一键分析
+        </Button>
         <Button
           variant="ghost"
           size="sm"
-          class="ml-auto"
           @click="agentStore.refreshSkills()"
         >
           <RefreshCw :size="13" data-icon="inline-start" />刷新
@@ -302,7 +209,7 @@ const tabCls = (id: Tab) =>
                   <div class="flex flex-wrap items-center gap-1.5">
                     <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
                     <Badge variant="secondary" class="text-[10px]">
-                      {{ skill.source === "user" ? "用户" : "系统" }}
+                      {{ skillSourceLabel(skill) }}
                     </Badge>
                   </div>
                   <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-[var(--color-mut)]">
@@ -313,10 +220,11 @@ const tabCls = (id: Tab) =>
                   </p>
                 </div>
                 <Button
+                  v-if="skill.removable"
                   variant="ghost"
                   size="icon-sm"
                   class="text-[var(--color-danger-fg)] hover:bg-transparent!"
-                  :disabled="busyId === skill.id || skill.source !== 'user'"
+                  :disabled="busyId === skill.id"
                   :aria-label="`卸载 ${skill.name}`"
                   title="卸载"
                   @click="uninstallSkill(skill)"
@@ -368,7 +276,7 @@ const tabCls = (id: Tab) =>
           </div>
         </template>
 
-        <template v-else-if="tab === 'market'">
+        <template v-else>
           <div class="mb-2 flex items-center gap-2">
             <div class="relative min-w-0 flex-1">
               <Search
@@ -429,63 +337,13 @@ const tabCls = (id: Tab) =>
             <div class="rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] p-4">
               <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
               <p class="m-0 mt-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
-                检索开放技能生态中的流行技能，安装后出现在「已安装」。安装依赖本机 npx 与网络。
+                检索开放技能生态中的流行技能，安装到 ~/.claude/skills 并自动出现在「已安装」。安装依赖本机 Node.js（npx）与网络。
               </p>
             </div>
           </div>
           <p v-if="!marketItems.length && !marketLoading" class="m-0 text-[12px] text-[var(--color-dim)]">
             输入关键词搜索 skills.sh 上的流行技能。
           </p>
-        </template>
-
-        <template v-else>
-          <div class="flex flex-col gap-2">
-            <p class="m-0 text-[12px] text-[var(--color-mut)]">
-              点击「开始分析」前，请先选择 model。系统会汇总本地技能的 SKILL.md，检查功能冲突与触发重叠，并给出建议。
-            </p>
-            <div class="flex flex-wrap items-center gap-2">
-              <Select v-model="analyzeModelKey">
-                <SelectTrigger class="h-8 w-[280px] text-[12px]">
-                  <SelectValue placeholder="选择分析用 model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="item in modelOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <Button :disabled="analyzeBusy || !analyzeModelKey" @click="runAnalyze">
-                <Loader2 v-if="analyzeBusy" class="size-3.5 animate-spin" />
-                <ShieldCheck v-else class="size-3.5" />
-                开始分析
-              </Button>
-            </div>
-            <p v-if="analyzeError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ analyzeError }}</p>
-            <!-- 分析输出折叠面板：流式生成、完成后保留报告，内容可选中复制 -->
-            <Collapsible v-if="showReportPanel" v-model:open="reportOpen" class="min-w-0">
-              <CollapsibleTrigger
-                class="flex w-fit max-w-full flex-wrap items-center gap-1.5 py-0.5 text-[12px] text-[var(--color-mut)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
-                :aria-label="`${reportOpen ? '收起' : '展开'}分析输出：${reportLabel}`"
-              >
-                <ChevronRight
-                  class="size-3.5 shrink-0 transition-transform duration-[var(--motion-fast)]"
-                  :class="{ 'rotate-90': reportOpen }"
-                  aria-hidden="true"
-                />
-                <Loader2 v-if="analyzePhase === 'running'" class="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-                <ShieldCheck v-else-if="analyzePhase === 'done'" class="size-3.5 shrink-0 text-[var(--color-ok)]" aria-hidden="true" />
-                <CircleAlert v-else-if="analyzePhase === 'error'" class="size-3.5 shrink-0 text-[var(--color-err)]" aria-hidden="true" />
-                <FileText v-else class="size-3.5 shrink-0" aria-hidden="true" />
-                <span class="min-w-0 overflow-wrap:anywhere">{{ reportLabel }}</span>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <pre
-                  ref="reportEl"
-                  class="m-0 mt-1.5 max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3 text-[12px] leading-relaxed text-[var(--color-txt)]"
-                >{{ analyzeOutput }}</pre>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
         </template>
       </div>
 

@@ -9,6 +9,7 @@ import FetchedModelList from "@/components/settings/FetchedModelList.vue";
 import ProviderFields from "@/components/settings/ProviderFields.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toPlain } from "@/lib/utils";
 import { useModelsStore } from "@/stores/models";
 
 import type {
@@ -141,7 +142,8 @@ async function onSave() {
         name: item.name,
         enabled: item.enabled !== false,
         custom: item.custom,
-        capabilities: item.capabilities ? { ...item.capabilities } : undefined,
+        // 深拷贝：浅展开仍会把 reactive 数组（reasoningEfforts）带进 IPC
+        capabilities: item.capabilities ? toPlain(item.capabilities) : undefined,
       })),
     });
     if (created) {

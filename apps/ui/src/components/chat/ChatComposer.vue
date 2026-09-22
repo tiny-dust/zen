@@ -25,6 +25,7 @@ import ModelPicker from "@/components/chat/ModelPicker.vue";
 import PermissionPicker from "@/components/chat/PermissionPicker.vue";
 import PromptPicker from "@/components/chat/PromptPicker.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
+import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
 import { useComposerFiles } from "@/composables/useComposerFiles";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
@@ -237,6 +238,9 @@ function removeAttachment(id: string) {
     <div class="relative mx-auto max-w-[860px]">
       <!-- Agent 提问卡：贴在输入框上方，回答动作紧邻输入位置 -->
       <AskUserCard v-if="chatStore.pendingAsk" class="mb-2" />
+
+      <!-- 本会话调用感知：Agent 用了哪些技能 / MCP 服务，弹出动效 tag -->
+      <SkillUsageTags />
 
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
       <Attachments v-if="attachments.length" variant="inline" class="mb-2">

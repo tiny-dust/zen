@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref, watch, type Ref } from "vue";
 
+import { useBrowserStore } from "@/stores/browser";
 import { useChatStore } from "@/stores/chat";
 import type { ComposerAttachment } from "@/stores/chat-types";
 
@@ -37,13 +38,38 @@ export function useComposerFiles(options: ComposerFilesOptions) {
   });
 
   onBeforeUnmount(() => {
+    endFileDialog();
     for (const url of imageUrls.value.values()) {
       URL.revokeObjectURL(url);
     }
   });
 
+  /** 文件弹窗期间的浏览器视图恢复函数（选完或取消后恢复显示） */
+  let dialogRestore: (() => Promise<void>) | null = null;
+
+  function endFileDialog() {
+    const restore = dialogRestore;
+    dialogRestore = null;
+    window.removeEventListener("focus", onFileDialogClosed);
+    if (restore) {
+      void restore();
+    }
+  }
+
+  function onFileDialogClosed() {
+    // 用户取消（未选文件）时 input 不触发 change，靠窗口重新聚焦恢复
+    endFileDialog();
+  }
+
   function openFilePicker() {
-    fileInputEl.value?.click();
+    // 系统文件弹窗会被内嵌浏览器视图盖住：打开前隐藏原生视图，弹窗关闭后恢复
+    void useBrowserStore()
+      .beginFileDialog()
+      .then((restore) => {
+        dialogRestore = restore;
+        window.addEventListener("focus", onFileDialogClosed);
+        fileInputEl.value?.click();
+      });
   }
 
   function addAttachment(file: File, path: string) {
@@ -55,6 +81,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
   }
 
   function onPickFiles(event: Event) {
+    endFileDialog();
     const target = event.target as HTMLInputElement;
     const zen = window.zen;
     for (const file of Array.from(target.files ?? [])) {

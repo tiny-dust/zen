@@ -92,9 +92,15 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
   }
 
+  let eventsUnbind: (() => void) | null = null;
+
+  /**
+   * 终端事件跟随应用生命周期只绑一次（底部面板/右栏终端模块都可能挂载）；
+   * 返回的清理函数保留兼容旧调用方，但不真正解绑，避免面板收起后丢事件。
+   */
   function bindEvents() {
     const zen = window.zen;
-    if (!zen?.terminal) {
+    if (!zen?.terminal || eventsUnbind) {
       return () => undefined;
     }
     const offData = zen.terminal.onData((event) => {
@@ -115,10 +121,11 @@ export const useTerminalStore = defineStore("terminal", () => {
         }
       }
     });
-    return () => {
+    eventsUnbind = () => {
       offData();
       offExit();
     };
+    return () => undefined;
   }
 
   async function loadShell() {

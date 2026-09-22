@@ -9,6 +9,7 @@ import VendorLogo from "@/components/brand/VendorLogo.vue";
 import ProviderDetail from "@/components/settings/ProviderDetail.vue";
 import ProviderEditor from "@/components/settings/ProviderEditor.vue";
 import { Button } from "@/components/ui/button";
+import { toPlain } from "@/lib/utils";
 import { useModelsStore } from "@/stores/models";
 
 import type {
@@ -112,7 +113,7 @@ async function onToggleModelEnabled(model: ProviderModel, next: boolean) {
     id: model.id,
     enabled: next,
     name: model.name,
-    capabilities: model.capabilities,
+    capabilities: model.capabilities ? toPlain(model.capabilities) : undefined,
   });
 }
 

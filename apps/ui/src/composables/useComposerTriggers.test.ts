@@ -37,7 +37,7 @@ describe("composer skill selection", () => {
     });
     if (scanned) {
       useAgentStore().skills = [{
-        id: "coder", name: "coder", description: "Code tasks", dir: "/skills/coder", source: "user", disabled: false,
+        id: "coder", name: "coder", description: "Code tasks", dir: "/skills/coder", source: "user", removable: true, disabled: false,
       }];
     }
     useUserStore().auth.loggedIn = true;

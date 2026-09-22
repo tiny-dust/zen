@@ -33,6 +33,9 @@ import type {
   GitStatus,
   McpServerConfig,
   McpServerStatus,
+  McpDiscoveredServer,
+  MemoryScope,
+  MemorySnapshot,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
@@ -218,7 +221,14 @@ export interface ZenApi {
   };
   mcp: {
     list(): Promise<McpServerStatus[]>;
+    scan(workspaceRoot?: string): Promise<McpDiscoveredServer[]>;
     setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]>;
+  };
+  memory: {
+    get(): Promise<MemorySnapshot>;
+    addNote(scope: MemoryScope, text: string): Promise<MemorySnapshot>;
+    removeNote(scope: MemoryScope, id: string): Promise<MemorySnapshot>;
+    collect(): Promise<MemorySnapshot>;
   };
   sync: {
     upload(): Promise<SyncResult>;
@@ -239,6 +249,7 @@ export interface ZenApi {
     create(): Promise<Workspace | null>;
     pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]>;
     archive(id: string, archived: boolean): Promise<WorkspaceGroup[]>;
+    rename(id: string, name: string): Promise<WorkspaceGroup[]>;
     remove(id: string): Promise<WorkspaceGroup[]>;
   };
   session: {

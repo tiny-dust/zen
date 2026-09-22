@@ -32,6 +32,8 @@ export const useBrowserStore = defineStore("browser", () => {
   });
   /** 新标签/历史页：原生视图隐藏，展示历史列表 */
   const showHome = ref(true);
+  /** 渲染层弹窗（技能/MCP 等 HTML 覆盖层）打开期间压制原生视图：WebContentsView 层级高于一切 HTML */
+  const overlayDepth = ref(0);
   const annotating = ref(false);
   const lastScreenshotPath = ref("");
   /** 短暂抑制「自动展开右栏」，避免循环打开 */
@@ -52,11 +54,14 @@ export const useBrowserStore = defineStore("browser", () => {
       return () => undefined;
     }
     const offStatus = zen.browser.onStatus((next) => {
+      const prevUrl = status.value.url;
       status.value = next;
       if (next.error) {
         panelNote.value = next.error;
       }
-      if (next.url && next.url !== "about:blank") {
+      // 仅在真正导航到新 URL 时拉起页面视图：可见性/标题等状态事件若也重置
+      // showHome，会把用户刚打开的历史页（新标签页）立刻弹回原页面
+      if (next.url && next.url !== "about:blank" && next.url !== prevUrl) {
         urlInput.value = next.url;
         showHome.value = false;
         pushHistory(next.url, next.title);
@@ -153,8 +158,8 @@ export const useBrowserStore = defineStore("browser", () => {
     if (!zen) {
       return;
     }
-    // 历史页/隐藏时不对齐原生视图
-    const effective = visible && !showHome.value;
+    // 历史页/弹窗压制/隐藏时不对齐原生视图
+    const effective = visible && !showHome.value && overlayDepth.value === 0;
     if (!effective || !rect || rect.width < 2 || rect.height < 2) {
       await zen.setBounds(null, false);
       return;
@@ -261,6 +266,40 @@ export const useBrowserStore = defineStore("browser", () => {
     const zen = window.zen?.browser;
     if (zen?.focusHost) {
       await zen.focusHost();
+    }
+  }
+
+  /**
+   * 系统文件弹窗会被内嵌浏览器视图盖住：弹窗打开前隐藏原生视图，
+   * 返回恢复函数（弹窗关闭后调用，按当前布局重新显示并对齐 bounds）。
+   */
+  async function beginFileDialog(): Promise<() => Promise<void>> {
+    const zen = window.zen?.browser;
+    if (!zen || !isRunning.value || showHome.value) {
+      return async () => undefined;
+    }
+    await zen.setVisible(false);
+    return async () => {
+      await zen.setVisible(true);
+      await pushBoundsNow();
+    };
+  }
+
+  /**
+   * HTML 弹窗打开期间压制原生浏览器视图（计数制，支持弹窗叠弹窗）。
+   * 计数增减同步执行避免竞态；关闭时按当前布局重新评估可见性。
+   */
+  function beginOverlay(): void {
+    overlayDepth.value += 1;
+    if (overlayDepth.value === 1) {
+      void window.zen?.browser?.setBounds(null, false);
+    }
+  }
+
+  function endOverlay(): void {
+    overlayDepth.value = Math.max(0, overlayDepth.value - 1);
+    if (overlayDepth.value === 0) {
+      void pushBoundsNow();
     }
   }
 
@@ -484,6 +523,9 @@ export const useBrowserStore = defineStore("browser", () => {
     openPanel,
     setBoundsPusher,
     focusHostInput,
+    beginFileDialog,
+    beginOverlay,
+    endOverlay,
     onAgentBrowserTool,
     ensurePanelVisible,
     openInPanel: openUrl,

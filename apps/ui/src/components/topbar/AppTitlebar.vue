@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bell, Info, PanelBottom, PanelLeft, PanelRight, Search } from "@lucide/vue";
+import { Bell, Info, PanelLeft, PanelRight, Search, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
 import OpenWithButton from "@/components/topbar/OpenWithButton.vue";
@@ -94,11 +94,11 @@ function toggleButtonClass(active: boolean) {
         variant="ghost"
         size="icon-sm"
         :class="toggleButtonClass(!bottomCollapsed)"
-        aria-label="底部面板"
-        title="底部面板"
+        aria-label="终端"
+        title="终端"
         @click="toggleBottomPanel"
       >
-        <PanelBottom />
+        <SquareTerminal />
       </Button>
       <Button
         v-if="rightCollapsed"

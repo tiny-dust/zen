@@ -89,12 +89,13 @@ const EFFORT_CHIPS = REASONING_EFFORTS;
 function applyCapabilities(source?: ModelCapabilities) {
   form.toolCall = Boolean(source?.toolCall ?? true);
   form.vision = Boolean(source?.vision);
-  form.reasoning = Boolean(source?.reasoning);
   form.media = Boolean(source?.media);
   form.contextWindow = source?.contextWindow ?? 128000;
   form.maxOutputTokens = source?.maxOutputTokens ?? 8192;
   form.chatEndpoint = source?.chatEndpoint ?? "auto";
+  // 强度档位独立于「推理」开关读取：用户勾过就必须回显，不能被开关吞掉
   form.efforts = new Set((source?.reasoningEfforts ?? []).filter((e) => e !== "off"));
+  form.reasoning = Boolean(source?.reasoning) || form.efforts.size > 0;
   if (form.reasoning && !form.efforts.size) {
     form.efforts = new Set<ReasoningEffort>(["low", "medium", "high"]);
   }
@@ -128,6 +129,10 @@ function toggleEffort(id: ReasoningEffort) {
     next.add(id);
   }
   form.efforts = next;
+  // 勾选强度即视为开启推理，保存时不会再被 reasoning 开关丢掉
+  if (next.size > 0) {
+    form.reasoning = true;
+  }
 }
 
 function isEffortActive(id: ReasoningEffort): boolean {
@@ -147,7 +152,8 @@ function buildCapabilities(): ModelCapabilities {
     contextWindow: form.contextWindow > 0 ? form.contextWindow : undefined,
     maxOutputTokens: form.maxOutputTokens > 0 ? form.maxOutputTokens : undefined,
     chatEndpoint: form.chatEndpoint === "auto" ? undefined : form.chatEndpoint,
-    reasoningEfforts: form.reasoning && efforts.length ? efforts : undefined,
+    // 只要勾过强度就落库；不依赖 reasoning 开关，避免保存后回显全关
+    reasoningEfforts: efforts.length ? efforts : undefined,
     source: "manual",
   };
 }
@@ -179,9 +185,13 @@ watch(
 watch(
   () => form.reasoning,
   (on) => {
-    if (on && !form.efforts.size) {
-      form.efforts = new Set<ReasoningEffort>(["low", "medium", "high"]);
+    if (on) {
+      if (!form.efforts.size) {
+        form.efforts = new Set<ReasoningEffort>(["low", "medium", "high"]);
+      }
+      return;
     }
+    form.efforts = new Set();
   },
 );
 
