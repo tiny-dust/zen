@@ -48,16 +48,19 @@ export class AgentSession {
   private pending: PendingApproval | null = null;
   /** 会话内任务清单版本号（updateTasks 的 startNew 递增） */
   private taskVersion = 0;
-  /** askUser 挂起等待（askId → resolver） */
+  /** askUser 挂起等待（askId → resolver）；支持同会话多问询并发 */
   private readonly pendingAsks = new Map<string, PendingAsk>();
   /** 会话内已放行的工具（「全部允许」记忆；网络类确认一次后同样放行） */
   private readonly rememberedTools = new Set<string>();
-  /** 多 Agent：写/终端/浏览器互斥 + 编排器（主会话） */
-  private readonly resourceLock = new ResourceLock();
+  /** 多 Agent：写/终端/浏览器互斥（子会话必须共用父锁）+ 编排器（主会话） */
+  private readonly resourceLock: ResourceLock;
   private readonly orchestrator: MultiAgentOrchestrator | null;
+  /** 活跃子会话（agentId → session），resolveAsk 按 askId 路由到子会话 */
+  private readonly childSessions = new Map<string, AgentSession>();
 
   constructor(config: AgentSessionConfig) {
     this.config = config;
+    this.resourceLock = config.resourceLock ?? new ResourceLock();
     const emit: (event: AgentStreamEvent) => void = (event) => {
       if (event.type === "tasks_updated") {
         // version=-1 表示工具要求开新版；version=0 表示更新当前版
@@ -111,7 +114,7 @@ export class AgentSession {
       model: createLanguageModel(config),
       tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
         resourceLock: this.resourceLock,
-        ownerLabel: config.sessionId,
+        ownerLabel: config.ownerLabel ?? config.sessionId,
         multiAgentTools,
       }),
       instructions: buildInstructions(config),
@@ -148,17 +151,25 @@ export class AgentSession {
     task: string;
     signal: AbortSignal;
     onLog: (text: string) => void;
+    onProgress: () => void;
+    onToolRunning: (running: boolean) => void;
+    onWaitingUser: (waiting: boolean) => void;
   }): Promise<{ ok: boolean; text: string; error?: string }> {
     if (spec.signal.aborted) {
       return { ok: false, text: "", error: "cancelled" };
     }
     let collected = "";
     let childError = "";
+    let openTools = 0;
+    let waitingAsks = 0;
     const child = new AgentSession({
       ...this.config,
       sessionId: `${this.config.sessionId}::${spec.agentId}`,
       multiAgent: false,
       permissionMode: "full",
+      // 共享父资源锁 + owner 对齐节点 id，保证写/终端/浏览器跨 Agent 互斥且 UI 可显示占用
+      resourceLock: this.resourceLock,
+      ownerLabel: spec.agentId,
       systemPrompt: `${subAgentInstructions({
         name: spec.name,
         parentSessionId: this.config.sessionId,
@@ -167,16 +178,73 @@ export class AgentSession {
       emit: (event) => {
         if (event.type === "delta" && event.text) {
           collected += event.text;
+          spec.onProgress();
           spec.onLog(event.text.slice(0, 120));
+          return;
+        }
+        if (
+          event.type === "reasoning_delta" ||
+          event.type === "usage" ||
+          event.type === "step_start"
+        ) {
+          spec.onProgress();
           return;
         }
         if (event.type === "error") {
           childError = event.message;
+          spec.onProgress();
           spec.onLog(`错误：${event.message}`);
           return;
         }
+        if (event.type === "tool_input_start") {
+          spec.onProgress();
+          return;
+        }
         if (event.type === "tool_start") {
+          openTools += 1;
+          spec.onProgress();
+          spec.onToolRunning(true);
           spec.onLog(`工具 ${event.toolName}`);
+          return;
+        }
+        if (event.type === "tool_end") {
+          openTools = Math.max(0, openTools - 1);
+          if (openTools === 0) {
+            spec.onToolRunning(false);
+          }
+          spec.onProgress();
+          return;
+        }
+        if (event.type === "ask_user") {
+          // 多问询关键：子 ask 上抛父会话 sessionId，UI 才能渲染；附 agentName 便于区分
+          waitingAsks += 1;
+          spec.onProgress();
+          spec.onWaitingUser(true);
+          spec.onLog(`提问：${event.question.question.slice(0, 80)}`);
+          this.config.emit({
+            type: "ask_user",
+            sessionId: this.config.sessionId,
+            question: {
+              ...event.question,
+              agentName: spec.name,
+              sourceSessionId: event.sessionId,
+            },
+          });
+          return;
+        }
+        if (event.type === "ask_resolved") {
+          waitingAsks = Math.max(0, waitingAsks - 1);
+          spec.onProgress();
+          this.config.emit({
+            type: "ask_resolved",
+            sessionId: this.config.sessionId,
+            askId: event.askId,
+            toolCallId: event.toolCallId,
+            answer: event.answer,
+          });
+          if (waitingAsks === 0) {
+            spec.onWaitingUser(false);
+          }
           return;
         }
         if (event.type === "done" && event.reason === "error") {
@@ -184,6 +252,7 @@ export class AgentSession {
         }
       },
     });
+    this.childSessions.set(spec.agentId, child);
     const onAbort = () => {
       void child.cancel();
     };
@@ -208,6 +277,7 @@ export class AgentSession {
         error: error instanceof Error ? error.message : String(error),
       };
     } finally {
+      this.childSessions.delete(spec.agentId);
       spec.signal.removeEventListener("abort", onAbort);
     }
   }
@@ -294,15 +364,23 @@ export class AgentSession {
     return this.approve({ ...decision, approved: false });
   }
 
-  /** 渲染层回答 askUser 提问 */
+  /**
+   * 渲染层回答 askUser 提问。
+   * 多问询：按 askId 路由到本会话或任一子会话，回答一个推进一个。
+   */
   resolveAsk(askId: string, answer: string): boolean {
     const pending = this.pendingAsks.get(askId);
-    if (!pending) {
-      return false;
+    if (pending) {
+      this.pendingAsks.delete(askId);
+      pending.resolve(answer);
+      return true;
     }
-    this.pendingAsks.delete(askId);
-    pending.resolve(answer);
-    return true;
+    for (const child of this.childSessions.values()) {
+      if (child.resolveAsk(askId, answer)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async pause(): Promise<void> {
@@ -333,6 +411,11 @@ export class AgentSession {
       pending.reject(new Error("会话已取消"));
     }
     this.pendingAsks.clear();
+    // 子会话一并取消，避免其 pendingAsks 悬挂
+    for (const child of this.childSessions.values()) {
+      void child.cancel();
+    }
+    this.childSessions.clear();
     // runStep 已因暂停/等审批返回时，abort 不会再触发 done，这里补终态
     if (this.runActive && waiting) {
       this.finishRun("cancelled");
