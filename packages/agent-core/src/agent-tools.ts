@@ -218,6 +218,7 @@ export function buildToolSet(
         "Ask the user one question with optional preset options; shown above the chat input. " +
         "Options render as a vertical list — single-select by default (one tap answers). " +
         "Set multiSelect=true when the options are not mutually exclusive (the user picks several and submits together). " +
+        "Multiple questions may be pending at once (from this agent or parallel sub-agents); each is answered independently and resumes its asker. " +
         "Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
       inputSchema: z.object({
         question: z.string().describe("One concrete question."),

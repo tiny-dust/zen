@@ -1,4 +1,5 @@
 import { multiAgentInstructions } from "./multi-agent-instructions";
+import type { ResourceLock } from "./resource-lock";
 
 import type {
   AgentStreamEvent,
@@ -56,6 +57,13 @@ export interface AgentSessionConfig {
   browserBridge?: BrowserAgentBridge;
   /** 是否启用多 Agent 协作工具（spawnAgent 等）；子 Agent 应为 false */
   multiAgent?: boolean;
+  /**
+   * 共享资源锁（写/终端/浏览器互斥）。子 Agent 必须传入父会话同一实例，
+   * 否则互斥失效（各自 new ResourceLock）。
+   */
+  resourceLock?: ResourceLock;
+  /** 资源锁 owner 标签；多 Agent 时应对齐 AgentNodeState.id 以驱动 busyResource */
+  ownerLabel?: string;
   emit: (event: AgentStreamEvent) => void;
 }
 

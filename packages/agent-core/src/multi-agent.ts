@@ -11,14 +11,45 @@ import { z } from "zod";
 import { ResourceLock } from "./resource-lock";
 import { multiAgentInstructions, subAgentInstructions } from "./multi-agent-instructions";
 
+/**
+ * DESIGN — 多 Agent 调度 / 保活 / 超时 / 多问询
+ *
+ * ## 超时策略（空闲超时 + 绝对上限）
+ * - 空闲超时 `subAgentIdleTimeoutMs`（默认 4 分钟）：仅在「无进展且不在合法等待」时计时。
+ *   进展 = onProgress（onLog / tool_start / tool_end / usage / ask 等）。
+ *   合法等待 = 工具执行中（onToolRunning）/ 等待用户回答（onWaitingUser）/ 等审批。
+ *   空闲到点 abort 本轮，按可重试失败处理。
+ * - 绝对上限 `subAgentMaxDurationMs`（默认 45 分钟）：本轮 start 起墙钟，防真挂死
+ *   （含用户长期不回答）。到点强制 abort。
+ * - 保活：任何 onProgress 重置空闲计时；工具执行中 / waiting_user 暂停空闲计时。
+ *
+ * ## 多问询模型（多个 ask 并存，按 askId 独立 resolve）
+ * - AgentSession.pendingAsks 为 Map<askId, PendingAsk>，支持同会话/多子 Agent 并发 ask。
+ * - 子 Agent 的 ask_user 改写 sessionId 为父会话并附 agentName 上抛，UI 并行渲染多张 AskUserCard。
+ * - 父会话 resolveAsk(askId) 先查自身，再递归子会话；回答一个推进一个，禁止覆盖丢卡。
+ * - UI 侧 pendingAsks 数组，ask_resolved 按 askId 摘除。
+ *
+ * ## 状态机（SubAgentStatus）
+ * waiting_deps → queued → running ⇄ waiting_user → done | error | cancelled
+ * running / waiting_user 占用并发槽；waiting_user 不得显示成假「运行中」。
+ */
+
 /** 子 Agent 并发上限，避免模型/API/文件系统资源被并行打爆 */
 export const MAX_CONCURRENT_SUBAGENTS = 2;
 
-/** 子 Agent 单次执行超时：超时自动取消本轮，交回编排器按重试策略处理 */
-export const SUB_AGENT_TIMEOUT_MS = 10 * 60_000;
+/** 子 Agent 空闲超时：无进展且不在等用户/跑工具时超过该时长取消本轮 */
+export const SUB_AGENT_IDLE_TIMEOUT_MS = 4 * 60_000;
+
+/** 子 Agent 绝对执行上限：防真挂死（含等用户过久） */
+export const SUB_AGENT_MAX_DURATION_MS = 45 * 60_000;
+
+/** @deprecated 旧固定硬超时；请用 SUB_AGENT_IDLE_TIMEOUT_MS / SUB_AGENT_MAX_DURATION_MS */
+export const SUB_AGENT_TIMEOUT_MS = SUB_AGENT_IDLE_TIMEOUT_MS;
 
 const MAX_LOG_LINES = 40;
 const MAX_RETRY = 2;
+
+const TERMINAL_STATUSES = new Set<SubAgentStatus>(["done", "error", "cancelled"]);
 
 export { ResourceLock, multiAgentInstructions, subAgentInstructions };
 
@@ -31,11 +62,21 @@ export interface MultiAgentDeps {
     task: string;
     signal: AbortSignal;
     onLog: (text: string) => void;
+    /** 进展保活：日志 / 工具 / usage / ask 等都应调用，重置空闲计时 */
+    onProgress: () => void;
+    /** 工具执行中 true（期间暂停空闲计时，长命令/等锁不被误杀）；成对 start/end 用计数收敛 */
+    onToolRunning: (running: boolean) => void;
+    /** askUser 等待用户回答；true 时标记 waiting_user 并暂停空闲计时 */
+    onWaitingUser: (waiting: boolean) => void;
   }) => Promise<{ ok: boolean; text: string; error?: string }>;
   emit: (event: AgentStreamEvent) => void;
   resourceLock: ResourceLock;
   concurrencyLimit?: number;
-  /** 子 Agent 单次执行超时（毫秒），缺省 SUB_AGENT_TIMEOUT_MS */
+  /** 空闲超时（毫秒），缺省 SUB_AGENT_IDLE_TIMEOUT_MS */
+  subAgentIdleTimeoutMs?: number;
+  /** 绝对执行上限（毫秒），缺省 SUB_AGENT_MAX_DURATION_MS */
+  subAgentMaxDurationMs?: number;
+  /** @deprecated 兼容旧字段：等价于 subAgentIdleTimeoutMs */
   subAgentTimeoutMs?: number;
 }
 
@@ -51,6 +92,7 @@ function truncate(text: string, limit = 400): string {
  * 多 Agent 协作编排器：
  * - 任务拆分（spawn）→ 依赖等待 → 有限并发执行 → 失败重试 → 结果汇总
  * - 独占资源（写/终端/浏览器）经 ResourceLock 串行化
+ * - 空闲超时 + 绝对上限；等待用户 / 跑工具时保活
  */
 export class MultiAgentOrchestrator {
   private readonly deps: MultiAgentDeps;
@@ -58,17 +100,20 @@ export class MultiAgentOrchestrator {
   private readonly runs = new Map<string, Promise<void>>();
   private readonly aborts = new Map<string, AbortController>();
   private readonly limit: number;
-  private readonly timeoutMs: number;
+  private readonly idleTimeoutMs: number;
+  private readonly maxDurationMs: number;
   private pumping = false;
   private disposed = false;
 
   constructor(deps: MultiAgentDeps) {
     this.deps = deps;
     this.limit = deps.concurrencyLimit ?? MAX_CONCURRENT_SUBAGENTS;
-    this.timeoutMs = deps.subAgentTimeoutMs ?? SUB_AGENT_TIMEOUT_MS;
+    this.idleTimeoutMs =
+      deps.subAgentIdleTimeoutMs ?? deps.subAgentTimeoutMs ?? SUB_AGENT_IDLE_TIMEOUT_MS;
+    this.maxDurationMs = deps.subAgentMaxDurationMs ?? SUB_AGENT_MAX_DURATION_MS;
     deps.resourceLock.onHold = (ownerId, label) => {
       for (const agent of this.nodes.values()) {
-        if (agent.status === "running") {
+        if (agent.status === "running" || agent.status === "waiting_user") {
           agent.busyResource = agent.id === ownerId ? (label ?? null) : null;
         } else if (agent.busyResource) {
           agent.busyResource = null;
@@ -78,10 +123,11 @@ export class MultiAgentOrchestrator {
     };
   }
 
+  /** 占用并发槽：running 与 waiting_user 都算 */
   private get runningCount(): number {
     let n = 0;
     for (const node of this.nodes.values()) {
-      if (node.status === "running") {
+      if (node.status === "running" || node.status === "waiting_user") {
         n += 1;
       }
     }
@@ -143,12 +189,13 @@ export class MultiAgentOrchestrator {
       parentId: null,
       name: input.name.trim() || `子任务 ${this.nodes.size + 1}`,
       task: input.task.trim(),
-      status: dependsOn.length ? "waiting" : "queued",
+      status: dependsOn.length ? "waiting_deps" : "queued",
       dependsOn,
       attempts: 0,
       maxAttempts: Math.min(Math.max(input.maxAttempts ?? 1, 1), MAX_RETRY + 1),
       log: [],
       busyResource: null,
+      waitingUser: false,
     };
     this.appendLog(agent, "已创建，等待调度");
     this.nodes.set(id, agent);
@@ -185,13 +232,13 @@ export class MultiAgentOrchestrator {
         }
         // 依赖失败 → 自身失败
         for (const agent of this.nodes.values()) {
-          if (agent.status === "waiting" && this.hasFailedDependency(agent)) {
+          if (agent.status === "waiting_deps" && this.hasFailedDependency(agent)) {
             agent.status = "error";
             agent.error = "依赖的子任务失败，未执行";
             agent.endedAt = now();
             this.appendLog(agent, agent.error);
             this.emitStatus(agent);
-          } else if (agent.status === "waiting" && this.dependenciesMet(agent)) {
+          } else if (agent.status === "waiting_deps" && this.dependenciesMet(agent)) {
             agent.status = "queued";
             this.appendLog(agent, "依赖已满足，进入队列");
             this.emitStatus(agent);
@@ -218,10 +265,11 @@ export class MultiAgentOrchestrator {
   }
 
   private async runOne(agent: AgentNodeState): Promise<void> {
-    if (agent.status !== "queued") {
+    if (agent.status !== "queued" || this.disposed) {
       return;
     }
     agent.status = "running";
+    agent.waitingUser = false;
     agent.attempts += 1;
     agent.startedAt = agent.startedAt ?? now();
     agent.endedAt = undefined;
@@ -234,34 +282,117 @@ export class MultiAgentOrchestrator {
     this.aborts.set(agent.id, controller);
 
     const promise = (async () => {
-      // 超时兜底：子任务挂死时中断本轮，按可重试失败处理
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let timedOut = false;
-      const timeoutPromise = new Promise<"timeout">((resolve) => {
-        timeoutTimer = setTimeout(() => {
-          timedOut = true;
-          // 中断子会话（runChild 内部监听 signal 并取消子 Agent）
-          controller.abort();
-          resolve("timeout");
-        }, this.timeoutMs);
+      // 空闲超时 + 绝对上限：合法等待（工具中 / 等用户）暂停空闲计时
+      type RaceOutcome =
+        | { type: "result"; ok: boolean; text: string; error?: string }
+        | { type: "timeout"; kind: "idle" | "max" };
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      let maxTimer: ReturnType<typeof setTimeout> | null = null;
+      let timedOut: "idle" | "max" | null = null;
+      let toolBusy = false;
+      let waitingUser = false;
+      let finished = false;
+      let resolveTimeout: ((value: RaceOutcome) => void) | null = null;
+
+      const timeoutPromise = new Promise<RaceOutcome>((resolve) => {
+        resolveTimeout = resolve;
       });
+      const clearIdle = () => {
+        if (idleTimer != null) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
+      };
+      const fireTimeout = (kind: "idle" | "max") => {
+        if (timedOut || finished) {
+          return;
+        }
+        timedOut = kind;
+        controller.abort();
+        resolveTimeout?.({ type: "timeout", kind });
+      };
+      /** 重置空闲计时（保活）；合法等待时不武装 */
+      const touch = () => {
+        clearIdle();
+        if (finished || toolBusy || waitingUser || timedOut) {
+          return;
+        }
+        idleTimer = setTimeout(() => fireTimeout("idle"), this.idleTimeoutMs);
+      };
+
+      touch();
+      maxTimer = setTimeout(() => fireTimeout("max"), this.maxDurationMs);
+
+      const setWaitingUser = (waiting: boolean) => {
+        if (finished || waitingUser === waiting) {
+          return;
+        }
+        waitingUser = waiting;
+        agent.waitingUser = waiting;
+        if (waiting) {
+          agent.status = "waiting_user";
+          this.appendLog(agent, "等待用户回答");
+          clearIdle();
+        } else if (agent.status === "waiting_user") {
+          agent.status = "running";
+          this.appendLog(agent, "已收到用户回答");
+          touch();
+        }
+        this.emitStatus(agent);
+        this.emitTree();
+      };
+
+      const setToolRunning = (running: boolean) => {
+        if (finished || toolBusy === running) {
+          return;
+        }
+        toolBusy = running;
+        if (running) {
+          clearIdle();
+        } else {
+          touch();
+        }
+      };
+
       try {
         const raced = await Promise.race([
-          this.deps.runChild({
-            agentId: agent.id,
-            name: agent.name,
-            task: agent.task,
-            signal: controller.signal,
-            onLog: (text) => {
-              this.appendLog(agent, text);
-              this.emitStatus(agent);
-            },
-          }),
+          this.deps
+            .runChild({
+              agentId: agent.id,
+              name: agent.name,
+              task: agent.task,
+              signal: controller.signal,
+              onLog: (text) => {
+                this.appendLog(agent, text);
+                touch();
+                this.emitStatus(agent);
+              },
+              onProgress: () => touch(),
+              onToolRunning: setToolRunning,
+              onWaitingUser: setWaitingUser,
+            })
+            .then((result): RaceOutcome => ({ type: "result", ...result }))
+            .catch((error): RaceOutcome => ({
+              type: "result",
+              ok: false,
+              text: "",
+              error: error instanceof Error ? error.message : String(error),
+            })),
           timeoutPromise,
         ]);
-        if (raced === "timeout") {
-          const message = `子任务执行超时（超过 ${Math.round(this.timeoutMs / 60_000)} 分钟），已自动取消`;
+        finished = true;
+        clearIdle();
+        if (maxTimer != null) {
+          clearTimeout(maxTimer);
+          maxTimer = null;
+        }
+        if (raced.type === "timeout") {
+          const message =
+            raced.kind === "idle"
+              ? `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`
+              : `子任务执行超时（超过最长执行时间 ${Math.round(this.maxDurationMs / 60_000)} 分钟），已自动取消`;
           agent.error = message;
+          agent.waitingUser = false;
           this.appendLog(agent, message);
           if (agent.attempts < agent.maxAttempts) {
             agent.status = "queued";
@@ -278,6 +409,7 @@ export class MultiAgentOrchestrator {
           agent.status = "cancelled";
           agent.reason = "cancelled";
           agent.error = result.error || "已取消";
+          agent.waitingUser = false;
           agent.endedAt = now();
           this.appendLog(agent, agent.error);
           return;
@@ -285,12 +417,14 @@ export class MultiAgentOrchestrator {
         if (result.ok) {
           agent.status = "done";
           agent.reason = "stop";
+          agent.waitingUser = false;
           agent.result = truncate(result.text, 2000);
           agent.endedAt = now();
           this.appendLog(agent, "执行完成");
           return;
         }
         agent.error = result.error || "子任务失败";
+        agent.waitingUser = false;
         this.appendLog(agent, `失败：${agent.error}`);
         if (agent.attempts < agent.maxAttempts && !controller.signal.aborted) {
           agent.status = "queued";
@@ -301,15 +435,43 @@ export class MultiAgentOrchestrator {
         agent.reason = "error";
         agent.endedAt = now();
       } catch (error) {
+        finished = true;
+        clearIdle();
+        if (maxTimer != null) {
+          clearTimeout(maxTimer);
+          maxTimer = null;
+        }
+        agent.waitingUser = false;
+        if (timedOut) {
+          const message =
+            timedOut === "idle"
+              ? `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`
+              : `子任务执行超时（超过最长执行时间 ${Math.round(this.maxDurationMs / 60_000)} 分钟），已自动取消`;
+          agent.error = message;
+          this.appendLog(agent, message);
+          if (agent.attempts < agent.maxAttempts) {
+            agent.status = "queued";
+            this.appendLog(agent, "将重试");
+          } else {
+            agent.status = "error";
+            agent.reason = "error";
+            agent.endedAt = now();
+          }
+          return;
+        }
         agent.error = error instanceof Error ? error.message : String(error);
-        agent.status = controller.signal.aborted && !timedOut ? "cancelled" : "error";
-        agent.reason = controller.signal.aborted && !timedOut ? "cancelled" : "error";
+        agent.status = controller.signal.aborted ? "cancelled" : "error";
+        agent.reason = controller.signal.aborted ? "cancelled" : "error";
         agent.endedAt = now();
         this.appendLog(agent, `异常：${agent.error}`);
       } finally {
-        if (timeoutTimer != null) {
-          clearTimeout(timeoutTimer);
+        finished = true;
+        clearIdle();
+        if (maxTimer != null) {
+          clearTimeout(maxTimer);
+          maxTimer = null;
         }
+        agent.waitingUser = false;
         this.aborts.delete(agent.id);
         this.emitStatus(agent);
         this.emitTree();
@@ -336,32 +498,39 @@ export class MultiAgentOrchestrator {
     // 依赖仍 waiting 的先 pump
     await this.pump();
     for (;;) {
-      const pending = targets.filter(
-        (item) =>
-          item.status === "queued" ||
-          item.status === "running" ||
-          item.status === "waiting",
-      );
+      if (this.disposed) {
+        return this.collect(ids);
+      }
+      const pending = targets.filter((item) => !TERMINAL_STATUSES.has(item.status));
       if (!pending.length) {
         return this.collect(ids);
       }
       await this.pump();
-      await Promise.all(
-        pending.map((item) => this.runs.get(item.id) ?? Promise.resolve()),
-      );
-      await new Promise((r) => setTimeout(r, 50));
       if (this.disposed) {
         return this.collect(ids);
       }
+      await Promise.all(
+        pending.map((item) => this.runs.get(item.id) ?? Promise.resolve()),
+      );
+      if (this.disposed) {
+        return this.collect(ids);
+      }
+      // 仍有非终态（如仅 waiting_deps 未入队）时短轮询，避免死等
+      const still = targets.filter((item) => !TERMINAL_STATUSES.has(item.status));
+      if (still.some((item) => this.runs.has(item.id))) {
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 50));
     }
   }
 
   async cancelAll(): Promise<void> {
     for (const agent of this.nodes.values()) {
-      if (agent.status === "queued" || agent.status === "waiting" || agent.status === "running") {
+      if (!TERMINAL_STATUSES.has(agent.status)) {
         agent.status = "cancelled";
         agent.reason = "cancelled";
         agent.error = "主会话已取消";
+        agent.waitingUser = false;
         agent.endedAt = now();
         this.appendLog(agent, agent.error);
         this.emitStatus(agent);
@@ -381,10 +550,14 @@ export class MultiAgentOrchestrator {
 
   /** 主 Agent 可用的协作工具集 */
   buildTools(): ToolSet {
+    const idleMin = Math.max(1, Math.round(this.idleTimeoutMs / 60_000));
+    const maxMin = Math.max(1, Math.round(this.maxDurationMs / 60_000));
     const tools: ToolSet = {
       spawnAgent: tool({
         description:
-          "Spawn a sub-agent for a focused subtask. Use dependsOn to sequence work. Results appear in the right Agents panel. Max concurrent sub-agents is limited; exclusive resources (write/terminal/browser) are serialized.",
+          "Spawn a sub-agent for a focused subtask. Use dependsOn to sequence work. Results appear in the right Agents panel. Max concurrent sub-agents is limited; exclusive resources (write/terminal/browser) are serialized. " +
+          `Sub-agents are cancelled after ~${idleMin}m without progress or ${maxMin}m total; tool use and waiting for user answers keep them alive. ` +
+          "If a sub-agent asks the user a question, answer that ask card; it resumes automatically.",
         inputSchema: z.object({
           name: z.string().describe("Short display name for the sub-agent."),
           task: z.string().describe("Self-contained task description for the sub-agent."),
@@ -408,7 +581,8 @@ export class MultiAgentOrchestrator {
         },
       }),
       listAgents: tool({
-        description: "List main/sub agents and their statuses for this session.",
+        description:
+          "List main/sub agents and their statuses for this session. status waiting_user means the agent is blocked on an askUser question.",
         inputSchema: z.object({}),
         execute: async () => {
           return this.list().map((item) => ({
@@ -419,13 +593,14 @@ export class MultiAgentOrchestrator {
             attempts: item.attempts,
             dependsOn: item.dependsOn,
             error: item.error,
+            waitingUser: item.waitingUser ?? item.status === "waiting_user",
             hasResult: Boolean(item.result),
           }));
         },
       }),
       waitForAgents: tool({
         description:
-          "Wait until the given sub-agents (or all) reach a terminal state, then return their status list.",
+          "Wait until the given sub-agents (or all) reach a terminal state, then return their status list. Agents waiting on user answers stay pending until those asks are answered.",
         inputSchema: z.object({
           ids: z.array(z.string()).optional().describe("Sub-agent ids; omit to wait for all."),
         }),
