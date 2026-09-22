@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FolderTree, List, RefreshCw } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
@@ -15,6 +15,8 @@ import type { ChangeNode } from "@/components/right/panel-nodes";
 type ViewMode = "tree" | "flat";
 
 const gitStore = useGitStore();
+onMounted(() => gitStore.startStatusWatch());
+onUnmounted(() => gitStore.stopStatusWatch());
 const viewMode = ref<ViewMode>("flat");
 const expanded = ref(new Set<string>([""]));
 

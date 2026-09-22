@@ -51,8 +51,12 @@ export const gitApi = {
     aiMessage(cwd?: string): Promise<string> {
       return ipcRenderer.invoke("git:ai-message", cwd);
     },
-    createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }> {
-      return ipcRenderer.invoke("git:create-branch", cwd, name);
+    createBranch(
+      cwd: string | undefined,
+      name: string,
+      base?: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("git:create-branch", cwd, name, base);
     },
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }> {
       return ipcRenderer.invoke("git:push", cwd);
