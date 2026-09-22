@@ -93,7 +93,7 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
       <DropdownMenuTrigger as-child>
         <Button
           variant="ghost"
-          class="flex w-full flex-row items-center gap-2.5 rounded-[10px] border border-transparent bg-transparent p-2.5 text-left font-normal hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
+          class="flex w-full flex-row items-center justify-start gap-2.5 rounded-[10px] border border-transparent bg-transparent p-2.5 text-left font-normal hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
         >
           <Avatar class="size-7 flex-none rounded-lg">
             <AvatarImage

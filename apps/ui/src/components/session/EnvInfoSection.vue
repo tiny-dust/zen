@@ -28,6 +28,8 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 const branchAnchor = ref<HTMLElement | null>(null);
+const branchPopup = ref<HTMLElement | null>(null);
+const branchPos = ref({ top: 0, left: 0, width: 0 });
 const open = ref(true);
 
 const branch = computed(() => gitStore.branch || chatStore.branch);
@@ -46,17 +48,43 @@ function onDocPointerDown(event: PointerEvent) {
     return;
   }
   const target = event.target as Node | null;
-  if (branchAnchor.value && target && !branchAnchor.value.contains(target)) {
+  if (!target) {
+    return;
+  }
+  // 弹层 Teleport 到 body 后不在锚点内，点弹层内部不能算外部点击
+  const inside =
+    (!!branchAnchor.value && branchAnchor.value.contains(target)) ||
+    (!!branchPopup.value && branchPopup.value.contains(target));
+  if (!inside) {
     gitStore.branchPickerOpen = false;
   }
 }
 
+/** 切换分支弹层：信息卡 overflow-y-auto 会裁剪内部定位弹层，弹层 Teleport 到 body 后按锚点 fixed 定位（同 CommitPanel） */
+function toggleBranchPicker() {
+  gitStore.branchPickerOpen = !gitStore.branchPickerOpen;
+  if (!gitStore.branchPickerOpen) {
+    return;
+  }
+  const rect = branchAnchor.value?.getBoundingClientRect();
+  if (rect) {
+    branchPos.value = {
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    };
+  }
+  void gitStore.refreshBranches();
+}
+
 onMounted(() => {
   void gitStore.refreshStatus();
+  gitStore.startStatusWatch();
   document.addEventListener("pointerdown", onDocPointerDown, true);
 });
 
 onUnmounted(() => {
+  gitStore.stopStatusWatch();
   document.removeEventListener("pointerdown", onDocPointerDown, true);
 });
 
@@ -127,10 +155,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           :class="actionCls"
           aria-label="切换分支"
           :title="branch ? `当前分支：${branch}（点击切换）` : '选择分支'"
-          @click="
-            gitStore.branchPickerOpen = !gitStore.branchPickerOpen;
-            if (gitStore.branchPickerOpen) gitStore.refreshBranches();
-          "
+          @click="toggleBranchPicker"
         >
           <GitBranch :class="envIconCls" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[12px]">
@@ -150,12 +175,21 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           </span>
           <ChevronDown class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         </Button>
-        <div
-          v-if="gitStore.branchPickerOpen"
-          class="absolute top-full right-0 left-0 z-[var(--z-popup)] mt-1"
-        >
-          <BranchPicker @close="gitStore.branchPickerOpen = false" />
-        </div>
+        <!-- 信息卡 overflow-y-auto 会裁剪内部弹层：Teleport 到 body + fixed 定位（同 SessionInfoPanel 的 CommitPanel） -->
+        <Teleport to="body">
+          <div
+            v-if="gitStore.branchPickerOpen"
+            ref="branchPopup"
+            class="fixed z-[var(--z-popup)]"
+            :style="{
+              top: `${branchPos.top}px`,
+              left: `${branchPos.left}px`,
+              width: `${branchPos.width}px`,
+            }"
+          >
+            <BranchPicker @close="gitStore.branchPickerOpen = false" />
+          </div>
+        </Teleport>
       </div>
 
       <!-- 提交或推送 -->

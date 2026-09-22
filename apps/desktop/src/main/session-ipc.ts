@@ -17,8 +17,10 @@ import {
   setSessionArchived,
   setSessionDraft,
   setSessionPinned,
+  setSessionWorkspace,
   setWorkspaceArchived,
   setWorkspacePinned,
+  trimMessagesFrom,
 } from "./workspace-db";
 
 /** 渲染层可落库的消息角色（压缩摘要卡等 UI 自建消息）；工具流仍由 main 侧持久化 */
@@ -128,9 +130,16 @@ export function registerSessionIpc(): void {
     return listWorkspaceGroups();
   });
 
-  ipcMain.handle("session:create", (_event, workspaceId: string | null) =>
-    createSession(workspaceId),
+  // id 可选：渲染层首发消息前补建当前会话时传入既有 id，避免换 id 丢状态
+  ipcMain.handle("session:create", (_event, workspaceId: string | null, id?: string) =>
+    createSession(workspaceId, typeof id === "string" ? id : undefined),
   );
+
+  ipcMain.handle("session:set-workspace", (_event, id: string, workspaceId: string | null) => {
+    if (typeof id === "string" && id.trim()) {
+      setSessionWorkspace(id, workspaceId);
+    }
+  });
 
   ipcMain.handle("session:open", (_event, id: string) => getSession(id) ?? null);
 
@@ -143,6 +152,22 @@ export function registerSessionIpc(): void {
     appendMessage(sessionId, message);
     return { ok: true };
   });
+
+  ipcMain.handle(
+    "session:trim-messages",
+    (_event, sessionId: string, fromCreatedAt: number) => {
+      if (
+        typeof sessionId !== "string" ||
+        !getSession(sessionId) ||
+        typeof fromCreatedAt !== "number" ||
+        !Number.isFinite(fromCreatedAt)
+      ) {
+        return { ok: false, error: "invalid trim request" };
+      }
+      trimMessagesFrom(sessionId, fromCreatedAt);
+      return { ok: true };
+    },
+  );
 
   ipcMain.handle("session:rename", (_event, id: string, title: string) => {
     if (typeof title === "string" && title.trim()) {

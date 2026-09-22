@@ -4,8 +4,11 @@ import type { ChatMessage, SessionRecord } from "@zen/shared";
 
 export const sessionApi = {
   session: {
-    create(workspaceId: string | null): Promise<SessionRecord> {
-      return ipcRenderer.invoke("session:create", workspaceId);
+    create(workspaceId: string | null, id?: string): Promise<SessionRecord> {
+      return ipcRenderer.invoke("session:create", workspaceId, id);
+    },
+    setWorkspace(id: string, workspaceId: string | null): Promise<void> {
+      return ipcRenderer.invoke("session:set-workspace", id, workspaceId);
     },
     open(
       id: string,
@@ -18,6 +21,13 @@ export const sessionApi = {
       message: ChatMessage,
     ): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("session:append-message", sessionId, message);
+    },
+    /** 编辑插入/重试分叉：删除该时刻起的落库消息 */
+    trimMessages(
+      sessionId: string,
+      fromCreatedAt: number,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("session:trim-messages", sessionId, fromCreatedAt);
     },
     rename(id: string, title: string): Promise<void> {
       return ipcRenderer.invoke("session:rename", id, title);

@@ -11,6 +11,7 @@ import {
   loginWithGitHub,
   refreshAccessToken,
 } from "./github-auth";
+import { isModernSecret } from "./secret";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
@@ -120,7 +121,26 @@ async function loadStoredAuth(): Promise<StoredAuth> {
   }
   // 会话数据归属随登录态切换（workspace-db 的 user 过滤）
   setCurrentUserId(cachedAuth.loggedIn ? cachedAuth.user?.login ?? null : null);
+  // 旧 safeStorage token 就地升级为 aes:v1（更新后不再掉登录/报密钥解密失败）
+  if (cachedAuth.tokens) {
+    void migrateAuthTokens(cachedAuth);
+  }
   return cachedAuth;
+}
+
+/** 启动迁移：旧密文解得开就重加密为 aes:v1；解不开保留原样走既有错误提示 */
+async function migrateAuthTokens(stored: StoredAuth): Promise<void> {
+  const tokens = stored.tokens;
+  if (!tokens || isModernSecret(tokens.accessTokenEnc)) {
+    return;
+  }
+  try {
+    const plain = await decryptTokens(tokens);
+    stored.tokens = await encryptTokens(plain);
+    await writeJson(authFile(), stored);
+  } catch {
+    // 旧密文已不可解密：不阻塞启动
+  }
 }
 
 /** 3 个月会话窗口是否已过 */
