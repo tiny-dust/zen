@@ -14,6 +14,8 @@ export interface ToolProgressEvent {
   toolName: string;
   message: string;
   percent?: number;
+  /** 运行中输出尾部（发送侧限量保留），供「进程」节实时刷新 */
+  outputTail?: string;
 }
 
 /** 运行级状态，事件流之外的粗粒度快照（UI 状态机与 main 侧一致）。 */

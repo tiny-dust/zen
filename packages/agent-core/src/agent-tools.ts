@@ -154,10 +154,33 @@ export function buildToolSet(
           .optional()
           .describe("Timeout in ms (default 120000, max 300000)."),
       }),
-      execute: async ({ command, timeoutMs }) => {
+      execute: async ({ command, timeoutMs }, { toolCallId }) => {
         return exclusive(runtime, "terminal", async () => {
           return await new Promise((resolve) => {
-            exec(
+            // 持续运行的命令（dev server / watch）：边跑边收输出尾部，
+            // 节流推送 tool_progress.outputTail 供「进程」节实时刷新；仅保留尾部限量
+            const TAIL_LIMIT = 8000;
+            let tail = "";
+            let lastEmitAt = 0;
+            const appendTail = (chunk: string) => {
+              tail = (tail + chunk).slice(-TAIL_LIMIT);
+              const now = Date.now();
+              if (now - lastEmitAt < 500) {
+                return;
+              }
+              lastEmitAt = now;
+              emit({
+                type: "tool_progress",
+                sessionId,
+                event: {
+                  toolCallId,
+                  toolName: "runTerminal",
+                  message: "运行中",
+                  outputTail: tail,
+                },
+              });
+            };
+            const child = exec(
               command,
               {
                 cwd: workspaceRoot,
@@ -184,6 +207,8 @@ export function buildToolSet(
                 });
               },
             );
+            child.stdout?.on("data", (chunk) => appendTail(String(chunk)));
+            child.stderr?.on("data", (chunk) => appendTail(String(chunk)));
           });
         });
       },

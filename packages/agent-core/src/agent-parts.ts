@@ -85,9 +85,11 @@ export function usageFromPart(part: unknown): { inputTokens: number; outputToken
     usage?: { inputTokens?: number | null; outputTokens?: number | null };
     totalUsage?: { inputTokens?: number | null; outputTokens?: number | null };
   };
-  const usage = p.usage ?? p.totalUsage;
-  if (!usage || (usage.inputTokens == null && usage.outputTokens == null)) {
+  // 单步缺字段时回退到 totalUsage，避免把缺失值当 0 上报
+  const inputTokens = p.usage?.inputTokens ?? p.totalUsage?.inputTokens ?? null;
+  const outputTokens = p.usage?.outputTokens ?? p.totalUsage?.outputTokens ?? null;
+  if (inputTokens == null && outputTokens == null) {
     return null;
   }
-  return { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 };
+  return { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 };
 }
