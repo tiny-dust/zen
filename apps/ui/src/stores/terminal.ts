@@ -116,9 +116,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         if (splitMode.value === "none") {
           paneIds.value = activeId.value ? [activeId.value] : [];
         }
-        if (!rest.length) {
-          void start();
-        }
+        // 不在这里自动新建：与 close()/restart() 的创建路径并发会一次冒出两个终端
       }
     });
     eventsUnbind = () => {
@@ -286,14 +284,24 @@ export const useTerminalStore = defineStore("terminal", () => {
       if (splitMode.value === "none") {
         paneIds.value = activeId.value ? [activeId.value] : [];
       }
-      if (!sessions.value.length) {
-        await start();
-      }
     }
+    // 全部关掉后不自动补建：面板保留「暂无终端」，由 Plus / ensureForWorkspace 显式创建
   }
 
   /** 展开底部面板时：按当前会话项目路径定位；非项目会话落到用户主目录 */
-  async function ensureForWorkspace() {
+  let ensureInFlight: Promise<void> | null = null;
+  function ensureForWorkspace(): Promise<void> {
+    // 并发去重：标题栏/快捷键打开面板与 TerminalPanel 挂载会同时走到这里
+    if (ensureInFlight) {
+      return ensureInFlight;
+    }
+    ensureInFlight = doEnsureForWorkspace().finally(() => {
+      ensureInFlight = null;
+    });
+    return ensureInFlight;
+  }
+
+  async function doEnsureForWorkspace() {
     const workspace = useWorkspaceStore();
     const chat = useChatStore();
     const cwd =

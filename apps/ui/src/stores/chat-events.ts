@@ -103,8 +103,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     if (summary.reason) ctx.lastDoneReason.value = summary.reason;
     if (summary.step != null) ctx.currentStep.value = summary.step;
     if (summary.usage) {
-      ctx.lastInputTokens.value = summary.usage.inputTokens;
-      ctx.lastOutputTokens.value = summary.usage.outputTokens;
+      if (summary.usage.inputTokens > 0) {
+        ctx.lastInputTokens.value = summary.usage.inputTokens;
+      }
+      if (summary.usage.outputTokens > 0) {
+        ctx.lastOutputTokens.value = summary.usage.outputTokens;
+      }
     }
     if (summary.error) ctx.lastError.value = summary.error;
   }
@@ -275,8 +279,13 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.currentStep.value = event.step;
         break;
       case "usage":
-        ctx.lastInputTokens.value = event.inputTokens;
-        ctx.lastOutputTokens.value = event.outputTokens;
+        // 个别供应商只报输出 token：输入为 0/null 时保留旧值，避免上下文统计被抹成 0%
+        if (event.inputTokens > 0) {
+          ctx.lastInputTokens.value = event.inputTokens;
+        }
+        if (event.outputTokens > 0) {
+          ctx.lastOutputTokens.value = event.outputTokens;
+        }
         break;
       case "done": {
         const message = ensureAssistantMessage();

@@ -6,6 +6,7 @@ import {
   Plus,
   Sparkles,
   Square,
+  X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
@@ -24,6 +25,7 @@ import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import PermissionPicker from "@/components/chat/PermissionPicker.vue";
 import PromptPicker from "@/components/chat/PromptPicker.vue";
+import WorkspacePicker from "@/components/chat/WorkspacePicker.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
@@ -49,6 +51,7 @@ const {
   elementMarks,
   sessionWorkspaceId,
   queuedMessages,
+  editAnchorId,
 } = storeToRefs(chatStore);
 const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
 const viewportCompact = useMediaQuery("(max-width: 1024px)");
@@ -275,6 +278,23 @@ function removeAttachment(id: string) {
         @paste="onPaste"
       >
         <label class="sr-only" for="chat-input">消息输入</label>
+        <!-- 编辑插入（分叉）提示：发送后从被编辑消息处替换其后旧分支 -->
+        <div
+          v-if="editAnchorId"
+          class="mb-1.5 flex items-center gap-2 rounded-lg bg-[var(--color-menu-active)] px-2 py-1 text-[11.5px] text-[var(--color-txt)]"
+        >
+          <span class="min-w-0 flex-1 truncate">插入对话：发送后将从该消息处分叉，其后旧内容被替换</span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="flex-none rounded-md text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
+            aria-label="取消插入编辑"
+            title="取消"
+            @click="chatStore.cancelEdit()"
+          >
+            <X class="size-3" />
+          </Button>
+        </div>
         <QueuedMessages
           :items="queuedMessages"
           @promote="chatStore.promoteQueued"
@@ -310,6 +330,7 @@ function removeAttachment(id: string) {
             >
               <Plus class="size-4" />
             </Button>
+            <WorkspacePicker :compact="isCompactBar" />
             <PromptPicker :compact="isCompactBar" />
           </div>
 
@@ -378,7 +399,7 @@ function removeAttachment(id: string) {
           v-for="(item, index) in triggers.items.value"
           :key="item.label + item.desc"
           variant="ghost"
-          class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left font-normal"
+          class="flex w-full items-center justify-start gap-2 rounded-lg px-2.5 py-2 text-left font-normal"
           :class="
             index === triggers.active.value
               ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
