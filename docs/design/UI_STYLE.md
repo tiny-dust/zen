@@ -168,3 +168,6 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - **sqlite 落 ~/.zen**：`model-db-connection` 迁到 `~/.zen/db/zen.sqlite`（ADR-004 用户域），旧 `userData/db` 三件套（-wal/-shm）首次启动整体搬迁，跨盘失败回落旧路径不阻塞。
   - **自动会话标题**：首条消息发送即记 `autoTitleSessionId`，run 完成走 `session:auto-title`（main 侧 `completeOnce` 生成 ≤20 字标题，净化引号/换行，模型不可用返回 null），成功后沿用 rename 链路落库；等待期间切会话/手动改名则放弃。
   - 验证：`vue-tsc` / desktop `tsc`、vitest 135 用例（含 ansi 10 例、parser 标记 3 例）、dev server 几何复查（设置导航图标列 25px 齐线、悬浮面板无子 Agent 节）。
+- 2026-09-22（记忆 + 会话技能/MCP 调用感知）：
+  - **记忆（~/.zen/memory）**：主进程启动自动采集设备环境快照（platform/arch/home/shell/locale/timezone + PATH 工具扫描，跨平台候选名与 F_OK/X_OK 分支），备注由 Agent `updateMemory` 工具或设置页维护（会落库，删除走 ConfirmDialog）；`agent:run` 时渲染成文本块注入系统提示词（`memoryContext`），settings → Agent 页新增「记忆」卡（快照 mono chips + 设备备注 + 用户习惯，重采/增删）。
+  - **本会话调用 tag**：`SkillUsageTags.vue` 挂 composer 上方（AskUserCard 与附件之间）——`loadSkill` / `mcp.<server>.*` 的 tool_start/tool_end 与用户随消息携带的 `/skill:` token 都会弹出 tag（TransitionGroup 上浮缩放，token 动效），运行中带 spinner，重复调用 ×N，悬浮 tooltip 显示次数；按会话隔离（store keyed by sessionId），done 时落定所有进行中动效，每会话最多 16 条。
