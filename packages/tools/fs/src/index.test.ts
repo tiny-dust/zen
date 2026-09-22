@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { editWorkspaceFile, writeWorkspaceFile } from "./index.ts";
+import { editWorkspaceFile, listWorkspaceDir, writeWorkspaceFile } from "./index.ts";
 
 const roots: string[] = [];
 
@@ -81,5 +81,17 @@ describe("workspace file snapshots", () => {
     const root = await makeRoot();
     await assert.rejects(writeWorkspaceFile(root, "../escape.txt", "content"), /escapes workspace/);
     await assert.rejects(editWorkspaceFile(root, "/absolute.txt", "old", "new"), /absolute path/);
+  });
+
+  it("lists workspace root when path is empty (listDir tool regression)", async () => {
+    const root = await makeRoot();
+    await writeWorkspaceFile(root, "a.txt", "x");
+    for (const empty of ["", undefined as unknown as string]) {
+      const result = await listWorkspaceDir(root, empty);
+      assert.deepEqual(
+        result.entries.map((entry) => entry.name),
+        ["a.txt"],
+      );
+    }
   });
 });

@@ -131,12 +131,14 @@ export async function editWorkspaceFile(
   }
 }
 
-/** 单层目录列表（不递归），路径越界直接拒绝 */
+/** 单层目录列表（不递归），路径越界直接拒绝；空路径表示工作区根目录 */
 export async function listWorkspaceDir(
   workspaceRoot: string,
   relativePath: string,
 ): Promise<DirListResult> {
-  const fullPath = resolveWorkspacePath(workspaceRoot, relativePath);
+  const fullPath = isEmpty(relativePath)
+    ? workspaceRoot
+    : resolveWorkspacePath(workspaceRoot, relativePath);
   const entries = await readdir(fullPath, { withFileTypes: true });
   return {
     path: relativePath,
