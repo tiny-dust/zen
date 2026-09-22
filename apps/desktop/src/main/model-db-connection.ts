@@ -188,6 +188,10 @@ function migrate(conn: Database.Database) {
     if (!sessionCols.some((col) => col.name === "archived")) {
       conn.exec(`ALTER TABLE chat_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
     }
+    // 会话归属：GitHub 登录账号（login）；'' = 无主（未登录创建/历史数据）
+    if (!sessionCols.some((col) => col.name === "user_id")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`);
+    }
   }
 }
 

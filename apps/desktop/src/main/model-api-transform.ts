@@ -67,37 +67,3 @@ export function extractChatText(data: unknown): string {
   }
   return "";
 }
-
-/** 解析一条 SSE 事件的 data 载荷；返回增量正文（无增量返回空串） */
-export function sseDeltaText(rawEvent: string): string {
-  const dataLines = rawEvent
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trim());
-  if (!dataLines.length) {
-    return "";
-  }
-  const data = dataLines.join("\n");
-  if (data === "[DONE]") {
-    return "";
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(data);
-  } catch {
-    return "";
-  }
-  const payload = json as {
-    type?: string;
-    delta?: { type?: string; text?: string; content?: string };
-    choices?: Array<{ delta?: { content?: string } }>;
-  };
-  // anthropic-messages：content_block_delta.text_delta
-  if (payload.type === "content_block_delta") {
-    return payload.delta?.type === "text_delta" ? payload.delta.text ?? "" : "";
-  }
-  // openai chat：choices[0].delta.content
-  return typeof payload.choices?.[0]?.delta?.content === "string"
-    ? payload.choices[0].delta.content
-    : "";
-}

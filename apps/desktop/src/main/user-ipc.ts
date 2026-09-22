@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeImage, shell } from "electron";
 
 import {
   decryptTokens,
@@ -15,6 +15,8 @@ import {
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
 import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
+import { showOpenDialogSafe } from "./dialog-safe";
+import { setCurrentUserId } from "./workspace-db";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 /**
@@ -116,6 +118,8 @@ async function loadStoredAuth(): Promise<StoredAuth> {
   if (cachedAuth.loggedIn && stored.loginAt == null) {
     void writeJson(authFile(), cachedAuth);
   }
+  // 会话数据归属随登录态切换（workspace-db 的 user 过滤）
+  setCurrentUserId(cachedAuth.loggedIn ? cachedAuth.user?.login ?? null : null);
   return cachedAuth;
 }
 
@@ -191,6 +195,7 @@ export async function getStoredAuthTokens(): Promise<string | null> {
 
 async function persistAuth(stored: StoredAuth, error: string | null = null): Promise<AuthState> {
   cachedAuth = stored;
+  setCurrentUserId(stored.loggedIn ? stored.user?.login ?? null : null);
   await writeJson(authFile(), stored);
   const next = toPublicAuth(stored, error);
   broadcast("auth:changed", next);
@@ -382,9 +387,7 @@ export function registerUserIpc(): void {
       ],
     };
     const parent = BrowserWindow.fromWebContents(event.sender);
-    const result = parent
-      ? await dialog.showOpenDialog(parent, options)
-      : await dialog.showOpenDialog(options);
+    const result = await showOpenDialogSafe(parent, options);
     const source = result.canceled ? undefined : result.filePaths[0];
     if (!source) {
       return loadSettings();

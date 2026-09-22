@@ -46,6 +46,9 @@ export const workspaceApi = {
     archive(id: string, archived: boolean): Promise<WorkspaceGroup[]> {
       return ipcRenderer.invoke("workspace:archive", id, archived);
     },
+    rename(id: string, name: string): Promise<WorkspaceGroup[]> {
+      return ipcRenderer.invoke("workspace:rename", id, name);
+    },
     remove(id: string): Promise<WorkspaceGroup[]> {
       return ipcRenderer.invoke("workspace:delete", id);
     },

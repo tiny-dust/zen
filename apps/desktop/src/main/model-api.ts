@@ -1,4 +1,4 @@
-import { extractChatText, sseDeltaText, stripThinkBlocks } from "./model-api-transform";
+import { extractChatText } from "./model-api-transform";
 import { inspectModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
@@ -301,104 +301,81 @@ export async function completeOnce(
   return text;
 }
 
-/** 流式补全：onDelta 逐段回调原始增量（可能含思考块）；resolve 为剥掉思考块的完整正文 */
-export async function completeOnceStream(
-  prompt: string,
-  options?: {
-    maxTokens?: number;
-    system?: string;
-    timeoutMs?: number;
-    providerId?: string;
-    modelId?: string;
-  },
-  onDelta?: (text: string) => void,
-): Promise<string> {
-  const { provider, modelId, maxTokens, url, headers } = await resolveCompletion(options);
-  const timeoutMs = options?.timeoutMs ?? 120_000;
+export { normalizeBaseUrl };
 
-  const body =
-    provider.protocol === "anthropic-messages"
-      ? {
-          model: modelId,
-          max_tokens: maxTokens,
-          stream: true,
-          ...(options?.system ? { system: options.system } : {}),
-          messages: [{ role: "user", content: prompt }],
-        }
-      : {
-          model: modelId,
-          max_tokens: maxTokens,
-          stream: true,
-          messages: options?.system
-            ? [
-                { role: "system", content: options.system },
-                { role: "user", content: prompt },
-              ]
-            : [{ role: "user", content: prompt }],
-        };
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(
-          `请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型未开始响应或网络异常，请稍后重试`,
-        );
-      }
-      throw error;
-    }
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(httpErrorMessage(response.status, text));
-    }
-    if (!response.body) {
-      throw new Error("供应商未返回流式响应体");
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let full = "";
-    // SSE 事件以空行分隔；同时兼容 \n 与 \r\n（跨 chunk 拆开的行尾也能正确切分）
-    const eventBoundary = /\r?\n\r?\n/;
-    for await (const chunk of response.body) {
-      buffer += decoder.decode(chunk as Uint8Array, { stream: true });
-      let boundary = eventBoundary.exec(buffer);
-      while (boundary) {
-        const rawEvent = buffer.slice(0, boundary.index);
-        buffer = buffer.slice(boundary.index + boundary[0].length);
-        const delta = sseDeltaText(rawEvent);
-        if (delta) {
-          full += delta;
-          onDelta?.(delta);
-        }
-        boundary = eventBoundary.exec(buffer);
-      }
-    }
-
-    const text = stripThinkBlocks(full);
-    if (!text) {
-      throw new Error("模型未返回文本内容");
-    }
-    return text;
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(
-        `请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型响应中断或网络异常，请稍后重试`,
-      );
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+/** 视觉补全的图片输入：base64 裸数据 + MIME（png/jpg/jpeg/webp/gif） */
+export interface VisionImage {
+  name: string;
+  mediaType: string;
+  base64: string;
 }
 
-export { normalizeBaseUrl };
+/**
+ * 单次视觉补全：把图片交给具备视觉能力的模型，返回文字描述。
+ * 供「当前模型不支持多模态」时的图片预分析兜底，走指定供应商与模型。
+ */
+export async function completeVisionOnce(
+  images: VisionImage[],
+  prompt: string,
+  options?: { providerId?: string; modelId?: string; timeoutMs?: number; maxTokens?: number },
+): Promise<string> {
+  if (!images.length) {
+    throw new Error("没有可分析的图片");
+  }
+  const { provider, modelId, maxTokens, url, headers } = await resolveCompletion({
+    maxTokens: options?.maxTokens ?? 1024,
+    providerId: options?.providerId,
+    modelId: options?.modelId,
+  });
+  const timeoutMs = options?.timeoutMs ?? 120_000;
+
+  const content =
+    provider.protocol === "anthropic-messages"
+      ? [
+          ...images.map((image) => ({
+            type: "image",
+            source: { type: "base64", media_type: image.mediaType, data: image.base64 },
+          })),
+          { type: "text", text: prompt },
+        ]
+      : [
+          { type: "text", text: prompt },
+          ...images.map((image) => ({
+            type: "image_url",
+            image_url: { url: `data:${image.mediaType};base64,${image.base64}` },
+          })),
+        ];
+
+  const data = await fetchJson(
+    url,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content }],
+      }),
+    },
+    timeoutMs,
+  );
+
+  if (provider.protocol === "anthropic-messages") {
+    const payload = data as { content?: Array<{ type?: string; text?: string }> };
+    const text = (payload.content ?? [])
+      .filter((block) => block.type === "text" || typeof block?.text === "string")
+      .map((block) => block.text ?? "")
+      .join("")
+      .trim();
+    if (!text) {
+      throw new Error("模型未返回图片描述");
+    }
+    return text;
+  }
+
+  const text = extractChatText(data);
+  if (!text) {
+    throw new Error("模型未返回图片描述");
+  }
+  return text;
+}
