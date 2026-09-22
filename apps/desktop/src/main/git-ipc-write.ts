@@ -144,14 +144,24 @@ export function registerGitWriteIpc(): void {
 
   ipcMain.handle(
     "git:create-branch",
-    async (_event, cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      _event,
+      cwd: string | undefined,
+      name: string,
+      base?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
       const branch = name.trim();
       if (!branch || /[\s~^:?*[\\\u0000]/.test(branch)) {
         return { ok: false, error: "分支名不合法" };
       }
+      // 可选基分支（本地或远程分支名）：checkout -b <new> <base>；缺省从当前 HEAD 创建
+      const from = base?.trim();
+      if (from && (/[\s~^:?*[\\\u0000]/.test(from) || from.startsWith("-"))) {
+        return { ok: false, error: "基分支名不合法" };
+      }
       const workdir = cwd || process.cwd();
       try {
-        await git(workdir, ["checkout", "-b", branch]);
+        await git(workdir, from ? ["checkout", "-b", branch, from] : ["checkout", "-b", branch]);
         return { ok: true };
       } catch (error) {
         const err = error as { stderr?: string; message?: string };

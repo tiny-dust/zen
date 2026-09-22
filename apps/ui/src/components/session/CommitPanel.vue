@@ -166,15 +166,17 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(() => {
   void gitStore.refreshStatus();
   void ensureBranches();
+  gitStore.startStatusWatch();
   window.addEventListener("keydown", onKeydown);
 });
 
 onBeforeUnmount(() => {
+  gitStore.stopStatusWatch();
   window.removeEventListener("keydown", onKeydown);
 });
 
 const rowCls = cn(
-  "flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 py-[7px] text-left text-[13px] text-[var(--color-txt)]",
+  "flex w-full items-center justify-start gap-2 rounded-[var(--radius-sm)] px-2 py-[7px] text-left text-[13px] text-[var(--color-txt)]",
   "hover:bg-[var(--color-menu-hover)] disabled:pointer-events-none disabled:opacity-40",
 );
 </script>

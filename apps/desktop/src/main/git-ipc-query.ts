@@ -1,6 +1,8 @@
 import { ipcMain } from "electron";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
-import { execFileAsync, git } from "./git-exec";
+import { execFileAsync, git, resolveWorkdir } from "./git-exec";
 
 import type {
   GitBranchInfo,
@@ -39,12 +41,16 @@ function normalizeDiffPath(path: string): string {
   return path.includes(" -> ") ? (path.split(" -> ").pop() ?? "") : path;
 }
 
-/** 未跟踪文件按行数计入新增（上限 2000，避免超大文件拖慢 status） */
-async function countFileLines(cwd: string, path: string): Promise<number> {
+/** 未跟踪文件按行数计入新增（上限 2000，避免超大文件拖慢 status）。
+ *  纯 JS 计数：跨平台（Windows 无 wc）且免每文件起子进程（status 轮询时不堆积进程） */
+async function countFileLines(cwd: string, relPath: string): Promise<number> {
   try {
-    const { stdout } = await execFileAsync("wc", ["-l", path], { cwd, maxBuffer: 64 * 1024 });
-    const n = Number.parseInt(stdout.trim().split(/\s+/)[0] ?? "0", 10);
-    return Number.isFinite(n) ? Math.min(n, 2000) : 0;
+    const content = await readFile(path.resolve(cwd, relPath), "utf8");
+    const rows = content.split("\n");
+    if (rows[rows.length - 1] === "") {
+      rows.pop();
+    }
+    return Math.min(rows.length, 2000);
   } catch {
     return 0;
   }
@@ -120,36 +126,56 @@ export function registerGitQueryIpc(): void {
   );
 
   ipcMain.handle("git:branches", async (_event, cwd?: string): Promise<GitBranches> => {
-    const workdir = cwd || process.cwd();
+    const workdir = resolveWorkdir(cwd);
     try {
-      const [localOut, remoteOut] = await Promise.all([
-        git(workdir, ["branch", "--format=%(HEAD)\t%(refname:short)"]),
-        git(workdir, ["branch", "-r", "--format=%(HEAD)\t%(refname:short)"]),
+      // for-each-ref 一次枚举本地/远程分支。注意：%(HEAD) 对非当前分支是空格，
+      // 整行 trim 会吃掉首列导致后续列错位，必须先按 \t 拆分再逐列 trim；
+      // symref 非空（origin/HEAD -> origin/main）是符号引用，跳过
+      const out = await git(workdir, [
+        "for-each-ref",
+        "refs/heads",
+        "refs/remotes",
+        "--format=%(HEAD)\t%(refname:short)\t%(refname)\t%(symref)",
       ]);
-      const local: GitBranchInfo[] = localOut
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [head = "", name = ""] = line.split("\t");
-          return { name, current: head === "*" };
-        })
-        .filter((item) => item.name);
-      const remote: GitBranchInfo[] = remoteOut
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [head = "", name = ""] = line.split("\t");
+      const local: GitBranchInfo[] = [];
+      const remote: GitBranchInfo[] = [];
+      for (const line of out.split("\n")) {
+        const [head = "", short = "", refname = "", symref = ""] = line.split("\t");
+        const name = short.trim();
+        if (!name || symref.trim()) {
+          continue;
+        }
+        if (refname.startsWith("refs/heads/")) {
+          local.push({ name, current: head.trim() === "*" });
+        } else if (refname.startsWith("refs/remotes/") && !name.endsWith("/HEAD")) {
           const slash = name.indexOf("/");
-          const remoteName = slash > 0 ? name.slice(0, slash) : undefined;
-          return {
+          remote.push({
             name,
-            current: head === "*",
-            remote: remoteName,
-          };
-        })
-        .filter((item) => item.name && item.name !== "HEAD");
+            current: false,
+            remote: slash > 0 ? name.slice(0, slash) : undefined,
+          });
+        }
+      }
+      // 无 remote-tracking ref（如从未 fetch）时用 ls-remote 兜底枚举远程分支；失败静默降级
+      if (!remote.length) {
+        const remoteNames = (await git(workdir, ["remote"]).catch(() => ""))
+          .split("\n")
+          .map((item) => item.trim())
+          .filter(Boolean);
+        for (const remoteName of remoteNames) {
+          const listing = await git(workdir, ["ls-remote", "--heads", remoteName]).catch(() => "");
+          for (const line of listing.split("\n")) {
+            const ref = line.split("\t")[1]?.trim() ?? "";
+            if (!ref.startsWith("refs/heads/")) {
+              continue;
+            }
+            const name = `${remoteName}/${ref.slice("refs/heads/".length)}`;
+            if (!remote.some((item) => item.name === name)) {
+              remote.push({ name, current: false, remote: remoteName });
+            }
+          }
+        }
+      }
       return { local, remote };
     } catch {
       return { local: [], remote: [] };

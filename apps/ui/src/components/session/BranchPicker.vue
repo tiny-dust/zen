@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,8 @@ const error = ref("");
 const filter = ref("");
 const creating = ref(false);
 const newBranch = ref("");
+/** 基分支："" = 当前分支（从 HEAD 创建） */
+const baseBranch = ref("");
 
 const localBranches = computed(() => {
   const q = filter.value.trim().toLowerCase();
@@ -34,6 +37,12 @@ const remoteBranches = computed(() => {
   }
   return list.filter((item) => item.name.toLowerCase().includes(q));
 });
+
+/** 基分支候选（与上方列表同数据源，不套筛选）：本地去掉当前分支，远程去掉 HEAD */
+const baseLocalBranches = computed(() => gitStore.branches.local.filter((item) => !item.current));
+const baseRemoteBranches = computed(() =>
+  gitStore.branches.remote.filter((item) => item.name !== "HEAD"),
+);
 
 async function select(name: string) {
   if (busy.value || name === gitStore.branch) {
@@ -53,6 +62,26 @@ async function select(name: string) {
   }
 }
 
+/** 从指定基分支创建并切换（checkout -b <new> <base>）：store.createBranch 无 base 参数，直调 IPC 并复用 store 刷新 */
+async function createFrom(name: string, from: string) {
+  const zen = window.zen;
+  const root = gitStore.cwd();
+  if (!zen?.git || !root) {
+    return { ok: false, error: "未绑定工作目录" };
+  }
+  const result = await zen.git.createBranch(root, name, from);
+  if (result.ok) {
+    gitStore.branchPickerOpen = false;
+    gitStore.feedback = `已从 ${from} 创建并切换到 ${name}`;
+    toast.ok(`已从 ${from} 创建并切换到 ${name}`);
+    await Promise.all([gitStore.refreshStatus(), gitStore.refreshBranches()]);
+  } else {
+    gitStore.feedback = result.error ?? "创建分支失败";
+    toast.err(result.error ?? "创建分支失败");
+  }
+  return result;
+}
+
 async function create() {
   const name = newBranch.value.trim();
   if (!name || busy.value) {
@@ -61,7 +90,9 @@ async function create() {
   busy.value = true;
   error.value = "";
   try {
-    const result = await gitStore.createBranch(name);
+    const from = baseBranch.value.trim();
+    // 缺省走 store 现有路径（从当前 HEAD 创建）；指定基分支则 checkout -b <new> <base>
+    const result = from ? await createFrom(name, from) : await gitStore.createBranch(name);
     if (result.ok) {
       newBranch.value = "";
       creating.value = false;
@@ -109,7 +140,7 @@ onMounted(() => {
       </Button>
     </div>
 
-    <div v-if="creating" class="flex items-center gap-1 px-1">
+    <div v-if="creating" class="flex flex-col gap-1 px-1">
       <Input
         v-model="newBranch"
         variant="default"
@@ -118,9 +149,45 @@ onMounted(() => {
         @keydown.enter="create"
         @keydown.escape="creating = false"
       />
-      <Button variant="secondary" size="xs" :disabled="!newBranch.trim() || busy" @click="create">
-        创建
-      </Button>
+      <div class="flex items-center gap-1">
+        <select
+          v-model="baseBranch"
+          class="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
+          aria-label="基分支"
+          title="基分支：新分支基于哪个分支创建，默认当前分支"
+        >
+          <option value="">当前分支{{ gitStore.branch ? `（${gitStore.branch}）` : "" }}</option>
+          <optgroup
+            v-if="baseLocalBranches.length"
+            class="bg-[var(--color-popover)] text-[var(--color-txt)]"
+            label="本地分支"
+          >
+            <option
+              v-for="item in baseLocalBranches"
+              :key="`base-local-${item.name}`"
+              :value="item.name"
+            >
+              {{ item.name }}
+            </option>
+          </optgroup>
+          <optgroup
+            v-if="baseRemoteBranches.length"
+            class="bg-[var(--color-popover)] text-[var(--color-txt)]"
+            label="远程分支"
+          >
+            <option
+              v-for="item in baseRemoteBranches"
+              :key="`base-remote-${item.name}`"
+              :value="item.name"
+            >
+              {{ item.name }}
+            </option>
+          </optgroup>
+        </select>
+        <Button variant="secondary" size="xs" :disabled="!newBranch.trim() || busy" @click="create">
+          创建
+        </Button>
+      </div>
     </div>
 
     <p v-if="error" class="m-0 px-1 text-[11px] text-[var(--color-danger-fg)]" role="alert">
