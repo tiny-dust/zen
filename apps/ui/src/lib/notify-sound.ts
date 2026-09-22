@@ -1,4 +1,6 @@
-/** 任务需要确认 / 运行结束时的轻量提示音（Web Audio，无外部资源） */
+/** 任务需要确认 / 运行结束时的提示音（操作提示与完成用本地音频，错误保留合成音） */
+import doneSoundUrl from "@/assets/sounds/notify-done.mp3";
+import needsActionSoundUrl from "@/assets/sounds/notify-needs-action.mp3";
 
 export type NotifySoundKind = "needsAction" | "done" | "error";
 
@@ -32,33 +34,59 @@ function tone(ctx: AudioContext, freq: number, startAt: number, duration: number
   osc.stop(startAt + duration + 0.02);
 }
 
+/** 播放采样提示音；连按时克隆实例避免互相截断 */
+function playSample(url: string): boolean {
+  if (typeof Audio === "undefined") {
+    return false;
+  }
+  try {
+    const audio = new Audio(url);
+    audio.volume = 0.55;
+    void audio.play();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function playSynth(kind: NotifySoundKind): void {
+  const ctx = ensureCtx();
+  if (!ctx) {
+    return;
+  }
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+  const now = ctx.currentTime;
+  if (kind === "needsAction") {
+    // 两声上行短音：需要你确认
+    tone(ctx, 784, now, 0.07);
+    tone(ctx, 1046.5, now + 0.09, 0.1);
+    return;
+  }
+  if (kind === "done") {
+    // 三音上行：任务结束
+    tone(ctx, 523.25, now, 0.07);
+    tone(ctx, 659.25, now + 0.08, 0.07);
+    tone(ctx, 783.99, now + 0.16, 0.12);
+    return;
+  }
+  // error：下行双音
+  tone(ctx, 392, now, 0.09);
+  tone(ctx, 293.66, now + 0.1, 0.14);
+}
+
 /** 播放提示音；自动播放策略被拦时静默失败 */
 export function playNotifySound(kind: NotifySoundKind): void {
   try {
-    const ctx = ensureCtx();
-    if (!ctx) {
+    // 操作提示 / 操作完成：本地采样；失败时回退到同义合成音
+    if (kind === "needsAction" && playSample(needsActionSoundUrl)) {
       return;
     }
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
-    const now = ctx.currentTime;
-    if (kind === "needsAction") {
-      // 两声上行短音：需要你确认
-      tone(ctx, 784, now, 0.07);
-      tone(ctx, 1046.5, now + 0.09, 0.1);
+    if (kind === "done" && playSample(doneSoundUrl)) {
       return;
     }
-    if (kind === "done") {
-      // 三音上行：任务结束
-      tone(ctx, 523.25, now, 0.07);
-      tone(ctx, 659.25, now + 0.08, 0.07);
-      tone(ctx, 783.99, now + 0.16, 0.12);
-      return;
-    }
-    // error：下行双音
-    tone(ctx, 392, now, 0.09);
-    tone(ctx, 293.66, now + 0.1, 0.14);
+    playSynth(kind);
   } catch {
     // 忽略音频设备/策略错误
   }

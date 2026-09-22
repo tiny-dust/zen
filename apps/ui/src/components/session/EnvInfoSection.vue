@@ -34,6 +34,23 @@ const open = ref(true);
 
 const branch = computed(() => gitStore.branch || chatStore.branch);
 const contextUsage = computed(() => chatStore.contextUsage);
+const lastRequestUsage = computed(() => chatStore.lastRequestUsage);
+const estimatedUsage = computed(() => chatStore.estimatedUsage);
+const lastInputTokens = computed(() => chatStore.lastInputTokens);
+const estimatedInputTokens = computed(() => chatStore.estimatedInputTokens);
+
+/** 悬浮说明：区分「上次请求输入」与「估算当前」 */
+const contextTitle = computed(() => {
+  const parts: string[] = [];
+  if (lastRequestUsage.value != null && lastInputTokens.value != null) {
+    parts.push(`上次请求输入 ${lastInputTokens.value} tokens · ${lastRequestUsage.value}%`);
+  } else {
+    parts.push("上次请求输入：API 未返回 usage");
+  }
+  parts.push(`估算当前 ${estimatedInputTokens.value} tokens · ${estimatedUsage.value ?? 0}%`);
+  parts.push("百分比 = 输入占用 / 模型上下文窗口；≥70% 时下次发送自动压缩");
+  return parts.join("\n");
+});
 
 const prLabel = computed(() => {
   const pr = gitStore.pullRequest;
@@ -106,19 +123,26 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
       <div
         v-if="contextUsage != null"
         class="flex min-h-8 items-center gap-2 px-[5px] text-[13px] text-[var(--color-txt)]"
+        :title="contextTitle"
       >
         <Gauge :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">上下文</span>
-        <span class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
-          {{ contextUsage }}%
+        <span
+          class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
+        >
+          <template v-if="lastRequestUsage != null && estimatedUsage != null">
+            {{ lastRequestUsage }}% · 估 {{ estimatedUsage }}%
+          </template>
+          <template v-else-if="lastRequestUsage != null">{{ lastRequestUsage }}%</template>
+          <template v-else>估 {{ estimatedUsage }}%</template>
         </span>
         <Button
           v-if="chatStore.hasMessages"
           variant="ghost"
           size="icon-sm"
           class="flex-none text-[var(--color-dim)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
-          aria-label="压缩上下文：更早对话折叠为摘要"
-          title="压缩上下文：把更早对话折叠成「目标/进度/变更」摘要，下一次发送生效"
+          aria-label="压缩上下文：开启后更早对话折叠为摘要"
+          title="压缩上下文：开启后每次发送把更早对话折叠成「目标/进度/变更」摘要，本会话保持"
           @click="chatStore.compressNow()"
         >
           <FoldVertical class="size-3.5" aria-hidden="true" />

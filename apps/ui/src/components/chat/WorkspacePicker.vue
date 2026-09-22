@@ -54,7 +54,7 @@ async function onCreateWorkspace() {
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"
-        class="items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+        class="flex-none items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         :class="compact ? 'size-7 justify-center' : 'h-7 max-w-[180px] gap-1 px-1.5'"
         :title="`运行目录：${currentName}`"
         :aria-label="`运行目录：${currentName}`"

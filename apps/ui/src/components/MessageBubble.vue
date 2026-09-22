@@ -9,6 +9,7 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
+import ContextCompactCard from "@/components/chat/ContextCompactCard.vue";
 import ToolCallCard from "@/components/chat/ToolCallCard.vue";
 import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
 import { groupMessageParts } from "@/components/chat/message-groups";
@@ -104,6 +105,17 @@ const toolMeta = computed<ToolCallMessageMeta | null>(() => {
     message: meta.message,
     percent: meta.percent,
   };
+});
+
+/** 压缩卡展示字段：meta.output 为摘要全文，meta.args.compactedTurns 为折叠条数 */
+const compactSummary = computed(() => {
+  const meta = props.message.meta as { output?: unknown } | undefined;
+  return typeof meta?.output === "string" ? meta.output : props.message.content;
+});
+const compactCount = computed(() => {
+  const meta = props.message.meta as { args?: { compactedTurns?: number } } | undefined;
+  const n = meta?.args?.compactedTurns;
+  return typeof n === "number" && n > 0 ? n : undefined;
 });
 
 /** 发送时随消息一起带上的技能 tag（token 内联在正文里） */
@@ -365,9 +377,15 @@ function editContent() {
     </div>
   </div>
 
-  <!-- 工具调用：铺在时间线里，可展开详情 -->
-  <div v-else-if="message.role === 'tool'" class="w-fit min-w-0 max-w-full">
-    <ToolCallCard v-if="toolMeta" :meta="toolMeta" :content="message.content" />
+  <!-- 工具调用：铺在时间线里，可展开详情；上下文压缩走专用醒目卡片 -->
+  <div v-else-if="message.role === 'tool'" class="w-full min-w-0 max-w-full">
+    <ContextCompactCard
+      v-if="toolMeta?.toolName === 'contextCompact'"
+      :summary="compactSummary"
+      :compacted-count="compactCount"
+      :label="toolMeta.summary"
+    />
+    <ToolCallCard v-else-if="toolMeta" :meta="toolMeta" :content="message.content" />
   </div>
 
   <div v-else-if="message.role === 'system'" class="w-fit min-w-0 max-w-[min(100%,72ch)]">

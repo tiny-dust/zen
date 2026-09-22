@@ -40,6 +40,22 @@ function commandOf(args: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/** 常驻终端服务命令特征：dev server / watch / serve / 后台服务等（悬浮面板「进程」只收这些） */
+const PERSISTENT_COMMAND_RE =
+  /(^|[\s;&|])(npm|yarn|pnpm|bun)\s+(run\s+)?(dev|serve|start|watch|debug)(\s|$)|(^|[\s;&|])(vite|webpack|webpack-dev-server|next|nuxt|nodemon|vite-node|tsx\s+watch|parcel|rspack|astro|gatsby|eleventy|11ty|live-server|http-server|serve|caddy|nginx|docker(\s+compose)?\s+up|docker-compose\s+up|kubectl\s+port-forward|rails\s+s|puma|flask\s+run|uvicorn|gunicorn|air|cargo\s+watch|watchexec|watchman|systemctl|tail\s+-f|less\s+\+F|python(\d(\.\d+)?)?\s+-m\s+http\.server|php\s+-S|ruby\s+-run\s+-ehttpd|busybox\s+httpd)(\s|$)|--watch\b|-w\b\s*$|\bwatch\s+/;
+
+/**
+ * 是否是需要持续运行的终端服务（dev server / watch / 常驻进程）。
+ * 一次性命令（ls / cat / git status 等）不进悬浮面板「进程」节。
+ */
+export function isPersistentCommand(command: string): boolean {
+  const text = command.trim();
+  if (!text) {
+    return false;
+  }
+  return PERSISTENT_COMMAND_RE.test(text);
+}
+
 function exitCodeOf(output: unknown): number | undefined {
   if (typeof output !== "object" || output === null) {
     return undefined;
@@ -82,6 +98,10 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
 
   function noteToolStart(sessionId: string, toolCallId: string, toolName: string, args: unknown) {
     if (toolName !== "runTerminal") {
+      return;
+    }
+    // 只收集需要持续运行的终端服务，避免一次性命令刷屏
+    if (!isPersistentCommand(commandOf(args))) {
       return;
     }
     ensureSession(sessionId);
