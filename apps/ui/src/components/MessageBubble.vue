@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Sparkles, TriangleAlert } from "@lucide/vue";
+import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, Sparkles, TriangleAlert } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
@@ -279,59 +279,16 @@ async function copyContent() {
   }
 }
 
-/** 编辑：把消息内容与元素 marks 放回输入框修改后重新发送 */
+/** 编辑并插入对话：内容回填输入框，发送时从该条分叉（其后旧分支被替换） */
 function editContent() {
-  const meta = props.message.meta as { elementMarks?: ComposerElementMark[] } | undefined;
-  if (meta?.elementMarks?.length) {
-    chatStore.elementMarks = meta.elementMarks.map((item) => ({
-      id: item.id,
-      label: item.label,
-      token: item.token,
-      ref: item.ref,
-    }));
-  }
-  chatStore.input = props.message.content;
+  chatStore.startEditFrom(props.message);
   document.getElementById("chat-input")?.focus();
 }
 </script>
 
 <template>
-  <!-- user：右对齐弱气泡，悬浮出时间与复制/编辑；assistant：按时间顺序铺分段 -->
-  <div v-if="message.role === 'user'" class="group flex w-full flex-col items-end gap-1">
-    <!-- 悬浮操作条：发送时间 / 复制 / 编辑 -->
-    <div
-      class="flex items-center gap-1 pr-1 text-[var(--color-dim)] opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover:opacity-100"
-    >
-      <time
-        class="text-[11px]"
-        :datetime="new Date(message.createdAt).toISOString()"
-        :title="formatTime(message.createdAt)"
-      >
-        {{ formatTime(message.createdAt) }}
-      </time>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="rounded-md hover:text-[var(--color-txt-strong)]"
-        :aria-label="copied ? '已复制' : '复制消息'"
-        :title="copied ? '已复制' : '复制'"
-        @click="copyContent"
-      >
-        <Check v-if="copied" class="size-3.5" />
-        <Copy v-else class="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="编辑消息"
-        title="编辑"
-        @click="editContent"
-      >
-        <Pencil class="size-3.5" />
-      </Button>
-    </div>
-
+  <!-- user：右对齐弱气泡；消息底部常显时间 / 复制 / 编辑 -->
+  <div v-if="message.role === 'user'" class="flex w-full flex-col items-end gap-1">
     <div
       class="max-w-[min(760px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
@@ -374,6 +331,38 @@ function editContent() {
         </template>
       </div>
     </div>
+
+    <!-- 消息底部操作行：发送时间 / 复制 / 编辑（编辑后发送从该条插入分叉） -->
+    <div class="flex items-center gap-1 pr-1 text-[var(--color-dim)]">
+      <time
+        class="text-[11px]"
+        :datetime="new Date(message.createdAt).toISOString()"
+        :title="formatTime(message.createdAt)"
+      >
+        {{ formatTime(message.createdAt) }}
+      </time>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        :aria-label="copied ? '已复制' : '复制消息'"
+        :title="copied ? '已复制' : '复制'"
+        @click="copyContent"
+      >
+        <Check v-if="copied" class="size-3.5" />
+        <Copy v-else class="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        aria-label="编辑消息并插入对话"
+        title="编辑并插入对话"
+        @click="editContent"
+      >
+        <Pencil class="size-3.5" />
+      </Button>
+    </div>
   </div>
 
   <!-- 工具调用：铺在时间线里，可展开详情 -->
@@ -400,7 +389,7 @@ function editContent() {
     <template v-for="part in displayParts" :key="part.key">
       <Reasoning
         v-if="part.type === 'reasoning'"
-        class="w-fit min-w-0 max-w-[min(100%,72ch)]"
+        class="w-full min-w-0 max-w-full"
         :is-streaming="reasoningStreaming(part.index)"
         :duration="reasoningSeconds(part)"
         :default-open="!hasTextAfter(part.index) && reasoningStreaming(part.index)"
@@ -412,13 +401,13 @@ function editContent() {
       <Response
         v-else-if="part.type === 'text'"
         :content="part.text"
-        class="md-content w-fit min-w-0 max-w-[min(100%,72ch)]"
+        class="md-content w-full min-w-0 max-w-full"
       />
 
       <ToolCallGroup v-else :tools="part.tools" />
     </template>
 
-    <!-- 运行状态行：loader + 已运行时长，结束后消失 -->
+    <!-- 运行状态行：loader + 已运行时长 + 暂停/继续，结束后消失 -->
     <div
       v-if="streaming"
       class="flex items-center gap-1.5 text-[var(--color-mut)]"
@@ -428,6 +417,28 @@ function editContent() {
       <span class="text-[12px] tabular-nums">
         {{ parts.length ? "运行中" : "正在思考" }} · {{ elapsedText || "0 秒" }}
       </span>
+      <Button
+        v-if="!chatStore.isPaused"
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        aria-label="暂停运行"
+        title="暂停"
+        @click="chatStore.pause()"
+      >
+        <Pause class="size-3.5" />
+      </Button>
+      <Button
+        v-else
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        aria-label="继续运行"
+        title="继续"
+        @click="chatStore.resume()"
+      >
+        <Play class="size-3.5" />
+      </Button>
     </div>
 
     <!-- run 终态语义行：文字 + 图标，颜色仅辅助；空回复也能看到 -->
@@ -446,6 +457,38 @@ function editContent() {
       >
         输入 {{ runSummary.usage.inputTokens }} / 输出 {{ runSummary.usage.outputTokens }}
       </span>
+    </div>
+
+    <!-- 消息底部操作行：发送时间 / 复制 / 重试（重新生成本轮回复） -->
+    <div v-if="!streaming" class="flex items-center gap-1 text-[var(--color-dim)]">
+      <time
+        class="text-[11px]"
+        :datetime="new Date(message.createdAt).toISOString()"
+        :title="formatTime(message.createdAt)"
+      >
+        {{ formatTime(message.createdAt) }}
+      </time>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        :aria-label="copied ? '已复制' : '复制消息'"
+        :title="copied ? '已复制' : '复制'"
+        @click="copyContent"
+      >
+        <Check v-if="copied" class="size-3.5" />
+        <Copy v-else class="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        aria-label="重新生成本轮回复"
+        title="重试"
+        @click="chatStore.retryFrom(message.id)"
+      >
+        <RefreshCw class="size-3.5" />
+      </Button>
     </div>
   </div>
 </template>

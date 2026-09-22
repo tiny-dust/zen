@@ -69,11 +69,8 @@ onMounted(async () => {
   }
   startResizeObserver();
   await nextTick();
-  if (!terminalStore.sessions.length) {
-    await terminalStore.start(undefined, 80, 24);
-  } else if (!activeId.value && sessions.value[0]) {
-    terminalStore.setActive(sessions.value[0].id);
-  }
+  // 首个终端统一走 ensureForWorkspace（与打开面板的调用去重），避免一次创建两个
+  await terminalStore.ensureForWorkspace();
   await mountVisible();
 });
 

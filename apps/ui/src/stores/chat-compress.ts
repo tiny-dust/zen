@@ -34,10 +34,11 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
   }
 
   /**
-   * 压缩摘要卡：插到本轮问询之前并落库；摘要与上一张卡完全一致时不重复插。
+   * 压缩摘要卡：滚动压缩时更新同一张卡（不每轮插新卡）；首次折叠插到本轮问询之前并落库。
    */
-  function insertCompactCard(summary: string, compactedTurns: number): void {
+  function insertCompactCard(summary: string, compactedCount: number): void {
     const zen = window.zen;
+    const label = `已折叠 ${compactedCount} 条更早消息`;
     const lastCard = [...messages.value]
       .reverse()
       .find(
@@ -45,7 +46,20 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
           item.role === "tool" &&
           (item.meta as { toolName?: string } | undefined)?.toolName === "contextCompact",
       );
-    if (zen && lastCard && (lastCard.meta as { output?: string } | undefined)?.output === summary) {
+    if (lastCard) {
+      const prev = lastCard.meta as { output?: string } | undefined;
+      if (prev?.output === summary) {
+        return;
+      }
+      lastCard.meta = {
+        ...(lastCard.meta as Record<string, unknown>),
+        summary: label,
+        args: { compactedTurns: compactedCount },
+        output: summary,
+      };
+      if (zen) {
+        void zen.session.appendMessage(sessionId.value, lastCard);
+      }
       return;
     }
     const message: ChatMessage = {
@@ -58,8 +72,8 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
         toolName: "contextCompact",
         ok: true,
         state: "ok",
-        summary: `已折叠 ${compactedTurns} 轮更早对话`,
-        args: { compactedTurns },
+        summary: label,
+        args: { compactedTurns: compactedCount },
         output: summary,
       },
     };
@@ -87,6 +101,7 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
       statusText.value = "已压缩上下文 · Agent 思考中…";
       const summary = compression.turns[0]?.content ?? "";
       if (summary) {
+        // 折叠掉的是消息条数（buildHistory 的 user/assistant 条目），不是「轮」
         insertCompactCard(summary, historyTurns.length - (compression.turns.length - 1));
       }
     }

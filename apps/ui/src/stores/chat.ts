@@ -41,6 +41,8 @@ export const useChatStore = defineStore("chat", () => {
   const lastError = ref("");
   const sessionId = ref(uuid());
   const sessionName = ref("新会话");
+  /** 会话是否已落库；启动后的本地会话在首发消息前补建，避免 agent:run 报 session not found */
+  const sessionPersisted = ref(false);
   /** 当前会话归属的工作区（'common' = 公共区），决定 agent 工作目录与 git 信息来源 */
   const sessionWorkspaceId = ref<string>("common");
   const appInfo = ref<AppInfo | null>(null);
@@ -220,6 +222,77 @@ export const useChatStore = defineStore("chat", () => {
     return zen.agent.onEvent(handleStreamEvent);
   }
 
+  // ---------- 插入对话（编辑分叉）与重试：从历史某条起重发，其后分支被替换 ----------
+  /** 编辑插入锚点：被编辑的用户消息 id；发送前从该消息起截断旧分支 */
+  const editAnchorId = ref("");
+
+  /** 从某条消息起截断其后所有分支（内存 + 落库），编辑插入/重试共用 */
+  async function truncateFrom(messageId: string) {
+    const zen = window.zen;
+    const index = messages.value.findIndex((item) => item.id === messageId);
+    if (index < 0) {
+      return;
+    }
+    const fromCreatedAt = messages.value[index].createdAt;
+    messages.value = messages.value.slice(0, index);
+    if (zen) {
+      await zen.session.trimMessages(sessionId.value, fromCreatedAt);
+    }
+  }
+
+  /** 编辑并插入对话：内容与附件/标注回填输入框，发送时从该消息处分叉 */
+  function startEditFrom(message: ChatMessage) {
+    const meta = message.meta as
+      | {
+          elementMarks?: Array<{ id: string; label: string; token: string; ref: unknown }>;
+          attachments?: Array<{ name: string; path?: string }>;
+        }
+      | undefined;
+    elementMarks.value = (meta?.elementMarks ?? []).map((item) => ({
+      id: item.id,
+      label: item.label,
+      token: item.token,
+      ref: item.ref as never,
+    })) as typeof elementMarks.value;
+    attachments.value = (meta?.attachments ?? []).map((item) => ({
+      id: uuid(),
+      name: item.name,
+      path: item.path ?? "",
+      size: 0,
+      isImage: /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(item.name),
+    }));
+    input.value = message.content;
+    editAnchorId.value = message.id;
+  }
+
+  function cancelEdit() {
+    editAnchorId.value = "";
+  }
+
+  /** 重试（重新生成）：从该消息所属轮次的用户消息起，同内容分叉重跑 */
+  async function retryFrom(messageId: string) {
+    if (isRunning.value) {
+      return;
+    }
+    const index = messages.value.findIndex((item) => item.id === messageId);
+    if (index < 0) {
+      return;
+    }
+    let userIndex = -1;
+    for (let i = index; i >= 0; i -= 1) {
+      if (messages.value[i].role === "user") {
+        userIndex = i;
+        break;
+      }
+    }
+    const origin = messages.value[userIndex];
+    if (!origin) {
+      return;
+    }
+    startEditFrom(origin);
+    await send();
+  }
+
   async function send() {
     const zen = window.zen;
     const text = input.value.trim();
@@ -234,7 +307,15 @@ export const useChatStore = defineStore("chat", () => {
       }
       return;
     }
+    // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送
+    if (editAnchorId.value) {
+      await truncateFrom(editAnchorId.value);
+      editAnchorId.value = "";
+    }
     // 免登录可用：会话与本地 Agent 功能不依赖 GitHub；仅云同步等账号功能需登录
+
+    // 首发消息前补建持久会话（启动后的本地会话此前不在库里，会报 session not found）
+    await ensurePersistedSession();
 
     const modelsStore = useModelsStore();
     if (!modelsStore.selection.providerId || !modelsStore.selection.modelId) {
@@ -261,8 +342,8 @@ export const useChatStore = defineStore("chat", () => {
     lastDoneReason.value = null;
     runSummary.value = null;
     currentStep.value = null;
-    lastInputTokens.value = null;
-    lastOutputTokens.value = null;
+    // 不清空 lastInputTokens/lastOutputTokens：既是运行中的上下文统计，
+    // 也是下一次发送判断超限压缩的依据（清空会让 overThreshold 永远不触发）
     input.value = "";
     attachments.value = [];
     elementMarks.value = [];
@@ -376,6 +457,7 @@ export const useChatStore = defineStore("chat", () => {
     phase.value = "answering";
     isPaused.value = false;
     queue.clear();
+    editAnchorId.value = "";
     usedUpdateTasks.value = false;
     pendingApproval.value = null;
     pendingAsk.value = null;
@@ -388,6 +470,22 @@ export const useChatStore = defineStore("chat", () => {
     runSummary.value = null;
     forceCompress.value = false;
     pendingToolArgs.clear();
+  }
+
+  /** 首发消息前补建持久会话：沿用当前 id，避免 agent:run 因会话不在库里报 session not found */
+  async function ensurePersistedSession() {
+    const zen = window.zen;
+    if (!zen || sessionPersisted.value) {
+      return;
+    }
+    try {
+      const record = await zen.session.create(sessionWorkspaceId.value, sessionId.value);
+      sessionPersisted.value = true;
+      useWorkspaceStore().appendSessionLocal(sessionWorkspaceId.value, record);
+    } catch (error) {
+      lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
+      statusText.value = lastError.value;
+    }
   }
 
   /** 新会话：在工作区（缺省为当前工作区）建立持久会话 */
@@ -424,9 +522,11 @@ export const useChatStore = defineStore("chat", () => {
     sessionWorkspaceId.value = target;
     if (record) {
       sessionId.value = record.id;
+      sessionPersisted.value = true;
       workspaceStore.appendSessionLocal(target, record);
     } else {
       sessionId.value = uuid();
+      sessionPersisted.value = false;
     }
     useSessionInfoStore().ensureSession(sessionId.value);
     useAgentsStore().ensureSession(sessionId.value);
@@ -453,6 +553,7 @@ export const useChatStore = defineStore("chat", () => {
     }
     flushDraft();
     sessionId.value = record.id;
+    sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
     sessionStatusStore.markSeen(record.id);
     sessionName.value = found.session.title;
@@ -481,6 +582,33 @@ export const useChatStore = defineStore("chat", () => {
       if (restored.error) lastError.value = restored.error;
     }
     useGitStore().reset();
+    void refreshGit();
+    void useGitStore().refreshStatus();
+  }
+
+  /** composer 底栏：把当前会话切到工作区目录或公共区（决定 agent 工作目录与侧栏分组） */
+  async function setSessionWorkspace(workspaceId: string) {
+    if (workspaceId === sessionWorkspaceId.value) {
+      return;
+    }
+    sessionWorkspaceId.value = workspaceId;
+    useWorkspaceStore().setActive(workspaceId);
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setWorkspace(sessionId.value, workspaceId);
+      // 侧栏分组跟着迁移
+      useWorkspaceStore().removeSessionLocal(sessionId.value);
+      useWorkspaceStore().appendSessionLocal(workspaceId, {
+        id: sessionId.value,
+        title: sessionName.value,
+        workspaceId: workspaceId === "common" ? null : workspaceId,
+        draft: "",
+        pinned: false,
+        archived: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
     void refreshGit();
     void useGitStore().refreshStatus();
   }
@@ -533,11 +661,16 @@ export const useChatStore = defineStore("chat", () => {
     cancel,
     pause,
     resume,
+    startEditFrom,
+    cancelEdit,
+    retryFrom,
+    editAnchorId,
     approve,
     submitAsk,
     dismissApproval,
     compressNow: compressionDomain.compressNow,
     newTask,
     loadSession,
+    setSessionWorkspace,
   };
 });

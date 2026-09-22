@@ -986,3 +986,11 @@
     -webkit-mask-image: none;
   }
 }
+
+/* 表单行标签：Label/FieldLabel 基类的 text-sm/leading-none 在 utilities 层，
+   会压过 @layer components 里的 .field-row-label，导致标签贴顶与 h-8 控件错位。
+   这里脱离 @layer 并提高特异性，恢复与 32px 控件中线对齐。 */
+.field-row .field-row-label {
+  font-size: 12px;
+  line-height: 32px;
+}
