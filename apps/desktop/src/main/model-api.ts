@@ -1,5 +1,5 @@
 import { extractChatText } from "./model-api-transform";
-import { inspectModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
+import { inspectModelCapabilities, mergeApiModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
   listProviders,
@@ -77,19 +77,39 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs = 20_000): Pr
   }
 }
 
+function firstString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+/** 条目 ID 字段别名：id 为主，部分兼容实现用 model / model_id / name */
+function pickModelId(item: Record<string, unknown>): string {
+  return firstString(item, ["id", "model", "model_id", "name"]);
+}
+
+/** 展示名别名：display_name / name / model_name */
+function pickModelName(item: Record<string, unknown>): string {
+  return firstString(item, ["display_name", "name", "model_name"]);
+}
+
 function mapOpenAiModels(data: unknown): FetchModelsResult {
-  const payload = data as { data?: Array<{ id?: string; owned_by?: string }> };
+  const payload = data as { data?: Array<Record<string, unknown>> };
   const list = Array.isArray(payload?.data) ? payload.data : [];
   const models = list
     .map((item) => {
-      const id = item.id?.trim();
+      const id = pickModelId(item);
       if (!id) {
         return null;
       }
       return {
         id,
-        name: id,
-        capabilities: resolveModelCapabilities(id),
+        name: pickModelName(item) || id,
+        capabilities: mergeApiModelCapabilities(id, item),
       };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -98,20 +118,18 @@ function mapOpenAiModels(data: unknown): FetchModelsResult {
 }
 
 function mapAnthropicModels(data: unknown): FetchModelsResult {
-  const payload = data as {
-    data?: Array<{ id?: string; display_name?: string }>;
-  };
+  const payload = data as { data?: Array<Record<string, unknown>> };
   const list = Array.isArray(payload?.data) ? payload.data : [];
   const models = list
     .map((item) => {
-      const id = item.id?.trim();
+      const id = pickModelId(item);
       if (!id) {
         return null;
       }
       return {
         id,
-        name: item.display_name?.trim() || id,
-        capabilities: resolveModelCapabilities(id),
+        name: pickModelName(item) || id,
+        capabilities: mergeApiModelCapabilities(id, item),
       };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));

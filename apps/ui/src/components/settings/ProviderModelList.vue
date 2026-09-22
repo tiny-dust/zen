@@ -99,7 +99,7 @@ function onSelect(model: ProviderModel) {
       <li v-for="model in filtered" :key="model.id" :class="rowClass(model)">
         <Button
           variant="ghost"
-          class="h-full flex min-w-0 flex-1 items-center gap-2 px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
+          class="h-full flex min-w-0 flex-1 items-center justify-start gap-2 px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
           :disabled="!model.enabled"
           @click="onSelect(model)"
         >

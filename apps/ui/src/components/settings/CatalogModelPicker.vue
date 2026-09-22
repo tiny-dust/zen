@@ -153,7 +153,7 @@ onMounted(() => {
         <div v-for="group in groups" :key="group.vendor">
           <Button
             variant="ghost"
-            class="h-auto flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
+            class="h-auto flex min-h-9 w-full items-center justify-start gap-2 rounded-lg px-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
             @click="toggleGroup(group.vendor)"
           >
             <ChevronDown

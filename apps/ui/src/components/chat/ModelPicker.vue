@@ -87,7 +87,7 @@ function isSelected(providerId: string, modelId: string) {
 
 function railClass(id: string | "recent") {
   return classes(
-    "flex min-h-[30px] items-center gap-2 rounded-lg px-2 text-left text-[12px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]",
+    "flex min-h-[30px] items-center justify-start gap-2 rounded-lg px-2 text-left text-[12px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]",
     [activeProviderId.value === id, "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"],
   );
 }
@@ -235,7 +235,7 @@ watch(providers, () => {
               v-for="item in filtered"
               :key="itemKey(item.providerId, item.model.id)"
               variant="ghost"
-              class="flex min-h-[34px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
+              class="flex min-h-[34px] w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
               :class="
                 isSelected(item.providerId, item.model.id)
                   ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'

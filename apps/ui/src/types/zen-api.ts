@@ -121,7 +121,12 @@ export interface ZenApi {
       options?: { push?: boolean },
     ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }>;
     aiMessage(cwd?: string): Promise<string>;
-    createBranch(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
+    createBranch(
+      cwd: string | undefined,
+      name: string,
+      /** 基分支（本地或远程分支名）：缺省从当前 HEAD 创建 */
+      base?: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     branches(cwd?: string): Promise<GitBranches>;
     checkout(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
     pr(cwd?: string): Promise<GitPullRequest | null>;
@@ -253,7 +258,9 @@ export interface ZenApi {
     remove(id: string): Promise<WorkspaceGroup[]>;
   };
   session: {
-    create(workspaceId: string | null): Promise<SessionRecord>;
+    create(workspaceId: string | null, id?: string): Promise<SessionRecord>;
+    /** 会话迁移到其它工作区/公共区（composer 底栏选择器） */
+    setWorkspace(id: string, workspaceId: string | null): Promise<void>;
     open(id: string): Promise<{
       session: SessionRecord;
       messages: ChatMessage[];
@@ -263,6 +270,11 @@ export interface ZenApi {
     appendMessage(
       sessionId: string,
       message: ChatMessage,
+    ): Promise<{ ok: boolean; error?: string }>;
+    /** 编辑插入/重试分叉：删除该时刻起的落库消息 */
+    trimMessages(
+      sessionId: string,
+      fromCreatedAt: number,
     ): Promise<{ ok: boolean; error?: string }>;
     rename(id: string, title: string): Promise<void>;
     /** 自动会话标题：main 侧用模型生成，失败返回 null（渲染层保留现有标题） */
