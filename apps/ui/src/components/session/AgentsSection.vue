@@ -36,9 +36,12 @@ const BUSY_RESOURCE_LABELS: Record<"write" | "terminal" | "browser", string> = {
   browser: "浏览器",
 };
 
-/** 状态行补充信息：尝试次数 / 独占资源 */
+/** 状态行补充信息：尝试次数 / 独占资源 / 等待回答 */
 function extraLine(node: AgentNode): string {
   const parts: string[] = [];
+  if (node.status === "waiting_user" || node.waitingUser) {
+    parts.push("等待用户回答");
+  }
   if (node.maxAttempts > 1) {
     parts.push(`第 ${node.attempts}/${node.maxAttempts} 次`);
   }
@@ -56,7 +59,7 @@ function extraLine(node: AgentNode): string {
       :icon="Bot"
       title="子 Agent"
       :open="open"
-      :count="`${nodes.filter((item) => item.status === 'running').length}/${nodes.length}`"
+      :count="`${nodes.filter((item) => item.status === 'running' || item.status === 'waiting_user').length}/${nodes.length}`"
       @toggle="open = !open"
     />
 
@@ -72,7 +75,10 @@ function extraLine(node: AgentNode): string {
         <component
           :is="meta(node.status).icon"
           class="size-3.5 flex-none"
-          :class="[meta(node.status).cls, node.status === 'running' ? 'animate-spin' : '']"
+          :class="[
+            meta(node.status).cls,
+            node.status === 'running' ? 'animate-spin' : '',
+          ]"
           aria-hidden="true"
         />
         <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--color-txt)]">

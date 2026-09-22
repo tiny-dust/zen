@@ -43,7 +43,8 @@ export interface ChatEventContext {
   lastInputTokens: Ref<number | null>;
   lastOutputTokens: Ref<number | null>;
   pendingApproval: Ref<PendingApproval | null>;
-  pendingAsk: Ref<AskUserQuestionEvent | null>;
+  /** askUser 挂起队列（多问询并发，按 askId 独立应答） */
+  pendingAsks: Ref<AskUserQuestionEvent[]>;
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   pendingToolArgs: Map<string, { toolName: string; args: unknown }>;
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
@@ -142,7 +143,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
 
   /** 审批/提问等待结束后，若无其它挂起则恢复 running 态 */
   function resumeStatusIfIdle(): void {
-    if (ctx.isRunning.value && !ctx.pendingApproval.value && !ctx.pendingAsk.value) {
+    if (ctx.isRunning.value && !ctx.pendingApproval.value && !ctx.pendingAsks.value.length) {
       sessionStatusStore.set(ctx.sessionId.value, "running");
     }
   }
@@ -246,18 +247,24 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.statusText.value = event.approved ? "已批准，等待执行" : "已拒绝";
         resumeStatusIfIdle();
         break;
-      case "ask_user":
-        ctx.pendingAsk.value = event.question;
-        ctx.statusText.value = "等待你的回答";
+      case "ask_user": {
+        // 多问询：按 askId 入队，禁止覆盖丢卡；子 Agent 提问带 agentName
+        const question = event.question;
+        if (!ctx.pendingAsks.value.some((item) => item.askId === question.askId)) {
+          ctx.pendingAsks.value = [...ctx.pendingAsks.value, question];
+        }
+        ctx.statusText.value = question.agentName
+          ? `${question.agentName} 等待你的回答`
+          : "等待你的回答";
         sessionStatusStore.set(ctx.sessionId.value, "needs_action");
         playNotifySound("needsAction");
         break;
-      case "ask_resolved":
-        if (ctx.pendingAsk.value?.askId === event.askId) {
-          ctx.pendingAsk.value = null;
-        }
+      }
+      case "ask_resolved": {
+        ctx.pendingAsks.value = ctx.pendingAsks.value.filter((item) => item.askId !== event.askId);
         resumeStatusIfIdle();
         break;
+      }
       case "status":
         ctx.status.value = event.status;
         if (event.status === "paused") {
@@ -278,15 +285,27 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       case "step_start":
         ctx.currentStep.value = event.step;
         break;
-      case "usage":
+      case "usage": {
         // 个别供应商只报输出 token：输入为 0/null 时保留旧值，避免上下文统计被抹成 0%
-        if (event.inputTokens > 0) {
-          ctx.lastInputTokens.value = event.inputTokens;
+        // 兼容 camelCase / snake_case 字段名（协议层与 AI SDK 命名不一致时）
+        const raw = event as unknown as {
+          inputTokens?: number | null;
+          outputTokens?: number | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          prompt_tokens?: number | null;
+          completion_tokens?: number | null;
+        };
+        const inputTokens = raw.inputTokens ?? raw.input_tokens ?? raw.prompt_tokens ?? null;
+        const outputTokens = raw.outputTokens ?? raw.output_tokens ?? raw.completion_tokens ?? null;
+        if (inputTokens != null && inputTokens > 0) {
+          ctx.lastInputTokens.value = inputTokens;
         }
-        if (event.outputTokens > 0) {
-          ctx.lastOutputTokens.value = event.outputTokens;
+        if (outputTokens != null && outputTokens > 0) {
+          ctx.lastOutputTokens.value = outputTokens;
         }
         break;
+      }
       case "done": {
         const message = ensureAssistantMessage();
         syncRunRefsFromMessage(message);
@@ -295,7 +314,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.status.value = reason === "error" ? "error" : "idle";
         ctx.isPaused.value = false;
         ctx.pendingApproval.value = null;
-        ctx.pendingAsk.value = null;
+        ctx.pendingAsks.value = [];
         ctx.statusText.value =
           reason === "cancelled"
             ? "已取消"
@@ -349,15 +368,15 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     await zen.agent.resolveApproval(ctx.sessionId.value, decision);
   }
 
-  /** 回答 askUser 提问（选项或自由输入） */
-  async function submitAsk(answer: string): Promise<void> {
+  /** 回答指定 askUser 提问（多问询按 askId 独立应答） */
+  async function submitAsk(askId: string, answer: string): Promise<void> {
     const zen = window.zen;
-    const ask = ctx.pendingAsk.value;
-    if (!zen || !ask || !answer.trim()) {
+    const trimmed = answer.trim();
+    if (!zen || !askId || !trimmed) {
       return;
     }
-    ctx.pendingAsk.value = null;
-    await zen.agent.resolveAsk(ctx.sessionId.value, { askId: ask.askId, answer: answer.trim() });
+    ctx.pendingAsks.value = ctx.pendingAsks.value.filter((item) => item.askId !== askId);
+    await zen.agent.resolveAsk(ctx.sessionId.value, { askId, answer: trimmed });
   }
 
   function dismissApproval(): void {

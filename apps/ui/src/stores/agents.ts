@@ -20,7 +20,8 @@ export const SUB_AGENT_STATUS_META: Record<
   { label: string; icon: Component; cls: string }
 > = {
   queued: { label: "排队", icon: CircleDashed, cls: "text-[var(--color-mut)]" },
-  waiting: { label: "等待依赖", icon: Clock3, cls: "text-[var(--color-dim)]" },
+  waiting_deps: { label: "等待依赖", icon: Clock3, cls: "text-[var(--color-dim)]" },
+  waiting_user: { label: "等待回答", icon: Clock3, cls: "text-[var(--color-accent)]" },
   running: { label: "运行中", icon: Loader2, cls: "text-[var(--color-accent)]" },
   done: { label: "完成", icon: CheckCircle2, cls: "text-[var(--color-ok,#3d9a6a)]" },
   error: { label: "失败", icon: XCircle, cls: "text-[var(--color-err,#c45c5c)]" },
@@ -42,7 +43,13 @@ export const useAgentsStore = defineStore("agents", () => {
     if (!sessionId.value) {
       return null;
     }
-    const active = nodes.value.some((n) => n.status === "running" || n.status === "queued");
+    const active = nodes.value.some(
+      (n) =>
+        n.status === "running" ||
+        n.status === "queued" ||
+        n.status === "waiting_user" ||
+        n.status === "waiting_deps",
+    );
     return {
       id: `main:${sessionId.value}`,
       sessionId: sessionId.value,
@@ -55,6 +62,7 @@ export const useAgentsStore = defineStore("agents", () => {
       maxAttempts: 1,
       log: [],
       busyResource: null,
+      waitingUser: false,
     };
   });
 

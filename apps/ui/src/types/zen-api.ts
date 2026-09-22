@@ -212,6 +212,16 @@ export interface ZenApi {
       dir?: string;
       error?: string;
     }>;
+    marketCheckUpdates(skills: import("@zen/shared").SkillSummary[]): Promise<{
+      ok: boolean;
+      items: import("@zen/shared").SkillUpdateInfo[];
+      error?: string;
+    }>;
+    marketUpdate(skill: import("@zen/shared").SkillSummary): Promise<{
+      ok: boolean;
+      dir?: string;
+      error?: string;
+    }>;
     uninstall(skill: import("@zen/shared").SkillSummary): Promise<{
       ok: boolean;
       error?: string;

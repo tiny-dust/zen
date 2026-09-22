@@ -20,6 +20,7 @@ import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { createChatEventGateway } from "@/stores/chat-events";
 import type { ComposerAttachment, PendingApproval, RunPhase } from "@/stores/chat-types";
+import { buildHistory, estimateHistoryTokens } from "@/stores/chat-types";
 import { createCompressionDomain } from "@/stores/chat-compress";
 import { createComposerDomain } from "@/stores/chat-composer";
 import { createMessageQueue } from "@/stores/chat-queue";
@@ -44,7 +45,7 @@ export const useChatStore = defineStore("chat", () => {
   /** 会话是否已落库；启动后的本地会话在首发消息前补建，避免 agent:run 报 session not found */
   const sessionPersisted = ref(false);
   /** 当前会话归属的工作区（'common' = 公共区），决定 agent 工作目录与 git 信息来源 */
-  const sessionWorkspaceId = ref<string>("common");
+  const sessionWorkspaceId = ref<string>(useWorkspaceStore().activeId || "common");
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
   const attachments = ref<ComposerAttachment[]>([]);
@@ -54,11 +55,16 @@ export const useChatStore = defineStore("chat", () => {
   const usedUpdateTasks = ref(false);
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   const pendingToolArgs = new Map<string, { toolName: string; args: unknown }>();
-  /** 手动压缩开关：点「压缩上下文」后置位，本会话后续发送都走摘要历史 */
+  /**
+   * 会话级压缩模式：点「压缩上下文」后置位，之后每次发送都折叠更早对话；
+   * 自动超限折叠成功也会保持。切换会话时复位。
+   */
   const forceCompress = ref(false);
   const pendingApproval = ref<PendingApproval | null>(null);
-  /** askUser 提问（展示在输入框上方，支持选项与自由输入） */
-  const pendingAsk = ref<AskUserQuestionEvent | null>(null);
+  /** askUser 提问队列（可多问询并发；展示在输入框上方） */
+  const pendingAsks = ref<AskUserQuestionEvent[]>([]);
+  /** 兼容单卡视图：队首问询（ChatComposer v-if 用） */
+  const pendingAsk = computed(() => pendingAsks.value[0] ?? null);
   const isPaused = ref(false);
   const branch = ref("");
   const repo = ref("");
@@ -95,7 +101,7 @@ export const useChatStore = defineStore("chat", () => {
   const sessionStatusStore = useSessionStatusStore();
   watch(isRunning, (running) => {
     runStartedAt.value = running ? (runStartedAt.value ?? Date.now()) : null;
-    if (running && !pendingApproval.value && !pendingAsk.value) {
+    if (running && !pendingApproval.value && !pendingAsks.value.length) {
       sessionStatusStore.set(sessionId.value, "running");
     }
   });
@@ -105,13 +111,36 @@ export const useChatStore = defineStore("chat", () => {
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
-  /** 上下文用量：最近一次请求的输入 token / 模型上下文窗口（%） */
-  const contextUsage = computed(() => {
-    const contextWindow = useModelsStore().selectedModel?.capabilities?.contextWindow ?? 0;
-    if (!contextWindow || lastInputTokens.value == null) {
+  const contextWindowTokens = computed(
+    () => useModelsStore().selectedModel?.capabilities?.contextWindow ?? 0,
+  );
+  /** 本地估算当前输入 token（消息文本 + 系统/工具固定开销）；API 未回 usage 时兜底 */
+  const estimatedInputTokens = computed(() => estimateHistoryTokens(buildHistory(messages.value)));
+  /** 上次请求输入占用（%）：API 上报的 inputTokens（含系统提示/工具/历史），无数据为 null */
+  const lastRequestUsage = computed(() => {
+    if (!contextWindowTokens.value || lastInputTokens.value == null) {
       return null;
     }
-    return Math.min(100, Math.round((lastInputTokens.value / contextWindow) * 100));
+    return Math.min(100, Math.round((lastInputTokens.value / contextWindowTokens.value) * 100));
+  });
+  /** 估算当前占用（%）：按现有消息粗估的下一次请求输入 */
+  const estimatedUsage = computed(() => {
+    if (!contextWindowTokens.value) {
+      return null;
+    }
+    return Math.min(100, Math.round((estimatedInputTokens.value / contextWindowTokens.value) * 100));
+  });
+  /**
+   * 上下文用量（%）：优先真实「上次请求输入」，无 API usage 时用本地估算兜底。
+   * 两个来源在 EnvInfoSection 分开展示；压缩阈值取两者较大值更稳妥。
+   */
+  const contextUsage = computed(() => {
+    const last = lastRequestUsage.value;
+    const estimated = estimatedUsage.value;
+    if (last != null && estimated != null) {
+      return Math.max(last, estimated);
+    }
+    return last ?? estimated;
   });
 
   // ---------- 历史压缩域：手动压缩 / 发送前折叠 / 摘要卡 ----------
@@ -187,7 +216,7 @@ export const useChatStore = defineStore("chat", () => {
     lastInputTokens,
     lastOutputTokens,
     pendingApproval,
-    pendingAsk,
+    pendingAsks,
     pendingToolArgs,
     filesRevision,
     usedUpdateTasks,
@@ -460,7 +489,7 @@ export const useChatStore = defineStore("chat", () => {
     editAnchorId.value = "";
     usedUpdateTasks.value = false;
     pendingApproval.value = null;
-    pendingAsk.value = null;
+    pendingAsks.value = [];
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
@@ -488,10 +517,10 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** 新会话：在工作区（缺省为当前工作区）建立持久会话 */
+  /** 新会话：缺省落在底部当前选中的工作区/公共区，与 WorkspacePicker 一致 */
   async function newTask(workspaceId?: string) {
     const workspaceStore = useWorkspaceStore();
-    const target = workspaceId || workspaceStore.activeId;
+    const target = workspaceId || sessionWorkspaceId.value;
     const zen = window.zen;
     if (isRunning.value) {
       await cancel();
@@ -520,6 +549,7 @@ export const useChatStore = defineStore("chat", () => {
     useAgentProcessesStore().clear();
 
     sessionWorkspaceId.value = target;
+    workspaceStore.setActive(target);
     if (record) {
       sessionId.value = record.id;
       sessionPersisted.value = true;
@@ -631,6 +661,7 @@ export const useChatStore = defineStore("chat", () => {
     removeElementMark,
     pendingApproval,
     pendingAsk,
+    pendingAsks,
     pendingComposerInsert,
     insertAtComposerCaret,
     isPaused,
@@ -646,6 +677,9 @@ export const useChatStore = defineStore("chat", () => {
     branch,
     repo,
     contextUsage,
+    lastRequestUsage,
+    estimatedUsage,
+    estimatedInputTokens,
     lastInputTokens,
     lastOutputTokens,
     currentStep,

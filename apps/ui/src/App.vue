@@ -83,6 +83,11 @@ onMounted(() => {
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
   disposeAgent = useAgentStore().bootstrap();
+  // 启动无条件落在对话页：清掉 hash 残留的设置入口，避免设置遮罩盖住主对话
+  settingsStore.closeSettings();
+  if (window.location.hash.startsWith("#settings")) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
   void useWorkspaceStore().refresh();
   // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
   layoutStore.syncViewport();

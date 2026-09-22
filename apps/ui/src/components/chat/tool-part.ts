@@ -103,8 +103,8 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
     case "askUser":
       return { icon: HelpCircle, label: "询问用户" };
     case "contextCompact":
-      // 渲染层自建卡：上下文压缩摘要（output 为折叠后的会话摘要全文）
-      return { icon: FoldVertical, label: "上下文压缩" };
+      // 时间线由 ContextCompactCard 专用渲染（不走 ToolCallRow）；此处仅兜底图标文案
+      return { icon: FoldVertical, label: "上下文已压缩" };
     // 多 Agent 协作工具（multi-agent buildTools）
     case "spawnAgent":
       return { icon: Bot, label: "派发子任务" };

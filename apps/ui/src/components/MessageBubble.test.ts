@@ -181,4 +181,28 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).not.toContain("已取消");
     expect(wrapper.text()).not.toContain("已达到步骤上限");
   });
+
+  it("contextCompact 走专用压缩卡，不走普通工具行", async () => {
+    const wrapper = mountMessage({
+      id: "c1",
+      role: "tool",
+      content: "",
+      createdAt: 1,
+      toolCallId: "tc1",
+      meta: {
+        toolName: "contextCompact",
+        ok: true,
+        state: "ok",
+        summary: "上下文已压缩 · 已折叠 6 条更早消息",
+        args: { compactedTurns: 6 },
+        output: "【会话摘要 · 上下文已压缩】\n目标：\n修统计",
+      },
+    });
+    expect(wrapper.text()).toContain("上下文已压缩");
+    expect(wrapper.text()).toContain("已折叠 6 条更早消息");
+    // 默认收起摘要全文
+    expect(wrapper.text()).not.toContain("修统计");
+    await wrapper.get("button").trigger("click");
+    expect(wrapper.text()).toContain("修统计");
+  });
 });

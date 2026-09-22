@@ -10,8 +10,9 @@ import { PROCESS_STATUS_META, useAgentProcessesStore } from "@/stores/agent-proc
 import type { AgentProcessStatus } from "@/stores/agent-processes";
 
 /**
- * 会话信息悬浮窗「进程」节：Agent runTerminal 调起的终端服务。
- * 运行中置顶展示状态；下方罗列全部历史进程，点击展开命令与输出。
+ * 会话信息悬浮窗「进程」节：Agent runTerminal 调起的**持续运行**终端服务
+ * （dev server / watch / serve 等，由 isPersistentCommand 过滤）。
+ * 运行中置顶展示状态；下方罗列历史常驻进程，点击展开命令与输出。
  */
 const processes = useAgentProcessesStore();
 const { items, expandedId, runningCount } = storeToRefs(processes);
@@ -38,7 +39,7 @@ function ordered() {
   <section v-if="items.length" class="flex flex-col">
     <SessionSectionHead
       :icon="SquareTerminal"
-      title="进程"
+      title="终端服务"
       :open="open"
       :count="`${runningCount}/${items.length}`"
       @toggle="open = !open"

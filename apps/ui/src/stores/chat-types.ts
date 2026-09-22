@@ -123,10 +123,41 @@ export function pathFromToolArgs(toolName: string, args: unknown): string {
   return "";
 }
 
-/** 压缩历史时保留的最近轮数（不折叠进摘要） */
+/** 压缩历史时保留的最近消息条数（user/assistant 条目，不折叠进摘要） */
 const KEEP_RECENT_TURNS = 6;
-/** 摘要里每条旧消息的截断长度 */
-const DIGEST_LINE_LIMIT = 120;
+/** 摘要里每条旧消息的截断长度（过短会伤可读性） */
+const DIGEST_LINE_LIMIT = 200;
+/** 系统提示 + 工具定义的粗估固定开销（token），本地估算用 */
+export const CONTEXT_OVERHEAD_TOKENS = 1800;
+
+/**
+ * 粗估文本 token：CJK 约 1 字 0.75 token，其余约 4 字符 1 token。
+ * API 未回 usage 时的本地兜底，允许误差，量级正确即可。
+ */
+export function estimateTokens(text: string): number {
+  if (!text) {
+    return 0;
+  }
+  let cjk = 0;
+  let other = 0;
+  for (const ch of text) {
+    if (/[\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch)) {
+      cjk += 1;
+    } else {
+      other += 1;
+    }
+  }
+  return Math.ceil(cjk * 0.75 + other / 4);
+}
+
+/** 历史轮次的本地 token 估算（含固定系统/工具开销） */
+export function estimateHistoryTokens(turns: ChatTurn[]): number {
+  let total = CONTEXT_OVERHEAD_TOKENS;
+  for (const turn of turns) {
+    total += estimateTokens(turn.content) + 4;
+  }
+  return total;
+}
 
 function truncate(text: string, limit: number): string {
   const clean = text.trim().replace(/\s+/g, " ");
@@ -140,7 +171,7 @@ export interface CompressOptions {
   touchedFiles: string[];
   /** 用户上传过的文件名 */
   uploads: string[];
-  /** 手动压缩（压缩按钮） */
+  /** 压缩模式 / 超限（含已有摘要卡后的持续折叠） */
   force: boolean;
   /** 上下文用量超过阈值 */
   overThreshold: boolean;
@@ -149,39 +180,46 @@ export interface CompressOptions {
 export interface CompressResult {
   turns: ChatTurn[];
   compressed: boolean;
+  /** 摘要全文（压缩卡展开展示；未压缩时为空） */
+  summary: string;
+  /** 折叠掉的更早 user/assistant 条数 */
+  compactedCount: number;
 }
 
 /**
  * 滚动摘要 + 超限双保险：手动触发或上下文用量超阈值时，把旧轮次折叠成
- * 「目标 / 用户要求 / 任务进度 / 变更文件」摘要，只保留最近几轮原文；
- * 短会话或未触发时原样返回。
+ * 「目标 / 用户要求 / 任务进度 / 变更文件」摘要，只保留最近几条原文；
+ * 短会话或未触发时原样返回。摘要以 system 轮注入，避免与真实用户消息混淆。
  */
 export function compressHistory(history: ChatTurn[], opts: CompressOptions): CompressResult {
   if (history.length <= KEEP_RECENT_TURNS || (!opts.force && !opts.overThreshold)) {
-    return { turns: history, compressed: false };
+    return { turns: history, compressed: false, summary: "", compactedCount: 0 };
   }
   const older = history.slice(0, history.length - KEEP_RECENT_TURNS);
   const recent = history.slice(history.length - KEEP_RECENT_TURNS);
 
   const lines: string[] = [
-    "【会话摘要 · 自动压缩】下面是本会话更早对话的整理，之后附最近几轮对话原文。",
+    "【会话摘要 · 上下文已压缩】下面是本会话更早对话的整理，之后附最近几轮对话原文。",
   ];
   const firstUser = older.find((item) => item.role === "user");
   if (firstUser) {
-    lines.push("", "目标：", truncate(firstUser.content, 200));
+    lines.push("", "目标：", truncate(firstUser.content, 280));
   }
   const olderRequests = older
     .filter((item) => item.role === "user" && item !== firstUser)
-    .slice(-8);
+    .slice(-10);
   if (olderRequests.length) {
     lines.push("", "用户此前的要求：");
     for (const item of olderRequests) {
       lines.push(`- ${truncate(item.content, DIGEST_LINE_LIMIT)}`);
     }
   }
-  const lastAssistant = [...older].reverse().find((item) => item.role === "assistant");
-  if (lastAssistant) {
-    lines.push("", "最近一次结论：", truncate(lastAssistant.content, 200));
+  const olderAssistants = older.filter((item) => item.role === "assistant").slice(-3);
+  if (olderAssistants.length) {
+    lines.push("", "此前结论摘录：");
+    for (const item of olderAssistants) {
+      lines.push(`- ${truncate(item.content, DIGEST_LINE_LIMIT)}`);
+    }
   }
   if (opts.tasks.length) {
     lines.push("", "任务进度：");
@@ -191,7 +229,7 @@ export function compressHistory(history: ChatTurn[], opts: CompressOptions): Com
   }
   if (opts.touchedFiles.length) {
     lines.push("", "会话中读写的文件：");
-    for (const file of opts.touchedFiles.slice(0, 12)) {
+    for (const file of opts.touchedFiles.slice(0, 16)) {
       lines.push(`- ${file}`);
     }
   }
@@ -203,6 +241,12 @@ export function compressHistory(history: ChatTurn[], opts: CompressOptions): Com
   }
   lines.push("", "（摘要结束，以下为最近对话原文）");
 
-  const summary: ChatTurn = { role: "user", content: lines.join("\n") };
-  return { turns: [summary, ...recent], compressed: true };
+  const summary = lines.join("\n");
+  // system 轮：模型侧是上下文压缩说明，不是用户发言
+  return {
+    turns: [{ role: "system", content: summary }, ...recent],
+    compressed: true,
+    summary,
+    compactedCount: older.length,
+  };
 }

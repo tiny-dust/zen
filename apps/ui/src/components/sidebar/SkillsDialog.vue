@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ExternalLink, FolderOpen, Loader2, PackagePlus, RefreshCw, Search, ShieldCheck, Trash2 } from "@lucide/vue";
+import { ExternalLink, FolderOpen, Loader2, PackagePlus, RefreshCw, Search, ShieldCheck, Trash2, Upload } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { skillSourceLabel } from "@/lib/skill-source";
 
-import type { SkillMarketHit, SkillSummary } from "@zen/shared";
+import type { SkillMarketHit, SkillSummary, SkillUpdateInfo } from "@zen/shared";
 
 const open = defineModel<boolean>("open", { default: false });
 
@@ -35,18 +35,97 @@ const marketError = ref("");
 const busyId = ref("");
 const statusMsg = ref("");
 const newSkillPath = ref("");
+const refreshing = ref(false);
+const updateMap = ref<Record<string, SkillUpdateInfo>>({});
 
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
 useBrowserOverlayGuard(open);
+
+/** 同名技能只保留一条（与 listSkills 去重优先级一致：先出现的胜出） */
+function dedupeByName<T extends { name: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const item of items) {
+    const key = item.name.trim().toLowerCase();
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    result.push(item);
+  }
+  return result;
+}
+
+const installedSkills = computed(() => dedupeByName(skills.value));
+const displayMarketItems = computed(() => dedupeByName(marketItems.value));
+
+/** 市场 hit 是否已安装：hit.skillId / hit.name 与本地技能 id/name（含目录尾段）比对 */
+function isInstalledHit(hit: SkillMarketHit): boolean {
+  const skillId = hit.skillId.trim().toLowerCase();
+  const name = hit.name.trim().toLowerCase();
+  return skills.value.some((skill) => {
+    const id = skill.id.replace(/\\/g, "/").toLowerCase();
+    const base = id.split("/").filter(Boolean).pop() ?? id;
+    const localName = skill.name.trim().toLowerCase();
+    return (
+      base === skillId ||
+      localName === skillId ||
+      base === name ||
+      localName === name
+    );
+  });
+}
+
+function updateOf(skill: SkillSummary): SkillUpdateInfo | undefined {
+  return updateMap.value[skill.id];
+}
 
 watch(open, (value) => {
   if (!value) {
     return;
   }
-  void agentStore.refreshSkills();
-  void agentStore.refreshMcp();
   statusMsg.value = "";
+  void refreshAll();
+  void agentStore.refreshMcp();
 });
+
+/** 刷新：本地重扫 + 查询上游是否可更新 */
+async function refreshAll() {
+  refreshing.value = true;
+  statusMsg.value = "正在刷新并检查上游更新…";
+  try {
+    await agentStore.refreshSkills();
+    const zen = window.zen;
+    if (!zen?.skills?.marketCheckUpdates) {
+      updateMap.value = {};
+      statusMsg.value = "已刷新本地技能";
+      return;
+    }
+    // skills 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
+    const plain = skills.value.map((skill) => ({ ...skill }));
+    const result = await zen.skills.marketCheckUpdates(plain);
+    const map: Record<string, SkillUpdateInfo> = {};
+    for (const item of result.items ?? []) {
+      map[item.id] = item;
+    }
+    updateMap.value = map;
+    const updatable = (result.items ?? []).filter((item) => item.hasUpdate);
+    if (!result.ok) {
+      statusMsg.value = result.error || "上游更新检测失败";
+    } else if (updatable.length) {
+      statusMsg.value = `发现 ${updatable.length} 个技能可更新`;
+    } else {
+      statusMsg.value = "已是最新";
+    }
+  } catch (error) {
+    updateMap.value = {};
+    statusMsg.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    refreshing.value = false;
+  }
+}
 
 async function searchMarket() {
   const zen = window.zen;
@@ -93,6 +172,26 @@ async function installSkill(hit: SkillMarketHit) {
   }
 }
 
+async function updateSkill(skill: SkillSummary) {
+  const zen = window.zen;
+  if (!zen?.skills?.marketUpdate) {
+    return;
+  }
+  busyId.value = skill.id;
+  statusMsg.value = `正在更新 ${skill.name}…`;
+  try {
+    const result = await zen.skills.marketUpdate({ ...skill });
+    statusMsg.value = result.ok
+      ? `已更新 ${skill.name}${result.dir ? ` → ${result.dir}` : ""}`
+      : result.error || "更新失败";
+    await refreshAll();
+  } catch (error) {
+    statusMsg.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    busyId.value = "";
+  }
+}
+
 async function uninstallSkill(skill: SkillSummary) {
   const zen = window.zen;
   if (!zen?.skills) {
@@ -104,7 +203,7 @@ async function uninstallSkill(skill: SkillSummary) {
     // skill 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
     const result = await zen.skills.uninstall({ ...skill });
     statusMsg.value = result.ok ? `已卸载 ${skill.name}` : result.error || "卸载失败";
-    await agentStore.refreshSkills();
+    await refreshAll();
   } catch (error) {
     statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -122,7 +221,7 @@ async function addSkillPath() {
     skillExtraPaths: [...settings.value.skillExtraPaths, path],
   });
   newSkillPath.value = "";
-  await agentStore.refreshSkills();
+  await refreshAll();
 }
 
 /** 一键分析提示词：在公共区新会话中交给 Agent，由 Agent 读取各技能 SKILL.md 后给出冲突审计 */
@@ -190,26 +289,37 @@ const tabCls = (id: Tab) =>
         <Button
           variant="ghost"
           size="sm"
-          @click="agentStore.refreshSkills()"
+          :disabled="refreshing"
+          title="重扫本地技能并检查上游更新"
+          @click="refreshAll"
         >
-          <RefreshCw :size="13" data-icon="inline-start" />刷新
+          <Loader2 v-if="refreshing" class="size-3.5 animate-spin" data-icon="inline-start" />
+          <RefreshCw v-else :size="13" data-icon="inline-start" />
+          刷新
         </Button>
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <template v-if="tab === 'installed'">
           <div class="grid gap-3 lg:grid-cols-2">
-            <div v-if="skills.length" class="flex flex-col gap-1.5">
+            <div v-if="installedSkills.length" class="flex flex-col gap-1.5">
               <div
-                v-for="skill in skills"
+                v-for="skill in installedSkills"
                 :key="skill.id"
                 class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+                :class="updateOf(skill)?.hasUpdate ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))]' : ''"
               >
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-1.5">
                     <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
                     <Badge variant="secondary" class="text-[10px]">
                       {{ skillSourceLabel(skill) }}
+                    </Badge>
+                    <Badge
+                      v-if="updateOf(skill)?.hasUpdate"
+                      class="border-transparent bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]! text-[10px]"
+                    >
+                      可更新
                     </Badge>
                   </div>
                   <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-[var(--color-mut)]">
@@ -218,20 +328,40 @@ const tabCls = (id: Tab) =>
                   <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]">
                     {{ skill.dir }}
                   </p>
+                  <p
+                    v-if="updateOf(skill)?.note"
+                    class="m-0 mt-0.5 text-[10.5px] text-[var(--color-dim)]"
+                  >
+                    {{ updateOf(skill)?.note }}
+                  </p>
                 </div>
-                <Button
-                  v-if="skill.removable"
-                  variant="ghost"
-                  size="icon-sm"
-                  class="text-[var(--color-danger-fg)] hover:bg-transparent!"
-                  :disabled="busyId === skill.id"
-                  :aria-label="`卸载 ${skill.name}`"
-                  title="卸载"
-                  @click="uninstallSkill(skill)"
-                >
-                  <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
-                  <Trash2 v-else class="size-3.5" />
-                </Button>
+                <div class="flex flex-none items-center gap-1">
+                  <Button
+                    v-if="updateOf(skill)?.hasUpdate"
+                    size="sm"
+                    variant="outline"
+                    class="h-7 text-[12px]"
+                    :disabled="busyId === skill.id"
+                    @click="updateSkill(skill)"
+                  >
+                    <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
+                    <Upload v-else class="size-3.5" />
+                    更新
+                  </Button>
+                  <Button
+                    v-if="skill.removable"
+                    variant="ghost"
+                    size="icon-sm"
+                    class="text-[var(--color-danger-fg)] hover:bg-transparent!"
+                    :disabled="busyId === skill.id"
+                    :aria-label="`卸载 ${skill.name}`"
+                    title="卸载"
+                    @click="uninstallSkill(skill)"
+                  >
+                    <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
+                    <Trash2 v-else class="size-3.5" />
+                  </Button>
+                </div>
               </div>
             </div>
             <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">未发现技能。可从市场安装，或添加扫描目录。</p>
@@ -298,9 +428,9 @@ const tabCls = (id: Tab) =>
           </div>
           <p v-if="marketError" class="m-0 mb-2 text-[12px] text-[var(--color-danger-fg)]">{{ marketError }}</p>
           <div class="grid gap-3 lg:grid-cols-2">
-            <div v-if="marketItems.length" class="flex flex-col gap-1.5">
+            <div v-if="displayMarketItems.length" class="flex flex-col gap-1.5">
               <div
-                v-for="hit in marketItems"
+                v-for="hit in displayMarketItems"
                 :key="hit.id"
                 class="flex items-center gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
               >
@@ -322,7 +452,15 @@ const tabCls = (id: Tab) =>
                 >
                   <ExternalLink class="size-3.5" />
                 </a>
+                <Badge
+                  v-if="isInstalledHit(hit)"
+                  variant="secondary"
+                  class="flex-none text-[10px]"
+                >
+                  已安装
+                </Badge>
                 <Button
+                  v-else
                   size="sm"
                   variant="outline"
                   :disabled="busyId === hit.id"
@@ -341,7 +479,7 @@ const tabCls = (id: Tab) =>
               </p>
             </div>
           </div>
-          <p v-if="!marketItems.length && !marketLoading" class="m-0 text-[12px] text-[var(--color-dim)]">
+          <p v-if="!displayMarketItems.length && !marketLoading" class="m-0 text-[12px] text-[var(--color-dim)]">
             输入关键词搜索 skills.sh 上的流行技能。
           </p>
         </template>

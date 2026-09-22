@@ -323,7 +323,7 @@ function removeAttachment(id: string) {
             <Button
               variant="ghost"
               size="icon-sm"
-              class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+              class="flex-none text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
               aria-label="添加文件"
               title="添加文件（也可直接粘贴文件/图像）"
               @click="openFilePicker"

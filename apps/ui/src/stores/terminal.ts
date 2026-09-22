@@ -148,7 +148,16 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
   }
 
-  async function start(cwd?: string, cols = 80, rows = 24) {
+  /** 创建串行锁：防止 ensure / Plus / split 并发各建一个终端 */
+  let startChain: Promise<void> = Promise.resolve();
+
+  function start(cwd?: string, cols = 80, rows = 24): Promise<void> {
+    const run = startChain.then(() => doStart(cwd, cols, rows));
+    startChain = run.catch(() => undefined);
+    return run;
+  }
+
+  async function doStart(cwd?: string, cols = 80, rows = 24) {
     if (!window.zen?.terminal) {
       error.value = "终端 IPC 不可用";
       return;
@@ -188,19 +197,16 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   /** 水平/垂直分屏：在相邻 pane 新建终端 */
   async function split(direction: "columns" | "rows") {
-    const current = activeId.value || sessions.value[0]?.id;
-    if (!current) {
-      await start();
-      if (!activeId.value) {
-        return;
-      }
-    }
-    const baseId = activeId.value;
-    if (!baseId) {
-      return;
-    }
     if (splitMode.value === direction && paneIds.value.length >= 2) {
       return;
+    }
+    let baseId = activeId.value || sessions.value[0]?.id;
+    if (!baseId) {
+      await start();
+      baseId = activeId.value;
+      if (!baseId) {
+        return;
+      }
     }
     await start();
     const created = activeId.value;
@@ -288,10 +294,10 @@ export const useTerminalStore = defineStore("terminal", () => {
     // 全部关掉后不自动补建：面板保留「暂无终端」，由 Plus / ensureForWorkspace 显式创建
   }
 
-  /** 展开底部面板时：按当前会话项目路径定位；非项目会话落到用户主目录 */
+  /** 展开底部面板时：保证至少有一个终端；并发去重，已有会话则不新建（避免新开冒出两个） */
   let ensureInFlight: Promise<void> | null = null;
   function ensureForWorkspace(): Promise<void> {
-    // 并发去重：标题栏/快捷键打开面板与 TerminalPanel 挂载会同时走到这里
+    // 标题栏/快捷键打开面板与 TerminalPanel 挂载会同时走到这里
     if (ensureInFlight) {
       return ensureInFlight;
     }
@@ -302,21 +308,18 @@ export const useTerminalStore = defineStore("terminal", () => {
   }
 
   async function doEnsureForWorkspace() {
+    // 等进行中的 start 落地后再判断，避免与 Plus/ensure 并发双建
+    await startChain.catch(() => undefined);
+    if (sessions.value.length) {
+      return;
+    }
     const workspace = useWorkspaceStore();
     const chat = useChatStore();
     const cwd =
       workspace.pathOf(chat.sessionWorkspaceId) ||
       workspace.activePath ||
       undefined;
-    if (!sessions.value.length) {
-      await start(cwd);
-      return;
-    }
-    // 已有终端时不强杀；仅在目录不一致且无运行输出时重启到正确 cwd
-    const current = sessions.value.find((item) => item.id === activeId.value);
-    if (current?.cwd && cwd && current.cwd !== cwd && !buffers.get(current.id)?.trim()) {
-      await restart(cwd);
-    }
+    await start(cwd);
   }
 
   async function openExternal() {
