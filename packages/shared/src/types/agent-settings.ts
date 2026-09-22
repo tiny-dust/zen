@@ -86,6 +86,8 @@ export interface SkillSummary {
   /** 技能所在目录（供展示与排错） */
   dir: string;
   source: "builtin" | "user";
+  /** 是否可从 Zen 卸载（位于用户技能目录：~/.zen、~/.claude、~/.agents） */
+  removable: boolean;
   /** 禁用的技能 id 列表在 AgentSettings 外单独存（disabledSkills） */
   disabled: boolean;
 }
