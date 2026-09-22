@@ -8,6 +8,12 @@ export const skillsApi = {
     marketInstall(hit: import("@zen/shared").SkillMarketHit) {
       return ipcRenderer.invoke("skills:market-install", hit);
     },
+    marketCheckUpdates(skills: import("@zen/shared").SkillSummary[]) {
+      return ipcRenderer.invoke("skills:market-check-updates", skills);
+    },
+    marketUpdate(skill: import("@zen/shared").SkillSummary) {
+      return ipcRenderer.invoke("skills:market-update", skill);
+    },
     uninstall(skill: import("@zen/shared").SkillSummary) {
       return ipcRenderer.invoke("skills:uninstall", skill);
     },
