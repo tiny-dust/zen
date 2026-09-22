@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import type { AgentStreamEvent, ToolCallState } from "@zen/shared";
+import type { AgentStreamEvent, ToolCallState, ToolProgressEvent } from "@zen/shared";
 
 export type AgentProcessStatus = ToolCallState | "running";
 
@@ -130,6 +130,19 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     item.error = payload.ok ? undefined : payload.summary;
   }
 
+  /** 运行中输出尾部：tool_progress 增量刷新（持续运行命令的实时输出，仅保留发送侧限量尾部） */
+  function noteToolProgress(sessionId: string, event: ToolProgressEvent) {
+    if (event.toolName !== "runTerminal" || event.outputTail == null) {
+      return;
+    }
+    ensureSession(sessionId);
+    const item = items.value.find((entry) => entry.id === event.toolCallId);
+    if (!item || item.status !== "running") {
+      return;
+    }
+    item.output = event.outputTail;
+  }
+
   function toggle(id: string) {
     expandedId.value = expandedId.value === id ? "" : id;
   }
@@ -144,6 +157,10 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
   function handleStreamEvent(event: AgentStreamEvent) {
     if (event.type === "tool_start") {
       noteToolStart(event.sessionId, event.toolCallId, event.toolName, event.args);
+      return;
+    }
+    if (event.type === "tool_progress") {
+      noteToolProgress(event.sessionId, event.event);
       return;
     }
     if (event.type === "tool_end") {
@@ -164,6 +181,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     ensureSession,
     noteToolStart,
     noteToolEnd,
+    noteToolProgress,
     toggle,
     clear,
     handleStreamEvent,
