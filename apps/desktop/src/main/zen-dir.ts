@@ -36,6 +36,10 @@ export function zenSkillsRoot(): string {
   return join(zenRoot(), "skills");
 }
 
+export function zenMemoryDir(): string {
+  return join(zenRoot(), "memory");
+}
+
 /** 应用域 userData（auth/settings/db），与 ~/.zen 分离 */
 export function appDataDir(): string {
   return app.getPath("userData");
@@ -77,6 +81,7 @@ export async function initZenDir(): Promise<void> {
     ensureDir(zenSkillsRoot()),
     ensureDir(zenSandboxRoot()),
     ensureDir(zenCacheRoot()),
+    ensureDir(zenMemoryDir()),
   ]);
   const existing = await readJson<Partial<AgentSettings>>(zenConfigFile(), {});
   if (Object.keys(existing).length === 0) {

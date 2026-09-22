@@ -41,6 +41,8 @@ export class BrowserViewManager {
   protected debuggerAttached = false;
   protected starting: Promise<BrowserStatus> | null = null;
   protected navigateToken = 0;
+  /** 系统弹窗（sheet/文件选择）显示期间的压制计数，防止 WebContentsView 盖住弹窗 */
+  protected dialogSuppress = 0;
 
   onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
@@ -85,13 +87,26 @@ export class BrowserViewManager {
     this.applyBounds();
   }
 
+  /**
+   * 弹窗期间隐藏内嵌浏览器视图：macOS sheet / 文件选择等系统弹窗层级低于
+   * contentView 上的 WebContentsView，会整个被盖住。返回恢复函数，弹窗关闭后调用。
+   */
+  hideForDialog(): () => void {
+    this.dialogSuppress += 1;
+    this.applyBounds();
+    return () => {
+      this.dialogSuppress = Math.max(0, this.dialogSuppress - 1);
+      this.applyBounds();
+    };
+  }
+
   protected applyBounds(): void {
     const view = this.view;
     if (!view) {
       return;
     }
     const b = this.bounds;
-    const show = this.wantVisible && b && b.width > 1 && b.height > 1;
+    const show = this.wantVisible && this.dialogSuppress === 0 && b && b.width > 1 && b.height > 1;
     try {
       if (!show) {
         view.setVisible(false);

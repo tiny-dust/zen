@@ -1,7 +1,8 @@
-import { dialog, ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 
 import type { ChatMessage } from "@zen/shared";
 
+import { showOpenDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
 import {
   appendMessage,
@@ -12,6 +13,7 @@ import {
   getSession,
   listWorkspaceGroups,
   renameSession,
+  renameWorkspace,
   setSessionArchived,
   setSessionDraft,
   setSessionPinned,
@@ -91,8 +93,9 @@ function sanitizeAppendableMessage(input: unknown): ChatMessage | null {
 export function registerSessionIpc(): void {
   ipcMain.handle("workspace:list", () => listWorkspaceGroups());
 
-  ipcMain.handle("workspace:create", async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle("workspace:create", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const result = await showOpenDialogSafe(parent, {
       title: "选择工作区目录",
       properties: ["openDirectory", "createDirectory"],
     });
@@ -115,6 +118,13 @@ export function registerSessionIpc(): void {
 
   ipcMain.handle("workspace:delete", (_event, id: string) => {
     deleteWorkspace(id);
+    return listWorkspaceGroups();
+  });
+
+  ipcMain.handle("workspace:rename", (_event, id: string, name: string) => {
+    if (typeof name === "string" && name.trim()) {
+      renameWorkspace(id, name.trim());
+    }
     return listWorkspaceGroups();
   });
 

@@ -2,8 +2,9 @@ import { ipcMain } from "electron";
 
 import { createMcpClient } from "@zen/mcp-client";
 
-import type { McpServerConfig, McpServerStatus, McpToolInfo } from "@zen/shared";
+import type { McpDiscoveredServer, McpServerConfig, McpServerStatus, McpToolInfo } from "@zen/shared";
 import type { McpClient } from "@zen/mcp-client";
+import { scanMcpSources } from "./mcp-scan";
 import { readMcpConfig, writeMcpConfig } from "./zen-dir";
 
 /**
@@ -54,6 +55,15 @@ export function registerMcpIpc(): void {
     const { servers } = await readMcpConfig();
     return collectStatuses(servers);
   });
+
+  // 扫描当前仓库与系统里已有的 MCP 配置，供设置页一键导入
+  ipcMain.handle(
+    "mcp:scan",
+    async (_event, workspaceRoot?: string): Promise<McpDiscoveredServer[]> => {
+      const { servers } = await readMcpConfig();
+      return scanMcpSources(workspaceRoot, servers);
+    },
+  );
 
   ipcMain.handle("mcp:set-servers", async (_event, servers: McpServerConfig[]) => {
     if (!Array.isArray(servers)) {

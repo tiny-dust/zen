@@ -12,6 +12,7 @@ import type {
 
 import { getDb } from "./model-db-connection";
 import {
+  inspectModelCapabilities,
   prettyModelName,
   resolveModelCapabilities,
 } from "./model-capabilities";
@@ -166,6 +167,34 @@ export async function setSelection(providerId: string | null, modelId: string | 
     )
     .run(providerId, modelId);
   return getSelection();
+}
+
+/**
+ * 找一个具备视觉能力的已启用模型（图片预分析兜底用）；
+ * 优先跳过当前选中模型，避免把任务再发给不支持视觉的模型。
+ */
+export async function findVisionModel(
+  exclude?: { providerId?: string; modelId?: string },
+): Promise<{ providerId: string; modelId: string } | null> {
+  const providers = await listProviders();
+  for (const provider of providers) {
+    if (!provider.enabled) {
+      continue;
+    }
+    for (const model of provider.models) {
+      if (!model.enabled) {
+        continue;
+      }
+      if (exclude?.providerId === provider.id && exclude?.modelId === model.id) {
+        continue;
+      }
+      const vision = model.capabilities?.vision ?? inspectModelCapabilities(model.id).vision;
+      if (vision === true) {
+        return { providerId: provider.id, modelId: model.id };
+      }
+    }
+  }
+  return null;
 }
 
 export async function addProvider(input: ProviderInput): Promise<ProviderSummary> {

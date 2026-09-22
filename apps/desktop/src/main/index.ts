@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import { AgentSession, registerMcpRuntime, runMockAgent } from "@zen/agent-core";
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
+import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
+import { inspectModelCapabilities } from "./model-capabilities";
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { getWorkspace } from "./workspace-db";
 import {
@@ -34,7 +36,12 @@ import { shutdownTerminalService } from "./terminal/service";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import { initZenDir, loadAgentSettings } from "./zen-dir";
+import { appendMemoryNote, initDeviceMemory, readMemorySnapshot, renderMemoryContext } from "./memory";
+import { registerMemoryIpc } from "./memory-ipc";
 
+import type {
+  AgentImageAttachment,
+} from "@zen/agent-core";
 import type {
   AgentRunRequest,
   AgentStreamEvent,
@@ -242,6 +249,23 @@ function registerIpc(): void {
         return { ok: true };
       }
 
+      // 附件图片路由：视觉模型 → 原生多模态 part；非视觉模型 → 视觉兜底预分析
+      let runUserMessage = request.userMessage;
+      let sessionImages: AgentImageAttachment[] | undefined;
+      const imageRefs = (request.attachments ?? []).filter((att) =>
+        isImagePath(att.path || att.name),
+      );
+      if (imageRefs.length) {
+        if (inspectModelCapabilities(modelId).vision === true) {
+          sessionImages = await loadImageAttachments(imageRefs);
+        } else {
+          runUserMessage = await withImageAnalysisText(request.userMessage, imageRefs, {
+            providerId: provider.id,
+            modelId,
+          });
+        }
+      }
+
       const apiKey = await loadProviderApiKey(provider.id);
 
       // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
@@ -272,6 +296,16 @@ function registerIpc(): void {
         reasoningEffort: request.reasoningEffort,
         permissionMode: agentSettings.permissionMode,
         systemPrompt: resolvePromptText(agentSettings),
+        // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
+        memoryContext: await readMemorySnapshot()
+          .then(renderMemoryContext)
+          .catch(() => undefined),
+        memoryBridge: {
+          appendNote: async (scope, text) => {
+            await appendMemoryNote(scope, text);
+            return { ok: true };
+          },
+        },
         multiAgent: true,
         skills,
         skillExtraPaths: agentSettings.skillExtraPaths,
@@ -280,7 +314,7 @@ function registerIpc(): void {
         emit: emitTo,
       });
       sessions.set(request.sessionId, session);
-      await session.start(request.userMessage, request.history);
+      await session.start(runUserMessage, request.history, sessionImages);
       // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
       return { ok: true };
     } catch (error) {
@@ -405,9 +439,12 @@ app.whenReady().then(() => {
   registerUpdaterIpc();
   registerBrowserIpc(broadcast);
   registerTerminalIpc(broadcast);
+  registerMemoryIpc();
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
+  // 记忆：~/.zen/memory 缺设备快照时自动采集（PATH 工具扫描），失败不阻塞启动
+  void initDeviceMemory();
   void initUserState();
 
   app.on("activate", () => {

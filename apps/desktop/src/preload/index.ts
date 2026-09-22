@@ -7,6 +7,7 @@ import { browserApi } from "./browser";
 import { cacheApi } from "./cache";
 import { gitApi } from "./git";
 import { mcpApi } from "./mcp";
+import { memoryApi } from "./memory";
 import { modelsApi } from "./models";
 import { sessionApi } from "./session";
 import { settingsApi } from "./settings";
@@ -31,6 +32,7 @@ const zen = {
   ...cacheApi,
   ...skillsApi,
   ...mcpApi,
+  ...memoryApi,
   ...syncApi,
   ...workspaceApi,
   ...sessionApi,

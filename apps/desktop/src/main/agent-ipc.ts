@@ -1,8 +1,9 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 
 import { listSkills } from "@zen/skills";
 
 import type { AgentSettings, SkillSummary } from "@zen/shared";
+import { showOpenDialogSafe } from "./dialog-safe";
 import { PROMPT_PRESETS } from "./prompt-presets";
 import { rebuildSandbox } from "./sandbox";
 import { loadAgentSettings, saveAgentSettings, zenSandboxRoot } from "./zen-dir";
@@ -40,9 +41,7 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
       title: "选择目录",
       properties: ["openDirectory"],
     };
-    const result = win
-      ? await dialog.showOpenDialog(win, options)
-      : await dialog.showOpenDialog(options);
+    const result = await showOpenDialogSafe(win, options);
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 

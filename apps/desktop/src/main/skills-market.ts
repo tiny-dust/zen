@@ -1,46 +1,22 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 
 import { ipcMain } from "electron";
 
-import { listSkills } from "@zen/skills";
-
-import { completeOnceStream } from "./model-api";
-import { loadAgentSettings, zenSkillsRoot } from "./zen-dir";
+import { zenSkillsRoot } from "./zen-dir";
 
 import type { SkillMarketHit, SkillSummary } from "@zen/shared";
 
 const execFileAsync = promisify(execFile);
-
-export interface SkillAnalyzeRequest {
-  providerId: string;
-  modelId: string;
-}
 
 function expandHome(path: string): string {
   if (path.startsWith("~/") || path === "~") {
     return join(homedir(), path.slice(1).replace(/^\//, "") || "");
   }
   return path;
-}
-
-async function readSkillBodies(skills: SkillSummary[]): Promise<string> {
-  const chunks: string[] = [];
-  for (const skill of skills) {
-    let body = "";
-    try {
-      const file = join(skill.dir, "SKILL.md");
-      const raw = await readFile(file, "utf8");
-      body = raw.slice(0, 2400);
-    } catch {
-      body = "(无法读取 SKILL.md)";
-    }
-    chunks.push(`## ${skill.name} (id=${skill.id}, dir=${skill.dir})\n${body}`);
-  }
-  return chunks.join("\n\n");
 }
 
 async function searchMarketplace(query: string): Promise<SkillMarketHit[]> {
@@ -70,57 +46,135 @@ async function searchMarketplace(query: string): Promise<SkillMarketHit[]> {
   }));
 }
 
-/** 安装：优先 npx skills add，并确保结果落在 ~/.zen/skills 下可见 */
-async function installMarketSkill(hit: SkillMarketHit): Promise<{ ok: boolean; dir?: string; error?: string }> {
-  const target = join(zenSkillsRoot(), hit.skillId);
-  await mkdir(zenSkillsRoot(), { recursive: true });
+/**
+ * 定位 npx 可执行文件：GUI 启动（Finder/Dock/双击）时 PATH 通常只有系统目录，
+ * 不含用户 Node（nvm / volta / n / Homebrew 等），需按平台探测常见安装位置。
+ * 返回可执行文件与补齐后的 env（PATH 前插该目录，保证 npx 能找到 node）。
+ */
+async function resolveNpxInvocation(): Promise<{
+  cmd: string;
+  env: NodeJS.ProcessEnv;
+  shell: boolean;
+} | null> {
+  const isWin = process.platform === "win32";
+  const npxName = isWin ? "npx.cmd" : "npx";
+  const pathDirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+
+  // 跨平台常见 Node 安装目录（探测到即并入搜索与 PATH）
+  const extraDirs = isWin
+    ? [
+        process.env.APPDATA ? join(process.env.APPDATA, "npm") : "",
+        process.env.ProgramFiles ? join(process.env.ProgramFiles, "nodejs") : "",
+        join(homedir(), ".volta", "bin"),
+        join(homedir(), "scoop", "apps", "nodejs", "current"),
+      ].filter(Boolean)
+    : [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        join(homedir(), "n", "bin"),
+        join(homedir(), ".volta", "bin"),
+        join(homedir(), ".local", "bin"),
+        join(homedir(), ".asdf", "shims"),
+      ];
+
+  // nvm：取版本号最高的已安装 Node（macOS/Linux）
+  if (!isWin) {
+    const nvmRoot = join(homedir(), ".nvm", "versions", "node");
+    try {
+      const versions = await readdir(nvmRoot);
+      const latest = versions
+        .filter((name) => /^v?\d+(\.\d+)*$/.test(name))
+        .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+        .at(-1);
+      if (latest) {
+        extraDirs.push(join(nvmRoot, latest, "bin"));
+      }
+    } catch {
+      // 无 nvm，忽略
+    }
+  }
+
+  for (const dir of [...extraDirs, ...pathDirs]) {
+    const candidate = join(dir, npxName);
+    try {
+      await stat(candidate);
+      return {
+        cmd: candidate,
+        env: { ...process.env, PATH: [dir, ...pathDirs].join(delimiter) },
+        shell: isWin, // Windows 上 .cmd 需要 shell 才能被 spawn
+      };
+    } catch {
+      // 继续探测
+    }
+  }
+  return null;
+}
+
+/** execFile 错误转可读信息：剥 ANSI、取 stderr 尾部（CLI 的失败原因都在 stderr） */
+function installErrorMessage(error: unknown): string {
+  const err = error as { message?: string; stderr?: string | Buffer; killed?: boolean };
+  if (err?.killed) {
+    return "安装超时：skills CLI 长时间未响应，请检查网络后重试";
+  }
+  const raw = typeof err?.stderr === "string" ? err.stderr : (err?.stderr?.toString("utf8") ?? "");
+  const tail = raw
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join("；");
+  return tail || err?.message || "安装失败";
+}
+
+/**
+ * 安装：npx skills CLI（--global 装到 ~/.claude/skills，--copy 落实体文件便于卸载）。
+ * 注意 CLI 的包参数是 owner/repo，技能名用 --skill 指定；缺 --yes 会在非 TTY 下挂起等待输入。
+ */
+async function installMarketSkill(
+  hit: SkillMarketHit,
+): Promise<{ ok: boolean; dir?: string; error?: string }> {
+  const npx = await resolveNpxInvocation();
+  if (!npx) {
+    return {
+      ok: false,
+      error: "未找到 npx（Node.js）。请安装 Node.js 后重启 Zen 再试。",
+    };
+  }
   try {
-    // skills CLI 会装到 agent 目录；Zen 额外在 ~/.zen/skills 建同名技能目录副本入口
+    await mkdir(zenSkillsRoot(), { recursive: true });
     await execFileAsync(
-      "npx",
-      ["-y", "skills", "add", hit.id, "--agent", "claude-code"],
+      npx.cmd,
+      [
+        "-y",
+        "skills",
+        "add",
+        hit.source,
+        "--skill",
+        hit.skillId,
+        "--agent",
+        "claude-code",
+        "--global",
+        "--copy",
+        "--yes",
+      ],
       {
-        timeout: 120_000,
-        env: { ...process.env, CI: "1" },
+        timeout: 180_000,
+        env: npx.env,
         windowsHide: true,
+        shell: npx.shell,
       },
     );
-    // 若 CLI 装到了 ~/.claude/skills 或 ~/.agents/skills，复制到 Zen 技能根
-    const candidates = [
-      join(homedir(), ".claude", "skills", hit.skillId),
-      join(homedir(), ".agents", "skills", hit.skillId),
-      join(homedir(), ".codex", "skills", hit.skillId),
-    ];
-    let installedDir = "";
-    for (const dir of candidates) {
-      try {
-        await stat(join(dir, "SKILL.md"));
-        installedDir = dir;
-        break;
-      } catch {
-        // continue
-      }
-    }
-    if (installedDir && installedDir !== target) {
-      await execFileAsync("cp", ["-R", installedDir, target], { windowsHide: true }).catch(
-        async () => {
-          // Windows 无 cp 时退回 Node 复制
-          const { cp } = await import("node:fs/promises");
-          await cp(installedDir, target, { recursive: true });
-        },
-      );
-    }
-    try {
-      await stat(join(target, "SKILL.md"));
-      return { ok: true, dir: target };
-    } catch {
-      return installedDir
-        ? { ok: true, dir: installedDir }
-        : { ok: false, error: "安装完成但未找到 SKILL.md，请检查 skills CLI 输出" };
-    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, error: message };
+    return { ok: false, error: installErrorMessage(error) };
+  }
+  // skills CLI --global 固定安装到 ~/.claude/skills（与 listSkills 的兼容目录一致）
+  const installedDir = join(homedir(), ".claude", "skills", hit.skillId);
+  try {
+    await stat(join(installedDir, "SKILL.md"));
+    return { ok: true, dir: installedDir };
+  } catch {
+    return { ok: false, error: "安装完成但未找到 SKILL.md，请查看 skills CLI 输出" };
   }
 }
 
@@ -141,51 +195,6 @@ async function uninstallSkill(skill: SkillSummary): Promise<{ ok: boolean; error
   }
 }
 
-async function analyzeSkills(
-  req: SkillAnalyzeRequest,
-  onDelta: (text: string) => void,
-): Promise<{ ok: boolean; report?: string; error?: string }> {
-  const settings = await loadAgentSettings();
-  const skills = await listSkills(settings.skillExtraPaths);
-  if (!skills.length) {
-    return { ok: false, error: "本地没有可分析的技能" };
-  }
-  const bodies = await readSkillBodies(skills);
-  const prompt = `你是 Zen 的技能冲突分析器。下面是本机已安装技能的清单与 SKILL.md 摘要。
-
-请分析：
-1. 功能重叠 / 触发条件冲突
-2. 可能抢同一条用户指令的技能
-3. 工作流矛盾（例如同时要求 TDD 与直接实现）
-4. 给出保留/禁用/合并建议
-
-输出用中文 Markdown：先给结论表，再给逐条建议。不要编造不存在的技能。
-
-${bodies}`;
-  try {
-    // 流式补全：增量实时推给渲染层（折叠面板内边生成边展示），避免
-    // reasoning 模型 stream:false 全量缓冲把补全拖到超时
-    const report = await completeOnceStream(
-      prompt,
-      {
-        system:
-          "你是严谨的本地技能审计助手。只依据提供的技能内容分析，输出可执行建议，不编造。",
-        maxTokens: 4096,
-        timeoutMs: 180_000,
-        providerId: req.providerId,
-        modelId: req.modelId,
-      },
-      onDelta,
-    );
-    if (!report.trim()) {
-      return { ok: false, error: "模型未返回分析结果" };
-    }
-    return { ok: true, report };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
 export function registerSkillsMarketIpc(): void {
   ipcMain.handle("skills:market-search", async (_e, query: string) => {
     try {
@@ -201,7 +210,7 @@ export function registerSkillsMarketIpc(): void {
   });
 
   ipcMain.handle("skills:market-install", async (_e, hit: SkillMarketHit) => {
-    if (!hit?.id || !hit?.skillId) {
+    if (!hit?.id || !hit?.skillId || !hit?.source) {
       return { ok: false, error: "无效的技能条目" };
     }
     return installMarketSkill(hit);
@@ -212,19 +221,6 @@ export function registerSkillsMarketIpc(): void {
       return { ok: false, error: "无效的技能" };
     }
     return uninstallSkill(skill);
-  });
-
-  // 流式分析：增量经 skills:analyze-event 定向推给发起方，invoke 返回值仍为最终结果
-  ipcMain.handle("skills:analyze", async (event, req: SkillAnalyzeRequest) => {
-    if (!req?.providerId || !req?.modelId) {
-      return { ok: false, error: "请先选择分析所用模型" };
-    }
-    const sender = event.sender;
-    return analyzeSkills(req, (text) => {
-      if (!sender.isDestroyed()) {
-        sender.send("skills:analyze-event", { text });
-      }
-    });
   });
 
   ipcMain.handle("skills:user-root", () => zenSkillsRoot());
