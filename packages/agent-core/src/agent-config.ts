@@ -22,6 +22,14 @@ export interface McpToolBridge {
   inputSchema: Record<string, unknown>;
 }
 
+/** 记忆桥（main 侧落盘 ~/.zen/memory；scope 区分设备环境 / 用户习惯） */
+export interface MemoryAgentBridge {
+  appendNote(
+    scope: "device" | "user",
+    text: string,
+  ): Promise<{ ok: boolean; error?: string }>;
+}
+
 export interface AgentSessionConfig {
   sessionId: string;
   workspaceRoot: string;
@@ -34,6 +42,10 @@ export interface AgentSessionConfig {
   permissionMode: PermissionMode;
   /** 系统提示词全文（设置页选择的预设或自定义） */
   systemPrompt?: string;
+  /** 记忆上下文（desktop 侧渲染好的文本块：设备环境 + 用户习惯；缺省不注入） */
+  memoryContext?: string;
+  /** 记忆桥：updateMemory 工具把新备注落盘 ~/.zen/memory（desktop 注入；缺省不注册该工具） */
+  memoryBridge?: MemoryAgentBridge;
   /** 技能清单提示（loadSkill 可取全文） */
   skills?: AgentSkillHint[];
   /** loadSkill 校验用：与设置页一致的技能搜索路径 */
@@ -69,6 +81,16 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
   }
   if (config.multiAgent !== false) {
     parts.push(multiAgentInstructions());
+  }
+  if (config.memoryContext?.trim()) {
+    parts.push(config.memoryContext.trim());
+  }
+  if (config.memoryBridge) {
+    parts.push(
+      `长期记忆：当前会话已注入「设备环境记忆」与「用户习惯记忆」（若有）。` +
+        `当用户明确要求记住某事，或出现值得长期保留的稳定事实（设备路径/命令、用户偏好与工作习惯）时，` +
+        `用 updateMemory 工具追加一条简洁备注；只记录长期有效的信息，不记录一次性任务细节。`,
+    );
   }
   parts.push(
     `当前工作目录：${config.workspaceRoot}\n系统平台：${process.platform}\n今天的日期：${new Date().toISOString().slice(0, 10)}`,

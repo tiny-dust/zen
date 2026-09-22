@@ -21,6 +21,12 @@ import type { StreamPartState } from "./agent-stream";
 import { subAgentInstructions } from "./multi-agent-instructions";
 import { MultiAgentOrchestrator, ResourceLock } from "./multi-agent";
 
+/** 附件图片（data-url），支持视觉的模型按原生多模态 part 随用户消息发出 */
+export interface AgentImageAttachment {
+  name: string;
+  dataUrl: string;
+}
+
 /**
  * 单个会话的有状态 Agent 运行时。
  *
@@ -206,12 +212,27 @@ export class AgentSession {
     }
   }
 
-  async start(userMessage: string, history?: ChatTurn[]): Promise<void> {
+  async start(
+    userMessage: string,
+    history?: ChatTurn[],
+    images?: AgentImageAttachment[],
+  ): Promise<void> {
     this.messages = (history ?? []).map((item) => ({
       role: item.role as "system" | "user" | "assistant",
       content: item.content,
     }));
-    this.messages.push({ role: "user", content: userMessage });
+    // 支持视觉的模型：附件图片作为原生多模态 part 随用户消息发出
+    if (images?.length) {
+      const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
+        { type: "text", text: userMessage },
+      ];
+      for (const image of images) {
+        parts.push({ type: "image", image: image.dataUrl });
+      }
+      this.messages.push({ role: "user", content: parts });
+    } else {
+      this.messages.push({ role: "user", content: userMessage });
+    }
     this.paused = false;
     this.step = 0;
     this.pending = null;

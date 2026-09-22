@@ -114,10 +114,13 @@ export function buildToolSet(
     listDir: tool({
       description: "List one directory level inside the workspace (no recursion).",
       inputSchema: z.object({
-        path: z.string().describe("Directory path relative to the workspace root ('' for root)."),
+        path: z
+          .string()
+          .optional()
+          .describe("Directory path relative to the workspace root. Omit or '' for root."),
       }),
       execute: async ({ path }) => {
-        const result = await listWorkspaceDir(workspaceRoot, path || "");
+        const result = await listWorkspaceDir(workspaceRoot, path ?? "");
         return result.entries.map((entry) => `${entry.isDir ? "d" : "-"} ${entry.name}`).join("\n");
       },
     }),
@@ -233,6 +236,34 @@ export function buildToolSet(
         return found;
       },
     }),
+    ...(config.memoryBridge
+      ? {
+          updateMemory: tool({
+            description:
+              "Append one durable note to long-term memory (survives across sessions). " +
+              "scope=device records device facts worth reusing (paths, tool locations, environment quirks); " +
+              "scope=user records stable user preferences and working habits. " +
+              "Only save long-lived information — never one-off task details. " +
+              "For user habits, save when the user explicitly asks to remember, or states a clear durable preference.",
+            inputSchema: z.object({
+              scope: z
+                .enum(["device", "user"])
+                .describe("device = environment facts; user = user preferences/habits."),
+              text: z
+                .string()
+                .max(500)
+                .describe("One concise note (a single sentence or bullet)."),
+            }),
+            execute: async ({ scope, text }) => {
+              const result = await config.memoryBridge?.appendNote(scope, text);
+              if (!result?.ok) {
+                throw new Error(result?.error ?? "memory write failed");
+              }
+              return { ok: true };
+            },
+          }),
+        }
+      : {}),
     updateTasks: tool({
       description:
         "Create or update the session task/plan list shown in the UI sidebar and chat timeline. " +
