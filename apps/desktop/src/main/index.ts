@@ -1,22 +1,12 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
-import { AgentSession, registerMcpRuntime, runMockAgent } from "@zen/agent-core";
+import { registerMcpRuntime } from "@zen/agent-core";
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
-import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
-import { inspectModelCapabilities } from "./model-capabilities";
-import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
-import { getWorkspace } from "./workspace-db";
-import {
-  appendMessage,
-  ensureSessionTitle,
-  getSession as loadSessionRecord,
-  saveTaskList,
-} from "./workspace-db";
+import { runAgentRequest, startLarkChat } from "./agent-runner";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
@@ -25,7 +15,7 @@ import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
-import { registerMcpIpc, enabledMcpTools, shutdownMcp } from "./mcp-ipc";
+import { registerMcpIpc, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
 import { registerBrowserIpc } from "./browser/ipc";
 import { getBrowserService, shutdownBrowserService } from "./browser/service";
@@ -33,25 +23,20 @@ import { registerCacheIpc } from "./cache-ipc";
 import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
-import { resolvePromptText } from "./prompt-presets";
-import { resolveWorkspaceDir } from "./sandbox";
-import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
-import { appendMemoryNote, initDeviceMemory, readMemorySnapshot, renderMemoryContext } from "./memory";
+import { initZenDir, loadAgentSettings } from "./zen-dir";
+import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
-import { notifyLarkEvent, registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
+import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
 import { registerWindowControlsIpc } from "./window-controls";
+import { appendMessage } from "./workspace-db";
 
-import type {
-  AgentImageAttachment,
-} from "@zen/agent-core";
+import type { AgentSession } from "@zen/agent-core";
 import type {
   AgentRunRequest,
   AgentStreamEvent,
   AskUserAnswer,
-  ChatMessage,
   ToolApprovalDecision,
 } from "@zen/shared";
-import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
 const sessions = new Map<string, AgentSession>();
 
@@ -61,25 +46,6 @@ function emit(webContents: Electron.WebContents, event: AgentStreamEvent): void 
   if (!webContents.isDestroyed()) {
     webContents.send("agent:event", event);
   }
-}
-
-/** 助手回复（含思考文本）在 run 真正结束后一次性落库；run summary 本身也算有效内容 */
-function persistAssistant(sessionId: string, message: ChatMessage): void {
-  if (!shouldPersistAssistantMessage(message)) {
-    return;
-  }
-  const run = getMessageRun(message);
-  const parts = message.parts ?? [];
-  appendMessage(sessionId, {
-    id: message.id,
-    role: "assistant",
-    content: message.content,
-    reasoning: message.reasoning || undefined,
-    reasoningMs: message.reasoningMs,
-    parts,
-    meta: run ? { ...message.meta, run } : message.meta,
-    createdAt: message.createdAt,
-  });
 }
 
 function createWindow(): BrowserWindow {
@@ -197,181 +163,13 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle("agent:run", async (event, request: AgentRunRequest) => {
-    if (!request?.sessionId || !request.userMessage) {
-      return { ok: false, error: "invalid agent run request" };
-    }
-    // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
-    if (!loadSessionRecord(request.sessionId)) {
-      return { ok: false, error: "session not found" };
-    }
-
-    // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
-    ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
-    appendMessage(request.sessionId, {
-      id: randomUUID(),
-      role: "user",
-      content: request.userMessage,
-      createdAt: Date.now(),
-      meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
-    });
-
-    await sessions.get(request.sessionId)?.cancel();
-    sessions.delete(request.sessionId);
-
-    // 流式累积助手回复：与 UI 共用 applyStreamToMessage；仅 done/明确错误终态落库。
-    // 插入执行会打断 run 一次（原 run → 插入 run → 原 run 续跑），
-    // 在 insert_started / original_resumed 边界轮换 accMessage，三段各自成一条助手消息落库。
-    let accMessage: ChatMessage = {
-      id: randomUUID(),
-      role: "assistant",
-      content: "",
-      createdAt: Date.now(),
-      parts: [],
-    };
-    let persisted = false;
-    const persistRun = () => {
-      if (persisted) {
-        return;
-      }
-      persistAssistant(request.sessionId, accMessage);
-      persisted = true;
-    };
-    const rotateAcc = () => {
-      persistRun();
-      accMessage = {
-        id: randomUUID(),
-        role: "assistant",
-        content: "",
-        createdAt: Date.now(),
-        parts: [],
-      };
-      persisted = false;
-    };
-    const emitTo = (streamEvent: AgentStreamEvent) => {
-      // 飞书桥接：ask_user / ask_resolved / done 事件喂给网关（推送与待答清理）
-      notifyLarkEvent(streamEvent);
-      if (streamEvent.sessionId !== request.sessionId) {
-        emit(event.sender, streamEvent);
-        return;
-      }
-      if (streamEvent.type === "tasks_updated") {
-        // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流
-        saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
-      } else if (
-        streamEvent.type === "insert_started" ||
-        streamEvent.type === "original_resumed"
-      ) {
-        // 插入执行边界：上一段助手输出落库，此后事件归入新的一段
-        rotateAcc();
-      } else if (streamEvent.type !== "reference_found") {
-        applyStreamToMessage(accMessage, streamEvent);
-      }
-      // 持久化绑定 done：暂停/等审批不是 run 终点，resume 后继续写同一条
-      if (streamEvent.type === "done") {
-        persistRun();
-      }
-      emit(event.sender, streamEvent);
-    };
-
-    try {
-      const selection = await getSelection();
-      const providerId = request.providerId || selection.providerId;
-      const modelId = request.model || selection.modelId;
-      const provider = (await listProviders()).find((item) => item.id === providerId);
-
-      if (!provider || !modelId) {
-        const controller = new AbortController();
-        await runMockAgent(request.sessionId, request.userMessage, controller.signal, emitTo);
-        // mock 始终发 done；此处兜底防止遗漏
-        persistRun();
-        return { ok: true };
-      }
-
-      // 附件图片路由：视觉模型 → 原生多模态 part；非视觉模型 → 视觉兜底预分析
-      let runUserMessage = request.userMessage;
-      let sessionImages: AgentImageAttachment[] | undefined;
-      const imageRefs = (request.attachments ?? []).filter((att) =>
-        isImagePath(att.path || att.name),
-      );
-      if (imageRefs.length) {
-        if (inspectModelCapabilities(modelId).vision === true) {
-          sessionImages = await loadImageAttachments(imageRefs);
-        } else {
-          runUserMessage = await withImageAnalysisText(request.userMessage, imageRefs, {
-            providerId: provider.id,
-            modelId,
-          });
-        }
-      }
-
-      const apiKey = await loadProviderApiKey(provider.id);
-
-      // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
-      const agentSettings = await loadAgentSettings();
-      const projectPath = getWorkspace(request.workspaceId)?.path;
-      let workspaceRoot: string;
-      if (projectPath) {
-        workspaceRoot = (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
-      } else {
-        // 无项目会话（公共区）：Agent 产物落 ~/.zen/cache/sessions/<sessionId>，
-        // 不再落到用户主目录/应用启动 cwd；mkdir 保证目录先于首次写文件存在
-        workspaceRoot = sessionCacheDir(request.sessionId);
-        await mkdir(workspaceRoot, { recursive: true });
-      }
-
-      // 技能与 MCP 惰性汇总（失败不阻塞会话）
-      const [skills, mcpTools] = await Promise.all([
-        import("@zen/skills")
-          .then(({ listSkills }) => listSkills(agentSettings.skillExtraPaths))
-          .then((items) =>
-            items.map((item) => ({ id: item.id, name: item.name, description: item.description })),
-          )
-          .catch(() => []),
-        enabledMcpTools().catch(() => []),
-      ]);
-
-      const session = new AgentSession({
-        sessionId: request.sessionId,
-        workspaceRoot,
-        protocol: provider.protocol,
-        baseUrl: provider.baseUrl,
-        apiKey,
-        model: modelId,
-        reasoningEffort: request.reasoningEffort,
-        permissionMode: agentSettings.permissionMode,
-        systemPrompt: resolvePromptText(agentSettings),
-        // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
-        memoryContext: await readMemorySnapshot()
-          .then(renderMemoryContext)
-          .catch(() => undefined),
-        memoryBridge: {
-          appendNote: async (scope, text) => {
-            await appendMemoryNote(scope, text);
-            return { ok: true };
-          },
-        },
-        multiAgent: true,
-        skills,
-        skillExtraPaths: agentSettings.skillExtraPaths,
-        mcpTools,
-        browserBridge: getBrowserService(),
-        emit: emitTo,
-      });
-      sessions.set(request.sessionId, session);
-      await session.start(runUserMessage, request.history, sessionImages);
-      // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
-      return { ok: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "agent run failed";
-      applyStreamToMessage(accMessage, { type: "error", sessionId: request.sessionId, message });
-      applyStreamToMessage(accMessage, { type: "done", sessionId: request.sessionId, reason: "error" });
-      emit(event.sender, { type: "error", sessionId: request.sessionId, message });
-      emit(event.sender, { type: "done", sessionId: request.sessionId, reason: "error" });
-      persistRun();
-      return { ok: false, error: message };
-    }
-  });
+  // run 主体抽到 agent-runner.ts（渲染层入口：send 回传 webContents，行为不变）
+  ipcMain.handle("agent:run", async (event, request: AgentRunRequest) =>
+    runAgentRequest(request, {
+      sessions,
+      send: (streamEvent) => emit(event.sender, streamEvent),
+    }),
+  );
 
   ipcMain.handle("agent:cancel", async (_event, sessionId: string) => {
     const session = sessions.get(sessionId);
@@ -471,6 +269,8 @@ function registerIpc(): void {
       return false;
     },
     sessionState: (sessionId) => sessions.get(sessionId)?.getRunState() ?? null,
+    // 「对话」命令：按项目路径找到/新建工作区 + 新建会话并异步运行 agent
+    startChat: (workspacePath, message) => startLarkChat(workspacePath, message, sessions),
   });
 }
 
