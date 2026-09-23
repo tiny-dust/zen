@@ -544,7 +544,17 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen || !isRunning.value) {
       return;
     }
-    await zen.agent.cancel(sessionId.value);
+    const result = await zen.agent.cancel(sessionId.value);
+    if (!result.ok) {
+      // 主进程已无此 run（渲染层重载后状态失联等）：本地直接落终态，
+      // 否则会话永远停在「运行中」，停止按钮看似失灵
+      status.value = "idle";
+      phase.value = "answering";
+      isPaused.value = false;
+      insertActive.value = false;
+      statusText.value = "已停止";
+      sessionStatusStore.set(sessionId.value, "done");
+    }
   }
 
   async function pause() {
@@ -552,7 +562,15 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen || !isRunning.value) {
       return;
     }
-    await zen.agent.pause(sessionId.value);
+    const result = await zen.agent.pause(sessionId.value);
+    if (!result.ok && result.error === "session not running") {
+      // 与 cancel 同源的失联兜底：主进程已无 run，无法暂停，落终态避免卡死
+      status.value = "idle";
+      phase.value = "answering";
+      isPaused.value = false;
+      statusText.value = "已停止";
+      sessionStatusStore.set(sessionId.value, "done");
+    }
   }
 
   async function resume() {
