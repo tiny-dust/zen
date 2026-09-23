@@ -1,54 +1,44 @@
 <script setup lang="ts">
-import { Bot, MessageCircleQuestion, SquareTerminal, Wrench } from "@lucide/vue";
+import { Bot, MessageCircleQuestion, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed } from "vue";
+import { computed, watch } from "vue";
 
-import { toolDisplay } from "@/components/chat/tool-part";
-import { Button } from "@/components/ui/button";
-import { PROCESS_STATUS_META } from "@/stores/agent-processes";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import { Response } from "@/components/ai-elements/response";
+import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
 import { SUB_AGENT_STATUS_META, useAgentsStore } from "@/stores/agents";
 
 import type { AgentNode } from "@/stores/agents";
-import type { AgentTranscriptEntry, SubAgentStatus, ToolCallState } from "@zen/shared";
+import type { AgentTranscriptEntry, ChatMessagePart, ToolCallState } from "@zen/shared";
 
 /**
- * 右栏 Agents 面板：左侧子 Agent 列表 + 右侧该 Agent 的消息流时间线
- * （任务 → 正文 / 工具调用 / 提问 / 错误 → 结果）。由悬浮信息卡「子 Agent」点击进入。
+ * 右栏 Agents 面板：全宽展示所选子 Agent 的消息流，渲染组件与主信息流一致
+ * （正文 markdown / 思考块 / 工具卡 / 用户气泡）。悬浮信息卡点击子 Agent 直达，
+ * 顶部只保留一条紧凑切换条用于在多个子 Agent 之间换人，不再有二级列表页。
  */
 const agentsStore = useAgentsStore();
-const { nodes, root, selected, selectedId, limit, running } = storeToRefs(agentsStore);
+const { nodes, selected, selectedId, running, limit } = storeToRefs(agentsStore);
 
-const listItems = computed(() => {
-  const items: Array<{
-    id: string;
-    name: string;
-    status: SubAgentStatus;
-    task: string;
-    depth: number;
-    attempts: string;
-  }> = [];
-  if (root.value) {
-    items.push({
-      id: root.value.id,
-      name: root.value.name,
-      status: root.value.status,
-      task: root.value.task,
-      depth: 0,
-      attempts: "",
-    });
-  }
-  for (const node of nodes.value) {
-    items.push({
-      id: node.id,
-      name: node.name,
-      status: node.status,
-      task: node.task,
-      depth: 1,
-      attempts: node.maxAttempts > 1 ? `${node.attempts}/${node.maxAttempts}` : "",
-    });
-  }
-  return items;
-});
+/** 未选中或选中项已消失时自动落到首个活跃节点（否则第一个） */
+watch(
+  [nodes, selectedId],
+  () => {
+    if (selectedId.value && nodes.value.some((item) => item.id === selectedId.value)) {
+      return;
+    }
+    const active =
+      nodes.value.find((item) => item.status === "running" || item.status === "waiting_user") ??
+      nodes.value[0];
+    selectedId.value = active?.id ?? "";
+  },
+  { immediate: true },
+);
+
+function meta(status: SubAgentStatusLike) {
+  return SUB_AGENT_STATUS_META[status] ?? SUB_AGENT_STATUS_META.queued;
+}
+
+type SubAgentStatusLike = AgentNode["status"];
 
 type RowKind = "task" | "text" | "reasoning" | "tool" | "ask" | "error" | "system" | "result";
 
@@ -61,9 +51,10 @@ interface Row {
   state?: ToolCallState;
   args?: unknown;
   output?: string;
+  summary?: string;
 }
 
-/** transcript 条目 → 展示行 */
+/** transcript 条目 → 展示行（工具行保留结构化字段，供分组渲染工具卡） */
 function entryRow(entry: AgentTranscriptEntry): Row {
   return {
     key: entry.id,
@@ -74,270 +65,232 @@ function entryRow(entry: AgentTranscriptEntry): Row {
     state: entry.state,
     args: entry.args,
     output: entry.output,
+    summary: entry.summary,
   };
 }
 
-/** 选中 Agent 的消息流：任务 → transcript（正文/工具/提问/错误）与运行日志按时间合并 → 结果/错误 */
-const messages = computed<Row[]>(() => {
+/** 选中 Agent 的消息流：任务 → transcript（按时间合并运行日志）→ 结果/错误 */
+const rows = computed<Row[]>(() => {
   const node: AgentNode | null = selected.value;
   if (!node) {
     return [];
   }
-  const rows: Row[] = [];
+  const list: Row[] = [];
   if (node.task) {
-    rows.push({ key: "task", kind: "task", text: node.task });
+    list.push({ key: "task", kind: "task", text: node.task });
   }
   const merged: Array<{ t: number; row: Row }> = [
     ...(node.transcript ?? []).map((entry) => ({ t: entry.t, row: entryRow(entry) })),
     ...node.log.map((line) => ({
       t: line.t,
-      row: { key: `log-${line.t}-${line.text.slice(0, 24)}`, kind: "system" as const, text: line.text, time: line.t },
+      row: {
+        key: `log-${line.t}-${line.text.slice(0, 24)}`,
+        kind: "system" as const,
+        text: line.text,
+        time: line.t,
+      },
     })),
   ];
   merged.sort((a, b) => a.t - b.t);
-  rows.push(...merged.map((item) => item.row));
+  list.push(...merged.map((item) => item.row));
   if (node.result) {
-    rows.push({ key: "result", kind: "result", text: node.result });
+    list.push({ key: "result", kind: "result", text: node.result });
   }
   if (node.error) {
-    rows.push({ key: "error", kind: "error", text: node.error });
+    list.push({ key: "error", kind: "error", text: node.error });
   }
-  return rows;
+  return list;
 });
 
-function meta(status: SubAgentStatus) {
-  return SUB_AGENT_STATUS_META[status] ?? SUB_AGENT_STATUS_META.queued;
+/**
+ * 展示分段：正文/思考按 parts 渲染（与主信息流同构），连续工具行合并为一组工具卡。
+ */
+interface Segment {
+  key: string;
+  kind: "text" | "reasoning" | "ask" | "error" | "result" | "system" | "tools";
+  text: string;
+  parts?: ChatMessagePart[];
 }
 
-function toolMeta(state?: ToolCallState) {
-  if (!state) {
-    return { label: "", cls: "text-[var(--color-mut)]" };
-  }
-  return PROCESS_STATUS_META[state] ?? { label: state, cls: "text-[var(--color-mut)]" };
+const FAILED_STATES: ReadonlySet<ToolCallState> = new Set(["error", "denied", "cancelled", "interrupted"]);
+
+function toolPartOf(row: Row): ChatMessagePart {
+  const failed = row.state ? FAILED_STATES.has(row.state) : false;
+  return {
+    type: "tool",
+    toolCallId: row.key,
+    toolName: row.toolName ?? "tool",
+    state: row.state ?? "ok",
+    args: row.args,
+    summary: row.summary || row.text,
+    error: failed ? row.summary || row.text : undefined,
+    output: row.output,
+  };
 }
 
-/** 工具行展示名：带参数摘要（与主聊天工具卡一致的 label） */
-function toolLabel(name: string | undefined, args: unknown): string {
-  if (!name) {
-    return "";
+const segments = computed<Segment[]>(() => {
+  const list: Segment[] = [];
+  for (const row of rows.value) {
+    if (row.kind === "tool") {
+      const previous = list.at(-1);
+      if (previous?.kind === "tools") {
+        previous.parts?.push(toolPartOf(row));
+      } else {
+        list.push({ key: row.key, kind: "tools", text: "", parts: [toolPartOf(row)] });
+      }
+      continue;
+    }
+    if (row.kind === "text") {
+      // 正文累计展示由 Response 组件承接：保持一条一段，key 用条目 id
+      list.push({ key: row.key, kind: "text", text: row.text });
+      continue;
+    }
+    if (row.kind === "reasoning") {
+      list.push({ key: row.key, kind: "reasoning", text: row.text });
+      continue;
+    }
+    if (row.kind === "task" || row.kind === "ask") {
+      list.push({ key: row.key, kind: "ask", text: row.text });
+      continue;
+    }
+    list.push({ key: row.key, kind: row.kind, text: row.text });
   }
-  try {
-    return toolDisplay(name, args).label;
-  } catch {
-    return name;
-  }
-}
-
-function argsTitle(args: unknown): string {
-  if (args == null) {
-    return "";
-  }
-  if (typeof args === "string") {
-    return args;
-  }
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
-function timeLabel(t?: number) {
-  if (!t) {
-    return "";
-  }
-  const date = new Date(t);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
-}
+  return list;
+});
 
 function kindLabel(row: Row): string {
   switch (row.kind) {
-    case "task":
-      return "任务";
-    case "text":
-      return "输出";
-    case "reasoning":
-      return "思考";
-    case "tool":
-      return "工具";
-    case "ask":
-      return "提问";
-    case "error":
-      return "错误";
     case "result":
       return "结果";
+    case "error":
+      return "错误";
     default:
       return "";
   }
 }
+
+const segmentKindLabel = (kind: "result" | "error") =>
+  kindLabel({ key: "", kind, text: "" } as Row);
 </script>
 
 <template>
   <div class="flex h-full min-h-0 flex-col gap-2" aria-label="Agent 消息">
-    <div class="flex items-center gap-2 px-1 text-[12px] text-[var(--color-mut)]">
+    <!-- 顶部：选中 Agent 状态 + 紧凑切换条（替代原二级列表，点击直达消息流） -->
+    <div class="flex flex-none items-center gap-2 px-1 text-[12px] text-[var(--color-mut)]">
       <Bot class="size-3.5" aria-hidden="true" />
-      <span>子 Agent 消息</span>
-      <span class="tabular-nums text-[11px] text-[var(--color-dim)]">
+      <span v-if="selected" class="min-w-0 truncate font-medium text-[var(--color-txt-strong)]">
+        {{ selected.name }}
+      </span>
+      <span v-if="selected" class="flex-none" :class="meta(selected.status).cls">
+        {{ meta(selected.status).label }}
+      </span>
+      <span class="ml-auto flex-none tabular-nums text-[11px] text-[var(--color-dim)]">
         并发 {{ running }}/{{ limit }}
       </span>
     </div>
 
-    <div class="flex min-h-0 flex-1 gap-2">
-      <div class="w-[42%] min-w-[140px] overflow-auto rounded-xl border border-[var(--color-line-soft)]">
-        <p v-if="!listItems.length" class="m-0 px-3 py-4 text-[12px] text-[var(--color-dim)]">
-          暂无子 Agent。
-        </p>
-        <ul v-else class="m-0 list-none p-1">
-          <li v-for="item in listItems" :key="item.id">
-            <Button
-              variant="ghost"
-              class="flex h-auto w-full items-start justify-start gap-2 rounded-lg px-2 py-1.5 text-left font-normal"
-              :class="
-                selectedId === item.id
-                  ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]'
-                  : 'hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
-              "
-              :style="{ paddingLeft: `${8 + item.depth * 12}px` }"
-              @click="agentsStore.select(item.id)"
+    <div
+      v-if="nodes.length > 1"
+      class="flex flex-none gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
+      role="tablist"
+      aria-label="切换子 Agent"
+    >
+      <button
+        v-for="node in nodes"
+        :key="node.id"
+        type="button"
+        role="tab"
+        :aria-selected="node.id === selectedId"
+        class="flex h-6 flex-none items-center gap-1 rounded-full px-2 text-[11px] font-normal transition-colors"
+        :class="
+          node.id === selectedId
+            ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]'
+            : 'text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]'
+        "
+        @click="agentsStore.select(node.id)"
+      >
+        <component
+          :is="meta(node.status).icon"
+          class="size-3 flex-none"
+          :class="[meta(node.status).cls, node.status === 'running' ? 'animate-spin' : '']"
+          aria-hidden="true"
+        />
+        <span class="max-w-[160px] truncate">{{ node.name }}</span>
+      </button>
+    </div>
+
+    <!-- 全宽消息流：与主信息流同构（markdown 正文 / 思考块 / 工具卡 / 右对齐问询气泡） -->
+    <div
+      class="min-h-0 flex-1 overflow-auto px-1"
+      aria-label="Agent 消息流"
+    >
+      <p v-if="!selected" class="m-0 px-1 py-3 text-[12px] text-[var(--color-dim)]">
+        暂无子 Agent 消息。
+      </p>
+      <div v-else class="mx-auto flex w-full flex-col gap-4">
+        <template v-for="seg in segments" :key="seg.key">
+          <!-- 工具组：与主信息流同一张工具卡 -->
+          <ToolCallGroup v-if="seg.kind === 'tools'" :tools="(seg.parts ?? []) as never" />
+
+          <!-- 正文：与助手气泡相同的 markdown 渲染 -->
+          <Response
+            v-else-if="seg.kind === 'text'"
+            :content="seg.text"
+            class="md-content w-full min-w-0 max-w-full"
+          />
+
+          <!-- 思考：与主信息流同款折叠块 -->
+          <Reasoning v-else-if="seg.kind === 'reasoning'" class="w-full min-w-0 max-w-full" :is-streaming="false">
+            <ReasoningTrigger class="w-fit max-w-full text-[12px]" />
+            <ReasoningContent :content="seg.text" class="mt-2 min-w-0 text-[12px] reasoning-dim" />
+          </Reasoning>
+
+          <!-- 任务 / 问询：右对齐用户气泡样式 -->
+          <div v-else-if="seg.kind === 'ask'" class="flex w-full justify-end">
+            <div
+              class="flex max-w-[min(760px,85%)] items-start gap-1.5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[13px] text-[var(--color-txt-strong)]"
             >
-              <component
-                :is="meta(item.status).icon"
-                class="mt-0.5 size-3.5 flex-none"
-                :class="[meta(item.status).cls, item.status === 'running' ? 'animate-spin' : '']"
+              <MessageCircleQuestion
+                v-if="seg.key !== 'task'"
+                class="mt-0.5 size-3.5 flex-none text-[var(--color-accent)]"
                 aria-hidden="true"
               />
-              <span class="min-w-0 flex-1">
-                <span class="flex items-center gap-1.5">
-                  <span class="truncate text-[12px] text-[var(--color-txt-strong)]">{{ item.name }}</span>
-                  <span v-if="item.attempts" class="text-[10px] text-[var(--color-dim)]">{{ item.attempts }}</span>
-                </span>
-                <span class="mt-0.5 block truncate text-[10.5px] text-[var(--color-mut)]">
-                  {{ meta(item.status).label }}
-                </span>
-              </span>
-            </Button>
-          </li>
-        </ul>
-      </div>
-
-      <div
-        class="min-w-0 flex-1 overflow-auto rounded-xl border border-[var(--color-line-soft)] p-2.5"
-        aria-label="Agent 消息流"
-      >
-        <p v-if="!selected" class="m-0 px-1 py-3 text-[12px] text-[var(--color-dim)]">
-          点击左侧子 Agent 查看消息。
-        </p>
-        <template v-else>
-          <div class="mb-2 flex items-center gap-2 border-b border-[var(--color-line-soft)] pb-2">
-            <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--color-txt-strong)]">
-              {{ selected.name }}
-            </span>
-            <span class="flex-none text-[11px]" :class="meta(selected.status).cls">
-              {{ meta(selected.status).label }}
-            </span>
-          </div>
-
-          <div v-if="!messages.length" class="px-1 py-3 text-[12px] text-[var(--color-dim)]">
-            暂无消息。
-          </div>
-          <div v-else class="flex flex-col gap-2">
-            <div v-for="row in messages" :key="row.key" class="flex flex-col gap-0.5">
-              <!-- 工具行：图标 + 展示名 + 状态 + 摘要；入参 title、输出可展开 -->
-              <template v-if="row.kind === 'tool'">
-                <div class="flex items-center gap-1.5" :title="argsTitle(row.args)">
-                  <Wrench class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-                  <span class="truncate text-[11.5px] text-[var(--color-txt)]">
-                    {{ toolLabel(row.toolName, row.args) }}
-                  </span>
-                  <span v-if="toolMeta(row.state).label" class="flex-none text-[10px]" :class="toolMeta(row.state).cls">
-                    {{ toolMeta(row.state).label }}
-                  </span>
-                  <span v-if="row.time" class="ml-auto flex-none font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                    {{ timeLabel(row.time) }}
-                  </span>
-                </div>
-                <p v-if="row.text && row.text !== row.toolName" class="m-0 truncate pl-[18px] text-[10.5px] text-[var(--color-mut)]" :title="row.text">
-                  {{ row.text }}
-                </p>
-                <details v-if="row.output" class="pl-[18px]">
-                  <summary class="cursor-pointer text-[10px] text-[var(--color-dim)]">输出</summary>
-                  <pre class="m-0 mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--color-np-btn-bg)] p-2 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-txt)]">{{ row.output }}</pre>
-                </details>
-              </template>
-
-              <!-- 提问行 -->
-              <template v-else-if="row.kind === 'ask'">
-                <div class="flex items-baseline gap-1.5">
-                  <MessageCircleQuestion class="size-3 flex-none self-center text-[var(--color-accent)]" aria-hidden="true" />
-                  <span class="min-w-0 flex-1 text-[11.5px] text-[var(--color-txt)]">{{ row.text }}</span>
-                  <span v-if="row.time" class="flex-none font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                    {{ timeLabel(row.time) }}
-                  </span>
-                </div>
-              </template>
-
-              <!-- 正文 / 思考行：完整消息流，不截断 -->
-              <template v-else-if="row.kind === 'text' || row.kind === 'reasoning'">
-                <div class="flex items-baseline gap-1.5">
-                  <span
-                    class="text-[10.5px] font-medium"
-                    :class="row.kind === 'reasoning' ? 'text-[var(--color-dim)]' : 'text-[var(--color-mut)]'"
-                  >
-                    {{ kindLabel(row) }}
-                  </span>
-                  <span v-if="row.time" class="font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                    {{ timeLabel(row.time) }}
-                  </span>
-                </div>
-                <p
-                  class="m-0 whitespace-pre-wrap text-[11.5px] leading-relaxed"
-                  :class="row.kind === 'reasoning' ? 'italic text-[var(--color-mut)]' : 'text-[var(--color-txt)]'"
-                >{{ row.text }}</p>
-              </template>
-
-              <!-- 任务 / 运行日志 / 结果 / 错误 -->
-              <template v-else>
-                <div class="flex items-baseline gap-1.5">
-                  <span
-                    class="text-[10.5px] font-medium"
-                    :class="
-                      row.kind === 'error'
-                        ? 'text-[var(--color-err,#c45c5c)]'
-                        : row.kind === 'result'
-                          ? 'text-[var(--color-ok,#3d9a6a)]'
-                          : 'text-[var(--color-dim)]'
-                    "
-                  >
-                    {{ kindLabel(row) }}
-                  </span>
-                  <span v-if="row.time" class="font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                    {{ timeLabel(row.time) }}
-                  </span>
-                </div>
-                <pre
-                  v-if="row.kind === 'result' || row.kind === 'error'"
-                  class="m-0 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--color-np-btn-bg)] p-2 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]"
-                >{{ row.text }}</pre>
-                <p
-                  v-else
-                  class="m-0 text-[11.5px] leading-relaxed"
-                  :class="row.kind === 'task' ? 'text-[var(--color-txt)]' : 'truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-mut)]'"
-                  :title="row.text"
-                >
-                  {{ row.text }}
-                </p>
-              </template>
+              <span class="min-w-0 whitespace-pre-wrap break-words">{{ seg.text }}</span>
             </div>
           </div>
 
-          <p
-            v-if="selected.busyResource === 'terminal'"
-            class="m-0 mt-2 flex items-center gap-1 text-[11px] text-[var(--color-mut)]"
-          >
-            <SquareTerminal class="size-3" aria-hidden="true" />
-            占用终端资源
-          </p>
+          <!-- 结果 / 错误 / 运行日志 -->
+          <div v-else class="w-fit min-w-0 max-w-[min(100%,72ch)]">
+            <div
+              v-if="seg.kind === 'result' || seg.kind === 'error'"
+              class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12.5px]"
+              :class="
+                seg.kind === 'error'
+                  ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'
+                  : 'border border-[var(--color-line-soft)] bg-[var(--color-side)] text-[var(--color-ok,#3d9a6a)]'
+              "
+              :role="seg.kind === 'error' ? 'alert' : 'status'"
+            >
+              <span class="flex-none font-medium">{{ segmentKindLabel(seg.kind === 'error' ? 'error' : 'result') }}</span>
+              <span class="min-w-0 whitespace-pre-wrap break-words">{{ seg.text }}</span>
+            </div>
+            <p
+              v-else
+              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+              :title="seg.text"
+            >
+              {{ seg.text }}
+            </p>
+          </div>
         </template>
+
+        <p
+          v-if="selected.busyResource === 'terminal'"
+          class="m-0 flex items-center gap-1 text-[11px] text-[var(--color-mut)]"
+        >
+          <SquareTerminal class="size-3" aria-hidden="true" />
+          占用终端资源
+        </p>
       </div>
     </div>
   </div>
