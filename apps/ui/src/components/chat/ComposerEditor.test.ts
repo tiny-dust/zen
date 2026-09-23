@@ -167,6 +167,17 @@ describe("ComposerEditor atomic tokens", () => {
     expect(wrapper.get(".composer-editor").element.textContent).toBe("$报告.ts");
   });
 
+  it("renders unregistered @/$ path mentions as file chips without changing source", () => {
+    const source = "看 @src/App.vue 和 $lib/util.ts，金额 $5.00 与邮箱 hi@ex.com 保持纯文本";
+    const wrapper = editor(source);
+    const labels = wrapper.findAll(".file-label--link");
+    expect(labels.map((label) => label.text())).toEqual(["App.vue", "util.ts"]);
+    // 目录部分并入隐藏前缀，textContent 仍与源文本一致
+    expect(wrapper.get(".composer-editor").element.textContent).toBe(source);
+    expect(wrapper.find(".composer-token-file .composer-token-prefix").text()).toBe("@src/");
+    wrapper.unmount();
+  });
+
   it("does not insert when disabled", async () => {
     const wrapper = editor("/skill:coder");
     await wrapper.setProps({ disabled: true });

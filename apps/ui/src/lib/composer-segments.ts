@@ -21,6 +21,12 @@ function overlaps(marked: MarkedRange[], start: number, end: number): boolean {
   return marked.some((range) => start < range.end && end > range.start);
 }
 
+/** 提及是否呈路径形态：含 / 或带扩展名（README.md）；排除 "$5.00"、"@词" 一类非路径文本 */
+function isPathLikeMention(token: string): boolean {
+  const value = token.slice(1);
+  return value.includes("/") || /\.[A-Za-z]\w{0,7}$/.test(value);
+}
+
 /** 把 source 解析成装饰分段：token（附件引用）> 行首清单标记 > 加粗 > 链接，其余为纯文本 */
 export function parseSegments(
   source: string,
@@ -86,6 +92,20 @@ export function parseSegments(
         });
       }
       from = index + 1;
+    }
+  }
+
+  // 未注册为附件的 @/$ 路径提及（@ 文件补全插入的 `$路径` 或手输引用）：呈路径形态才装饰
+  const mentionRe = /(?:^|\s)([@$][\w./-]+)/g;
+  for (;;) {
+    const match = mentionRe.exec(source);
+    if (!match || !match[1]) {
+      break;
+    }
+    const start = match.index + match[0].length - match[1].length;
+    const end = start + match[1].length;
+    if (isPathLikeMention(match[1]) && !overlaps(marked, start, end)) {
+      marked.push({ start, end, segment: { kind: "token", text: match[1] } });
     }
   }
 
