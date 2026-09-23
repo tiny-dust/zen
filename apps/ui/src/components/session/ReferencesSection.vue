@@ -142,6 +142,11 @@ function toggleGroup(key: string) {
                 :root="sessionRoot"
               />
             </Button>
+            <span
+              v-if="item.agent"
+              class="flex-none rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
+              :title="`来自 ${item.agent}`"
+            >{{ item.agent }}</span>
             <ExternalLink
               v-if="group.key === 'web'"
               class="mt-0.5 size-3 flex-none text-[var(--color-dim)]"

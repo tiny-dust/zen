@@ -42,8 +42,45 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
     ownerSessionId.value = sessionId;
   }
 
-  function applyTasksUpdated(sessionId: string, version: number, items: TaskItem[]) {
+  /**
+   * 应用一次任务清单更新。
+   * 带 agentName（子 Agent 侧信道事件）：不做整列表替换，而是按 item id
+   * upsert 合并进当前激活版本（无激活版本则新建 v1），条目保留 agentName。
+   * 不带 agentName（主 Agent）：行为与原先一致，按 version 整列表替换。
+   */
+  function applyTasksUpdated(
+    sessionId: string,
+    version: number,
+    items: TaskItem[],
+    agentName?: string,
+  ) {
     ensureSession(sessionId);
+    if (agentName) {
+      let target = activeVersion.value;
+      if (!target) {
+        const created: TaskListVersion = {
+          id: nextTaskId(),
+          version: 1,
+          items: [],
+          createdAt: Date.now(),
+        };
+        versions.value.push(created);
+        activeVersionId.value = created.id;
+        target = created;
+      }
+      const merged = [...target.items];
+      for (const item of items) {
+        const index = merged.findIndex((existing) => existing.id === item.id);
+        const tagged: TaskItem = { ...item, agentName };
+        if (index >= 0) {
+          merged[index] = tagged;
+        } else {
+          merged.push(tagged);
+        }
+      }
+      target.items = merged;
+      return;
+    }
     const existing = versions.value.find((item) => item.version === version);
     if (existing) {
       existing.items = items;

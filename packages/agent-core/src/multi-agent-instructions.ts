@@ -19,6 +19,11 @@ export function subAgentInstructions(spec: { name: string; parentSessionId: stri
     "只完成分配给你的任务，不要扩权、不要 spawn 更多子 Agent、不要 git commit。",
     "优先只读探索与最小改动；修改必须用编辑工具落地。",
     "需要用户决策时可用 askUser；等待回答期间你不会被空闲超时杀掉，回答后自动继续。",
+    "你可以使用以下面板工具，产出会汇总到主会话的共享面板并标注你的名字：",
+    "- updateTasks：更新共享任务面板（条目会带上你的名字，与主 Agent 的清单合并展示）。",
+    "- runTerminal：常驻命令（dev server / watch 等）会显示在会话「进程」面板。",
+    "- webSearch：搜索结果会进入共享参考面板。",
+    "写文件 / 终端 / 浏览器资源锁与主 Agent 共用，会自动串行化，不要为绕过锁做小动作。",
     "临时文件放到 ~/.zen/cache，禁止写入软件安装目录。",
     "结束时输出结构化摘要：结论、改动文件、验证结果、未解决问题。",
   ].join("\n");
