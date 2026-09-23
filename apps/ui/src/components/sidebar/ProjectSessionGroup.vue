@@ -86,6 +86,44 @@ const showExpandToggle = computed(() => props.sessions.length > previewCount);
               aria-hidden="true"
             />
           </Button>
+          <!-- 悬浮快捷操作：图标按钮 hover 只提亮图标不出底色，键盘聚焦时保持可见 -->
+          <div
+            class="flex flex-none items-center gap-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] focus-within:opacity-100 group-hover/row:opacity-100"
+          >
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
+              aria-label="新建会话"
+              title="新建会话"
+              @click.stop="emit('new-session')"
+            >
+              <Plus class="size-3.5" aria-hidden="true" />
+            </Button>
+            <template v-if="!isCommon">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
+                :aria-label="group.pinned ? '取消置顶' : '置顶'"
+                :title="group.pinned ? '取消置顶' : '置顶'"
+                @click.stop="emit('pin-workspace')"
+              >
+                <PinOff v-if="group.pinned" class="size-3.5" aria-hidden="true" />
+                <Pin v-else class="size-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="size-5 text-[var(--color-del)] hover:text-[var(--color-danger-fg)] dark:hover:text-[var(--color-danger-fg)]"
+                aria-label="删除工作区"
+                title="删除工作区"
+                @click.stop="emit('delete-workspace')"
+              >
+                <Trash2 class="size-3.5" aria-hidden="true" />
+              </Button>
+            </template>
+          </div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent class="text-[12.5px]">

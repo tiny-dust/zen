@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cable, ChevronDown, Folder, FolderPlus, Plus, Sparkles } from "@lucide/vue";
+import { Cable, Plus, Sparkles } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
@@ -11,15 +11,6 @@ import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -28,8 +19,6 @@ import {
 } from "@/components/ui/dialog";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
-
-import type { AcceptableValue } from "reka-ui";
 
 import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 
@@ -45,8 +34,6 @@ const pendingSessionDelete = ref<SessionRecord | null>(null);
 const renamingWorkspace = ref<WorkspaceGroup | null>(null);
 const renameDraft = ref("");
 const pendingWorkspaceDelete = ref<WorkspaceGroup | null>(null);
-/** 「项目」下拉：all = 全部项目，否则只显示选中项目（切换/筛选） */
-const projectFilter = ref("all");
 /** 「在文件管理器中显示」按平台文案（Windows 资源管理器 / Linux 文件管理器） */
 const showInFolderLabel = ref("在 Finder 中显示");
 
@@ -57,29 +44,15 @@ onMounted(async () => {
   }
 });
 
+/** 公共区：顶级分组（组头即区块头） */
+const commonGroup = computed(() =>
+  groups.value.find((item) => item.id === "common" && !item.archived) ?? null,
+);
+
+/** 项目工作区列表（后端已按置顶/更新时间排序） */
 const workspaceGroups = computed(() =>
   groups.value.filter((item) => !item.archived && item.kind === "workspace"),
 );
-
-const commonGroup = computed(() => groups.value.find((item) => item.id === "common") ?? null);
-
-/** 分组列表：公共区在前，其后为项目工作区（后端已按置顶/更新时间排序） */
-const displayGroups = computed<WorkspaceGroup[]>(() => {
-  const visible = groups.value.filter((item) => !item.archived);
-  if (projectFilter.value !== "all") {
-    return visible.filter((item) => item.id === projectFilter.value);
-  }
-  const common = visible.filter((item) => item.kind === "common");
-  const workspaces = visible.filter((item) => item.kind === "workspace");
-  return [...common, ...workspaces];
-});
-
-const projectFilterLabel = computed(() => {
-  if (projectFilter.value === "all") {
-    return "项目";
-  }
-  return groups.value.find((item) => item.id === projectFilter.value)?.name ?? "项目";
-});
 
 function sortSessions(list: SessionRecord[]): SessionRecord[] {
   return [...list].sort((a, b) => {
@@ -103,15 +76,6 @@ function onGroupToggle(id: string) {
   workspaceStore.toggleCollapsed(id);
   // 展开某个分组时顺带把它设为当前工作区（新建任务默认落点）
   if (willOpen) {
-    workspaceStore.setActive(id);
-  }
-}
-
-/** 「项目」下拉选中：单项目时过滤列表并切为当前工作区 */
-function onSelectProject(value: AcceptableValue) {
-  const id = typeof value === "string" ? value : "all";
-  projectFilter.value = id;
-  if (id !== "all") {
     workspaceStore.setActive(id);
   }
 }
@@ -198,9 +162,6 @@ async function onDeleteWorkspace() {
   if (!group) {
     return;
   }
-  if (projectFilter.value === group.id) {
-    projectFilter.value = "all";
-  }
   await workspaceStore.remove(group.id);
 }
 
@@ -208,12 +169,10 @@ async function onDeleteWorkspace() {
 const topEntryCls =
   "h-8 flex-1 justify-start gap-1.5 rounded-[var(--radius-sm)] px-2 text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
 
-/** 「项目」下拉触发器：文字 + 下箭头 */
-const projectTriggerCls =
-  "h-8 w-full justify-start gap-1 rounded-[var(--radius-sm)] px-2 text-left text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
-
-const menuItemCls = "gap-2 text-[12.5px] text-[var(--color-txt)]";
-const menuIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
+/** 「工作区」区块头：弱色标签 + 悬浮显现的新建工作区按钮（与公共区组头视觉平级） */
+const sectionLabelCls = "min-w-0 flex-1 truncate pl-1 text-[11.5px] text-[var(--color-mut)]";
+const sectionAddCls =
+  "size-5 text-[var(--color-dim)] opacity-0 transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/section:opacity-100";
 </script>
 
 <template>
@@ -247,53 +206,41 @@ const menuIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
       </Button>
     </div>
 
-    <!-- 项目切换/筛选 -->
-    <div class="flex-none px-2 pb-1 pt-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <Button variant="ghost" :class="projectTriggerCls">
-            <span class="min-w-0 truncate">{{ projectFilterLabel }}</span>
-            <ChevronDown class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          class="w-[var(--reka-dropdown-menu-trigger-width)] min-w-[200px] text-[12.5px]"
-        >
-          <DropdownMenuRadioGroup
-            :model-value="projectFilter"
-            @update:model-value="onSelectProject"
-          >
-            <DropdownMenuRadioItem value="all" :class="menuItemCls">全部项目</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem
-              v-if="commonGroup"
-              :value="commonGroup.id"
-              :class="menuItemCls"
-            >
-              公共区
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem
-              v-for="group in workspaceGroups"
-              :key="group.id"
-              :value="group.id"
-              :class="menuItemCls"
-            >
-              <Folder :class="menuIconCls" aria-hidden="true" />
-              {{ group.name }}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem :class="menuItemCls" @select="workspaceStore.create()">
-            <FolderPlus :class="menuIconCls" aria-hidden="true" />
-            新建工作区
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-
     <div class="min-h-0 flex-1 overflow-y-auto pb-2">
+      <!-- 公共区：组头即区块头（组名即「公共区」），不额外加一层 -->
       <ProjectSessionGroup
-        v-for="group in displayGroups"
+        v-if="commonGroup"
+        :group="commonGroup"
+        :sessions="sessionsOf(commonGroup)"
+        :open="groupOpen(commonGroup.id)"
+        :expanded="workspaceStore.expanded.has(commonGroup.id)"
+        :active-session-id="sessionId"
+        :show-in-folder-label="showInFolderLabel"
+        @toggle="onGroupToggle(commonGroup.id)"
+        @toggle-expand="workspaceStore.toggleExpanded(commonGroup.id)"
+        @new-session="onNewSessionIn(commonGroup.id)"
+        @open="openSession"
+        @pin="onPinSession"
+        @archive="(session, archived) => onArchiveSession(session, archived)"
+        @remove="pendingSessionDelete = $event"
+      />
+
+      <!-- 工作区：平级区块，区块头 + 各项目目录 -->
+      <div class="group/section flex h-7 items-center gap-1 px-2 pt-1">
+        <span :class="sectionLabelCls">工作区</span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          :class="sectionAddCls"
+          aria-label="新建工作区"
+          title="新建工作区"
+          @click="workspaceStore.create()"
+        >
+          <Plus class="size-3.5" aria-hidden="true" />
+        </Button>
+      </div>
+      <ProjectSessionGroup
+        v-for="group in workspaceGroups"
         :key="group.id"
         :group="group"
         :sessions="sessionsOf(group)"

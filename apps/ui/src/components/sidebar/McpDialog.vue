@@ -161,10 +161,10 @@ function stateLabel(state: string) {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
+      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
           <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">添加服务</div>
-          <div class="grid gap-2">
+          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
             <Input v-model="form.name" class="h-8 text-[12px]" placeholder="名称，如 filesystem" />
             <Select v-model="form.transport">
               <SelectTrigger class="h-8 text-[12px]">
@@ -179,13 +179,13 @@ function stateLabel(state: string) {
             <Input
               v-if="form.transport === 'stdio'"
               v-model="form.command"
-              class="h-8 text-[12px]"
+              class="h-8 text-[12px] md:col-span-2"
               placeholder="命令，如 npx -y @modelcontextprotocol/server-filesystem /path"
             />
             <Input
               v-else
               v-model="form.url"
-              class="h-8 text-[12px]"
+              class="h-8 text-[12px] md:col-span-2"
               placeholder="https://…"
             />
           </div>
