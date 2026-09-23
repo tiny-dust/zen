@@ -38,6 +38,7 @@ import { resolveWorkspaceDir } from "./sandbox";
 import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { appendMemoryNote, initDeviceMemory, readMemorySnapshot, renderMemoryContext } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
+import { notifyLarkEvent, registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
 import { registerWindowControlsIpc } from "./window-controls";
 
 import type {
@@ -248,6 +249,8 @@ function registerIpc(): void {
       persisted = false;
     };
     const emitTo = (streamEvent: AgentStreamEvent) => {
+      // 飞书桥接：ask_user / ask_resolved / done 事件喂给网关（推送与待答清理）
+      notifyLarkEvent(streamEvent);
       if (streamEvent.sessionId !== request.sessionId) {
         emit(event.sender, streamEvent);
         return;
@@ -456,6 +459,19 @@ function registerIpc(): void {
       return resolved ? { ok: true } : { ok: false, error: "ask not found" };
     },
   );
+
+  // 飞书桥接：lark:status 查询 + 答案写回（遍历 sessions Map）/ 会话状态快照
+  registerLarkIpc(broadcast, {
+    resolveAsk: (askId, answer) => {
+      for (const session of sessions.values()) {
+        if (session.resolveAsk(askId, answer)) {
+          return true;
+        }
+      }
+      return false;
+    },
+    sessionState: (sessionId) => sessions.get(sessionId)?.getRunState() ?? null,
+  });
 }
 
 function broadcast(channel: string, payload: unknown): void {
@@ -496,6 +512,8 @@ function applyDockBrand() {
 app.whenReady().then(() => {
   applyDockBrand();
   registerIpc();
+  // 启动即同步飞书桥接设置（enabled 时拉起事件网关；registerLarkIpc 已就绪）
+  void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();
   registerModelIpc();
   registerSessionIpc();
@@ -546,4 +564,5 @@ app.on("will-quit", () => {
   shutdownMcp();
   shutdownTerminalService();
   shutdownBrowserService();
+  shutdownLark();
 });

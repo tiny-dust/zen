@@ -4,6 +4,7 @@ import { listSkills } from "@zen/skills";
 
 import type { AgentSettings, SkillSummary } from "@zen/shared";
 import { showOpenDialogSafe } from "./dialog-safe";
+import { syncLarkGatewayWithSettings } from "./lark/ipc";
 import { PROMPT_PRESETS } from "./prompt-presets";
 import { rebuildSandbox } from "./sandbox";
 import { loadAgentSettings, saveAgentSettings, zenSandboxRoot } from "./zen-dir";
@@ -26,6 +27,8 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
       }
       const next = await saveAgentSettings(partial);
       broadcast("agent:settings-changed", next);
+      // 飞书桥接随设置启停（异步：内部含 auth 探测，不阻塞设置返回）
+      void syncLarkGatewayWithSettings(next);
       return next;
     },
   );

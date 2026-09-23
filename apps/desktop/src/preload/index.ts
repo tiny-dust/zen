@@ -6,6 +6,7 @@ import { authApi } from "./auth";
 import { browserApi } from "./browser";
 import { cacheApi } from "./cache";
 import { gitApi } from "./git";
+import { larkApi } from "./lark";
 import { mcpApi } from "./mcp";
 import { memoryApi } from "./memory";
 import { modelsApi } from "./models";
@@ -34,6 +35,7 @@ const zen = {
   ...mcpApi,
   ...memoryApi,
   ...syncApi,
+  ...larkApi,
   ...workspaceApi,
   ...sessionApi,
   pathForFile(file: File): string {
