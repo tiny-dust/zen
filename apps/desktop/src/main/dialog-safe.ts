@@ -13,8 +13,10 @@ export async function showOpenDialogSafe(
   parent: BrowserWindow | null,
   options: OpenDialogOptions,
 ): Promise<OpenDialogReturnValue> {
-  const { hideForDialog } = getBrowserService();
-  const restore = hideForDialog();
+  // 注意：不能解构出 hideForDialog 再调用——原型方法脱离实例后 this 为 undefined，
+  // 严格模式下会抛 TypeError，导致所有系统文件弹窗（新建工作区等）静默失败。
+  const service = getBrowserService();
+  const restore = service.hideForDialog();
   try {
     return parent
       ? await dialog.showOpenDialog(parent, options)
