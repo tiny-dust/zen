@@ -8,6 +8,30 @@ export interface BrowserViewBounds {
   height: number;
 }
 
+/** 画中画悬浮窗几何（跨启动记住位置与大小，存 ~/.zen/config.json） */
+export interface BrowserPipBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 内嵌浏览器设置：UA 与视口缩放，持久化在 ~/.zen/config.json 的 browser 字段 */
+export interface BrowserSettings {
+  /** 自定义 User-Agent；空串表示用默认 UA */
+  userAgent: string;
+  /** 页面缩放百分比（50–300），100 即不缩放；作用于 webContents zoom，不改变视图 bounds */
+  zoomPercent: number;
+  /** 画中画悬浮窗上次的位置与大小 */
+  pipBounds: BrowserPipBounds | null;
+}
+
+export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
+  userAgent: "",
+  zoomPercent: 100,
+  pipBounds: null,
+};
+
 export interface BrowserStatus {
   state: BrowserRunState;
   /** 内嵌 Chromium 版本（Electron 自带，随 Zen 应用更新） */
@@ -22,6 +46,10 @@ export interface BrowserStatus {
   picking: boolean;
   /** 视图是否贴合面板显示 */
   visible: boolean;
+  /** 页面当前在画中画悬浮窗中展示 */
+  pip: boolean;
+  /** 画中画已关闭但页面仍在后台运行（面板暂时不接管视图） */
+  pipHidden: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
   error?: string;
