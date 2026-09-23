@@ -42,4 +42,43 @@ export const appApi = {
       return ipcRenderer.invoke("shell:platform-info");
     },
   },
+  // 窗口控制：新增域，不改动既有 app./shell. 签名。
+  // macOS 由系统红绿灯处理；Win32 优先原生 caption 叠加，其余场景由渲染层自绘。
+  window: {
+    minimize(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("window:minimize");
+    },
+    maximize(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("window:maximize");
+    },
+    restore(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("window:restore");
+    },
+    toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }> {
+      return ipcRenderer.invoke("window:toggle-maximize");
+    },
+    close(): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("window:close");
+    },
+    isMaximized(): Promise<boolean> {
+      return ipcRenderer.invoke("window:is-maximized");
+    },
+    /** Windows 原生 caption 叠加配色同步（渲染层按 styles.css token 实际值下发） */
+    setTitleBarOverlay(options: {
+      color?: string;
+      symbolColor?: string;
+      height?: number;
+    }): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("window:set-titlebar-overlay", options);
+    },
+    onMaximizedChange(handler: (maximized: boolean) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) => {
+        handler(maximized);
+      };
+      ipcRenderer.on("window:maximized-changed", listener);
+      return () => {
+        ipcRenderer.removeListener("window:maximized-changed", listener);
+      };
+    },
+  },
 };

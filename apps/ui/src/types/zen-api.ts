@@ -101,6 +101,22 @@ export interface ZenApi {
     openPath(path: string): Promise<{ ok: boolean; error?: string }>;
     platformInfo(): Promise<PlatformInfo>;
   };
+  /** 窗口控制：macOS 红绿灯原生处理，这套 IPC 供 Win/Linux 使用（apps/desktop/src/main/window-controls.ts） */
+  window: {
+    minimize(): Promise<{ ok: boolean }>;
+    maximize(): Promise<{ ok: boolean }>;
+    restore(): Promise<{ ok: boolean }>;
+    toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>;
+    close(): Promise<{ ok: boolean }>;
+    isMaximized(): Promise<boolean>;
+    /** Windows 原生 caption 叠加配色同步（渲染层按 styles.css token 实际值下发，其它平台安全降级） */
+    setTitleBarOverlay(options: {
+      color?: string;
+      symbolColor?: string;
+      height?: number;
+    }): Promise<{ ok: boolean }>;
+    onMaximizedChange(handler: (maximized: boolean) => void): () => void;
+  };
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }>;
     status(cwd?: string): Promise<GitStatus | null>;

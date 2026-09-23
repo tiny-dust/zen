@@ -38,6 +38,7 @@ import { resolveWorkspaceDir } from "./sandbox";
 import { initZenDir, loadAgentSettings } from "./zen-dir";
 import { appendMemoryNote, initDeviceMemory, readMemorySnapshot, renderMemoryContext } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
+import { registerWindowControlsIpc } from "./window-controls";
 
 import type {
   AgentImageAttachment,
@@ -93,6 +94,15 @@ function createWindow(): BrowserWindow {
     titleBarStyle: "hidden",
     // 交通灯在 38px 标题栏内垂直居中（--titlebar-h / --titlebar-lead 与之一致）
     trafficLightPosition: { x: 12, y: 13 },
+    // Windows：原生 caption 按钮叠加（Win11 观感 + Snap Layouts）。初始配色与
+    // styles.css 的 --color-bg / --color-topbar-icon（dark，同 backgroundColor）
+    // 一致，渲染层挂载后按 token 实际值再同步（window:set-titlebar-overlay）。
+    // macOS 不传（红绿灯原样）；Linux 叠加观感不可控，走渲染层自绘三键。
+    ...(process.platform === "win32"
+      ? {
+          titleBarOverlay: { color: "#181818", symbolColor: "#f4f4f5", height: 38 },
+        }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: true,
@@ -440,6 +450,7 @@ app.whenReady().then(() => {
   registerBrowserIpc(broadcast);
   registerTerminalIpc(broadcast);
   registerMemoryIpc();
+  registerWindowControlsIpc();
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
