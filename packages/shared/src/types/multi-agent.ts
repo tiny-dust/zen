@@ -1,4 +1,23 @@
-import type { AgentDoneReason } from "./agent";
+import type { AgentDoneReason, ToolCallState } from "./agent-events";
+
+/** 子 Agent 消息流条目：AgentsPanel 按时间渲染（正文 / 推理 / 工具 / 提问 / 错误） */
+export interface AgentTranscriptEntry {
+  id: string;
+  t: number;
+  kind: "text" | "reasoning" | "tool" | "ask" | "error";
+  /** text/reasoning：累计正文；tool：摘要；ask：问题或回答；error：错误信息 */
+  text: string;
+  /** tool 专属：工具名 */
+  toolName?: string;
+  /** tool 专属：入参（截断后的原始参数） */
+  args?: unknown;
+  /** tool 专属：生命周期状态 */
+  state?: ToolCallState;
+  /** tool 专属：tool_end 摘要 */
+  summary?: string;
+  /** tool 专属：输出尾部（限量保留） */
+  output?: string;
+}
 
 /**
  * 子 Agent 运行状态机：
@@ -39,8 +58,10 @@ export interface AgentNodeState {
   result?: string;
   error?: string;
   reason?: AgentDoneReason;
-  /** 过程日志（截断存储） */
+  /** 过程日志（截断存储）：运行生命周期行（开始执行 / 重试 / 等待回答等） */
   log: Array<{ t: number; text: string }>;
+  /** 消息流时间线：正文 / 工具调用 / 提问 / 错误（比 log 更完整的执行记录） */
+  transcript?: AgentTranscriptEntry[];
   tokens?: { input: number; output: number };
   /** 是否正在占用写锁 / 终端 / 浏览器等独占资源 */
   busyResource?: "write" | "terminal" | "browser" | null;
