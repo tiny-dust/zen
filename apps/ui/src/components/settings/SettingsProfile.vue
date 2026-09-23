@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
+import { Check, CloudDownload, CloudUpload, ExternalLink, KeyRound, MessageCircle } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import zenAvatar from "@/assets/agent-logos/zen.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,9 +16,53 @@ const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const agentStore = useAgentStore();
 const { auth, loading, refreshing, deviceCode, loginError, codeCopied } = storeToRefs(userStore);
-const { settings: agentSettings, syncBusy, lastSync } = storeToRefs(agentStore);
+const { settings: agentSettings, syncBusy, lastSync, larkStatus } = storeToRefs(agentStore);
 
 const user = computed(() => auth.value.user);
+
+/** 登录方式选择面板是否展开（点击「登录」后先选 GitHub / 飞书） */
+const loginChoiceOpen = ref(false);
+/** 飞书登录流程阶段（事件由主进程 lark:login-event 推送） */
+type LarkLoginPhase = "idle" | "starting" | "waiting" | "done" | "cancelled" | "error";
+const larkPhase = ref<LarkLoginPhase>("idle");
+const larkUrl = ref<string | null>(null);
+const larkError = ref<string | null>(null);
+const larkActive = computed(() => larkPhase.value !== "idle");
+
+/** 已连接的飞书身份（复用飞书桥接的 auth 快照；可与 GitHub 登录并存） */
+const larkIdentity = computed(() => {
+  const snapshot = larkStatus.value?.auth;
+  if (!snapshot?.available || !snapshot.userOpenId) {
+    return null;
+  }
+  return snapshot.userName || snapshot.userOpenId;
+});
+
+let disposeLarkLogin: (() => void) | null = null;
+onMounted(() => {
+  disposeLarkLogin =
+    window.zen?.lark?.onLoginEvent((event) => {
+      if (event.status === "url") {
+        larkPhase.value = "waiting";
+        larkUrl.value = event.url;
+      } else if (event.status === "done") {
+        larkPhase.value = "done";
+        larkUrl.value = null;
+        void agentStore.refreshLark();
+      } else if (event.status === "cancelled") {
+        larkPhase.value = "cancelled";
+        larkUrl.value = null;
+      } else {
+        larkPhase.value = "error";
+        larkError.value = event.message;
+        larkUrl.value = null;
+      }
+    }) ?? null;
+});
+onUnmounted(() => {
+  disposeLarkLogin?.();
+  disposeLarkLogin = null;
+});
 
 /** 登录有效期：自登录起 3 个月 */
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -71,6 +115,8 @@ watch(
   (open) => {
     if (open) {
       void userStore.refreshProfile();
+      // 打开设置即刷新飞书身份快照（登录后展示「飞书：xxx」）
+      void agentStore.refreshLark();
     }
   },
 );
@@ -89,6 +135,45 @@ function onOpenBlog() {
     ? user.value.blog
     : `https://${user.value.blog}`;
   void userStore.openExternal(url);
+}
+
+/** 选择 GitHub：收起选择面板，走既有 device flow */
+function chooseGithub() {
+  loginChoiceOpen.value = false;
+  larkPhase.value = "idle";
+  larkError.value = null;
+  void userStore.login();
+}
+
+/** 选择飞书：主进程发起 lark-cli device flow，结果经 lark:login-event 推送 */
+async function chooseLark() {
+  loginChoiceOpen.value = false;
+  larkError.value = null;
+  larkUrl.value = null;
+  larkPhase.value = "starting";
+  try {
+    await window.zen?.lark?.login();
+  } catch (error) {
+    larkPhase.value = "error";
+    larkError.value = error instanceof Error ? error.message : "发起飞书登录失败";
+  }
+}
+
+async function cancelLark() {
+  await window.zen?.lark?.cancelLogin();
+}
+
+function openLarkUrl() {
+  if (larkUrl.value) {
+    void userStore.openExternal(larkUrl.value);
+  }
+}
+
+/** 从飞书流程终态回到初始（可重新发起或改选 GitHub） */
+function resetLark() {
+  larkPhase.value = "idle";
+  larkError.value = null;
+  larkUrl.value = null;
 }
 </script>
 
@@ -157,6 +242,12 @@ function onOpenBlog() {
           {{ expiryLabel }}
         </p>
 
+        <!-- 飞书桥接身份（与 GitHub 账号并存展示，互不覆盖） -->
+        <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
+          <MessageCircle class="size-3.5 text-[var(--color-ok)]" aria-hidden="true" />
+          <span>飞书：{{ larkIdentity }}（已连接）</span>
+        </div>
+
         <!-- 配置云同步 -->
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3">
           <div class="flex items-center justify-between gap-2">
@@ -224,9 +315,87 @@ function onOpenBlog() {
           <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">已复制，可直接粘贴</span>
         </div>
         <p v-if="loginError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ loginError }}</p>
-        <div class="flex flex-wrap gap-2">
-          <Button size="sm" :disabled="loading" @click="userStore.login()">
-            {{ loading ? "等待授权…" : "使用 GitHub 登录" }}
+
+        <!-- 已连接的飞书身份（与 GitHub 账号并存展示，互不覆盖） -->
+        <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
+          <MessageCircle class="size-3.5 text-[var(--color-ok)]" aria-hidden="true" />
+          <span>飞书：{{ larkIdentity }}（已连接）</span>
+        </div>
+
+        <!-- 飞书登录流程状态 -->
+        <div
+          v-if="larkActive"
+          class="flex w-full flex-col gap-2 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3"
+        >
+          <p v-if="larkPhase === 'starting'" class="m-0 text-[12px] text-[var(--color-mut)]">
+            正在发起飞书授权…
+          </p>
+          <template v-else-if="larkPhase === 'waiting' && larkUrl">
+            <p class="m-0 text-[12px] leading-normal text-[var(--color-txt)]">
+              请在浏览器中完成飞书授权（链接 10 分钟内有效），完成后此处会自动更新。
+            </p>
+            <Button variant="outline" size="sm" class="w-fit" @click="openLarkUrl">
+              打开飞书授权页面
+              <ExternalLink data-icon="inline-end" />
+            </Button>
+          </template>
+          <p v-else-if="larkPhase === 'done'" class="m-0 text-[12px] text-[var(--color-ok)]">
+            飞书{{ larkIdentity ? `：${larkIdentity}` : "" }}已连接
+          </p>
+          <p v-else-if="larkPhase === 'cancelled'" class="m-0 text-[12px] text-[var(--color-mut)]">
+            已取消飞书登录
+          </p>
+          <p v-else-if="larkPhase === 'error'" class="m-0 text-[12px] text-[var(--color-danger-fg)]">
+            {{ larkError }}
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <Button v-if="larkPhase === 'waiting'" variant="outline" size="sm" @click="cancelLark">
+              取消登录
+            </Button>
+            <Button v-else size="sm" variant="outline" @click="resetLark">
+              {{ larkPhase === "done" ? "完成" : "返回" }}
+            </Button>
+          </div>
+        </div>
+
+        <!-- 登录方式选择（GitHub / 飞书） -->
+        <div v-else-if="loginChoiceOpen" class="flex w-full flex-col gap-2">
+          <div class="grid w-full grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+              @click="chooseGithub"
+            >
+              <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+                <KeyRound class="size-4" aria-hidden="true" />
+                GitHub
+              </span>
+              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+                设备码授权 · 同步个人资料与配置
+              </span>
+            </button>
+            <button
+              type="button"
+              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+              @click="chooseLark"
+            >
+              <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+                <MessageCircle class="size-4" aria-hidden="true" />
+                飞书
+              </span>
+              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+                浏览器授权 · 连接飞书桥接
+              </span>
+            </button>
+          </div>
+          <Button variant="ghost" size="xs" class="w-fit" @click="loginChoiceOpen = false">
+            返回
+          </Button>
+        </div>
+
+        <div v-else class="flex flex-wrap gap-2">
+          <Button size="sm" :disabled="loading" @click="loginChoiceOpen = true">
+            {{ loading && !deviceCode ? "等待授权…" : "登录" }}
           </Button>
           <Button size="sm" variant="outline" disabled title="登录后可用">
             配置云同步（需登录）
