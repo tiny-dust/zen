@@ -67,6 +67,25 @@ export const useChatStore = defineStore("chat", () => {
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问队列（可多问询并发；展示在输入框上方） */
   const pendingAsks = ref<AskUserQuestionEvent[]>([]);
+  /**
+   * 非当前会话的挂起问询暂存（含后台会话新到的 ask_user）：
+   * 切走的会话保留其问询卡，切回时恢复；主进程仍在等待应答，不能丢。
+   */
+  const stashedAsks = new Map<string, AskUserQuestionEvent[]>();
+
+  /** 切走当前会话前：把挂起问询按旧 sessionId 暂存并清空当前队列 */
+  function stashPendingAsks() {
+    if (pendingAsks.value.length) {
+      stashedAsks.set(sessionId.value, pendingAsks.value);
+      pendingAsks.value = [];
+    }
+  }
+
+  /** 切入会话后：恢复该会话的挂起问询（无则清空，防串台） */
+  function restorePendingAsks(id: string) {
+    pendingAsks.value = stashedAsks.get(id) ?? [];
+    stashedAsks.delete(id);
+  }
   /** 兼容单卡视图：队首问询（ChatComposer v-if 用） */
   const pendingAsk = computed(() => pendingAsks.value[0] ?? null);
   const isPaused = ref(false);
@@ -279,6 +298,7 @@ export const useChatStore = defineStore("chat", () => {
     lastOutputTokens,
     pendingApproval,
     pendingAsks,
+    stashedAsks,
     pendingToolArgs,
     filesRevision,
     usedUpdateTasks,
@@ -604,6 +624,7 @@ export const useChatStore = defineStore("chat", () => {
 
     // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
+    stashPendingAsks();
 
     messages.value = [];
     input.value = "";
@@ -627,6 +648,7 @@ export const useChatStore = defineStore("chat", () => {
     useSessionInfoStore().ensureSession(sessionId.value);
     useAgentsStore().ensureSession(sessionId.value);
     useAgentProcessesStore().ensureSession(sessionId.value);
+    restorePendingAsks(sessionId.value);
     void refreshGit();
     void useGitStore().refreshStatus();
   }
@@ -648,6 +670,7 @@ export const useChatStore = defineStore("chat", () => {
     // 切走前快照：旧会话（此时 sessionId.value 还是旧 id）仍在后台运行时，
     // 把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
+    stashPendingAsks();
     sessionId.value = record.id;
     sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
@@ -673,6 +696,8 @@ export const useChatStore = defineStore("chat", () => {
       phase.value = "answering";
       isPaused.value = false;
     }
+    // 恢复该会话挂起的 askUser 问询（切走时暂存 / 后台新到的），否则问询卡不显示
+    restorePendingAsks(record.id);
     useSessionInfoStore().clear();
     useAgentsStore().clear();
     useAgentProcessesStore().clear();
