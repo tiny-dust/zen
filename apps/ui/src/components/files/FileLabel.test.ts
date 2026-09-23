@@ -1,7 +1,12 @@
-import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import FileLabel from "./FileLabel.vue";
+
+afterEach(() => {
+  document.body.innerHTML = "";
+  delete (window as { zen?: unknown }).zen;
+});
 
 describe("FileLabel", () => {
   it("is presentational, keeps the complete tooltip, and shows only basename", () => {
@@ -50,6 +55,36 @@ describe("FileLabel", () => {
     expect(wrapper.text()).toBe("custom");
     expect(wrapper.get("img").attributes("src")).not.toBe(closed);
     expect(wrapper.get("img").attributes("data-file-icon")).toBe("_folder_open");
+    wrapper.unmount();
+  });
+
+  it("opens the file context menu on right-click only for the link variant", async () => {
+    (window as { zen?: unknown }).zen = {
+      shell: {
+        openPath: vi.fn(),
+        showInFolder: vi.fn(),
+        platformInfo: vi.fn().mockResolvedValue({
+          platform: "darwin",
+          showInFolderLabel: "在 Finder 中显示",
+          openFolderLabel: "打开文件夹",
+        }),
+      },
+    };
+    const plain = mount(FileLabel, { props: { path: "src/a.ts" }, attachTo: document.body });
+    await plain.trigger("contextmenu");
+    expect(document.body.querySelector(".file-context-menu")).toBeNull();
+    plain.unmount();
+
+    const wrapper = mount(FileLabel, {
+      props: { path: "src/a.ts", variant: "link" },
+      attachTo: document.body,
+    });
+    await wrapper.trigger("contextmenu", { clientX: 12, clientY: 34 });
+    await flushPromises();
+    const menu = document.body.querySelector(".file-context-menu");
+    expect(menu).not.toBeNull();
+    expect([...menu!.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim()))
+      .toEqual(["打开文件", "在 Finder 中显示"]);
     wrapper.unmount();
   });
 });

@@ -141,6 +141,8 @@ function tabCls(id: string) {
           <PanelRight />
         </Button>
       </div>
+      <!-- Windows/Linux 窗口三键右上角占位（--titlebar-trail，macOS 为 0） -->
+      <span class="w-[var(--titlebar-trail)] flex-none" aria-hidden="true" />
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">

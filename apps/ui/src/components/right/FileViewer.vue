@@ -19,6 +19,8 @@ const props = defineProps<{
   path?: string;
   /** 工作区目录（绝对路径） */
   root?: string;
+  /** 消息流行号锚点：渲染后滚动定位到该行 */
+  line?: number;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +38,8 @@ const saveError = ref("");
 const imageDataUrl = ref("");
 /** 图片缩放：fit（适应面板）↔ actual（原始尺寸） */
 const imageZoomed = ref(false);
+/** preview-file 回退通道（read-file 沙箱拒绝的工作区外文件）只读展示 */
+const readonlyView = ref(false);
 let view: EditorView | null = null;
 /** 当前已加载的磁盘内容，用于脏检查与保存 */
 let loadedContent = "";
@@ -75,7 +79,7 @@ function langExtension(path: string) {
   }
 }
 
-function extensionList(path: string) {
+function extensionList(path: string, readOnly: boolean) {
   return [
     lineNumbers(),
     history(),
@@ -94,6 +98,7 @@ function extensionList(path: string) {
     langExtension(path),
     oneDark,
     EditorView.lineWrapping,
+    ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         dirty.value = view ? view.state.doc.toString() !== loadedContent : false;
@@ -120,6 +125,7 @@ function render() {
   loadedContent = "";
   imageDataUrl.value = "";
   imageZoomed.value = false;
+  readonlyView.value = false;
   if (!props.path || !props.root) {
     return;
   }
@@ -147,21 +153,57 @@ function render() {
     if (requestId !== `${props.root}::${props.path}` || !hostEl.value) {
       return;
     }
-    if (!result) {
-      failed.value = true;
+    if (result) {
+      mountEditor(result.content, result.truncated, false);
       return;
     }
-    failed.value = false;
-    truncated.value = result.truncated;
-    loadedContent = result.content;
-    dirty.value = false;
-    view = new EditorView({
-      parent: hostEl.value,
-      state: EditorState.create({
-        doc: result.content,
-        extensions: extensionList(props.path!),
-      }),
+    // read-file 沙箱拒绝的场景（工作区外绝对路径等）：退化为 preview-file 只读展示
+    void zen.workspace.previewFile(props.root, props.path!).then((preview) => {
+      if (requestId !== `${props.root}::${props.path}` || !hostEl.value) {
+        return;
+      }
+      if (!preview || preview.kind === "unsupported") {
+        failed.value = true;
+        return;
+      }
+      if (preview.kind === "image") {
+        imageDataUrl.value = preview.dataUrl;
+        return;
+      }
+      mountEditor(preview.content, preview.truncated, true);
     });
+  });
+}
+
+function mountEditor(content: string, truncatedFile: boolean, readOnly: boolean) {
+  if (!hostEl.value) {
+    return;
+  }
+  failed.value = false;
+  truncated.value = truncatedFile;
+  readonlyView.value = readOnly;
+  loadedContent = content;
+  dirty.value = false;
+  destroyView();
+  view = new EditorView({
+    parent: hostEl.value,
+    state: EditorState.create({
+      doc: content,
+      extensions: extensionList(props.path!, readOnly),
+    }),
+  });
+  applyLine();
+}
+
+/** 消息流行号锚点：把光标移到目标行并滚动到可视区 */
+function applyLine() {
+  if (!view || !props.line || props.line < 1) {
+    return;
+  }
+  const target = Math.min(props.line, view.state.doc.lines);
+  view.dispatch({
+    selection: { anchor: view.state.doc.line(Math.max(1, target)).from },
+    scrollIntoView: true,
   });
 }
 
@@ -205,6 +247,8 @@ watch(
   () => [props.path, props.root] as const,
   () => render(),
 );
+
+watch(() => props.line, () => applyLine());
 
 onMounted(() => {
   render();
@@ -261,6 +305,13 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
           role="status"
         >
           文件过大，仅展示前 512KB（截断部分不可保存）。
+        </p>
+        <p
+          v-if="readonlyView"
+          class="m-0 px-1 pb-1 text-[11px] text-[var(--color-accent)]"
+          role="status"
+        >
+          只读展示（工作区外文件不支持编辑保存）。
         </p>
         <div
           ref="hostEl"
