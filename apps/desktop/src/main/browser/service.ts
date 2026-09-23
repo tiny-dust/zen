@@ -8,7 +8,8 @@ import type {
 } from "@zen/shared";
 
 import { delay, kernelLabels, withTimeout } from "./browser-utils";
-import { BrowserContentApi } from "./browser-content";
+import { loadBrowserSettings } from "../zen-dir";
+import { BrowserPipApi } from "./browser-pip";
 
 export interface BrowserDebugInfo {
   hasView: boolean;
@@ -28,9 +29,19 @@ export interface BrowserDebugInfo {
 
 /**
  * 产品内浏览器对外门面：页面导航与生命周期编排。
- * 实现按子域分层继承：browser-view（WebContentsView/状态）→ browser-cdp（CDP）→ browser-content（内容与动作）。
+ * 实现按子域分层继承：browser-view（WebContentsView/状态）→ browser-cdp（CDP）→ browser-content（内容与动作）
+ * → browser-pip（画中画悬浮窗）。
  */
-export class BrowserService extends BrowserContentApi implements BrowserAgentBridge {
+export class BrowserService extends BrowserPipApi implements BrowserAgentBridge {
+  /** 启动时载入 ~/.zen/config.json 的浏览器设置（UA/缩放/画中画几何），失败用缺省值 */
+  async initSettings(): Promise<void> {
+    try {
+      this.applyBrowserSettings(await loadBrowserSettings());
+    } catch {
+      // 配置损坏不阻断浏览器启动
+    }
+  }
+
   /** localhost / IPv6 字面量：本地 dev server 常只监听 ::1 或 127.0.0.1，逐个候选重试 */
   private localhostCandidates(raw: string): string[] {
     const target = raw.trim();
@@ -231,6 +242,9 @@ export class BrowserService extends BrowserContentApi implements BrowserAgentBri
 
   dispose(): void {
     void this.stopElementPick();
+    // 主窗口关闭/退出（will-quit → shutdownBrowserService）：画中画悬浮窗一并清理
+    this.destroyPipWindow();
+    this.pipMode = "off";
     this.teardownView();
     this.wantVisible = false;
     this.starting = null;
@@ -241,6 +255,8 @@ export class BrowserService extends BrowserContentApi implements BrowserAgentBri
       title: "",
       picking: false,
       visible: false,
+      pip: false,
+      pipHidden: false,
       canGoBack: false,
       canGoForward: false,
       ...kernelLabels(),

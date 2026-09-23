@@ -9,16 +9,21 @@ import type {
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
+  BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
 } from "@zen/shared";
 import { getBrowserService } from "./service";
+import { loadBrowserSettings, saveBrowserSettings } from "../zen-dir";
 
 export function registerBrowserIpc(
   broadcast: (channel: string, payload: unknown) => void,
 ): BrowserAgentBridge {
   const service = getBrowserService();
+
+  // 载入 ~/.zen/config.json 的浏览器设置（UA/缩放/画中画几何），失败静默用缺省值
+  void service.initSettings();
 
   service.onStatus((status) => {
     broadcast("browser:status", status);
@@ -128,6 +133,29 @@ export function registerBrowserIpc(
     return service.startElementPick();
   });
   ipcMain.handle("browser:pick-stop", async () => service.stopElementPick());
+
+  // ===== 浏览器设置（UA / 尺寸）与画中画 =====
+  ipcMain.handle("browser:get-settings", async () => loadBrowserSettings());
+
+  ipcMain.handle("browser:set-settings", async (_event, partial: Partial<BrowserSettings>) => {
+    if (!partial || typeof partial !== "object") {
+      return loadBrowserSettings();
+    }
+    // 只接受合法字段，缩放钳制到 50–300%
+    const next = await saveBrowserSettings({
+      userAgent: typeof partial.userAgent === "string" ? partial.userAgent : undefined,
+      zoomPercent:
+        typeof partial.zoomPercent === "number"
+          ? Math.min(300, Math.max(50, Math.round(partial.zoomPercent)))
+          : undefined,
+    });
+    service.applyBrowserSettings(next);
+    return next;
+  });
+
+  ipcMain.handle("browser:pip-enter", async () => service.enterPip());
+  ipcMain.handle("browser:pip-exit", async () => service.exitPip());
+  ipcMain.handle("browser:pip-hide", async () => service.hidePip());
 
   return service;
 }

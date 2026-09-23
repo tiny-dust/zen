@@ -435,7 +435,16 @@ export function registerShellIpc(): void {
         return { ok: false, error: "路径为空" };
       }
       try {
-        shell.showItemInFolder(path);
+        // shell.showItemInFolder 对不存在的路径静默无操作，必须先校验存在性
+        let target = path;
+        if (!(await pathExists(target)) && target.startsWith("~")) {
+          // 兜底：Agent 偶发输出 ~ 开头路径，展开主目录后再试
+          target = join(homedir(), target.slice(1));
+        }
+        if (!(await pathExists(target))) {
+          return { ok: false, error: `文件不存在或已被移动：${path}` };
+        }
+        shell.showItemInFolder(target);
         return { ok: true };
       } catch (error) {
         return {
