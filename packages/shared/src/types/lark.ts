@@ -56,10 +56,26 @@ export interface LarkStatus {
   settings: LarkBridgeSettings;
 }
 
+/** 飞书登录流程事件（主进程 lark:login-event 推送，device flow 各阶段） */
+export type LarkLoginEvent =
+  | { status: "url"; url: string; expiresInSeconds: number }
+  | { status: "done" }
+  | { status: "cancelled" }
+  | { status: "error"; message: string };
+
 /** 飞书侧展示的会话摘要（查询指令的回复内容） */
 export interface LarkSessionSummary {
   id: string;
   title: string;
   state: LarkSessionState;
   updatedAt: number;
+}
+
+/** 飞书「项目」指令展示的工作区摘要 */
+export interface LarkProjectSummary {
+  id: string;
+  name: string;
+  path: string;
+  /** 该工作区下最近一次会话活跃时间（无会话时为工作区创建时间） */
+  lastActiveAt: number;
 }

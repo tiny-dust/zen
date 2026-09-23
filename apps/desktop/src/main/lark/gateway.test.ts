@@ -3,20 +3,28 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyAskReply,
   buildAskPushText,
+  buildBranchesReply,
+  buildHelpReply,
+  buildProjectCandidatesReply,
+  buildProjectCommandUsage,
+  buildProjectsReply,
   buildSessionsReply,
   buildStatusReply,
   collectSessionSummaries,
   formatRelativeTime,
   isHandleableLarkEvent,
+  LarkGateway,
   LarkMessageDeduper,
   mapOptionAnswer,
   mapRunStateToLarkState,
+  matchProjectSummaries,
   parseLarkCommand,
   parseLarkEventLine,
+  parseProjectCommand,
 } from "./gateway";
 import type { LarkEventRecord, LarkPendingAsk } from "./gateway";
 
-import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
+import type { LarkProjectSummary, SessionRecord, WorkspaceGroup } from "@zen/shared";
 
 const NOW = 1_700_000_000_000;
 
@@ -293,5 +301,284 @@ describe("NDJSON 行解析与过滤", () => {
     }
     // m1 已被挤出窗口：再次出现按首次处理
     expect(deduper.firstSeen("m1")).toBe(true);
+  });
+});
+
+// ---------- 项目/分支/提交指令 ----------
+
+function projectOf(overrides: Partial<LarkProjectSummary> & Pick<LarkProjectSummary, "id" | "name" | "path">): LarkProjectSummary {
+  return {
+    lastActiveAt: NOW - 60_000,
+    ...overrides,
+  };
+}
+
+describe("项目/分支/提交指令解析与文案", () => {
+  it("parseLarkCommand：项目/projects 全等匹配", () => {
+    expect(parseLarkCommand("项目")).toBe("projects");
+    expect(parseLarkCommand("Projects")).toBe("projects");
+    expect(parseLarkCommand("项目 列表")).toBeNull();
+  });
+
+  it("parseProjectCommand：四种带参数指令与大小写不敏感", () => {
+    expect(parseProjectCommand("对话 zen 修复登录 bug")).toEqual({
+      kind: "chat",
+      project: "zen",
+      arg: "修复登录 bug",
+    });
+    expect(parseProjectCommand("Chat web 重构页面")).toEqual({
+      kind: "chat",
+      project: "web",
+      arg: "重构页面",
+    });
+    expect(parseProjectCommand("分支 zen")).toEqual({ kind: "branches", project: "zen", arg: "" });
+    expect(parseProjectCommand("分支 my project")).toEqual({
+      kind: "branches",
+      project: "my project",
+      arg: "",
+    });
+    expect(parseProjectCommand("切换 zen feature/login")).toEqual({
+      kind: "checkout",
+      project: "zen",
+      arg: "feature/login",
+    });
+    expect(parseProjectCommand("提交 zen 修复空指针")).toEqual({
+      kind: "commit",
+      project: "zen",
+      arg: "修复空指针",
+    });
+    expect(parseProjectCommand("  对话   zen   消息内容 ")).toEqual({
+      kind: "chat",
+      project: "zen",
+      arg: "消息内容",
+    });
+    // 非指令 / 裸指令词
+    expect(parseProjectCommand("帮我看看这个报错")).toBeNull();
+    expect(parseProjectCommand("普通句子 提交")).toBeNull();
+  });
+
+  it("parseProjectCommand：缺第二参数时 arg 为空字符串（由执行层回用法提示）", () => {
+    expect(parseProjectCommand("对话")).toEqual({ kind: "chat", project: "", arg: "" });
+    expect(parseProjectCommand("对话 zen")).toEqual({ kind: "chat", project: "zen", arg: "" });
+    expect(parseProjectCommand("切换 zen")).toEqual({ kind: "checkout", project: "zen", arg: "" });
+    expect(parseProjectCommand("提交")).toEqual({ kind: "commit", project: "", arg: "" });
+  });
+
+  it("matchProjectSummaries：名称与路径末段包含匹配、大小写不敏感", () => {
+    const projects = [
+      projectOf({ id: "w1", name: "zen", path: "/Users/r/Self/zen" }),
+      projectOf({ id: "w2", name: "Web Console", path: "/Users/r/Company/zen-console" }),
+    ];
+    expect(matchProjectSummaries("zen", projects).map((p) => p.id)).toEqual(["w1", "w2"]);
+    expect(matchProjectSummaries("web", projects).map((p) => p.id)).toEqual(["w2"]);
+    expect(matchProjectSummaries("CONSOLE", projects).map((p) => p.id)).toEqual(["w2"]);
+    expect(matchProjectSummaries("不存在", projects)).toHaveLength(0);
+    expect(matchProjectSummaries("", projects)).toHaveLength(0);
+  });
+
+  it("buildProjectsReply / buildProjectCandidatesReply / buildBranchesReply 文案", () => {
+    const projects = [
+      projectOf({ id: "w1", name: "zen", path: "/Users/r/Self/zen", lastActiveAt: NOW - 60_000 }),
+      projectOf({ id: "w2", name: "web", path: "/Users/r/Work/web", lastActiveAt: NOW - 2 * 86_400_000 }),
+    ];
+    const list = buildProjectsReply(projects, NOW);
+    expect(list).toContain("📂 Zen 项目");
+    expect(list).toContain("1. zen · /Users/r/Self/zen · 1 分钟前");
+    expect(list).toContain("2. web · /Users/r/Work/web · 2 天前");
+    expect(buildProjectsReply([], NOW)).toContain("暂无工作区");
+
+    const candidates = buildProjectCandidatesReply("zen", projects, NOW);
+    expect(candidates).toContain("有多个");
+    expect(candidates).toContain("1. zen");
+    expect(buildProjectCandidatesReply("zzz", [], NOW)).toContain("未找到");
+
+    const branches = buildBranchesReply(projects[0]!, { current: "main", branches: ["main", "dev", "feature/x"] });
+    expect(branches).toContain("🌿 zen 的本地分支");
+    expect(branches).toContain("• main ← 当前");
+    expect(branches).toContain("• feature/x");
+    expect(buildBranchesReply(projects[0]!, { current: "", branches: [] })).toContain("没有本地分支");
+  });
+
+  it("buildProjectCommandUsage / buildHelpReply 覆盖新指令", () => {
+    expect(buildProjectCommandUsage("chat")).toContain("对话 <项目名> <消息>");
+    expect(buildProjectCommandUsage("branches")).toContain("分支 <项目名>");
+    expect(buildProjectCommandUsage("checkout")).toContain("切换 <项目名> <分支名>");
+    expect(buildProjectCommandUsage("commit")).toContain("提交 <项目名> <说明>");
+    const help = buildHelpReply();
+    expect(help).toContain("项目 / projects");
+    expect(help).toContain("对话 <项目名> <消息> / chat");
+    expect(help).toContain("分支 <项目名> / branches");
+    expect(help).toContain("切换 <项目名> <分支名> / checkout");
+    expect(help).toContain("提交 <项目名> <说明> / commit");
+  });
+});
+
+describe("带参数指令执行（mock deps）", () => {
+  /** 构造带 mock 发送通道的网关：绕过真实 lark-cli，捕获 sendMarkdown 输出 */
+  function gatewayOf(deps: Partial<ConstructorParameters<typeof LarkGateway>[0]> = {}) {
+    const sent: string[] = [];
+    const gateway = new LarkGateway({
+      listSessions: () => [],
+      resolveAsk: () => false,
+      onStateChange: () => undefined,
+      sendMessage: async (_cli, _openId, markdown) => {
+        sent.push(markdown);
+      },
+      ...deps,
+    });
+    // sendMarkdown 需要 cliPath + allowedOpenId 才会走 deps.sendMessage
+    (gateway as unknown as { cliPath: string }).cliPath = "lark-cli-stub";
+    (gateway as unknown as { allowedOpenId: string }).allowedOpenId = "ou_allowed";
+    return { gateway, sent };
+  }
+
+  it("项目指令 → 输出项目清单", async () => {
+    const { gateway, sent } = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+    });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("项目");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("📂 Zen 项目");
+    expect(sent[0]).toContain("zen · /tmp/zen");
+  });
+
+  it("对话指令：唯一命中 → 先回「已开始」再启动；启动失败补失败提示", async () => {
+    const startChat = vi.fn(async () => ({ ok: false, error: "session not found" }));
+    const { gateway, sent } = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      startChat,
+    });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "对话 zen 修复登录 bug",
+    );
+    expect(startChat).toHaveBeenCalledWith("/tmp/zen", "修复登录 bug");
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toContain("已在「zen」开始新会话");
+    expect(sent[0]).toContain("修复登录 bug");
+    expect(sent[1]).toContain("会话启动失败");
+  });
+
+  it("对话指令：项目名歧义 → 列候选且不启动；未命中 → 未找到提示", async () => {
+    const startChat = vi.fn();
+    const projects = () => [
+      projectOf({ id: "w1", name: "zen", path: "/tmp/zen" }),
+      projectOf({ id: "w2", name: "zen-demo", path: "/tmp/zen-demo" }),
+    ];
+    const ambiguous = gatewayOf({ listProjects: projects, startChat });
+    await (ambiguous.gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "对话 zen 你好",
+    );
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ambiguous.sent[0]).toContain("有多个");
+    expect(ambiguous.sent[0]).toContain("zen-demo");
+
+    const missing = gatewayOf({ listProjects: () => [], startChat });
+    await (missing.gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "对话 zen 你好",
+    );
+    expect(missing.sent[0]).toContain("未找到匹配「zen」的项目");
+  });
+
+  it("对话/切换/提交缺参数 → 用法提示", async () => {
+    const cases: Array<[string, string]> = [
+      ["对话", "对话 <项目名> <消息>"],
+      ["切换 zen", "切换 <项目名> <分支名>"],
+      ["提交", "提交 <项目名> <说明>"],
+      ["分支", "分支 <项目名>"],
+    ];
+    for (const [text, usage] of cases) {
+      const { gateway, sent } = gatewayOf();
+      await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(text);
+      expect(sent[0]).toContain(usage);
+    }
+  });
+
+  it("分支指令 → 列本地分支并标当前；切换脏工作区 → 拒绝并提示先提交", async () => {
+    const listBranches = vi.fn(async () => ({ current: "main", branches: ["main", "dev"] }));
+    const { gateway, sent } = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      listBranches,
+    });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("分支 zen");
+    expect(listBranches).toHaveBeenCalledWith("/tmp/zen");
+    expect(sent[0]).toContain("• main ← 当前");
+
+    const checkoutBranch = vi.fn(async () => ({
+      ok: false,
+      dirty: true,
+      error: "工作区有未提交变更：\n M src/a.ts",
+    }));
+    const dirty = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      checkoutBranch,
+    });
+    await (dirty.gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "切换 zen dev",
+    );
+    expect(checkoutBranch).toHaveBeenCalledWith("/tmp/zen", "dev");
+    expect(dirty.sent[0]).toContain("有未提交变更，已拒绝切换分支");
+    expect(dirty.sent[0]).toContain("提交 zen <说明>");
+  });
+
+  it("提交指令：成功回执摘要；无变更提示；缺省说明用默认文案", async () => {
+    const commitProject = vi.fn(async (_path: string, message: string) => {
+      expect(message).toBe("修复空指针");
+      return { ok: true, summary: "abc1234 修复空指针\n 1 file changed" };
+    });
+    const { gateway, sent } = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      commitProject,
+    });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "提交 zen 修复空指针",
+    );
+    expect(sent[0]).toContain("已提交（zen）");
+    expect(sent[0]).toContain("abc1234 修复空指针");
+
+    const clean = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      commitProject: vi.fn(async () => ({ ok: false, clean: true, error: "没有可提交的变更" })),
+    });
+    await (clean.gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "提交 zen 无所谓",
+    );
+    expect(clean.sent[0]).toContain("没有可提交的变更");
+
+    const defaulted = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+      commitProject: vi.fn(async (_path: string, message: string) => {
+        expect(message).toBe("Zen 飞书提交");
+        return { ok: true, summary: "ok" };
+      }),
+    });
+    await (defaulted.gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "提交 zen",
+    );
+  });
+
+  it("对话启动的会话 done → 微任务里推送最终助手回复摘要", async () => {
+    vi.useFakeTimers();
+    try {
+      const finalAssistantReply = vi.fn(() => "已修复登录 bug，改动见 src/auth.ts");
+      const { gateway, sent } = gatewayOf({
+        listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+        startChat: async () => ({ ok: true, sessionId: "s9", title: "修复登录 bug" }),
+        finalAssistantReply,
+      });
+      await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+        "对话 zen 修复登录 bug",
+      );
+      gateway.trackSession("s9", "修复登录 bug");
+      gateway.onSessionDone("s9");
+      // emitTo 同步落库后微任务推送
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(finalAssistantReply).toHaveBeenCalledWith("s9");
+      const last = sent[sent.length - 1] ?? "";
+      expect(last).toContain("修复登录 bug 已完成");
+      expect(last).toContain("已修复登录 bug，改动见 src/auth.ts");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type {
   AskUserQuestionEvent,
   LarkGatewayState,
+  LarkProjectSummary,
   LarkSessionState,
   LarkSessionSummary,
   WorkspaceGroup,
@@ -12,6 +13,12 @@ import type {
 
 import { readLarkAuthSnapshot } from "./auth";
 import { resolveLarkCliPath } from "./cli";
+import {
+  checkoutBranch as defaultCheckoutBranch,
+  commitAll as defaultCommitAll,
+  listBranches as defaultListBranches,
+} from "./git-ops";
+import type { BranchListResult, CheckoutResult, CommitResult } from "./git-ops";
 
 const execFileAsync = promisify(execFile);
 
@@ -226,14 +233,19 @@ export function buildHelpReply(): string {
     "📖 Zen 指令",
     "• 列表 / sessions — 最近会话清单",
     "• 状态 / status — 运行中的会话与待答问询",
+    "• 项目 / projects — 项目清单",
+    "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
+    "• 分支 <项目名> / branches — 查看项目本地分支",
+    "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
+    "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
     "• 帮助 / help — 本帮助",
     "收到问询推送时，直接回复文字或选项编号即可写回会话。",
   ].join("\n");
 }
 
-// ---------- 纯逻辑：指令与问询回复解析 ----------
+// ---------- 纯逻辑：项目/分支/提交指令解析与文案 ----------
 
-export type LarkCommand = "sessions" | "status" | "help";
+export type LarkCommand = "sessions" | "status" | "help" | "projects";
 
 /** 指令全等匹配（去空白、大小写不敏感）；非指令文本返回 null 走问询回复解析 */
 export function parseLarkCommand(text: string): LarkCommand | null {
@@ -247,7 +259,125 @@ export function parseLarkCommand(text: string): LarkCommand | null {
   if (normalized === "帮助" || normalized === "help") {
     return "help";
   }
+  if (normalized === "项目" || normalized === "projects") {
+    return "projects";
+  }
   return null;
+}
+
+/** 带参数指令（对话/分支/切换/提交）的解析结果 */
+export interface ParsedProjectCommand {
+  kind: "chat" | "branches" | "checkout" | "commit";
+  /** 第一个参数（项目名，包含匹配）；缺失为 "" */
+  project: string;
+  /** 第二个参数（消息 / 分支名 / 提交说明）；缺失为 "" */
+  arg: string;
+}
+
+/**
+ * 带参数指令解析：第一个 token 是指令词（大小写不敏感），其余为参数。
+ * - 对话 <项目> <消息> / chat <project> <message>
+ * - 分支 <项目> / branches <project>（项目名取整段剩余文本，允许含空格）
+ * - 切换 <项目> <分支> / checkout <project> <branch>
+ * - 提交 <项目> <说明> / commit <project> <message>
+ */
+export function parseProjectCommand(text: string): ParsedProjectCommand | null {
+  const headMatch = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!headMatch) {
+    return null;
+  }
+  const head = (headMatch[1] ?? "").toLowerCase();
+  const rest = (headMatch[2] ?? "").trim();
+  const splitTwo = (value: string): { first: string; remainder: string } => {
+    const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(value);
+    return { first: (match?.[1] ?? "").trim(), remainder: (match?.[2] ?? "").trim() };
+  };
+  const parts = splitTwo(rest);
+  if (head === "对话" || head === "chat") {
+    return { kind: "chat", project: parts.first, arg: parts.remainder };
+  }
+  if (head === "分支" || head === "branches") {
+    return { kind: "branches", project: rest, arg: "" };
+  }
+  if (head === "切换" || head === "checkout") {
+    return { kind: "checkout", project: parts.first, arg: parts.remainder };
+  }
+  if (head === "提交" || head === "commit") {
+    return { kind: "commit", project: parts.first, arg: parts.remainder };
+  }
+  return null;
+}
+
+/** 项目名包含匹配（名称与路径末段，大小写不敏感） */
+export function matchProjectSummaries(
+  query: string,
+  projects: LarkProjectSummary[],
+): LarkProjectSummary[] {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return [];
+  }
+  return projects.filter((project) => {
+    const base = project.path.split("/").filter(Boolean).pop()?.toLowerCase() ?? "";
+    return project.name.toLowerCase().includes(q) || base.includes(q);
+  });
+}
+
+/** 「项目」指令回复 */
+export function buildProjectsReply(projects: LarkProjectSummary[], now = Date.now()): string {
+  if (!projects.length) {
+    return "📂 Zen 项目：暂无工作区。";
+  }
+  const lines = projects.map(
+    (project, index) =>
+      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now)}`,
+  );
+  return ["📂 Zen 项目", ...lines].join("\n");
+}
+
+/** 项目歧义/未命中时的候选清单 */
+export function buildProjectCandidatesReply(
+  query: string,
+  matches: LarkProjectSummary[],
+  now = Date.now(),
+): string {
+  const label = `匹配「${truncateText(query, 40)}」的项目`;
+  if (!matches.length) {
+    return `未找到${label}。`;
+  }
+  const lines = matches.map(
+    (project, index) =>
+      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now)}`,
+  );
+  return [`🔍 ${label}有多个，请用更精确的名称：`, ...lines].join("\n");
+}
+
+/** 「分支」指令回复：标记当前分支 */
+export function buildBranchesReply(
+  project: LarkProjectSummary,
+  result: { current: string; branches: string[] },
+): string {
+  if (!result.branches.length) {
+    return `🌿 ${project.name}：没有本地分支。`;
+  }
+  const lines = result.branches.map((branch) =>
+    branch === result.current ? `• ${branch} ← 当前` : `• ${branch}`,
+  );
+  return [`🌿 ${project.name} 的本地分支`, ...lines].join("\n");
+}
+
+/** 带参数指令的用法提示 */
+export function buildProjectCommandUsage(kind: ParsedProjectCommand["kind"]): string {
+  switch (kind) {
+    case "chat":
+      return "用法：对话 <项目名> <消息>（如：对话 zen 修复登录 bug）";
+    case "branches":
+      return "用法：分支 <项目名>";
+    case "checkout":
+      return "用法：切换 <项目名> <分支名>";
+    case "commit":
+      return "用法：提交 <项目名> <说明>";
+  }
 }
 
 /** 网关内待答问询（含推送序号；飞书侧用 #N 指定回答哪条） */
@@ -394,6 +524,14 @@ export function applyAskReply(
 
 // ---------- 进程管理薄封装（测试通过 deps 注入替身，不打真实网络） ----------
 
+/** 飞书「对话」启动结果（与 agent-runner 的 startLarkChat 返回结构一致） */
+export interface LarkChatStartResult {
+  ok: boolean;
+  sessionId?: string;
+  title?: string;
+  error?: string;
+}
+
 export interface LarkGatewayDeps {
   /** 会话清单（含运行状态映射后的摘要）；limit 控制条数 */
   listSessions: (limit: number) => LarkSessionSummary[];
@@ -401,6 +539,18 @@ export interface LarkGatewayDeps {
   resolveAsk: (askId: string, answer: string) => boolean;
   /** 状态变化通知（ipc 层广播 lark:changed） */
   onStateChange: () => void;
+  /** 项目清单（「项目」指令与项目名匹配的数据源） */
+  listProjects?: () => LarkProjectSummary[];
+  /** 「对话」指令：按项目路径找到/新建工作区，新建会话并异步运行 agent */
+  startChat?: (workspacePath: string, message: string) => Promise<LarkChatStartResult>;
+  /** 「分支」指令：默认走 git-ops（30s 超时 + 输出截断） */
+  listBranches?: (projectPath: string) => Promise<BranchListResult>;
+  /** 「切换」指令：默认走 git-ops（脏工作区拒绝） */
+  checkoutBranch?: (projectPath: string, branch: string) => Promise<CheckoutResult>;
+  /** 「提交」指令：默认走 git-ops（add -A + commit） */
+  commitProject?: (projectPath: string, message: string) => Promise<CommitResult>;
+  /** 飞书会话 done 后读取最终助手回复（做完成推送摘要） */
+  finalAssistantReply?: (sessionId: string) => string | null;
   /** 替身注入点：默认 spawn lark-cli event consume */
   spawnEvents?: (cliPath: string) => import("node:child_process").ChildProcess;
   /** 替身注入点：默认 execFile im +messages-send */
@@ -474,6 +624,8 @@ export class LarkGateway {
   private askSeq = 0;
   private lastSendError: string | null = null;
   private readonly deduper = new LarkMessageDeduper();
+  /** 飞书「对话」启动的会话（sessionId → 标题）：done 时推送最终回复摘要 */
+  private readonly larkSessions = new Map<string, string>();
 
   constructor(private readonly deps: LarkGatewayDeps) {}
 
@@ -554,6 +706,11 @@ export class LarkGateway {
     void this.sendReply("ℹ️ 该问询已在 Zen 内回答");
   }
 
+  /** 「对话」启动成功后登记会话：done 时推送最终助手回复摘要 */
+  trackSession(sessionId: string, title: string): void {
+    this.larkSessions.set(sessionId, title);
+  }
+
   /** 会话 done：清理该会话全部待答（问询随 run 终结，不再可回答） */
   onSessionDone(sessionId: string): void {
     for (const [askId, entry] of this.pendingAsks) {
@@ -562,6 +719,16 @@ export class LarkGateway {
         this.selfResolved.delete(askId);
       }
     }
+    const title = this.larkSessions.get(sessionId);
+    if (!title) {
+      return;
+    }
+    this.larkSessions.delete(sessionId);
+    // emitTo 先喂网关再同步落库（persistRun），微任务里最终助手消息已持久化
+    queueMicrotask(() => {
+      const reply = this.deps.finalAssistantReply?.(sessionId)?.trim() || "（无文本回复）";
+      void this.sendReply(`✅ ${title} 已完成\n${truncateText(reply, 800)}`);
+    });
   }
 
   /** 「状态」指令用：某会话首个待答问询的 question 文本 */
@@ -699,27 +866,130 @@ export class LarkGateway {
 
   private async handleText(text: string): Promise<void> {
     const command = parseLarkCommand(text);
-    let reply: string;
     if (command === "sessions") {
-      reply = buildSessionsReply(this.deps.listSessions(10));
-    } else if (command === "status") {
-      reply = buildStatusReply(this.deps.listSessions(50), (sessionId) =>
-        this.firstPendingQuestion(sessionId),
-      );
-    } else if (command === "help") {
-      reply = buildHelpReply();
-    } else {
-      const result = applyAskReply(text, [...this.pendingAsks.values()], this.deps.resolveAsk);
-      for (const askId of result.resolvedAskIds) {
-        this.pendingAsks.delete(askId);
-        this.selfResolved.add(askId);
-      }
-      for (const askId of result.invalidAskIds) {
-        this.pendingAsks.delete(askId);
-      }
-      reply = result.reply;
+      await this.sendReply(buildSessionsReply(this.deps.listSessions(10)));
+      return;
     }
-    await this.sendReply(reply);
+    if (command === "status") {
+      await this.sendReply(
+        buildStatusReply(this.deps.listSessions(50), (sessionId) =>
+          this.firstPendingQuestion(sessionId),
+        ),
+      );
+      return;
+    }
+    if (command === "help") {
+      await this.sendReply(buildHelpReply());
+      return;
+    }
+    if (command === "projects") {
+      await this.sendReply(buildProjectsReply(this.deps.listProjects?.() ?? []));
+      return;
+    }
+    const projectCommand = parseProjectCommand(text);
+    if (projectCommand) {
+      const reply = await this.handleProjectCommand(projectCommand);
+      // null = 「对话」已自行发送回执（「已开始」/失败提示），无需补发
+      if (reply !== null) {
+        await this.sendReply(reply);
+      }
+      return;
+    }
+    const result = applyAskReply(text, [...this.pendingAsks.values()], this.deps.resolveAsk);
+    for (const askId of result.resolvedAskIds) {
+      this.pendingAsks.delete(askId);
+      this.selfResolved.add(askId);
+    }
+    for (const askId of result.invalidAskIds) {
+      this.pendingAsks.delete(askId);
+    }
+    await this.sendReply(result.reply);
+  }
+
+  /** 带参数指令执行；返回要回复的文案，null 表示已自行发送回复 */
+  private async handleProjectCommand(cmd: ParsedProjectCommand): Promise<string | null> {
+    if (cmd.kind === "chat" && (!cmd.project || !cmd.arg)) {
+      return buildProjectCommandUsage("chat");
+    }
+    if (cmd.kind === "branches" && !cmd.project) {
+      return buildProjectCommandUsage("branches");
+    }
+    if (cmd.kind === "checkout" && (!cmd.project || !cmd.arg)) {
+      return buildProjectCommandUsage("checkout");
+    }
+    if (cmd.kind === "commit" && !cmd.project) {
+      return buildProjectCommandUsage("commit");
+    }
+
+    const projects = this.deps.listProjects?.() ?? [];
+    const matches = matchProjectSummaries(cmd.project, projects);
+    if (!matches.length) {
+      return `未找到匹配「${truncateText(cmd.project, 40)}」的项目。\n\n${buildProjectsReply(projects)}`;
+    }
+    if (matches.length > 1) {
+      return buildProjectCandidatesReply(cmd.project, matches);
+    }
+    const project = matches[0]!;
+    if (!project.path) {
+      return `项目「${project.name}」没有本地路径。`;
+    }
+
+    if (cmd.kind === "chat") {
+      if (!this.deps.startChat) {
+        return "网关未装配会话启动能力。";
+      }
+      // 立即回执，不等 run 结束；运行状态走「状态」查询，完成后由网关推送摘要
+      await this.sendReply(
+        `🚀 已在「${project.name}」开始新会话：${truncateText(cmd.arg, 80)}\n运行期间可发送「状态」查看进度。`,
+      );
+      const result = await this.deps.startChat(project.path, cmd.arg);
+      if (!result.ok) {
+        await this.sendReply(`❌ 会话启动失败：${result.error ?? "未知原因"}`);
+      }
+      return null;
+    }
+
+    if (cmd.kind === "branches") {
+      try {
+        const branches = await (this.deps.listBranches ?? defaultListBranches)(project.path);
+        return buildBranchesReply(project, branches);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `🌿 获取分支失败：${truncateText(message, 300)}`;
+      }
+    }
+
+    if (cmd.kind === "checkout") {
+      const result = await (this.deps.checkoutBranch ?? defaultCheckoutBranch)(
+        project.path,
+        cmd.arg,
+      );
+      if (result.ok) {
+        return `✅ 已切换到分支 ${cmd.arg}（${project.name}）`;
+      }
+      if (result.dirty) {
+        return [
+          `⚠️ ${project.name} 有未提交变更，已拒绝切换分支。`,
+          `请先发送「提交 ${cmd.project} <说明>」保存代码，再切换分支。`,
+          "",
+          truncateText(result.error ?? "", 500),
+        ].join("\n");
+      }
+      return `❌ 切换失败：${result.error ?? "未知原因"}`;
+    }
+
+    // commit：缺省说明时用默认文案（提交信息尾部仍注明 via Zen/飞书）
+    const result = await (this.deps.commitProject ?? defaultCommitAll)(
+      project.path,
+      cmd.arg || "Zen 飞书提交",
+    );
+    if (result.ok) {
+      return `✅ 已提交（${project.name}）\n${result.summary ?? ""}`;
+    }
+    if (result.clean) {
+      return `📭 ${project.name} 没有可提交的变更。`;
+    }
+    return `❌ 提交失败：${result.error ?? "未知原因"}`;
   }
 
   /** 指令回复发送；上一次发送失败时在本条前提示一次 */
