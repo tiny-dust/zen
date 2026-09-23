@@ -1,142 +1,63 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
-import type { McpServerConfig, McpTransport } from "@zen/shared";
+import type { McpDiscoveredServer, McpServerConfig } from "@zen/shared";
+import {
+  extractServerMap,
+  parseJsonc,
+  parseToml,
+  toConfig,
+  toEntryList,
+  type RawMap,
+} from "./mcp-scan-parse";
+import {
+  buildCandidates,
+  defaultScanContext,
+  type ScanContext,
+  type SourceCandidate,
+} from "./mcp-scan-providers";
 
 /**
- * 扫描当前仓库与系统里已有的 MCP 服务配置（Claude Code / Claude Desktop /
- * Cursor / Windsurf / VS Code），转换为 Zen 的 server 配置供一键导入。
- * 各来源文件格式遵循各自约定：{ mcpServers: {...} }（Claude 系）、
- * { servers: {...} }（VS Code 新版）或顶层 map。
+ * 扫描本机与当前仓库里其它 AI 工具已配置的 MCP 服务，转换为 Zen 的 server 配置供一键导入。
+ * 覆盖：OpenAI Codex CLI / Claude Code / Claude Desktop / Cursor / VS Code（含 Insiders、
+ * profiles）/ Windsurf / Trae / Gemini CLI / MiMo（MiMoCode）/ DimAgent，以及项目级
+ * .mcp.json、.cursor/mcp.json、.vscode/mcp.json、.gemini/settings.json、.mimocode/*。
+ * 各来源格式：{ mcpServers | servers | mcp: {...} }（JSON/JSONC）或 [mcp_servers.*]（TOML）。
+ * 坏文件/坏条目跳过不崩；跨来源按「名称 + 端点」去重合并。
  */
 
-export interface McpDiscoveredServer {
-  config: McpServerConfig;
-  /** 来源展示名，如「当前仓库 (.mcp.json)」「Claude Desktop」 */
-  source: string;
-  /** 配置文件绝对路径 */
-  sourcePath: string;
-  /** 与 ~/.zen/mcp.json 已有条目重复（按名称或命令+参数 / URL 判定） */
-  alreadyImported: boolean;
+export type { McpDiscoveredServer } from "@zen/shared";
+
+function shortHash(text: string): string {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36).slice(0, 6);
 }
 
-interface RawMcpEntry {
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  /** 传输类型标记：stdio / sse / http（streamable-http 变体也归 http） */
-  type?: string;
+function makeId(name: string, sourcePath: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "server";
+  return `${slug}-${shortHash(sourcePath)}`;
 }
 
-type RawMap = Record<string, RawMcpEntry>;
-
-function detectTransport(entry: RawMcpEntry): McpTransport | null {
-  if (entry.command) {
-    return "stdio";
-  }
-  if (entry.url) {
-    const type = entry.type?.toLowerCase();
-    if (type === "sse") {
-      return "sse";
-    }
-    if (type === "http" || type === "streamable-http" || type === "streamable_http") {
-      return "http";
-    }
-    // 未标注类型时按 URL 形态猜（/sse 结尾 → SSE 旧版，其余 → HTTP 新版）
-    return /\/sse\/?($|\?)/i.test(entry.url) ? "sse" : "http";
-  }
-  return null;
-}
-
-function toConfig(id: string, name: string, entry: RawMcpEntry): McpServerConfig | null {
-  const transport = detectTransport(entry);
-  if (!transport) {
-    return null;
-  }
-  if (transport === "stdio") {
-    if (!entry.command) {
-      return null;
-    }
-    return {
-      id,
-      name,
-      transport,
-      command: entry.command,
-      args: entry.args ?? [],
-      env: entry.env,
-      enabled: true,
-    };
-  }
-  return {
-    id,
-    name,
-    transport,
-    url: entry.url,
-    headers: entry.headers,
-    enabled: true,
-  };
-}
-
-async function readJsonFile(path: string): Promise<unknown | null> {
+async function readServerMap(candidate: SourceCandidate): Promise<RawMap | null> {
+  let text: string;
   try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw);
+    text = await readFile(candidate.path, "utf8");
   } catch {
     return null;
   }
-}
-
-/** 从 JSON 里提取 server map：mcpServers / servers 键优先，否则视为顶层 map */
-function extractServerMap(data: unknown): RawMap {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return {};
+  try {
+    const data =
+      candidate.format === "toml" ? parseToml(text) : candidate.format === "jsonc" ? parseJsonc(text) : (JSON.parse(text) as unknown);
+    return extractServerMap(data, candidate.mapAt);
+  } catch {
+    // 坏 JSON / TOML：跳过该文件
+    return null;
   }
-  const record = data as Record<string, unknown>;
-  for (const key of ["mcpServers", "servers"]) {
-    const value = record[key];
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      return value as RawMap;
-    }
-  }
-  return record as RawMap;
-}
-
-/** 按平台列出候选配置文件（仓库级 + 各客户端用户级） */
-function candidateFiles(workspaceRoot?: string): Array<{ path: string; source: string }> {
-  const home = homedir();
-  const list: Array<{ path: string; source: string }> = [];
-  if (workspaceRoot) {
-    list.push({ path: join(workspaceRoot, ".mcp.json"), source: "当前仓库 (.mcp.json)" });
-    list.push({ path: join(workspaceRoot, ".vscode", "mcp.json"), source: "当前仓库 (.vscode/mcp.json)" });
-  }
-  list.push({ path: join(home, ".claude.json"), source: "Claude Code" });
-  list.push({
-    path:
-      process.platform === "darwin"
-        ? join(home, "Library/Application Support/Claude/claude_desktop_config.json")
-        : process.platform === "win32"
-          ? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude", "claude_desktop_config.json")
-          : join(home, ".config", "Claude", "claude_desktop_config.json"),
-    source: "Claude Desktop",
-  });
-  list.push({ path: join(home, ".cursor", "mcp.json"), source: "Cursor" });
-  list.push({
-    path: join(home, ".codeium", "windsurf", "mcp_config.json"),
-    source: "Windsurf",
-  });
-  list.push({
-    path:
-      process.platform === "darwin"
-        ? join(home, "Library/Application Support/Code/User/mcp.json")
-        : process.platform === "win32"
-          ? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Code", "User", "mcp.json")
-          : join(home, ".config", "Code", "User", "mcp.json"),
-    source: "VS Code",
-  });
-  return list;
 }
 
 function sameEndpoint(a: McpServerConfig, b: McpServerConfig): boolean {
@@ -152,33 +73,39 @@ function sameEndpoint(a: McpServerConfig, b: McpServerConfig): boolean {
   return false;
 }
 
+function dedupeKey(config: McpServerConfig): string {
+  return `${config.name}|${config.transport}|${
+    config.transport === "stdio"
+      ? [config.command, ...(config.args ?? [])].join(" ")
+      : config.url ?? ""
+  }`;
+}
+
 export async function scanMcpSources(
   workspaceRoot?: string,
   existing: McpServerConfig[] = [],
+  ctx: ScanContext = defaultScanContext(),
 ): Promise<McpDiscoveredServer[]> {
   const results: McpDiscoveredServer[] = [];
   // 跨来源去重：同一名字 + 同一端点的定义只保留第一次出现
   const seenKeys = new Set<string>();
 
-  for (const { path, source } of candidateFiles(workspaceRoot)) {
-    const data = await readJsonFile(path);
-    if (!data) {
+  for (const candidate of buildCandidates(ctx, workspaceRoot)) {
+    const map = await readServerMap(candidate);
+    if (!map) {
       continue;
     }
-    const map = extractServerMap(data);
-    for (const [name, entry] of Object.entries(map)) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        continue;
-      }
-      const config = toConfig(`${name}-${Date.now().toString(36)}`, name, entry);
+    for (const [name, entry] of toEntryList(map)) {
+      const config = toConfig(
+        makeId(name, candidate.path),
+        name,
+        entry,
+        { home: ctx.home, env: ctx.env },
+      );
       if (!config) {
         continue;
       }
-      const key = `${name}|${config.transport}|${
-        config.transport === "stdio"
-          ? [config.command, ...(config.args ?? [])].join(" ")
-          : config.url ?? ""
-      }`;
+      const key = dedupeKey(config);
       if (seenKeys.has(key)) {
         continue;
       }
@@ -186,7 +113,12 @@ export async function scanMcpSources(
       const alreadyImported = existing.some(
         (item) => item.name === name || sameEndpoint(item, config),
       );
-      results.push({ config, source, sourcePath: path, alreadyImported });
+      results.push({
+        config,
+        source: candidate.source,
+        sourcePath: candidate.path,
+        alreadyImported,
+      });
     }
   }
   return results;

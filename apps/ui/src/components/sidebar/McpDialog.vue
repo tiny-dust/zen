@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, RefreshCw, Trash2 } from "@lucide/vue";
+import { Download, Plus, RefreshCw, ScanSearch, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
@@ -22,12 +22,16 @@ import {
 } from "@/components/ui/select";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useAgentStore } from "@/stores/agent";
+import { useChatStore } from "@/stores/chat";
+import { useWorkspaceStore } from "@/stores/workspace";
 
-import type { McpServerConfig, McpTransport } from "@zen/shared";
+import type { McpDiscoveredServer, McpServerConfig, McpTransport } from "@zen/shared";
 
 const open = defineModel<boolean>("open", { default: false });
 
 const agentStore = useAgentStore();
+const chatStore = useChatStore();
+const workspaceStore = useWorkspaceStore();
 const { mcpStatuses } = storeToRefs(agentStore);
 
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
@@ -86,6 +90,54 @@ async function addServer() {
 
 async function removeServer(config: McpServerConfig) {
   await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== config.id));
+}
+
+// 扫描其它 AI 工具已配置的 MCP（Codex / Claude / Cursor / VS Code / MiMo / DimAgent 等）并一键导入
+const scanBusy = ref(false);
+const discovered = ref<McpDiscoveredServer[]>([]);
+const scanNote = ref("");
+
+async function runScan() {
+  scanBusy.value = true;
+  scanNote.value = "";
+  try {
+    const workspaceRoot =
+      workspaceStore.pathOf(chatStore.sessionWorkspaceId) || workspaceStore.activePath;
+    discovered.value = await agentStore.scanMcp(workspaceRoot);
+    const pending = discovered.value.filter((item) => !item.alreadyImported).length;
+    scanNote.value = discovered.value.length
+      ? `发现 ${discovered.value.length} 个服务，其中 ${pending} 个未导入`
+      : "未在本机其它工具或当前仓库发现 MCP 配置";
+  } finally {
+    scanBusy.value = false;
+  }
+}
+
+/** 一键导入：沿用 mcp:set-servers 保存链路写入 ~/.zen/mcp.json；跳过已导入与重名 */
+async function importDiscovered(items: McpDiscoveredServer[]) {
+  const names = new Set(mcpServers.value.map((item) => item.name));
+  const add: McpServerConfig[] = [];
+  for (const item of items) {
+    if (item.alreadyImported || names.has(item.config.name)) {
+      continue;
+    }
+    names.add(item.config.name);
+    add.push({
+      ...item.config,
+      id: `${item.config.name}-${Date.now().toString(36)}-${add.length}`,
+      enabled: true,
+    });
+  }
+  if (!add.length) {
+    return;
+  }
+  await agentStore.saveMcpServers([...mcpServers.value, ...add]);
+  await agentStore.refreshMcp();
+  const added = new Set(add.map((item) => item.name));
+  discovered.value = discovered.value.map((item) =>
+    added.has(item.config.name) ? { ...item, alreadyImported: true } : item,
+  );
+  scanNote.value = `已导入 ${add.map((item) => item.name).join("、")}`;
 }
 
 function stateLabel(state: string) {
@@ -149,6 +201,62 @@ function stateLabel(state: string) {
         </div>
 
         <div class="min-w-0">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <span class="text-[12px] font-medium text-[var(--color-mut)]">
+              发现自其它工具
+            </span>
+            <div class="flex items-center gap-1.5">
+              <Button
+                v-if="discovered.some((item) => !item.alreadyImported)"
+                variant="ghost"
+                size="sm"
+                @click="importDiscovered(discovered)"
+              >
+                <Download class="size-3.5" />全部导入
+              </Button>
+              <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
+                <ScanSearch class="size-3.5" />{{ scanBusy ? "扫描中…" : "扫描" }}
+              </Button>
+            </div>
+          </div>
+          <p v-if="scanNote" class="m-0 mb-1.5 text-[11.5px] text-[var(--color-dim)]">{{ scanNote }}</p>
+          <div v-if="discovered.length" class="mb-3 flex flex-col gap-1.5">
+            <div
+              v-for="item in discovered"
+              :key="`${item.sourcePath}-${item.config.name}`"
+              class="flex items-center gap-2 rounded-lg border border-[var(--color-line-soft)] px-3 py-1.5"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+                    {{ item.config.name }}
+                  </span>
+                  <Badge variant="outline" class="text-[10px]">{{ item.source }}</Badge>
+                  <Badge variant="secondary" class="text-[10px]">{{ item.config.transport }}</Badge>
+                </div>
+                <p
+                  class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+                  :title="item.sourcePath"
+                >
+                  {{ item.config.transport === "stdio"
+                    ? [item.config.command, ...(item.config.args || [])].join(" ")
+                    : item.config.url }}
+                </p>
+              </div>
+              <Button
+                v-if="!item.alreadyImported"
+                variant="ghost"
+                size="sm"
+                class="flex-none"
+                :aria-label="`导入 ${item.config.name}`"
+                @click="importDiscovered([item])"
+              >
+                <Download class="size-3.5" />导入
+              </Button>
+              <Badge v-else variant="secondary" class="flex-none text-[10px]">已导入</Badge>
+            </div>
+          </div>
+
           <div class="mb-2 text-[12px] font-medium text-[var(--color-mut)]">
             已配置 {{ mcpStatuses.length }} 个服务
           </div>
