@@ -150,7 +150,14 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (!zen) {
       return false;
     }
-    const workspace = await zen.workspace.create();
+    // 主进程侧失败（如系统弹窗被压制、IPC reject）时不能静默吞掉，至少留下错误日志
+    let workspace: Awaited<ReturnType<typeof zen.workspace.create>>;
+    try {
+      workspace = await zen.workspace.create();
+    } catch (error) {
+      console.error("[workspace] create failed:", error);
+      return false;
+    }
     if (!workspace) {
       return false;
     }

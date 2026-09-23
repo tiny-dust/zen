@@ -301,7 +301,7 @@ const tabCls = (id: Tab) =>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <template v-if="tab === 'installed'">
-          <div class="grid gap-3 lg:grid-cols-2">
+          <div class="flex flex-col gap-3">
             <div v-if="installedSkills.length" class="flex flex-col gap-1.5">
               <div
                 v-for="skill in installedSkills"
@@ -427,7 +427,7 @@ const tabCls = (id: Tab) =>
             </Button>
           </div>
           <p v-if="marketError" class="m-0 mb-2 text-[12px] text-[var(--color-danger-fg)]">{{ marketError }}</p>
-          <div class="grid gap-3 lg:grid-cols-2">
+          <div class="flex flex-col gap-3">
             <div v-if="displayMarketItems.length" class="flex flex-col gap-1.5">
               <div
                 v-for="hit in displayMarketItems"
@@ -472,9 +472,9 @@ const tabCls = (id: Tab) =>
                 </Button>
               </div>
             </div>
-            <div class="rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] p-4">
-              <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
-              <p class="m-0 mt-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
+            <div class="flex items-start gap-3 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] px-3.5 py-3">
+              <div class="flex-none text-[12.5px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
+              <p class="m-0 min-w-0 flex-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
                 检索开放技能生态中的流行技能，安装到 ~/.claude/skills 并自动出现在「已安装」。安装依赖本机 Node.js（npx）与网络。
               </p>
             </div>
