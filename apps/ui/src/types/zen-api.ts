@@ -32,6 +32,7 @@ import type {
   GitLogEntry,
   GitPullRequest,
   GitStatus,
+  LarkStatus,
   McpServerConfig,
   McpServerStatus,
   McpDiscoveredServer,
@@ -366,5 +367,10 @@ export interface ZenApi {
     openExternal(cwd?: string): Promise<{ ok: boolean; opener?: string; error?: string }>;
     onData(handler: (event: PtyDataEvent) => void): () => void;
     onExit(handler: (event: PtyExitEvent) => void): () => void;
+  };
+  /** 飞书桥接：lark-cli 网关状态（lark:status / lark:changed，main 侧托管启停） */
+  lark: {
+    status(): Promise<LarkStatus>;
+    onChanged(handler: (status: LarkStatus) => void): () => void;
   };
 }

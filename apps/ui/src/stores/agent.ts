@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import type {
   AgentSettings,
+  LarkStatus,
   McpDiscoveredServer,
   McpServerConfig,
   McpServerStatus,
@@ -22,6 +23,7 @@ export const useAgentStore = defineStore("agent", () => {
   const sandboxDir = ref("");
   const syncBusy = ref(false);
   const lastSync = ref<SyncResult | null>(null);
+  const larkStatus = ref<LarkStatus | null>(null);
 
   const permissionMode = computed(() => settings.value.permissionMode);
   const permissionLabel = computed(
@@ -44,9 +46,17 @@ export const useAgentStore = defineStore("agent", () => {
     });
     void refreshSkills();
     void refreshMcp();
-    return zen.agent.onSettingsChanged((value) => {
+    void refreshLark();
+    const disposeSettings = zen.agent.onSettingsChanged((value) => {
       settings.value = value;
     });
+    const disposeLark = zen.lark?.onChanged((status) => {
+      larkStatus.value = status;
+    });
+    return () => {
+      disposeSettings();
+      disposeLark?.();
+    };
   }
 
   async function updateSettings(partial: Partial<AgentSettings>): Promise<void> {
@@ -71,6 +81,15 @@ export const useAgentStore = defineStore("agent", () => {
       return;
     }
     mcpStatuses.value = await zen.mcp.list();
+  }
+
+  /** 飞书桥接状态（lark:status 快照；旧 preload 无 lark 段时保持 null） */
+  async function refreshLark(): Promise<void> {
+    const zen = window.zen;
+    if (!zen?.lark) {
+      return;
+    }
+    larkStatus.value = await zen.lark.status();
   }
 
   /** 扫描当前仓库与系统里已有的 MCP 配置（Claude Code / Desktop / Cursor 等） */
@@ -145,12 +164,14 @@ export const useAgentStore = defineStore("agent", () => {
     sandboxDir,
     syncBusy,
     lastSync,
+    larkStatus,
     permissionMode,
     permissionLabel,
     bootstrap,
     updateSettings,
     refreshSkills,
     refreshMcp,
+    refreshLark,
     scanMcp,
     saveMcpServers,
     pickDirectory,

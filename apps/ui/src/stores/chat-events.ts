@@ -48,6 +48,8 @@ export interface ChatEventContext {
   pendingApproval: Ref<PendingApproval | null>;
   /** askUser 挂起队列（多问询并发，按 askId 独立应答） */
   pendingAsks: Ref<AskUserQuestionEvent[]>;
+  /** 非当前会话的挂起问询暂存：后台新到的 ask_user 记入，切回该会话时由 chat store 恢复 */
+  stashedAsks: Map<string, AskUserQuestionEvent[]>;
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   pendingToolArgs: Map<string, { toolName: string; args: unknown }>;
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
@@ -212,11 +214,25 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         break;
       case "approval_request":
       case "ask_user":
+        if (event.type === "ask_user") {
+          // 后台会话的问询记入暂存：切回该会话时恢复出问询卡（主进程仍在等应答）
+          const question = event.question;
+          const stashed = ctx.stashedAsks.get(id) ?? [];
+          if (!stashed.some((item) => item.askId === question.askId)) {
+            ctx.stashedAsks.set(id, [...stashed, question]);
+          }
+        }
         sessionStatusStore.set(id, "needs_action");
         playNotifySound("needsAction");
         break;
       case "approval_resolved":
       case "ask_resolved":
+        if (event.type === "ask_resolved") {
+          ctx.stashedAsks.set(
+            id,
+            (ctx.stashedAsks.get(id) ?? []).filter((item) => item.askId !== event.askId),
+          );
+        }
         sessionStatusStore.set(id, "running");
         break;
       case "done": {
@@ -225,6 +241,8 @@ export function createChatEventGateway(ctx: ChatEventContext) {
           break;
         }
         backgroundInserts.delete(id);
+        // 会话已结束：挂起问询不再有效（主进程侧已随 run 终止）
+        ctx.stashedAsks.delete(id);
         const isError = event.reason === "error";
         sessionStatusStore.set(id, isError ? "error" : "done");
         playNotifySound(isError ? "error" : "done");

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ArchiveRestore, CircleAlert, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
+import { Archive, ArchiveRestore, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { classes } from "rattail";
@@ -102,8 +102,15 @@ const ghostActionCls = classes(
         aria-hidden="true"
       />
     </span>
-    <span v-else-if="needsAction" :class="slotCls" title="需要操作" aria-label="需要操作" role="status">
-      <CircleAlert class="size-3.5 shrink-0 text-[var(--color-accent-2)]" aria-hidden="true" />
+    <!-- 需要操作：文字 tag 比图标更醒目（askUser 问询 / 工具审批等待） -->
+    <span
+      v-else-if="needsAction"
+      class="flex h-4 flex-none items-center rounded-full bg-[color-mix(in_srgb,var(--color-accent-2)_16%,transparent)] px-1.5 text-[10px] leading-none font-medium text-[var(--color-accent-2)]"
+      title="等待确认"
+      aria-label="待确认"
+      role="status"
+    >
+      待确认
     </span>
     <span
       v-else-if="showResultDot"
