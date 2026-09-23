@@ -3,6 +3,9 @@
  * 持久化在 ~/.zen/config.json（用户可见、可手动编辑的应用域配置）。
  */
 
+import type { LarkBridgeSettings } from "./lark";
+import { DEFAULT_LARK_BRIDGE_SETTINGS } from "./lark";
+
 /** 权限模式：默认（全部确认）/ 智能（按风险分级）/ 完全访问（全部放行） */
 export type PermissionMode = "default" | "smart" | "full";
 
@@ -47,6 +50,8 @@ export interface AgentSettings {
   syncEnabled: boolean;
   /** 云同步仓库名，缺省 zen-config */
   syncRepo: string | null;
+  /** 飞书集成：bot 私信查询/问询回流 */
+  larkBridge: LarkBridgeSettings;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -57,6 +62,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   prompt: { presetId: "zen-default", customText: "" },
   syncEnabled: false,
   syncRepo: null,
+  larkBridge: DEFAULT_LARK_BRIDGE_SETTINGS,
 };
 
 /** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */

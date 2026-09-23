@@ -1,6 +1,7 @@
 export * from "./agent";
 export * from "./agent-settings";
 export * from "./browser";
+export * from "./lark";
 export * from "./model";
 export * from "./terminal";
 export * from "./skill";
