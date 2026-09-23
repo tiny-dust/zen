@@ -92,6 +92,12 @@ export class AgentSession {
   private readonly config: AgentSessionConfig;
   private readonly agent: ToolLoopAgent;
   private messages: ModelMessage[] = [];
+  /**
+   * history 里的 system 轮（如压缩摘要）不能进 messages：AI SDK v7 会抛
+   * "System messages are not allowed in the prompt or messages fields"。
+   * start() 把它们抽出，经 prepareCall 并入每次 stream 的 instructions。
+   */
+  private historyInstructions: string | null = null;
   private controller: AbortController | null = null;
   private paused = false;
   private step = 0;
@@ -188,6 +194,14 @@ export class AgentSession {
       instructions: buildInstructions(config),
       stopWhen: isStepCount(30),
       providerOptions: buildProviderOptions(config) as never,
+      prepareCall: (options) => {
+        // history 的 system 轮并入 instructions（排在主指令之后），messages 保持无 system
+        const base = typeof options.instructions === "string" ? options.instructions : undefined;
+        const merged = [base, this.historyInstructions ?? undefined]
+          .filter((part): part is string => !!part)
+          .join("\n\n");
+        return { ...options, instructions: merged || undefined };
+      },
       toolApproval: ({ toolCall }) => {
         const toolName = toolCall.toolName ?? "";
         const args = (toolCall as { input?: unknown; args?: unknown }).input;
@@ -210,6 +224,23 @@ export class AgentSession {
 
   get agentTree() {
     return this.orchestrator?.snapshot() ?? null;
+  }
+
+  /** 只读运行状态快照（外部集成如飞书桥接展示会话状态用，不改变任何行为） */
+  getRunState(): {
+    runActive: boolean;
+    paused: boolean;
+    waitingApproval: boolean;
+    waitingAskCount: number;
+    inserting: boolean;
+  } {
+    return {
+      runActive: this.runActive,
+      paused: this.paused,
+      waitingApproval: this.pending !== null,
+      waitingAskCount: this.pendingAsks.size,
+      inserting: this.inserting,
+    };
   }
 
   /** 启动并等待一个子 Agent；子会话不启用 multiAgent、不阻塞审批（smart→full） */
@@ -401,10 +432,19 @@ export class AgentSession {
     history?: ChatTurn[],
     images?: AgentImageAttachment[],
   ): Promise<void> {
-    this.messages = (history ?? []).map((item) => ({
-      role: item.role as "system" | "user" | "assistant",
-      content: item.content,
-    }));
+    // system 轮（如压缩摘要）抽出并入 instructions，messages 只留 user/assistant
+    const systemTurns = (history ?? []).filter((item) => item.role === "system");
+    this.historyInstructions =
+      systemTurns
+        .map((item) => item.content.trim())
+        .filter(Boolean)
+        .join("\n\n") || null;
+    this.messages = (history ?? [])
+      .filter((item) => item.role !== "system")
+      .map((item) => ({
+        role: item.role as "user" | "assistant",
+        content: item.content,
+      }));
     // 支持视觉的模型：附件图片作为原生多模态 part 随用户消息发出
     if (images?.length) {
       const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
