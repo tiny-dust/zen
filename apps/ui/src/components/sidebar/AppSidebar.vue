@@ -204,6 +204,10 @@ async function onDeleteWorkspace() {
   await workspaceStore.remove(group.id);
 }
 
+/** 顶部常驻入口（技能 / MCP）：与「项目」触发器同构的行式按钮，一排两个 */
+const topEntryCls =
+  "h-8 flex-1 justify-start gap-1.5 rounded-[var(--radius-sm)] px-2 text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
+
 /** 「项目」下拉触发器：文字 + 下箭头 */
 const projectTriggerCls =
   "h-8 w-full justify-start gap-1 rounded-[var(--radius-sm)] px-2 text-left text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
@@ -230,6 +234,18 @@ const menuIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
         </span>
       </div>
     </header>
+
+    <!-- 顶部常驻入口：技能 / MCP -->
+    <div class="flex flex-none gap-1 px-2 pt-1">
+      <Button variant="ghost" :class="topEntryCls" @click="skillsOpen = true">
+        <Sparkles class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+        技能
+      </Button>
+      <Button variant="ghost" :class="topEntryCls" @click="mcpOpen = true">
+        <Cable class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+        MCP
+      </Button>
+    </div>
 
     <!-- 项目切换/筛选 -->
     <div class="flex-none px-2 pb-1 pt-1">
@@ -270,15 +286,6 @@ const menuIconCls = "size-3.5 flex-none text-[var(--color-mut)]";
           <DropdownMenuItem :class="menuItemCls" @select="workspaceStore.create()">
             <FolderPlus :class="menuIconCls" aria-hidden="true" />
             新建工作区
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem :class="menuItemCls" @select="skillsOpen = true">
-            <Sparkles :class="menuIconCls" aria-hidden="true" />
-            技能
-          </DropdownMenuItem>
-          <DropdownMenuItem :class="menuItemCls" @select="mcpOpen = true">
-            <Cable :class="menuIconCls" aria-hidden="true" />
-            MCP
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

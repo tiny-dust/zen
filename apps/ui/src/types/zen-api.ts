@@ -14,6 +14,7 @@ import type {
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
+  BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
@@ -338,6 +339,11 @@ export interface ZenApi {
     evaluate(expression: string): Promise<BrowserEvalResult>;
     pickStart(): Promise<{ ok: boolean; error?: string }>;
     pickStop(): Promise<{ ok: boolean }>;
+    getSettings(): Promise<BrowserSettings>;
+    setSettings(partial: Partial<BrowserSettings>): Promise<BrowserSettings>;
+    pipEnter(): Promise<BrowserStatus>;
+    pipExit(): Promise<BrowserStatus>;
+    pipHide(): Promise<BrowserStatus>;
     onStatus(handler: (status: BrowserStatus) => void): () => void;
     onElementPicked(handler: (ref: BrowserElementRef) => void): () => void;
   };

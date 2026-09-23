@@ -5,6 +5,9 @@ import { computed, ref, watch } from "vue";
 import FileLabel from "@/components/files/FileLabel.vue";
 import {
   isAbsolutePathLike,
+  isHtmlRefPath,
+  pathToFileUrl,
+  resolveFileRefPath,
   splitLineAnchor,
   toPosixPath,
   toWorkspaceRelativePath,
@@ -15,6 +18,7 @@ import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { classifyPathRef } from "@/lib/path-ref";
+import { useBrowserStore } from "@/stores/browser";
 import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useRightPanelStore } from "@/stores/right-panel";
@@ -130,8 +134,22 @@ function isDirPath(rel: string): boolean {
 
 const selectedIsDir = computed(() => !!selected.value && isDirPath(selected.value));
 
+/** .html/.htm 引用左键 → 内置浏览器打开（file:// URL）；无根可挂时返回 false 走原有行为 */
+function openHtmlInBrowser(refPath: string): boolean {
+  const abs = resolveFileRefPath(refPath, treeRoot.value);
+  const url = pathToFileUrl(abs);
+  if (!url) {
+    return false;
+  }
+  void useBrowserStore().openUrl(url);
+  return true;
+}
+
 function toggle(node: FileNode) {
   if (!node.isDir) {
+    if (isHtmlRefPath(node.path) && openHtmlInBrowser(node.path)) {
+      return;
+    }
     selected.value = node.path;
     selectedLine.value = undefined;
     return;
@@ -206,6 +224,10 @@ watch(
       // 工作区内绝对路径折算成树内相对路径；工作区外保留绝对路径走预览回退
       rel = toWorkspaceRelativePath(rel, treeRoot.value) ?? rel;
     }
+    // .html/.htm 引用改道内置浏览器（openUrl 会自动展开右栏浏览器面板）
+    if (isHtmlRefPath(rel) && openHtmlInBrowser(rel)) {
+      return;
+    }
     if (!isAbsolutePathLike(rel)) {
       const segments = rel.split("/").filter(Boolean);
       const dirSegments = isDirPath(rel) ? segments : segments.slice(0, -1);
@@ -275,6 +297,7 @@ watch(
       <div v-if="selected" class="flex flex-none items-center gap-1 pb-1">
         <FileLabel
           :path="selected"
+          :root="treeRoot ?? ''"
           class="flex-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
         />
         <template v-if="viewerDirty">

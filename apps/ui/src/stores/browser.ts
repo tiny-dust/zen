@@ -6,9 +6,11 @@ import type {
   BrowserElementRef,
   BrowserExtractResult,
   BrowserHistoryItem,
+  BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
 } from "@zen/shared";
+import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
 import { createBrowserHistory } from "@/stores/browser-history";
 import { buildPageContextText, emptyStatus, normalizeBrowserUrl } from "@/stores/browser-utils";
@@ -38,8 +40,12 @@ export const useBrowserStore = defineStore("browser", () => {
   const lastScreenshotPath = ref("");
   /** 短暂抑制「自动展开右栏」，避免循环打开 */
   const agentNavLock = ref(false);
+  /** 浏览器设置（UA / 缩放），持久化在 ~/.zen/config.json */
+  const browserSettings = ref<BrowserSettings>({ ...DEFAULT_BROWSER_SETTINGS });
 
   const isRunning = computed(() => status.value.state === "running");
+  const isPip = computed(() => status.value.pip);
+  const isPipHidden = computed(() => status.value.pipHidden);
   const kernelLabel = computed(() => {
     if (status.value.electronVersion || status.value.chromeVersion) {
       return `Electron ${status.value.electronVersion} · Chromium ${status.value.chromeVersion}`;
@@ -156,6 +162,10 @@ export const useBrowserStore = defineStore("browser", () => {
   async function syncBounds(rect: DOMRect | null, visible: boolean) {
     const zen = window.zen?.browser;
     if (!zen) {
+      return;
+    }
+    // 画中画悬浮/后台运行时不推送面板 bounds：视图由主进程 PiP 逻辑接管，面板推送会把它拽回主窗口
+    if (status.value.pip || status.value.pipHidden) {
       return;
     }
     // 历史页/弹窗压制/隐藏时不对齐原生视图
@@ -470,6 +480,56 @@ export const useBrowserStore = defineStore("browser", () => {
     useRightPanelStore().ensureTab("browser");
   }
 
+  /** 读取浏览器设置（面板设置弹层打开时调用） */
+  async function loadBrowserSettingsState() {
+    const zen = window.zen?.browser;
+    if (!zen?.getSettings) {
+      return;
+    }
+    browserSettings.value = await zen.getSettings();
+  }
+
+  /** 保存浏览器设置（UA / 缩放），主进程落盘并即时生效 */
+  async function updateBrowserSettings(partial: Partial<BrowserSettings>) {
+    const zen = window.zen?.browser;
+    if (!zen?.setSettings) {
+      return;
+    }
+    browserSettings.value = await zen.setSettings(partial);
+  }
+
+  /** 进入画中画悬浮窗（off/hidden → floating） */
+  async function enterPip() {
+    const zen = window.zen?.browser;
+    if (!zen?.pipEnter) {
+      return;
+    }
+    status.value = await zen.pipEnter();
+    panelNote.value = status.value.pip ? "已进入画中画悬浮窗" : panelNote.value;
+  }
+
+  /** 退出画中画：视图放回浏览器面板（floating/hidden → off，随后面板 bounds 推送接管） */
+  async function exitPip() {
+    const zen = window.zen?.browser;
+    if (!zen?.pipExit) {
+      return;
+    }
+    status.value = await zen.pipExit();
+    // 面板重新接管视图
+    await pushBoundsNow();
+    panelNote.value = status.value.pipHidden ? "浏览器页面在后台运行" : "";
+  }
+
+  /** 关闭画中画悬浮窗（页面转入后台运行，面板暂不接管） */
+  async function hidePip() {
+    const zen = window.zen?.browser;
+    if (!zen?.pipHide) {
+      return;
+    }
+    status.value = await zen.pipHide();
+    panelNote.value = "画中画已关闭，浏览器页面在后台运行";
+  }
+
   watch(showHome, () => {
     void syncBoundsHost();
   });
@@ -499,12 +559,20 @@ export const useBrowserStore = defineStore("browser", () => {
     annotating,
     lastScreenshotPath,
     isRunning,
+    isPip,
+    isPipHidden,
+    browserSettings,
     kernelLabel,
     bindEvents,
     syncStatus,
     ensureRunning,
     syncBounds,
     openUrl,
+    loadBrowserSettingsState,
+    updateBrowserSettings,
+    enterPip,
+    exitPip,
+    hidePip,
     openNewTab,
     openHistoryItem,
     removeHistory,
