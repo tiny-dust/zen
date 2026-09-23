@@ -88,7 +88,7 @@ onMounted(() => {
   if (window.location.hash.startsWith("#settings")) {
     history.replaceState(null, "", window.location.pathname + window.location.search);
   }
-  void useWorkspaceStore().refresh();
+  void userStore.waitForReady().then(() => useWorkspaceStore().refresh());
   // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
   layoutStore.syncViewport();
   window.addEventListener("resize", layoutStore.syncViewport);
