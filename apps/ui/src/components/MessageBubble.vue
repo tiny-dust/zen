@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, Sparkles, TriangleAlert } from "@lucide/vue";
+import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, Sparkles, TriangleAlert, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 
 import { Loader } from "@/components/ai-elements/loader";
@@ -86,6 +86,11 @@ const attachmentParts = computed(() => {
   const meta = props.message.meta as { attachments?: Array<{ name: string; path?: string }> } | undefined;
   return meta?.attachments ?? [];
 });
+
+/** 插入执行的用户消息：气泡上方加「已插入」徽标（打断原任务、高权重先执行） */
+const insertedBadge = computed(
+  () => (props.message.meta as { inserted?: boolean } | undefined)?.inserted === true,
+);
 
 const toolMeta = computed<ToolCallMessageMeta | null>(() => {
   if (props.message.role !== "tool") {
@@ -304,6 +309,16 @@ function editContent() {
     <div
       class="max-w-[min(760px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
+      <!-- 插入执行徽标：打断原任务、以最高权重先执行 -->
+      <div v-if="insertedBadge" class="mb-1.5 flex justify-end">
+        <span
+          class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-accent)]"
+          title="该消息通过「插入执行」打断原任务优先执行，原任务已在完成后自动恢复"
+        >
+          <Zap class="size-3" aria-hidden="true" />
+          已插入
+        </span>
+      </div>
       <!-- 随消息发送的技能 / 页面元素 tag -->
       <div
         v-if="skillParts.length || elementParts.length"

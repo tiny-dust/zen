@@ -297,9 +297,11 @@ function removeAttachment(id: string) {
         </div>
         <QueuedMessages
           :items="queuedMessages"
+          :insert-disabled="chatStore.insertActive"
           @promote="chatStore.promoteQueued"
           @edit="chatStore.editQueued"
           @remove="chatStore.removeQueued"
+          @insert="chatStore.insertQueued"
         />
         <ComposerEditor
           id="chat-input"

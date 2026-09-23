@@ -192,6 +192,8 @@ export interface ZenApi {
     cancel(sessionId: string): Promise<{ ok: boolean; error?: string }>;
     pause(sessionId: string): Promise<{ ok: boolean; error?: string }>;
     resume(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+    /** 插入执行：打断当前 run（保留 checkpoint），插入消息优先执行后自动恢复原 run */
+    insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }>;
     resolveApproval(
       sessionId: string,
       decision: ToolApprovalDecision,
