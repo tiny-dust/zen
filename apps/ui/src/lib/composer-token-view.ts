@@ -180,16 +180,29 @@ export function createTokenView(host: TokenViewHost): TokenView {
     }
 
     const att = host.attachments().find((item) => item.id === segment.attachmentId);
-    const name = att?.name ?? segment.text.slice(1);
+    // 主体（源文本去前缀字符）；目录部分并入隐藏前缀，chip 仅展示 basename，
+    // 隐藏字符仍计入 textContent，保证与源文本一致（光标偏移依赖它）
+    const body = att?.name ?? segment.text.slice(1);
+    const slash = body.lastIndexOf("/");
+    const name = slash >= 0 && slash < body.length - 1 ? body.slice(slash + 1) : body;
+    const prefixText = segment.text.slice(0, segment.text.length - name.length);
     const token = el("span", "composer-token composer-token-file");
     token.contentEditable = "false";
     if (segment.attachmentId) {
       token.dataset.attachmentId = segment.attachmentId;
     }
     const label = el("span", "composer-token-name");
-    renderVue(h(FileLabel, { path: att?.path ?? name, name, variant: "link" }), label);
+    renderVue(
+      h(FileLabel, {
+        path: att?.path ?? body,
+        name,
+        kind: body.endsWith("/") ? "directory" : "file",
+        variant: "link",
+      }),
+      label,
+    );
     vueContainers.push(label);
-    token.append(el("span", "composer-token-prefix", "$"), label);
+    token.append(el("span", "composer-token-prefix", prefixText), label);
     token.addEventListener("mouseenter", () => host.onTokenHover(segment.attachmentId ?? null));
     token.addEventListener("mouseleave", () => host.onTokenHover(null));
     return token;
