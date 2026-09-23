@@ -40,7 +40,7 @@ watch(
       @toggle="open = !open"
     />
 
-    <div v-if="open" class="mt-1 flex flex-col gap-1.5 pl-[5px]">
+    <div v-if="open" class="mt-1 flex flex-col gap-2 pl-[5px]">
       <div
         v-if="versions.length > 1"
         ref="tabsEl"
@@ -69,29 +69,32 @@ watch(
         </Button>
       </div>
 
-      <ul class="m-0 flex list-none flex-col gap-1 p-0">
+      <ul class="m-0 flex list-none flex-col gap-2 p-0">
         <li
           v-for="task in tasks"
           :key="task.id"
-          class="flex items-start gap-2 text-[12px] leading-snug"
+          class="flex items-start gap-2 text-[13px] leading-relaxed"
           :class="task.done ? 'text-[var(--color-mut)]' : 'text-[var(--color-txt)]'"
         >
           <CircleCheck
             v-if="task.done"
-            class="mt-0.5 size-3.5 flex-none text-[var(--color-add)]"
+            class="mt-1 size-3.5 flex-none text-[var(--color-add)]"
             aria-hidden="true"
           />
           <Circle
             v-else
-            class="mt-0.5 size-3.5 flex-none text-[var(--color-dim)]"
+            class="mt-1 size-3.5 flex-none text-[var(--color-dim)]"
             aria-hidden="true"
           />
-          <span class="min-w-0 flex-1">{{ task.label }}</span>
-          <span
-            v-if="task.agentName"
-            class="flex-none rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
-            :title="`来自 ${task.agentName}`"
-          >{{ task.agentName }}</span>
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="min-w-0 break-words">{{ task.label }}</span>
+            <!-- 子 Agent 标识放条目下方：放行尾会挤压长标题导致异常换行 -->
+            <span
+              v-if="task.agentName"
+              class="w-fit rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
+              :title="`来自 ${task.agentName}`"
+            >{{ task.agentName }}</span>
+          </div>
         </li>
       </ul>
 
