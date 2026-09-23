@@ -24,7 +24,7 @@ let server: Server;
 let origin = "";
 let workspaceRoot = "";
 
-type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop";
+type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop" | "terminal-slow";
 
 const routes = new Map<string, RouteKind>();
 /** tool-loop 路由的请求计数：每次请求返回唯一 toolCallId，模拟持续调工具的模型 */
@@ -97,6 +97,26 @@ function blocksFor(kind: RouteKind): string[] {
               id: kind === "terminal-tool" ? "call_terminal_1" : "call_error_1",
               type: "function",
               function: { name: toolName, arguments: JSON.stringify(args) },
+            },
+          ],
+        },
+        null,
+      ),
+      chunk({}, "tool_calls"),
+      "data: [DONE]\n\n",
+    ];
+  }
+  if (kind === "terminal-slow") {
+    return [
+      chunk({ role: "assistant", content: "" }, null),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_terminal_slow_1",
+              type: "function",
+              function: { name: "runTerminal", arguments: JSON.stringify({ command: "sleep 30" }) },
             },
           ],
         },
@@ -268,6 +288,31 @@ describe("AgentSession 状态链路", () => {
     expect(doneReasons(events)).toEqual(["cancelled"]);
     expect(events.at(-1)?.type).toBe("done");
   });
+
+  it("工具执行中暂停立即生效：runTerminal 被 abort 中断，不发 done 也不误报 error", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "life-terminal-pause", "terminal-slow");
+    const run = session.start("run long command");
+    await delay(150);
+    const request = events.find((e) => e.type === "approval_request");
+    if (request?.type !== "approval_request") throw new Error("missing terminal approval");
+    // approve 内部会 continueLoop 并阻塞在长命令上，不能 await
+    const approved = session.approve({ approvalId: request.request.approvalId, approved: true });
+    // 等命令真正开跑（tool_start 已到）
+    await delay(500);
+    expect(events.some((e) => e.type === "tool_start" && e.toolName === "runTerminal")).toBe(true);
+
+    const t0 = Date.now();
+    await session.pause();
+    await Promise.all([approved, run]);
+    const elapsed = Date.now() - t0;
+
+    // 暂停必须在秒级内生效（修复前会卡到 sleep 30 结束）
+    expect(elapsed).toBeLessThan(5000);
+    expect(events.some((e) => e.type === "status" && e.status === "paused")).toBe(true);
+    expect(doneReasons(events)).toEqual([]);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  }, 15_000);
 
   it("终端非零退出发 error tool_end 并保留输出", async () => {
     const events: AgentStreamEvent[] = [];

@@ -5,7 +5,7 @@ import { MultiAgentOrchestrator, ResourceLock } from "./multi-agent";
 /**
  * 多 Agent 调度回归：
  * - 空闲超时（无进展）取消；活跃保活；等待用户暂停空闲计时
- * - 绝对上限防真挂死
+ * - 无墙钟上限：持续有进展 / 等待用户不会因运行时长被杀
  * - 多问询并发：多个子任务同时 ask，分别回答后都能完成
  */
 
@@ -31,7 +31,7 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
         // 模拟挂死：永不返回、无任何进展
         return new Promise(() => {});
       },
-      { subAgentIdleTimeoutMs: 40, subAgentMaxDurationMs: 10_000 },
+      { subAgentIdleTimeoutMs: 40 },
     );
 
     const spawned = orchestrator.spawn({
@@ -55,7 +55,7 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
         signals.push(spec.signal);
         return new Promise(() => {});
       },
-      { subAgentIdleTimeoutMs: 30, subAgentMaxDurationMs: 10_000 },
+      { subAgentIdleTimeoutMs: 30 },
     );
 
     const spawned = orchestrator.spawn({ name: "挂死任务", task: "x" });
@@ -77,7 +77,7 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
         }
         return { ok: true, text: `done-${progress}` };
       },
-      { subAgentIdleTimeoutMs: 50, subAgentMaxDurationMs: 5_000 },
+      { subAgentIdleTimeoutMs: 50 },
     );
 
     const spawned = orchestrator.spawn({ name: "活跃任务", task: "持续推进" });
@@ -95,7 +95,7 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
         spec.onToolRunning(false);
         return { ok: true, text: "tool-finished" };
       },
-      { subAgentIdleTimeoutMs: 40, subAgentMaxDurationMs: 5_000 },
+      { subAgentIdleTimeoutMs: 40 },
     );
 
     const spawned = orchestrator.spawn({ name: "长工具", task: "跑长命令" });
@@ -115,7 +115,7 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
         spec.onWaitingUser(false);
         return { ok: true, text: `answered:${answer}` };
       },
-      { subAgentIdleTimeoutMs: 40, subAgentMaxDurationMs: 5_000 },
+      { subAgentIdleTimeoutMs: 40 },
     );
 
     const spawned = orchestrator.spawn({ name: "问询任务", task: "问用户" });
@@ -136,21 +136,35 @@ describe("MultiAgentOrchestrator 空闲超时与保活", () => {
     expect(node?.waitingUser).toBe(false);
   });
 
-  it("绝对上限到点：即使等待用户也会取消", async () => {
+  it("长时间运行不被墙钟上限杀掉：持续进展 + 等待用户后仍能完成", async () => {
+    let release: ((answer: string) => void) | undefined;
     const orchestrator = createOrchestrator(
       async (spec) => {
+        // 先持续进展远超空闲阈值，再等待用户回答；无墙钟上限下都不应被取消
+        for (let i = 0; i < 8; i += 1) {
+          await new Promise((r) => setTimeout(r, 30));
+          spec.onProgress();
+        }
         spec.onWaitingUser(true);
-        await new Promise(() => {});
-        return { ok: true, text: "never" };
+        const answer = await new Promise<string>((resolve) => {
+          release = resolve;
+        });
+        spec.onWaitingUser(false);
+        return { ok: true, text: `long-run:${answer}` };
       },
-      { subAgentIdleTimeoutMs: 10_000, subAgentMaxDurationMs: 50 },
+      { subAgentIdleTimeoutMs: 40 },
     );
 
-    const spawned = orchestrator.spawn({ name: "久等任务", task: "用户不回答" });
+    const spawned = orchestrator.spawn({ name: "长跑任务", task: "跑很久但不空闲" });
+    // 等到进入 waiting_user（此时已远超空闲阈值，但持续进展保活）
+    await new Promise((r) => setTimeout(r, 280));
+    expect(orchestrator.list()[0]?.status).toBe("waiting_user");
+    expect(orchestrator.list()[0]?.error).toBeUndefined();
+
+    release?.("done");
     const [node] = await orchestrator.waitForAgents([spawned.id]);
-    expect(node?.status).toBe("error");
-    expect(node?.error).toContain("超时");
-    expect(node?.error).toContain("最长执行时间");
+    expect(node?.status).toBe("done");
+    expect(node?.result).toContain("long-run:done");
   });
 });
 
@@ -173,7 +187,6 @@ describe("MultiAgentOrchestrator 多问询并发", () => {
       {
         concurrencyLimit: 2,
         subAgentIdleTimeoutMs: 10_000,
-        subAgentMaxDurationMs: 5_000,
       },
     );
 
@@ -223,7 +236,6 @@ describe("MultiAgentOrchestrator 多问询并发", () => {
       {
         concurrencyLimit: 1,
         subAgentIdleTimeoutMs: 10_000,
-        subAgentMaxDurationMs: 5_000,
       },
     );
 

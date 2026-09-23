@@ -1,6 +1,7 @@
 import type {
   AgentNodeState,
   AgentStreamEvent,
+  AgentTranscriptEntry,
   AgentTreeSnapshot,
   SubAgentStatus,
 } from "@zen/shared";
@@ -14,13 +15,13 @@ import { multiAgentInstructions, subAgentInstructions } from "./multi-agent-inst
 /**
  * DESIGN — 多 Agent 调度 / 保活 / 超时 / 多问询
  *
- * ## 超时策略（空闲超时 + 绝对上限）
+ * ## 超时策略（仅心跳 / 空闲超时，无墙钟上限）
  * - 空闲超时 `subAgentIdleTimeoutMs`（默认 4 分钟）：仅在「无进展且不在合法等待」时计时。
- *   进展 = onProgress（onLog / tool_start / tool_end / usage / ask 等）。
+ *   进展 = onProgress（onLog / delta / tool_start / tool_end / usage / ask 等）。
  *   合法等待 = 工具执行中（onToolRunning）/ 等待用户回答（onWaitingUser）/ 等审批。
  *   空闲到点 abort 本轮，按可重试失败处理。
- * - 绝对上限 `subAgentMaxDurationMs`（默认 45 分钟）：本轮 start 起墙钟，防真挂死
- *   （含用户长期不回答）。到点强制 abort。
+ * - 不设按运行时长判断的墙钟上限：只要持续产出或处于合法等待，允许一直跑下去；
+ *   只有真正空闲（无心跳）才超时取消。
  * - 保活：任何 onProgress 重置空闲计时；工具执行中 / waiting_user 暂停空闲计时。
  *
  * ## 多问询模型（多个 ask 并存，按 askId 独立 resolve）
@@ -40,10 +41,7 @@ export const MAX_CONCURRENT_SUBAGENTS = 2;
 /** 子 Agent 空闲超时：无进展且不在等用户/跑工具时超过该时长取消本轮 */
 export const SUB_AGENT_IDLE_TIMEOUT_MS = 4 * 60_000;
 
-/** 子 Agent 绝对执行上限：防真挂死（含等用户过久） */
-export const SUB_AGENT_MAX_DURATION_MS = 45 * 60_000;
-
-/** @deprecated 旧固定硬超时；请用 SUB_AGENT_IDLE_TIMEOUT_MS / SUB_AGENT_MAX_DURATION_MS */
+/** @deprecated 旧固定硬超时；请用 SUB_AGENT_IDLE_TIMEOUT_MS */
 export const SUB_AGENT_TIMEOUT_MS = SUB_AGENT_IDLE_TIMEOUT_MS;
 
 const MAX_LOG_LINES = 40;
@@ -55,6 +53,8 @@ export { ResourceLock, multiAgentInstructions, subAgentInstructions };
 
 export interface MultiAgentDeps {
   parentSessionId: string;
+  /** 父会话当前 run 的 abort signal：暂停/取消时级联中断子 Agent（可选） */
+  getParentSignal?: () => AbortSignal | null;
   /** 创建并运行一个子 Agent 会话；返回最终 assistant 文本 */
   runChild: (spec: {
     agentId: string;
@@ -68,14 +68,14 @@ export interface MultiAgentDeps {
     onToolRunning: (running: boolean) => void;
     /** askUser 等待用户回答；true 时标记 waiting_user 并暂停空闲计时 */
     onWaitingUser: (waiting: boolean) => void;
+    /** 子 Agent 消息流时间线（正文 / 工具 / 提问 / 错误）；调用方负责节流 */
+    onTranscript?: (entries: AgentTranscriptEntry[]) => void;
   }) => Promise<{ ok: boolean; text: string; error?: string }>;
   emit: (event: AgentStreamEvent) => void;
   resourceLock: ResourceLock;
   concurrencyLimit?: number;
   /** 空闲超时（毫秒），缺省 SUB_AGENT_IDLE_TIMEOUT_MS */
   subAgentIdleTimeoutMs?: number;
-  /** 绝对执行上限（毫秒），缺省 SUB_AGENT_MAX_DURATION_MS */
-  subAgentMaxDurationMs?: number;
   /** @deprecated 兼容旧字段：等价于 subAgentIdleTimeoutMs */
   subAgentTimeoutMs?: number;
 }
@@ -92,7 +92,7 @@ function truncate(text: string, limit = 400): string {
  * 多 Agent 协作编排器：
  * - 任务拆分（spawn）→ 依赖等待 → 有限并发执行 → 失败重试 → 结果汇总
  * - 独占资源（写/终端/浏览器）经 ResourceLock 串行化
- * - 空闲超时 + 绝对上限；等待用户 / 跑工具时保活
+ * - 仅心跳（空闲）超时，无墙钟上限；等待用户 / 跑工具时保活
  */
 export class MultiAgentOrchestrator {
   private readonly deps: MultiAgentDeps;
@@ -101,7 +101,6 @@ export class MultiAgentOrchestrator {
   private readonly aborts = new Map<string, AbortController>();
   private readonly limit: number;
   private readonly idleTimeoutMs: number;
-  private readonly maxDurationMs: number;
   private pumping = false;
   private disposed = false;
 
@@ -110,7 +109,6 @@ export class MultiAgentOrchestrator {
     this.limit = deps.concurrencyLimit ?? MAX_CONCURRENT_SUBAGENTS;
     this.idleTimeoutMs =
       deps.subAgentIdleTimeoutMs ?? deps.subAgentTimeoutMs ?? SUB_AGENT_IDLE_TIMEOUT_MS;
-    this.maxDurationMs = deps.subAgentMaxDurationMs ?? SUB_AGENT_MAX_DURATION_MS;
     deps.resourceLock.onHold = (ownerId, label) => {
       for (const agent of this.nodes.values()) {
         if (agent.status === "running" || agent.status === "waiting_user") {
@@ -144,6 +142,7 @@ export class MultiAgentOrchestrator {
       agents: [...this.nodes.values()].map((node) => ({
         ...node,
         log: [...node.log],
+        transcript: node.transcript?.map((entry) => ({ ...entry })),
         dependsOn: [...node.dependsOn],
       })),
       concurrency: this.concurrency(),
@@ -163,7 +162,12 @@ export class MultiAgentOrchestrator {
     this.deps.emit({
       type: "agent_status",
       sessionId: this.deps.parentSessionId,
-      agent: { ...agent, log: [...agent.log], dependsOn: [...agent.dependsOn] },
+      agent: {
+        ...agent,
+        log: [...agent.log],
+        transcript: agent.transcript?.map((entry) => ({ ...entry })),
+        dependsOn: [...agent.dependsOn],
+      },
       concurrency: this.concurrency(),
     });
   }
@@ -281,14 +285,26 @@ export class MultiAgentOrchestrator {
     const controller = new AbortController();
     this.aborts.set(agent.id, controller);
 
+    // 父会话暂停/取消 → 级联 abort 本轮：spec.signal 传给 runSubAgent，
+    // 由其 abort 监听取消子会话（否则父 abort 传不到子 Agent，父 run 会卡在
+    // waitForAgents 工具里，暂停失效）
+    const parentSignal = this.deps.getParentSignal?.() ?? null;
+    const onParentAbort = () => controller.abort();
+    if (parentSignal) {
+      if (parentSignal.aborted) {
+        controller.abort();
+      } else {
+        parentSignal.addEventListener("abort", onParentAbort, { once: true });
+      }
+    }
+
     const promise = (async () => {
-      // 空闲超时 + 绝对上限：合法等待（工具中 / 等用户）暂停空闲计时
+      // 仅心跳（空闲）超时：合法等待（工具中 / 等用户）暂停空闲计时，无墙钟上限
       type RaceOutcome =
         | { type: "result"; ok: boolean; text: string; error?: string }
-        | { type: "timeout"; kind: "idle" | "max" };
+        | { type: "timeout"; kind: "idle" };
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      let maxTimer: ReturnType<typeof setTimeout> | null = null;
-      let timedOut: "idle" | "max" | null = null;
+      let timedOut: "idle" | null = null;
       let toolBusy = false;
       let waitingUser = false;
       let finished = false;
@@ -303,7 +319,7 @@ export class MultiAgentOrchestrator {
           idleTimer = null;
         }
       };
-      const fireTimeout = (kind: "idle" | "max") => {
+      const fireTimeout = (kind: "idle") => {
         if (timedOut || finished) {
           return;
         }
@@ -321,7 +337,6 @@ export class MultiAgentOrchestrator {
       };
 
       touch();
-      maxTimer = setTimeout(() => fireTimeout("max"), this.maxDurationMs);
 
       const setWaitingUser = (waiting: boolean) => {
         if (finished || waitingUser === waiting) {
@@ -370,6 +385,12 @@ export class MultiAgentOrchestrator {
               onProgress: () => touch(),
               onToolRunning: setToolRunning,
               onWaitingUser: setWaitingUser,
+              // 子 Agent 消息流：写入节点并广播（调用方已按 delta 节流）
+              onTranscript: (entries) => {
+                agent.transcript = entries;
+                touch();
+                this.emitStatus(agent);
+              },
             })
             .then((result): RaceOutcome => ({ type: "result", ...result }))
             .catch((error): RaceOutcome => ({
@@ -382,15 +403,8 @@ export class MultiAgentOrchestrator {
         ]);
         finished = true;
         clearIdle();
-        if (maxTimer != null) {
-          clearTimeout(maxTimer);
-          maxTimer = null;
-        }
         if (raced.type === "timeout") {
-          const message =
-            raced.kind === "idle"
-              ? `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`
-              : `子任务执行超时（超过最长执行时间 ${Math.round(this.maxDurationMs / 60_000)} 分钟），已自动取消`;
+          const message = `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`;
           agent.error = message;
           agent.waitingUser = false;
           this.appendLog(agent, message);
@@ -437,16 +451,9 @@ export class MultiAgentOrchestrator {
       } catch (error) {
         finished = true;
         clearIdle();
-        if (maxTimer != null) {
-          clearTimeout(maxTimer);
-          maxTimer = null;
-        }
         agent.waitingUser = false;
         if (timedOut) {
-          const message =
-            timedOut === "idle"
-              ? `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`
-              : `子任务执行超时（超过最长执行时间 ${Math.round(this.maxDurationMs / 60_000)} 分钟），已自动取消`;
+          const message = `子任务空闲超时（${Math.round(this.idleTimeoutMs / 60_000)} 分钟无进展），已自动取消`;
           agent.error = message;
           this.appendLog(agent, message);
           if (agent.attempts < agent.maxAttempts) {
@@ -467,12 +474,10 @@ export class MultiAgentOrchestrator {
       } finally {
         finished = true;
         clearIdle();
-        if (maxTimer != null) {
-          clearTimeout(maxTimer);
-          maxTimer = null;
-        }
         agent.waitingUser = false;
         this.aborts.delete(agent.id);
+        // 父 signal 监听只在 run 期间挂，结束后摘除防泄漏
+        parentSignal?.removeEventListener("abort", onParentAbort);
         this.emitStatus(agent);
         this.emitTree();
         void this.pump();
@@ -551,12 +556,11 @@ export class MultiAgentOrchestrator {
   /** 主 Agent 可用的协作工具集 */
   buildTools(): ToolSet {
     const idleMin = Math.max(1, Math.round(this.idleTimeoutMs / 60_000));
-    const maxMin = Math.max(1, Math.round(this.maxDurationMs / 60_000));
     const tools: ToolSet = {
       spawnAgent: tool({
         description:
           "Spawn a sub-agent for a focused subtask. Use dependsOn to sequence work. Results appear in the right Agents panel. Max concurrent sub-agents is limited; exclusive resources (write/terminal/browser) are serialized. " +
-          `Sub-agents are cancelled after ~${idleMin}m without progress or ${maxMin}m total; tool use and waiting for user answers keep them alive. ` +
+          `Sub-agents are cancelled after ~${idleMin}m with no progress (no logs, tool calls, or user answers); there is no wall-clock limit — active work or waiting for a user answer keeps them alive indefinitely. ` +
           "If a sub-agent asks the user a question, answer that ask card; it resumes automatically.",
         inputSchema: z.object({
           name: z.string().describe("Short display name for the sub-agent."),

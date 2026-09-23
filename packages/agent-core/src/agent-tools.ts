@@ -154,7 +154,7 @@ export function buildToolSet(
           .optional()
           .describe("Timeout in ms (default 120000, max 300000)."),
       }),
-      execute: async ({ command, timeoutMs }, { toolCallId }) => {
+      execute: async ({ command, timeoutMs }, { toolCallId, abortSignal }) => {
         return exclusive(runtime, "terminal", async () => {
           return await new Promise((resolve) => {
             // 持续运行的命令（dev server / watch）：边跑边收输出尾部，
@@ -180,6 +180,17 @@ export function buildToolSet(
                 },
               });
             };
+            // settle 兜底：exec 回调与 abort 可能竞态，只取第一个结果；
+            // 暂停/取消必须立刻生效，否则 fullStream 等不到下一个 part，run 卡在工具里
+            let settled = false;
+            const settle = (value: { ok: boolean; exitCode: number; output: string }) => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              abortSignal?.removeEventListener("abort", onAbort);
+              resolve(value);
+            };
             const child = exec(
               command,
               {
@@ -200,13 +211,22 @@ export function buildToolSet(
                   `${stdout || ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim() ||
                     "(no output)",
                 );
-                resolve({
+                settle({
                   ok: !error,
                   exitCode,
                   output,
                 });
               },
             );
+            const onAbort = () => {
+              child.kill();
+              settle({ ok: false, exitCode: -1, output: "已中断（暂停或取消）" });
+            };
+            if (abortSignal?.aborted) {
+              onAbort();
+            } else {
+              abortSignal?.addEventListener("abort", onAbort, { once: true });
+            }
             child.stdout?.on("data", (chunk) => appendTail(String(chunk)));
             child.stderr?.on("data", (chunk) => appendTail(String(chunk)));
           });
