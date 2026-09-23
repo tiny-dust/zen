@@ -124,19 +124,31 @@ export async function listSkills(extraPaths: string[]): Promise<SkillSummary[]> 
   }));
 }
 
-/** 读取技能全文（按 id 即目录路径校验后读 SKILL.md） */
+/** 读取技能全文：支持技能目录 id（绝对路径）或技能名（如 "coder"） */
 export async function readSkillById(
-  id: string,
+  idOrName: string,
   extraPaths: string[],
 ): Promise<{ name: string; body: string } | null> {
-  if (!isAbsolute(id)) {
+  const key = idOrName.trim();
+  if (!key) {
     return null;
   }
-  const dirs = [...builtinSkillDirs(), ...extraPaths.map(normalizeDir)];
-  const allowed = dirs.some((dir) => id.startsWith(normalizeDir(dir)));
-  if (!allowed) {
+  if (isAbsolute(key)) {
+    const dirs = [...builtinSkillDirs(), ...extraPaths.map(normalizeDir)];
+    const allowed = dirs.some((dir) => key.startsWith(normalizeDir(dir)));
+    if (!allowed) {
+      return null;
+    }
+    const skill = await tryLoadSkill(key);
+    return skill ? { name: skill.name, body: skill.body } : null;
+  }
+  // 按名称解析：与 listSkills 同名去重优先级一致（~/.zen > ~/.claude > ~/.agents > 自定义）
+  const summary = (await listSkills(extraPaths)).find(
+    (item) => item.name === key || item.dir.split(/[\\/]/).pop() === key,
+  );
+  if (!summary) {
     return null;
   }
-  const skill = await tryLoadSkill(id);
+  const skill = await tryLoadSkill(summary.dir);
   return skill ? { name: skill.name, body: skill.body } : null;
 }

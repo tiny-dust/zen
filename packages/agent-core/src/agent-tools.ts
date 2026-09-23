@@ -252,7 +252,9 @@ export function buildToolSet(
       description:
         "Load the full instructions (SKILL.md body) of one listed skill. Call before following a skill's workflow.",
       inputSchema: z.object({
-        skillId: z.string().describe("The skill id from the available-skills list."),
+        skillId: z
+          .string()
+          .describe('Skill name (e.g. "coder") or skill directory id from the available-skills list.'),
       }),
       execute: async ({ skillId }) => {
         const found = await readSkillById(skillId, config.skillExtraPaths ?? []);
