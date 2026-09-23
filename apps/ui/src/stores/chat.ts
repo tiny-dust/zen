@@ -581,6 +581,13 @@ export const useChatStore = defineStore("chat", () => {
     await zen.agent.resume(sessionId.value);
   }
 
+  /**
+   * 会话切换序号：loadSession/newTask 是多步异步（open/create 在前、状态赋值在后），
+   * 快速连续点击时慢的那个后返回会覆盖新会话的选中态与草稿（选中异常、输入内容丢失）。
+   * 每次切换递增，await 返回后序号不一致说明已有更新的切换，本次结果整体丢弃。
+   */
+  let switchSeq = 0;
+
   /** 切换/新建会话时的运行态复位（消息、输入、队列由调用方各自处理） */
   function resetRunState() {
     status.value = "idle";
@@ -627,6 +634,7 @@ export const useChatStore = defineStore("chat", () => {
     // 运行中的会话切到后台继续跑（主进程按 sessionId 隔离，支持多会话并行），
     // 侧栏状态由 sessionStatusStore 标记「进行中」，不在此 cancel
     flushDraft();
+    const seq = ++switchSeq;
 
     // 先建库再切状态：创建失败时保留当前现场并提示
     let record: SessionRecord | undefined;
@@ -638,6 +646,10 @@ export const useChatStore = defineStore("chat", () => {
         statusText.value = lastError.value;
         return;
       }
+    }
+    // 创建期间用户又点了其他会话：丢弃本次新建，避免覆盖新的选中态
+    if (seq !== switchSeq) {
+      return;
     }
 
     // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
@@ -680,11 +692,17 @@ export const useChatStore = defineStore("chat", () => {
     if (record.id === sessionId.value) {
       return;
     }
+    // 切换前先同步落草稿：此时 sessionId 还是旧会话，输入内容归属正确；
+    // 原实现放在 await session.open 之后，快速连续切换时会把输入写串
+    flushDraft();
+    const seq = ++switchSeq;
+
     const found = await zen.session.open(record.id);
-    if (!found) {
+    if (!found || seq !== switchSeq) {
+      // 打开失败，或等待期间用户又点了其他会话/新建：丢弃本次结果，
+      // 否则慢返回的旧请求会覆盖新会话（选中异常、输入框内容被换掉）
       return;
     }
-    flushDraft();
     // 切走前快照：旧会话（此时 sessionId.value 还是旧 id）仍在后台运行时，
     // 把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
