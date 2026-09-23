@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { AgentStreamEvent } from "@zen/shared";
+import type { AgentStreamEvent, BrowserAgentBridge } from "@zen/shared";
 
 import { AgentSession } from "./index";
 
@@ -24,7 +24,7 @@ let server: Server;
 let origin = "";
 let workspaceRoot = "";
 
-type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop" | "terminal-slow";
+type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop" | "terminal-slow" | "browser-hang";
 
 const routes = new Map<string, RouteKind>();
 /** tool-loop 路由的请求计数：每次请求返回唯一 toolCallId，模拟持续调工具的模型 */
@@ -117,6 +117,26 @@ function blocksFor(kind: RouteKind): string[] {
               id: "call_terminal_slow_1",
               type: "function",
               function: { name: "runTerminal", arguments: JSON.stringify({ command: "sleep 30" }) },
+            },
+          ],
+        },
+        null,
+      ),
+      chunk({}, "tool_calls"),
+      "data: [DONE]\n\n",
+    ];
+  }
+  if (kind === "browser-hang") {
+    return [
+      chunk({ role: "assistant", content: "" }, null),
+      chunk(
+        {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_browser_hang_1",
+              type: "function",
+              function: { name: "browserSnapshot", arguments: "{}" },
             },
           ],
         },
@@ -447,4 +467,56 @@ describe("AgentSession 状态链路", () => {
     expect(ends.some((e) => e.state === "cancelled")).toBe(true);
     expect(doneReasons(events)).toEqual(["cancelled"]);
   });
+
+  /** 轮询等待条件成立；超时直接返回（由后续 expect 判红） */
+  async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate() && Date.now() < deadline) {
+      await delay(50);
+    }
+  }
+
+  it("卡在不感知 abort 的工具里：暂停要有 paused 反馈，取消要补 done(cancelled)", async () => {
+    const events: AgentStreamEvent[] = [];
+    // browserSnapshot 是 read 风险：default 模式免审批，直接执行
+    const hangingBridge = {
+      snapshot: () => new Promise(() => undefined),
+    } as unknown as BrowserAgentBridge;
+    routes.set("/life-hang/v1/chat/completions", "browser-hang");
+    const session = new AgentSession({
+      sessionId: "life-hang",
+      workspaceRoot,
+      protocol: "openai-chat",
+      baseUrl: `${origin}/life-hang`,
+      apiKey: API_KEY,
+      model: MODEL_ID,
+      permissionMode: "default",
+      browserBridge: hangingBridge,
+      emit: (event) => events.push(event),
+    });
+    // 工具永不返回：start 的 promise 永远 pending，不能 await
+    void session.start("snapshot the page");
+    await waitFor(
+      () => events.some((e) => e.type === "tool_start" && e.toolName === "browserSnapshot"),
+      5000,
+    );
+    expect(events.some((e) => e.type === "tool_start" && e.toolName === "browserSnapshot")).toBe(
+      true,
+    );
+
+    // 暂停：即使流卡死在工具里，也要在宽限期内给出 paused 状态反馈
+    const pauseAt = Date.now();
+    await session.pause();
+    await waitFor(() => events.some((e) => e.type === "status" && e.status === "paused"), 6000);
+    expect(events.some((e) => e.type === "status" && e.status === "paused")).toBe(true);
+    expect(Date.now() - pauseAt).toBeLessThan(5500);
+
+    // 取消：必须补 done(cancelled)，否则会话永远停在「运行中」且无法停止
+    const cancelAt = Date.now();
+    await session.cancel();
+    await waitFor(() => doneReasons(events).includes("cancelled"), 5000);
+    expect(doneReasons(events)).toEqual(["cancelled"]);
+    expect(Date.now() - cancelAt).toBeLessThan(4500);
+    expect(events.at(-1)?.type).toBe("done");
+  }, 30_000);
 });
