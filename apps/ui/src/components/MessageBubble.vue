@@ -147,6 +147,38 @@ const userText = computed(() =>
     .trim(),
 );
 
+/**
+ * @文件引用分段：composer 里 @ 选中文件会以 `$相对路径` 写入正文，
+ * 气泡里渲染成文件 chip 而不是裸路径。要求 token 以字母/下划线开头
+ * （排除 "$100" 这类纯数字），目录引用含 / 或带扩展名的文件名均命中。
+ */
+const FILE_REF_RE = /\$([A-Za-z_][\w.-]*(?:\/[\w.-]+)*)/g;
+
+const userSegments = computed<Array<{ type: "text" | "file"; text: string; path?: string }>>(() => {
+  const source = userText.value;
+  if (!source.includes("$")) {
+    return [{ type: "text", text: source }];
+  }
+  const segments: Array<{ type: "text" | "file"; text: string; path?: string }> = [];
+  let cursor = 0;
+  for (const match of source.matchAll(FILE_REF_RE)) {
+    const start = match.index ?? 0;
+    if (start > cursor) {
+      segments.push({ type: "text", text: source.slice(cursor, start) });
+    }
+    segments.push({ type: "file", text: match[0], path: match[1] ?? "" });
+    cursor = start + match[0].length;
+  }
+  if (cursor < source.length) {
+    segments.push({ type: "text", text: source.slice(cursor) });
+  }
+  return segments;
+});
+
+function openFileRef(path: string) {
+  rightPanel.revealFile(path);
+}
+
 /** 当前助手消息的 run 终态（历史 meta.run 优先；流式中对齐 store） */
 const runSummary = computed<ChatRunSummary | null>(() => {
   if (props.message.role !== "assistant") {
@@ -343,7 +375,14 @@ function editContent() {
           <span class="truncate">{{ el.label }}</span>
         </span>
       </div>
-      <div class="m-0 whitespace-pre-wrap break-words">{{ userText }}</div>
+      <div class="m-0 whitespace-pre-wrap break-words"><template v-for="(seg, index) in userSegments" :key="index"><template v-if="seg.type === 'file'"><button
+            type="button"
+            class="mx-0.5 inline-flex max-w-full items-center gap-1 align-text-bottom rounded-md bg-[var(--color-chip-bg)] px-1.5 py-0.5 text-[12px] leading-tight text-[var(--color-link)] hover:underline"
+            :title="seg.path"
+            @click="openFileRef(seg.path ?? '')"
+          >
+            <FileLabel :path="seg.path ?? ''" class="max-w-[240px]" variant="link" />
+          </button></template><template v-else>{{ seg.text }}</template></template></div>
       <div v-if="attachmentParts.length" class="mt-2 flex max-w-full flex-wrap gap-x-3 gap-y-1">
         <template v-for="(att, index) in attachmentParts" :key="`${att.name}-${index}`">
           <Button
