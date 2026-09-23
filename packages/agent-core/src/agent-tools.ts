@@ -45,14 +45,16 @@ export interface ToolSetRuntime {
 async function exclusive<T>(
   runtime: ToolSetRuntime | undefined,
   kind: "write" | "terminal" | "browser",
-  fn: () => Promise<T>,
+  fn: (signal?: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const lock = runtime?.resourceLock;
   const owner = runtime?.ownerLabel ?? "agent";
   if (!lock) {
-    return await fn();
+    return await fn(signal);
   }
-  return lock.run(owner, kind, fn);
+  // 等锁阶段可被 abort 中断：否则持锁任务卡死时，后续独占工具永久排队，会话假死
+  return lock.run(owner, kind, fn, signal);
 }
 
 export function buildToolSet(
@@ -78,9 +80,12 @@ export function buildToolSet(
         path: z.string().describe("Path relative to the workspace root."),
         content: z.string().describe("Full file content to write."),
       }),
-      execute: async ({ path, content }) => {
-        return exclusive(runtime, "write", () =>
-          writeWorkspaceFile(workspaceRoot, path, content),
+      execute: async ({ path, content }, { abortSignal }) => {
+        return exclusive(
+          runtime,
+          "write",
+          () => writeWorkspaceFile(workspaceRoot, path, content),
+          abortSignal,
         );
       },
     }),
@@ -93,8 +98,9 @@ export function buildToolSet(
         newString: z.string().describe("Replacement text."),
         replaceAll: z.boolean().optional().describe("Replace every occurrence (default false)."),
       }),
-      execute: async ({ path, oldString, newString, replaceAll }) => {
-        return exclusive(runtime, "write", async () => {
+      execute: async ({ path, oldString, newString, replaceAll }, { abortSignal }) => {
+        return exclusive(runtime, "write", async (signal) => {
+          void signal;
           const result = await editWorkspaceFile(
             workspaceRoot,
             path,
@@ -108,7 +114,7 @@ export function buildToolSet(
             );
           }
           return result;
-        });
+        }, abortSignal);
       },
     }),
     listDir: tool({
@@ -230,7 +236,7 @@ export function buildToolSet(
             child.stdout?.on("data", (chunk) => appendTail(String(chunk)));
             child.stderr?.on("data", (chunk) => appendTail(String(chunk)));
           });
-        });
+        }, abortSignal);
       },
     }),
     askUser: tool({
@@ -395,7 +401,8 @@ export function buildToolSet(
         "Local dev servers: use http://127.0.0.1:<port> or http://[::1]:<port> if localhost fails (IPv6-only listeners). " +
         "After open succeeds, use browserClick with the selector from [页面元素].",
       inputSchema: z.object({ url: z.string().describe("http(s) URL to open") }),
-      execute: async ({ url }) => exclusive(runtime, "browser", () => browserBridge.open(url)),
+      execute: async ({ url }, { abortSignal }) =>
+        exclusive(runtime, "browser", () => browserBridge.open(url), abortSignal),
     });
     toolSet.browserSnapshot = tool({
       description:
@@ -412,8 +419,8 @@ export function buildToolSet(
     toolSet.browserClick = tool({
       description: "Click an element in the browser by CSS selector (from extract/element pick).",
       inputSchema: z.object({ selector: z.string() }),
-      execute: async ({ selector }) =>
-        exclusive(runtime, "browser", () => browserBridge.click(selector)),
+      execute: async ({ selector }, { abortSignal }) =>
+        exclusive(runtime, "browser", () => browserBridge.click(selector), abortSignal),
     });
     toolSet.browserType = tool({
       description: "Type text into a browser form field by CSS selector.",
@@ -422,8 +429,8 @@ export function buildToolSet(
         text: z.string(),
         submit: z.boolean().optional().describe("Submit the form after typing"),
       }),
-      execute: async ({ selector, text, submit }) =>
-        exclusive(runtime, "browser", () => browserBridge.type(selector, text, { submit })),
+      execute: async ({ selector, text, submit }, { abortSignal }) =>
+        exclusive(runtime, "browser", () => browserBridge.type(selector, text, { submit }), abortSignal),
     });
     toolSet.browserConsole = tool({
       description:
@@ -440,14 +447,15 @@ export function buildToolSet(
     toolSet.browserScreenshot = tool({
       description: "Capture a PNG screenshot of the current browser page to local disk.",
       inputSchema: z.object({}),
-      execute: async () => exclusive(runtime, "browser", () => browserBridge.screenshot()),
+      execute: async (_, { abortSignal }) =>
+        exclusive(runtime, "browser", () => browserBridge.screenshot(), abortSignal),
     });
     toolSet.browserEvaluate = tool({
       description:
         "Evaluate a JS expression in the browser page context and return the value. Use sparingly.",
       inputSchema: z.object({ expression: z.string() }),
-      execute: async ({ expression }) =>
-        exclusive(runtime, "browser", () => browserBridge.evaluate(expression)),
+      execute: async ({ expression }, { abortSignal }) =>
+        exclusive(runtime, "browser", () => browserBridge.evaluate(expression), abortSignal),
     });
   }
 
