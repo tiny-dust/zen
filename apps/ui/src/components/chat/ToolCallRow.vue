@@ -6,8 +6,10 @@ import { toolDisplay, toolStateLabel, toolStatusLine } from "@/components/chat/t
 import ToolResultView from "@/components/chat/ToolResultView.vue";
 import { codeLines, toolResult, toolResultState } from "@/components/chat/tool-result";
 import FileLabel from "@/components/files/FileLabel.vue";
+import { resolveFileRefPath } from "@/components/files/file-ref";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useSessionRoot } from "@/composables/useSessionRoot";
 import { useRightPanelStore } from "@/stores/right-panel";
 
 import type { ToolPart } from "@/components/chat/tool-part";
@@ -15,6 +17,7 @@ import type { ToolPart } from "@/components/chat/tool-part";
 const props = defineProps<{ part: ToolPart }>();
 
 const rightPanel = useRightPanelStore();
+const sessionRoot = useSessionRoot();
 const open = ref(false);
 const display = computed(() => toolDisplay(props.part.toolName, props.part.args));
 const result = computed(() => toolResult(props.part));
@@ -29,6 +32,11 @@ const readRange = computed(() => {
   if (props.part.toolName !== "readFile" || result.value?.kind !== "code") return "";
   const count = codeLines(result.value.text).length;
   return count ? (count === 1 ? "L1" : `L1-L${count}`) : "空文件";
+});
+// 悬浮展示完整路径：相对引用按工作区根绝对化
+const targetTitle = computed(() => {
+  const text = display.value.target?.text;
+  return text && sessionRoot.value ? resolveFileRefPath(text, sessionRoot.value) : text;
 });
 
 function revealFile() {
@@ -56,7 +64,7 @@ function revealFile() {
         v-if="(display.target?.kind === 'file' || display.target?.kind === 'dir') && display.target.text"
         variant="link"
         class="tool-file-target"
-        :title="display.target.text"
+        :title="targetTitle"
         @click="revealFile"
       >
         <FileLabel
@@ -65,6 +73,7 @@ function revealFile() {
           :kind="display.target.kind === 'dir' ? 'directory' : 'file'"
           variant="link"
           class="tool-file-path"
+          :root="sessionRoot"
         />
       </Button>
       <span v-else-if="display.target?.text && part.toolName !== 'runTerminal'" class="tool-target" :title="display.target.text">

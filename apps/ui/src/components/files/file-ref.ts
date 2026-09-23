@@ -49,3 +49,25 @@ export function toWorkspaceRelativePath(abs: string, root?: string | null): stri
   }
   return posix === base ? "" : posix.slice(base.length + 1);
 }
+
+/** .html/.htm 文件引用（含行号锚点容忍），内置浏览器打开用 */
+export function isHtmlRefPath(ref: string): boolean {
+  return /\.html?$/i.test(splitLineAnchor(ref).file);
+}
+
+/** 绝对路径 → file:// URL；相对路径（无根可挂）返回空串。段级编码，空格/# 等安全 */
+export function pathToFileUrl(path: string): string {
+  const posix = toPosixPath(path);
+  if (!isAbsolutePathLike(posix)) {
+    return "";
+  }
+  const driveMatch = /^([A-Za-z]):\/(.*)$/.exec(posix);
+  if (driveMatch) {
+    // Windows 盘符：file:///C:/Users/...（盘符不编码，路径段逐段编码）
+    const rest = driveMatch[2].split("/").map(encodeURIComponent).join("/");
+    return `file:///${driveMatch[1]}:/${rest}`;
+  }
+  const encoded = posix.split("/").map(encodeURIComponent).join("/");
+  // posix 以 / 开头，join 后自带第三条斜杠：file:// + /a/b → file:///a/b
+  return `file://${encoded}`;
+}

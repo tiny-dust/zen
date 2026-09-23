@@ -12,13 +12,16 @@ import { computed, reactive, ref } from "vue";
 
 import FilePreviewDialog from "@/components/base/FilePreviewDialog.vue";
 import FileLabel from "@/components/files/FileLabel.vue";
+import { resolveFileRefPath } from "@/components/files/file-ref";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
+import { useSessionRoot } from "@/composables/useSessionRoot";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
 
 const sessionInfo = useSessionInfoStore();
 const rightPanel = useRightPanelStore();
+const sessionRoot = useSessionRoot();
 const open = ref(true);
 const refs = computed(() => sessionInfo.references);
 
@@ -126,12 +129,17 @@ function toggleGroup(key: string) {
               v-else
               variant="ghost"
               class="h-auto min-w-0 flex-1 justify-start truncate text-left font-[family-name:var(--font-mono)] text-[11px] font-normal hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent"
-              :title="group.key === 'user' ? '打开文件预览' : 'Agent 参考过的项目文件'"
+              :title="group.key === 'user'
+                ? '打开文件预览'
+                : sessionRoot
+                  ? resolveFileRefPath(item.url, sessionRoot)
+                  : item.url"
               @click="group.key === 'user' ? openPreview(item.url) : reveal(item.url)"
             >
               <FileLabel
                 :path="item.url"
                 :name="group.key === 'user' ? item.title || undefined : undefined"
+                :root="sessionRoot"
               />
             </Button>
             <ExternalLink

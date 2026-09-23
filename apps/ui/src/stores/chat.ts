@@ -522,9 +522,8 @@ export const useChatStore = defineStore("chat", () => {
     const workspaceStore = useWorkspaceStore();
     const target = workspaceId || sessionWorkspaceId.value;
     const zen = window.zen;
-    if (isRunning.value) {
-      await cancel();
-    }
+    // 运行中的会话切到后台继续跑（主进程按 sessionId 隔离，支持多会话并行），
+    // 侧栏状态由 sessionStatusStore 标记「进行中」，不在此 cancel
     flushDraft();
 
     // 先建库再切状态：创建失败时保留当前现场并提示
@@ -565,7 +564,7 @@ export const useChatStore = defineStore("chat", () => {
     void useGitStore().refreshStatus();
   }
 
-  /** 打开历史会话：运行中的先取消，事件按 sessionId 过滤不会串流 */
+  /** 打开历史会话：运行中的会话切到后台继续跑，事件按 sessionId 过滤不会串流 */
   async function loadSession(record: SessionRecord) {
     const zen = window.zen;
     if (!zen) {
@@ -573,9 +572,6 @@ export const useChatStore = defineStore("chat", () => {
     }
     if (record.id === sessionId.value) {
       return;
-    }
-    if (isRunning.value) {
-      await cancel();
     }
     const found = await zen.session.open(record.id);
     if (!found) {
@@ -592,6 +588,14 @@ export const useChatStore = defineStore("chat", () => {
     input.value = found.session.draft ?? "";
     attachments.value = [];
     resetRunState();
+    // 切回仍在后台运行的会话：恢复运行态（isRunning=true），
+    // 让 send() 走队列而不是再次 agent:run 顶掉后台 run；后续流事件正常流入展示
+    const bgStatus = sessionStatusStore.get(record.id);
+    if (bgStatus === "running" || bgStatus === "needs_action") {
+      status.value = bgStatus === "needs_action" ? "awaiting-approval" : "thinking";
+      phase.value = "answering";
+      isPaused.value = false;
+    }
     useSessionInfoStore().clear();
     useAgentsStore().clear();
     useAgentProcessesStore().clear();

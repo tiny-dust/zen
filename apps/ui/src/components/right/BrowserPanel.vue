@@ -7,8 +7,10 @@ import {
   ExternalLink,
   Globe,
   History,
+  PictureInPicture2,
   RotateCw,
   Search,
+  Settings2,
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -39,6 +41,9 @@ const {
   kernelLabel,
   lastPicked,
   consoleEntries,
+  isPip,
+  isPipHidden,
+  browserSettings,
 } = storeToRefs(browserStore);
 
 const viewHost = ref<HTMLElement | null>(null);
@@ -49,6 +54,42 @@ const suggestIndex = ref(0);
 const suggestSelected = ref(false);
 let unbind: (() => void) | null = null;
 let ro: ResizeObserver | null = null;
+
+/** 设置弹层（UA / 视口缩放） */
+const settingsOpen = ref(false);
+const uaDraft = ref("");
+const zoomDraft = ref(100);
+
+function openSettings() {
+  settingsOpen.value = !settingsOpen.value;
+  if (settingsOpen.value) {
+    void browserStore.loadBrowserSettingsState();
+    uaDraft.value = browserSettings.value.userAgent;
+    zoomDraft.value = browserSettings.value.zoomPercent;
+  }
+}
+
+async function saveSettings() {
+  await browserStore.updateBrowserSettings({
+    userAgent: uaDraft.value.trim(),
+    zoomPercent: zoomDraft.value,
+  });
+  settingsOpen.value = false;
+  browserStore.panelNote = uaDraft.value.trim()
+    ? "浏览器设置已保存（UA / 缩放即时生效）"
+    : "浏览器设置已保存（恢复默认 UA）";
+}
+
+/** 画中画切换：悬浮中 → 返回面板；后台运行 → 重新悬浮；否则进入悬浮 */
+function togglePip() {
+  if (isPip.value) {
+    void browserStore.exitPip();
+  } else if (isPipHidden.value) {
+    void browserStore.enterPip();
+  } else {
+    void browserStore.enterPip();
+  }
+}
 
 const formattedHistory = computed(() =>
   history.value.map((item) => ({
@@ -207,8 +248,8 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-1.5 px-2 pb-2">
-    <!-- 浏览器地址栏壳：左 导航 · 中 地址 · 右 操作 -->
-    <div class="flex flex-none items-center gap-1">
+    <!-- 浏览器地址栏壳：左 导航 · 中 地址 · 右 操作（relative 承载设置弹层） -->
+    <div class="relative flex flex-none items-center gap-1">
       <div class="flex flex-none items-center gap-0.5">
         <Button
           variant="ghost"
@@ -307,6 +348,26 @@ watch(
         <Button
           variant="ghost"
           size="icon-xs"
+          :class="isPip ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : ''"
+          title="画中画悬浮展示（再次点击返回面板）"
+          aria-label="画中画"
+          @click="togglePip()"
+        >
+          <PictureInPicture2 />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          :class="settingsOpen ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : ''"
+          title="浏览器设置（User-Agent / 尺寸）"
+          aria-label="浏览器设置"
+          @click="openSettings()"
+        >
+          <Settings2 />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           title="在系统浏览器中打开"
           aria-label="在系统浏览器中打开"
           :disabled="showHome && !urlInput"
@@ -351,6 +412,52 @@ watch(
       </div>
     </div>
 
+    <!-- 浏览器设置弹层：UA + 视口缩放，保存后主进程持久化（~/.zen/config.json） -->
+    <div
+      v-if="settingsOpen"
+      class="absolute top-full right-0 z-[var(--z-popup)] mt-1 w-72 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] p-2.5 shadow-[var(--shadow-menu)]"
+    >
+      <div class="mb-1 text-[12px] font-medium text-[var(--color-txt-strong)]">浏览器设置</div>
+      <label class="mb-2 block">
+        <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">User-Agent（留空用默认）</span>
+        <Input
+          v-model="uaDraft"
+          variant="ghost"
+          class="h-7 w-full border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2 font-[family-name:var(--font-mono)] text-[11px] md:text-[11px] text-[var(--color-txt)]"
+          placeholder="Mozilla/5.0 …"
+          spellcheck="false"
+          autocomplete="off"
+          @keydown.enter.prevent="saveSettings()"
+        />
+      </label>
+      <label class="mb-2 block">
+        <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">页面尺寸（缩放，作用于内容渲染）</span>
+        <select
+          v-model.number="zoomDraft"
+          class="h-7 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
+        >
+          <option :value="50">50%</option>
+          <option :value="67">67%</option>
+          <option :value="80">80%</option>
+          <option :value="90">90%</option>
+          <option :value="100">100%（默认）</option>
+          <option :value="110">110%</option>
+          <option :value="125">125%</option>
+          <option :value="150">150%</option>
+          <option :value="200">200%</option>
+          <option :value="300">300%</option>
+        </select>
+      </label>
+      <div class="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="xs" class="font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]" @click="settingsOpen = false">
+          取消
+        </Button>
+        <Button size="xs" class="font-normal text-[11px] md:text-[11px]" @click="saveSettings()">
+          保存
+        </Button>
+      </div>
+    </div>
+
     <div class="flex flex-none items-center gap-2 text-[11px] text-[var(--color-dim)]">
       <span class="truncate font-[family-name:var(--font-mono)]">{{ kernelLabel }}</span>
       <span v-if="annotating" class="flex-none text-[var(--color-accent)]">标注中</span>
@@ -368,6 +475,31 @@ watch(
 
     <div v-if="status.error" class="flex-none text-[11px] text-[var(--color-err)]">
       {{ status.error }}
+    </div>
+
+    <!-- 画中画已关闭、页面后台运行：提示并允许拉回面板/恢复悬浮 -->
+    <div
+      v-if="isPipHidden"
+      class="flex flex-none items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2 py-1 text-[11px] text-[var(--color-dim)]"
+    >
+      <PictureInPicture2 class="size-3.5 flex-none" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">浏览器页面在后台运行（画中画已关闭）</span>
+      <Button
+        variant="ghost"
+        size="xs"
+        class="h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-accent)]"
+        @click="browserStore.enterPip()"
+      >
+        恢复画中画
+      </Button>
+      <Button
+        variant="ghost"
+        size="xs"
+        class="h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]"
+        @click="browserStore.exitPip()"
+      >
+        回到面板
+      </Button>
     </div>
 
     <!-- 新标签 / 历史页 -->

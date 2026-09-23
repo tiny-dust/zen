@@ -10,6 +10,8 @@ export const emptyStatus = (): BrowserStatus => ({
   title: "",
   picking: false,
   visible: false,
+  pip: false,
+  pipHidden: false,
   canGoBack: false,
   canGoForward: false,
 });

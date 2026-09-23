@@ -80,7 +80,11 @@ export const useAgentsStore = defineStore("agents", () => {
     concurrency: { limit: number; running: number };
   }) {
     ensureSession(payload.sessionId);
-    nodes.value = payload.agents.map((item) => ({ ...item, log: [...item.log] }));
+    nodes.value = payload.agents.map((item) => ({
+      ...item,
+      log: [...item.log],
+      transcript: item.transcript?.map((entry) => ({ ...entry })),
+    }));
     limit.value = payload.concurrency.limit;
     running.value = payload.concurrency.running;
     if (selectedId.value && !nodes.value.some((item) => item.id === selectedId.value)) {
@@ -94,7 +98,11 @@ export const useAgentsStore = defineStore("agents", () => {
     concurrency: { limit: number; running: number };
   }) {
     ensureSession(payload.sessionId);
-    const next = { ...payload.agent, log: [...payload.agent.log] };
+    const next = {
+      ...payload.agent,
+      log: [...payload.agent.log],
+      transcript: payload.agent.transcript?.map((entry) => ({ ...entry })),
+    };
     const index = nodes.value.findIndex((item) => item.id === next.id);
     if (index >= 0) {
       nodes.value.splice(index, 1, next);

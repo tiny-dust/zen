@@ -148,8 +148,41 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     }
   }
 
+  /**
+   * 非当前会话的后台事件：只维护侧栏运行态（sessionStatusStore）与提示音。
+   * 绝不触碰 agents/agent-processes/skill-usage 等 owner-session 隔离的 store
+   * （它们会因 ensureSession 换主而清数据）；done 时该会话消息已由主进程落库，
+   * 无需处理消息流。子 Agent 会话（sessionId 带 ::）不上侧栏，直接忽略。
+   */
+  function handleBackgroundEvent(event: AgentStreamEvent): void {
+    const id = event.sessionId;
+    if (id.includes("::")) {
+      return;
+    }
+    switch (event.type) {
+      case "approval_request":
+      case "ask_user":
+        sessionStatusStore.set(id, "needs_action");
+        playNotifySound("needsAction");
+        break;
+      case "approval_resolved":
+      case "ask_resolved":
+        sessionStatusStore.set(id, "running");
+        break;
+      case "done": {
+        const isError = event.reason === "error";
+        sessionStatusStore.set(id, isError ? "error" : "done");
+        playNotifySound(isError ? "error" : "done");
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   function handleStreamEvent(event: AgentStreamEvent): void {
     if (event.sessionId !== ctx.sessionId.value) {
+      handleBackgroundEvent(event);
       return;
     }
 
