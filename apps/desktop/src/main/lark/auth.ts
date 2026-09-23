@@ -108,6 +108,11 @@ export async function readLarkAuthSnapshot(): Promise<LarkAuthSnapshot> {
   return inflight;
 }
 
+/** 丢弃最近一次探测缓存（登录/登出后强制重新探测） */
+export function invalidateLarkAuthCache(): void {
+  cache = null;
+}
+
 /** 同步取最近一次探测结果（广播 lark:changed 用，不触发子进程；未探测过返回 unavailable） */
 export function peekLarkAuthSnapshot(): LarkAuthSnapshot {
   return cache?.snapshot ?? unavailableSnapshot("尚未探测 lark-cli 登录态");
