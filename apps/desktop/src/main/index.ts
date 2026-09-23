@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { homedir } from "node:os";
 import { promisify } from "node:util";
 
 import { AgentSession, registerMcpRuntime, runMockAgent } from "@zen/agent-core";
@@ -35,7 +35,7 @@ import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
-import { initZenDir, loadAgentSettings } from "./zen-dir";
+import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { appendMemoryNote, initDeviceMemory, readMemorySnapshot, renderMemoryContext } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
 import { registerWindowControlsIpc } from "./window-controls";
@@ -129,15 +129,22 @@ function createWindow(): BrowserWindow {
     }
   });
 
-  // 渲染层整页刷新/热更新后：隐藏并重建浏览器视图，避免旧 WebContentsView 盖在左上角
+  // 渲染层整页刷新/热更新后：隐藏并重建浏览器视图，避免旧 WebContentsView 盖在左上角。
+  // 画中画悬浮时跳过：视图此时挂在悬浮窗上，不该被主窗口的刷新逻辑隐藏
   window.webContents.on("did-start-loading", () => {
-    getBrowserService().setVisible(false);
+    const service = getBrowserService();
+    if (!service.isPipFloating()) {
+      service.setVisible(false);
+    }
   });
   window.webContents.on("did-finish-load", () => {
     const service = getBrowserService();
     service.attachToWindow(window);
-    // 不自动 dispose（保留会话），但默认不可见，等 UI 再 setBounds
-    service.setVisible(false);
+    // 不自动 dispose（保留会话），但默认不可见，等 UI 再 setBounds；
+    // 画中画悬浮时同样跳过隐藏，避免悬浮窗页面被主窗口刷新连坐熄灭
+    if (!service.isPipFloating()) {
+      service.setVisible(false);
+    }
   });
 
   window.webContents.setWindowOpenHandler((details) => {
@@ -281,9 +288,15 @@ function registerIpc(): void {
       // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
       const agentSettings = await loadAgentSettings();
       const projectPath = getWorkspace(request.workspaceId)?.path;
-      const { dir: workspaceRoot } = projectPath
-        ? await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)
-        : { dir: homedir() };
+      let workspaceRoot: string;
+      if (projectPath) {
+        workspaceRoot = (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
+      } else {
+        // 无项目会话（公共区）：Agent 产物落 ~/.zen/cache/sessions/<sessionId>，
+        // 不再落到用户主目录/应用启动 cwd；mkdir 保证目录先于首次写文件存在
+        workspaceRoot = sessionCacheDir(request.sessionId);
+        await mkdir(workspaceRoot, { recursive: true });
+      }
 
       // 技能与 MCP 惰性汇总（失败不阻塞会话）
       const [skills, mcpTools] = await Promise.all([

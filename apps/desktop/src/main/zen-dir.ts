@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 
 import { app } from "electron";
 
-import type { AgentSettings, McpServerConfig } from "@zen/shared";
-import { DEFAULT_AGENT_SETTINGS } from "@zen/shared";
+import type { AgentSettings, BrowserSettings, McpServerConfig } from "@zen/shared";
+import { DEFAULT_AGENT_SETTINGS, DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 
 /**
  * ~/.zen 用户域目录（ADR-004）：技能、MCP、隔离区、agent 设置、本地加密密钥。
@@ -30,6 +30,11 @@ export function zenSandboxRoot(): string {
 
 export function zenCacheRoot(): string {
   return join(zenRoot(), "cache");
+}
+
+/** 无项目会话的 Agent 工作目录：~/.zen/cache/sessions/<sessionId>（按会话隔离，不污染主目录） */
+export function sessionCacheDir(sessionId: string): string {
+  return join(zenCacheRoot(), "sessions", sessionId);
 }
 
 export function zenSkillsRoot(): string {
@@ -104,5 +109,38 @@ export async function saveAgentSettings(partial: Partial<AgentSettings>): Promis
   const next: AgentSettings = { ...current, ...partial };
   await ensureDir(dirname(zenConfigFile()));
   await writeFile(zenConfigFile(), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+/** 读取内嵌浏览器设置（config.json 顶层 browser 字段，与 AgentSettings 互不影响） */
+export async function loadBrowserSettings(): Promise<BrowserSettings> {
+  await ensureDir(zenRoot());
+  const raw = await readJson<Record<string, unknown>>(zenConfigFile(), {});
+  const browser = (raw["browser"] ?? {}) as Partial<BrowserSettings>;
+  return {
+    ...DEFAULT_BROWSER_SETTINGS,
+    ...browser,
+    // pipBounds 只接受合法几何，脏数据回退缺省（悬浮窗居中由主进程兜底）
+    pipBounds:
+      browser.pipBounds &&
+      typeof browser.pipBounds.x === "number" &&
+      typeof browser.pipBounds.y === "number" &&
+      (browser.pipBounds.width ?? 0) > 40 &&
+      (browser.pipBounds.height ?? 0) > 40
+        ? browser.pipBounds
+        : null,
+  };
+}
+
+/** 保存内嵌浏览器设置（合并写入，不影响 config.json 其它字段） */
+export async function saveBrowserSettings(
+  partial: Partial<BrowserSettings>,
+): Promise<BrowserSettings> {
+  const current = await loadBrowserSettings();
+  const next: BrowserSettings = { ...current, ...partial };
+  await ensureDir(dirname(zenConfigFile()));
+  const raw = await readJson<Record<string, unknown>>(zenConfigFile(), {});
+  raw["browser"] = next;
+  await writeFile(zenConfigFile(), JSON.stringify(raw, null, 2), "utf8");
   return next;
 }

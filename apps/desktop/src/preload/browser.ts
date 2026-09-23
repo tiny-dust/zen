@@ -9,6 +9,7 @@ import type {
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
+  BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
@@ -85,6 +86,21 @@ export const browserApi = {
     },
     pickStop(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("browser:pick-stop");
+    },
+    getSettings(): Promise<BrowserSettings> {
+      return ipcRenderer.invoke("browser:get-settings");
+    },
+    setSettings(partial: Partial<BrowserSettings>): Promise<BrowserSettings> {
+      return ipcRenderer.invoke("browser:set-settings", partial);
+    },
+    pipEnter(): Promise<BrowserStatus> {
+      return ipcRenderer.invoke("browser:pip-enter");
+    },
+    pipExit(): Promise<BrowserStatus> {
+      return ipcRenderer.invoke("browser:pip-exit");
+    },
+    pipHide(): Promise<BrowserStatus> {
+      return ipcRenderer.invoke("browser:pip-hide");
     },
     onStatus(handler: (status: BrowserStatus) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, status: BrowserStatus) => {

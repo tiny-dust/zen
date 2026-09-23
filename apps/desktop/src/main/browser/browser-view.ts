@@ -4,9 +4,11 @@ import type {
   BrowserConsoleEntry,
   BrowserElementRef,
   BrowserNetworkEntry,
+  BrowserSettings,
   BrowserStatus,
   BrowserViewBounds,
 } from "@zen/shared";
+import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 
 import { kernelLabels, withTimeout } from "./browser-utils";
 
@@ -27,6 +29,8 @@ export class BrowserViewManager {
     title: "",
     picking: false,
     visible: false,
+    pip: false,
+    pipHidden: false,
     canGoBack: false,
     canGoForward: false,
   };
@@ -43,6 +47,35 @@ export class BrowserViewManager {
   protected navigateToken = 0;
   /** 系统弹窗（sheet/文件选择）显示期间的压制计数，防止 WebContentsView 盖住弹窗 */
   protected dialogSuppress = 0;
+  /** 浏览器设置（UA / 缩放），由 service 层从 ~/.zen/config.json 载入并应用 */
+  protected settings: BrowserSettings = { ...DEFAULT_BROWSER_SETTINGS };
+  /** 画中画模式：off=面板内；floating=悬浮窗；hidden=悬浮窗已关、页面后台运行 */
+  protected pipMode: "off" | "floating" | "hidden" = "off";
+  /** 画中画悬浮窗（floating 时存在） */
+  protected pipWindow: BrowserWindow | null = null;
+  /** 画中画顶栏高度（px），页面视图贴在其下方 */
+  protected static readonly PIP_TOPBAR = 32;
+
+  /** 应用浏览器设置：UA 持久生效；缩放作用于 webContents zoom（视图 bounds 仍由面板决定） */
+  applyBrowserSettings(settings: BrowserSettings): void {
+    this.settings = { ...settings };
+    const wc = this.view && !this.view.webContents.isDestroyed() ? this.view.webContents : null;
+    if (!wc) {
+      return;
+    }
+    try {
+      // 空串 = 恢复默认 UA；zoom 跨导航保持，无需在 did-navigate 重放
+      wc.setUserAgent(this.settings.userAgent);
+      wc.setZoomFactor(Math.min(3, Math.max(0.5, this.settings.zoomPercent / 100)));
+    } catch {
+      // 视图可能恰好销毁，忽略
+    }
+  }
+
+  /** 是否处于画中画悬浮状态（主窗口 reload 自动隐藏逻辑需跳过） */
+  isPipFloating(): boolean {
+    return this.pipMode === "floating";
+  }
 
   onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
@@ -108,9 +141,34 @@ export class BrowserViewManager {
     const b = this.bounds;
     const show = this.wantVisible && this.dialogSuppress === 0 && b && b.width > 1 && b.height > 1;
     try {
+      // 画中画隐藏态：页面在后台运行，任何 bounds/可见性推送都不点亮视图
+      if (this.pipMode === "hidden") {
+        view.setVisible(false);
+        this.setStatus({ visible: false, pip: false, pipHidden: true });
+        return;
+      }
+      // 画中画悬浮态：视图贴满悬浮窗顶栏下方区域，忽略面板 bounds 推送
+      if (this.pipMode === "floating") {
+        const pip = this.pipWindow && !this.pipWindow.isDestroyed() ? this.pipWindow : null;
+        if (!pip) {
+          return;
+        }
+        const size = pip.getContentSize();
+        const w = Number(size[0]) || 480;
+        const h = Number(size[1]) || 300;
+        view.setVisible(true);
+        view.setBounds({
+          x: 0,
+          y: BrowserViewManager.PIP_TOPBAR,
+          width: Math.max(40, w),
+          height: Math.max(40, h - BrowserViewManager.PIP_TOPBAR),
+        });
+        this.setStatus({ visible: true, pip: true, pipHidden: false });
+        return;
+      }
       if (!show) {
         view.setVisible(false);
-        this.setStatus({ visible: false });
+        this.setStatus({ visible: false, pip: false, pipHidden: false });
         return;
       }
       // 钳制：不允许盖住窗口 chrome（标题栏/交通灯区），也不越出合理范围
@@ -206,6 +264,8 @@ export class BrowserViewManager {
       win.contentView.addChildView(view);
 
       const wc = view.webContents;
+      // 应用持久化设置（UA / 缩放）：新视图也要带上，重启后仍生效
+      this.applyBrowserSettings(this.settings);
       wc.setWindowOpenHandler((details) => {
         void wc.loadURL(details.url).catch(() => undefined);
         return { action: "deny" };
@@ -258,11 +318,23 @@ export class BrowserViewManager {
       wc.on("destroyed", () => {
         this.view = null;
         this.debuggerAttached = false;
+        // 页面被销毁时画中画可能仍悬浮着：一并关掉，避免留下空壳窗口
+        if (this.pipWindow && !this.pipWindow.isDestroyed()) {
+          try {
+            this.pipWindow.destroy();
+          } catch {
+            // ignore
+          }
+        }
+        this.pipWindow = null;
+        this.pipMode = "off";
         this.setStatus({
           state: "stopped",
           pageId: null,
           visible: false,
           picking: false,
+          pip: false,
+          pipHidden: false,
         });
       });
 
