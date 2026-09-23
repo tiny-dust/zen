@@ -5,6 +5,8 @@ import type {
   AgentStreamEvent,
   LarkAuthSnapshot,
   LarkBridgeSettings,
+  LarkLoginEvent,
+  LarkProjectSummary,
   LarkSessionState,
   LarkSessionSummary,
   LarkStatus,
@@ -15,7 +17,8 @@ import { saveAgentSettings } from "../zen-dir";
 import { getSession, listWorkspaceGroups } from "../workspace-db";
 import { peekLarkAuthSnapshot, readLarkAuthSnapshot } from "./auth";
 import { collectSessionSummaries, LarkGateway, mapRunStateToLarkState } from "./gateway";
-import type { SessionRunState } from "./gateway";
+import type { LarkChatStartResult, SessionRunState } from "./gateway";
+import { cancelLarkLogin, shutdownLarkLogin, startLarkLogin } from "./login";
 
 /**
  * 飞书桥接 IPC 装配：lark:status 查询、lark:changed 广播、设置联动启停、
@@ -33,6 +36,8 @@ export interface LarkIpcDeps {
   resolveAsk: (askId: string, answer: string) => boolean;
   /** 会话运行状态快照（sessions Map 里没有 → 返回 null → 空闲） */
   sessionState?: (sessionId: string) => SessionRunState | null;
+  /** 飞书「对话」命令：按项目路径找到/新建工作区，新建会话并异步运行 agent */
+  startChat?: (workspacePath: string, message: string) => LarkChatStartResult;
 }
 
 function toLarkState(sessionId: string): LarkSessionState {
@@ -41,6 +46,36 @@ function toLarkState(sessionId: string): LarkSessionState {
 
 function collectSummaries(limit: number): LarkSessionSummary[] {
   return collectSessionSummaries(listWorkspaceGroups(), toLarkState, limit);
+}
+
+/** 「项目」指令数据源：工作区（含路径），最近活跃时间取其下会话的最新 updatedAt */
+function listProjectSummaries(): LarkProjectSummary[] {
+  return listWorkspaceGroups()
+    .filter((group) => group.kind === "workspace" && group.path)
+    .map((group) => ({
+      id: group.id,
+      name: group.name,
+      path: group.path as string,
+      lastActiveAt: group.sessions.reduce(
+        (max, session) => Math.max(max, session.updatedAt),
+        group.createdAt,
+      ),
+    }));
+}
+
+/** 飞书会话 done 后读取最终助手回复（完成推送摘要） */
+function lastAssistantReply(sessionId: string): string | null {
+  const record = getSession(sessionId);
+  if (!record) {
+    return null;
+  }
+  for (let i = record.messages.length - 1; i >= 0; i -= 1) {
+    const message = record.messages[i];
+    if (message && message.role === "assistant" && message.content.trim()) {
+      return message.content;
+    }
+  }
+  return null;
 }
 
 function toLarkStatus(auth: LarkAuthSnapshot): LarkStatus {
@@ -63,10 +98,33 @@ export function registerLarkIpc(
     listSessions: collectSummaries,
     resolveAsk: deps.resolveAsk,
     onStateChange: () => broadcastLarkChanged(),
+    listProjects: listProjectSummaries,
+    startChat: async (workspacePath, message) => {
+      if (!deps.startChat) {
+        return { ok: false, error: "未装配会话启动能力" };
+      }
+      const result = await deps.startChat(workspacePath, message);
+      if (result.ok && result.sessionId) {
+        gateway?.trackSession(result.sessionId, result.title ?? "Zen 会话");
+      }
+      return result;
+    },
+    finalAssistantReply: lastAssistantReply,
   });
 
   ipcMain.handle("lark:status", async (): Promise<LarkStatus> => {
     return toLarkStatus(await readLarkAuthSnapshot());
+  });
+
+  // 飞书登录：device flow 由 login.ts 编排，各阶段经 lark:login-event 推给渲染层
+  const emitLoginEvent = (event: LarkLoginEvent): void => {
+    broadcastFn?.("lark:login-event", event);
+  };
+  ipcMain.handle("lark:login", async () => {
+    await startLarkLogin(emitLoginEvent);
+  });
+  ipcMain.handle("lark:login-cancel", () => {
+    cancelLarkLogin(emitLoginEvent);
   });
 }
 
@@ -120,8 +178,9 @@ export async function syncLarkGatewayWithSettings(settings: AgentSettings): Prom
   broadcastLarkChanged();
 }
 
-/** will-quit 收尾：停掉事件网关并解除模块引用 */
+/** will-quit 收尾：停掉事件网关、杀掉残留登录轮询进程并解除模块引用 */
 export function shutdownLark(): void {
+  shutdownLarkLogin();
   gateway?.stop();
   gateway = null;
   broadcastFn = null;
