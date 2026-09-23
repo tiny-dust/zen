@@ -87,6 +87,11 @@ watch(
             aria-hidden="true"
           />
           <span class="min-w-0 flex-1">{{ task.label }}</span>
+          <span
+            v-if="task.agentName"
+            class="flex-none rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
+            :title="`来自 ${task.agentName}`"
+          >{{ task.agentName }}</span>
         </li>
       </ul>
 
