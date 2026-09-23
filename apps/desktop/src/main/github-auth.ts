@@ -286,10 +286,11 @@ export async function refreshAccessToken(
       data.error_description || data.error || `刷新令牌失败（HTTP ${response.status}）`,
     );
   }
-  const tokens: GitHubTokens = { accessToken: data.access_token };
-  if (data.refresh_token) {
-    tokens.refreshToken = data.refresh_token;
-  }
+  const tokens: GitHubTokens = {
+    accessToken: data.access_token,
+    // GitHub 可能只返回新的 access token；保留旧 refresh token，避免下一次续期失去凭据。
+    refreshToken: data.refresh_token || refreshToken,
+  };
   if (data.expires_in) {
     tokens.expiresAt = Date.now() + data.expires_in * 1000;
   }

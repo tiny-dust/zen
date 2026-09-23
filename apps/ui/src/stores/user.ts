@@ -11,6 +11,7 @@ export const useUserStore = defineStore("user", () => {
   /** 设备码是否已复制到剪贴板（自动复制失败时可在 UI 点按重试） */
   const codeCopied = ref(false);
   const refreshing = ref(false);
+  let readyPromise: Promise<void> = Promise.resolve();
 
   /** 复制设备码到剪贴板，方便在 GitHub 授权页直接粘贴 */
   async function copyUserCode(): Promise<void> {
@@ -32,7 +33,7 @@ export const useUserStore = defineStore("user", () => {
       return () => undefined;
     }
 
-    void zen.auth.state().then((state) => {
+    readyPromise = zen.auth.state().then((state) => {
       auth.value = state;
       // 启动时补拉一次资料：历史登录可能缺 avatarUrl
       if (state.loggedIn) {
@@ -97,6 +98,10 @@ export const useUserStore = defineStore("user", () => {
     auth.value = await zen.auth.logout();
   }
 
+  function waitForReady(): Promise<void> {
+    return readyPromise;
+  }
+
   async function refreshProfile() {
     const zen = window.zen;
     if (!zen || refreshing.value || loading.value || !auth.value.loggedIn) {
@@ -131,6 +136,7 @@ export const useUserStore = defineStore("user", () => {
     copyUserCode,
     refreshing,
     bootstrap,
+    waitForReady,
     login,
     logout,
     refreshProfile,

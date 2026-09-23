@@ -249,7 +249,9 @@ async function refreshProfile(): Promise<AuthState> {
       return loadAuth();
     }
     const user = await fetchGitHubUser(accessToken);
-    return await persistAuth({ ...stored, user });
+    // ensureValidTokens 可能已将新令牌写入磁盘；重新读取，避免旧快照覆盖续期结果。
+    const latest = await loadStoredAuth();
+    return await persistAuth({ ...latest, user });
   } catch (error) {
     const raw = error instanceof Error ? error.message : "刷新资料失败";
     // 本地密钥失效 / token 损坏：清掉凭据，引导重新登录，避免一直弹 ByteString
@@ -270,7 +272,8 @@ async function refreshProfile(): Promise<AuthState> {
       if (refreshed.tokens) {
         try {
           const user = await fetchGitHubUser(refreshed.tokens.accessToken);
-          return await persistAuth({ ...stored, user });
+          const latest = await loadStoredAuth();
+          return await persistAuth({ ...latest, user });
         } catch {
           // 新令牌仍被拒：凭据确实失效，清除
           return await persistAuth(
