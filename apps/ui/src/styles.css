@@ -63,6 +63,9 @@
   --titlebar-h: 38px;
   --titlebar-pad: 5px;
   --titlebar-lead: 72px; /* macOS 交通灯（12px 起，3×12px + 2×8px 间隔）预留区 */
+  /* Win/Linux 窗口三键右上角预留区：由 WindowControls.vue 运行时按实际宽度覆盖；
+     首帧给 0 兜底（macOS 红绿灯在左侧，恒为 0） */
+  --titlebar-trail: 0px;
   --panel-head-h: 38px;
   --control-h: 28px;
   /* 图标线宽：lucide 默认 2 偏粗，全局收到 1.5（CSS 覆盖 SVG 呈现属性） */

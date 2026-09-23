@@ -3,6 +3,7 @@ import { Bell, Info, PanelLeft, PanelRight, Search, SquareTerminal } from "@luci
 import { storeToRefs } from "pinia";
 
 import OpenWithButton from "@/components/topbar/OpenWithButton.vue";
+import WindowControls from "@/components/topbar/WindowControls.vue";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chat";
@@ -111,6 +112,14 @@ function toggleButtonClass(active: boolean) {
       >
         <PanelRight />
       </Button>
+      <!-- Windows/Linux 三键（原生叠加或自绘）右上角固定占位；macOS 交通灯在左上，此处为 0 -->
+      <span
+        v-if="rightCollapsed"
+        class="w-[var(--titlebar-trail)] flex-none"
+        aria-hidden="true"
+      />
     </div>
   </header>
+
+  <WindowControls />
 </template>
