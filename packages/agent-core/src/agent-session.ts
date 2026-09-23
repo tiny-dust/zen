@@ -4,6 +4,7 @@ import type { ModelMessage } from "ai";
 import type {
   AgentDoneReason,
   AgentStreamEvent,
+  AgentTranscriptEntry,
   ChatTurn,
   ToolApprovalDecision,
   ToolCallState,
@@ -20,6 +21,7 @@ import { processStreamPart } from "./agent-stream";
 import type { StreamPartState } from "./agent-stream";
 import { subAgentInstructions } from "./multi-agent-instructions";
 import { MultiAgentOrchestrator, ResourceLock } from "./multi-agent";
+import { SubAgentTranscript } from "./sub-agent-transcript";
 
 /** 附件图片（data-url），支持视觉的模型按原生多模态 part 随用户消息发出 */
 export interface AgentImageAttachment {
@@ -106,6 +108,8 @@ export class AgentSession {
             parentSessionId: config.sessionId,
             emit: config.emit,
             resourceLock: this.resourceLock,
+            // 父会话暂停/取消时级联中断子 Agent：node controller 随父 signal abort
+            getParentSignal: () => this.controller?.signal ?? null,
             runChild: (spec) => this.runSubAgent(spec),
           });
 
@@ -154,6 +158,7 @@ export class AgentSession {
     onProgress: () => void;
     onToolRunning: (running: boolean) => void;
     onWaitingUser: (waiting: boolean) => void;
+    onTranscript?: (entries: AgentTranscriptEntry[]) => void;
   }): Promise<{ ok: boolean; text: string; error?: string }> {
     if (spec.signal.aborted) {
       return { ok: false, text: "", error: "cancelled" };
@@ -162,6 +167,21 @@ export class AgentSession {
     let childError = "";
     let openTools = 0;
     let waitingAsks = 0;
+    // 消息流时间线：子会话流事件 → 结构化 transcript（面板展示完整执行记录）
+    const transcript = new SubAgentTranscript();
+    let lastTranscriptFlush = 0;
+    const flushTranscript = (force = false) => {
+      if (!spec.onTranscript) {
+        return;
+      }
+      const nowMs = Date.now();
+      // delta 高频：400ms 节流；工具 / ask / 错误等关键事件强制立即 flush
+      if (!force && nowMs - lastTranscriptFlush < 400) {
+        return;
+      }
+      lastTranscriptFlush = nowMs;
+      spec.onTranscript(transcript.snapshot());
+    };
     const child = new AgentSession({
       ...this.config,
       sessionId: `${this.config.sessionId}::${spec.agentId}`,
@@ -176,10 +196,15 @@ export class AgentSession {
       })}\n\n${this.config.systemPrompt ?? ""}`.trim(),
       browserBridge: this.config.browserBridge,
       emit: (event) => {
+        // 消息流时间线：先喂收集器，再做既有控制流（collected / waitingUser / ask 上抛）
+        if (transcript.push(event)) {
+          const throttled =
+            event.type === "delta" || event.type === "reasoning_delta" || event.type === "tool_progress";
+          flushTranscript(!throttled);
+        }
         if (event.type === "delta" && event.text) {
           collected += event.text;
           spec.onProgress();
-          spec.onLog(event.text.slice(0, 120));
           return;
         }
         if (
@@ -193,7 +218,6 @@ export class AgentSession {
         if (event.type === "error") {
           childError = event.message;
           spec.onProgress();
-          spec.onLog(`错误：${event.message}`);
           return;
         }
         if (event.type === "tool_input_start") {
@@ -204,7 +228,6 @@ export class AgentSession {
           openTools += 1;
           spec.onProgress();
           spec.onToolRunning(true);
-          spec.onLog(`工具 ${event.toolName}`);
           return;
         }
         if (event.type === "tool_end") {
@@ -220,7 +243,6 @@ export class AgentSession {
           waitingAsks += 1;
           spec.onProgress();
           spec.onWaitingUser(true);
-          spec.onLog(`提问：${event.question.question.slice(0, 80)}`);
           this.config.emit({
             type: "ask_user",
             sessionId: this.config.sessionId,
@@ -259,6 +281,8 @@ export class AgentSession {
     spec.signal.addEventListener("abort", onAbort, { once: true });
     try {
       await child.start(spec.task);
+      // 收尾强制 flush：节流窗口内未发出的尾部 delta / 工具终态也要进时间线
+      flushTranscript(true);
       if (spec.signal.aborted) {
         return { ok: false, text: collected, error: "cancelled" };
       }
@@ -495,17 +519,25 @@ export class AgentSession {
         });
       }
     } catch (error) {
-      state.streamError = errorMessage(error);
-      this.config.emit({
-        type: "error",
-        sessionId: this.sessionId,
-        message: state.streamError,
-      });
+      // 暂停/取消触发的 abort 可能让流在 part 之间抛 AbortError：
+      // 这是中断不是运行错误，走 aborted 终态（paused/cancelled），避免误报 error
+      if (signal.aborted) {
+        aborted = true;
+      } else {
+        state.streamError = errorMessage(error);
+        this.config.emit({
+          type: "error",
+          sessionId: this.sessionId,
+          message: state.streamError,
+        });
+      }
     }
 
     this.step = state.step;
 
-    if (aborted) {
+    // signal.aborted 兜底：abort 发生在工具执行中时，fullStream 可能直接结束
+    // 而不再来 part（循环顶检查不到），这里仍按中断处理
+    if (aborted || signal.aborted) {
       if (this.paused) {
         this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
         return;

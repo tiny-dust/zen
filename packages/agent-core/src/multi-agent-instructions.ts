@@ -4,7 +4,7 @@ export function multiAgentInstructions(): string {
     "【多 Agent 协作】",
     "- 复杂可并行任务可用 spawnAgent 拆分；用 dependsOn 表达依赖；用 waitForAgents 等待完成；用 collectAgentResults 汇总。",
     "- 并发有上限；写文件/终端/浏览器独占资源会串行化，不要为绕过锁把临时文件写进软件包目录。",
-    "- 子 Agent 空闲（无日志/工具/提问进展）会超时取消，长时间跑工具或等待用户回答会保活；绝对执行时长也有上限。",
+    "- 子 Agent 按心跳（空闲）超时：无日志/工具/提问等进展约 4 分钟会被取消；持续产出或长时间跑工具、等待用户回答都不会超时，可一直运行。",
     "- 子 Agent 或主 Agent 可同时发起多个 askUser；UI 会并排展示多张提问卡，请分别回答，回答后对应 Agent 自动继续。",
     "- 临时文件一律放到用户目录下 .zen/cache（由系统能力处理），禁止写入应用安装目录。",
     "- 子 Agent 只报告结构化结果；主 Agent 负责整合并向用户交付自包含结论。",

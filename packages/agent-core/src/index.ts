@@ -24,3 +24,4 @@ export type {
 export * from "./multi-agent";
 export * from "./resource-lock";
 export * from "./multi-agent-instructions";
+export { SubAgentTranscript } from "./sub-agent-transcript";
