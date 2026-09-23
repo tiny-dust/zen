@@ -20,6 +20,7 @@ export type SettingsTab =
   | "models"
   | "shortcuts"
   | "agent"
+  | "lark"
   | "skills"
   | "mcp"
   | "prompts";
@@ -51,6 +52,7 @@ export const useSettingsStore = defineStore("settings", () => {
       "models",
       "shortcuts",
       "agent",
+      "lark",
       "skills",
       "mcp",
       "prompts",

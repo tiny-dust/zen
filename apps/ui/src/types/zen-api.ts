@@ -32,6 +32,7 @@ import type {
   GitLogEntry,
   GitPullRequest,
   GitStatus,
+  LarkLoginEvent,
   LarkStatus,
   McpServerConfig,
   McpServerStatus,
@@ -372,5 +373,9 @@ export interface ZenApi {
   lark: {
     status(): Promise<LarkStatus>;
     onChanged(handler: (status: LarkStatus) => void): () => void;
+    /** 发起飞书登录（lark-cli device flow）；各阶段经 onLoginEvent 推送 */
+    login(): Promise<void>;
+    cancelLogin(): Promise<void>;
+    onLoginEvent(handler: (event: LarkLoginEvent) => void): () => void;
   };
 }
