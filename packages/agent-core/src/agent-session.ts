@@ -80,6 +80,11 @@ export function rewriteSubAgentPanelEvent(
   return null;
 }
 
+/** 卡死的流（不感知 abort 的工具/锁等待）给出 paused 反馈前的宽限 */
+const PAUSE_ACK_GRACE_MS = 2500;
+/** cancel 后等待 runStep 自行补 done 的宽限，超时强制补终态 */
+const CANCEL_SETTLE_GRACE_MS = 500;
+
 /**
  * 单个会话的有状态 Agent 运行时。
  *
@@ -100,6 +105,11 @@ export class AgentSession {
   private historyInstructions: string | null = null;
   private controller: AbortController | null = null;
   private paused = false;
+  /**
+   * runStep 是否已走到 paused 落点（status:paused 已确认发出）。
+   * 流卡在不感知 abort 的工具里时该标志不会置位，pause() 据此兜底发反馈。
+   */
+  private pausedAcked = false;
   private step = 0;
   /** run 是否仍活跃：暂停/等审批时 start/runStep 已返回，但 run 未结束 */
   private runActive = false;
@@ -548,7 +558,24 @@ export class AgentSession {
       return;
     }
     this.paused = true;
-    this.controller.abort();
+    this.pausedAcked = false;
+    const controller = this.controller;
+    controller.abort();
+    // 兜底：流若卡在不感知 abort 的工具执行/锁等待里，runStep 的 aborted 分支
+    // 永远走不到，paused 状态不会发出——宽限后仍未确认也要给 UI 反馈，
+    // 否则暂停按钮看似失灵（多 Agent 抢资源锁时最容易出现）。
+    // 状态机是收敛的：之后 runStep 走到 aborted 分支会再发一次 status:paused（幂等）。
+    setTimeout(() => {
+      if (
+        this.paused &&
+        !this.pausedAcked &&
+        this.runActive &&
+        !this.inserting &&
+        this.controller === controller
+      ) {
+        this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
+      }
+    }, PAUSE_ACK_GRACE_MS);
   }
 
   async resume(): Promise<void> {
@@ -666,7 +693,34 @@ export class AgentSession {
     // runStep 已因暂停/等审批返回时，abort 不会再触发 done，这里补终态
     if (this.runActive && waiting) {
       this.finishRun("cancelled");
+    } else if (this.runActive) {
+      // 流可能卡在不感知 abort 的工具/锁等待里，runStep 的 aborted 分支永远走不到；
+      // 宽限内没等到 runStep 补 done 就强制补终态，保证「停止」必有 done 反馈
+      this.forceFinishIfNoDone();
     }
+  }
+
+  /**
+   * 取消兜底：正常路径 runStep 的 aborted 分支会补 done(cancelled)；
+   * 若流卡死（不感知 abort 的工具/等待），runStep 再也不会发事件——
+   * 宽限后仍未见到 done 就强制补终态。之后 runStep 若从卡点醒来，
+   * 会因 runActive=false 在 aborted 分支静默退出，不会重复发 done。
+   */
+  private forceFinishIfNoDone(): void {
+    const emit = this.config.emit;
+    let doneSeen = false;
+    this.config.emit = (event) => {
+      if (event.type === "done") {
+        doneSeen = true;
+      }
+      emit(event);
+    };
+    setTimeout(() => {
+      this.config.emit = emit;
+      if (!doneSeen && this.runActive) {
+        this.finishRun("cancelled");
+      }
+    }, CANCEL_SETTLE_GRACE_MS);
   }
 
   private finishRun(reason: AgentDoneReason): void {
@@ -712,7 +766,8 @@ export class AgentSession {
       return;
     }
 
-    const signal = this.controller.signal;
+    const controller = this.controller;
+    const signal = controller.signal;
 
     let stream: Awaited<ReturnType<ToolLoopAgent["stream"]>>;
     try {
@@ -738,7 +793,7 @@ export class AgentSession {
 
     try {
       for await (const part of stream.fullStream) {
-        if (signal.aborted) {
+        if (signal.aborted || !this.runActive || this.controller !== controller) {
           aborted = true;
           break;
         }
@@ -772,12 +827,17 @@ export class AgentSession {
     // signal.aborted 兜底：abort 发生在工具执行中时，fullStream 可能直接结束
     // 而不再来 part（循环顶检查不到），这里仍按中断处理
     if (aborted || signal.aborted) {
+      // 被 resume/新一轮 continueLoop 接管（旧流卡死后醒来）：静默退出，不污染新 run
+      if (this.controller !== controller) {
+        return;
+      }
       // cancel() 已同步补发终态 done（runActive 已复位）：本次 runStep 静默退出
       if (!this.runActive) {
         this.resolvePauseWaiters();
         return;
       }
       if (this.paused) {
+        this.pausedAcked = true;
         this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
         // insert 的 suspendForInsert 在等这个落点
         this.resolvePauseWaiters();
