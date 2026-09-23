@@ -6,8 +6,8 @@ import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 const ACTIVE_KEY = "zen.activeWorkspace";
 const COLLAPSED_KEY = "zen.collapsedWorkspaces";
 const COMMON_ID = "common";
-/** 每个工作区默认展示的会话条数，其余折叠进「展开显示」 */
-const PREVIEW_COUNT = 3;
+/** 每个项目默认展示的会话条数，超出截断 + 渐隐，其余折叠进「展开显示」 */
+const PREVIEW_COUNT = 5;
 
 function loadCollapsed(): Set<string> {
   try {
