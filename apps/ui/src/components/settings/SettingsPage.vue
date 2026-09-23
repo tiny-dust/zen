@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Bot, Boxes, Keyboard, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Keyboard, MessageSquare, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
+import SettingsLark from "@/components/settings/SettingsLark.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
@@ -33,6 +34,7 @@ const navGroups = computed(() => [
     title: "Agent",
     items: [
       { id: "agent" as const, label: "Agent 与权限", icon: Bot },
+      { id: "lark" as const, label: "飞书", icon: MessageSquare },
       { id: "prompts" as const, label: "提示词", icon: Sparkles },
     ],
   },
@@ -68,6 +70,8 @@ const paneTitle = computed(() => {
       return "键盘快捷键";
     case "agent":
       return "Agent 与权限";
+    case "lark":
+      return "飞书";
     case "prompts":
       return "提示词";
     default:
@@ -86,6 +90,8 @@ const paneDesc = computed(() => {
       return "点击输入框后按下组合键即可重新绑定。";
     case "agent":
       return "权限三档与项目隔离区，控制 Agent 的操作边界。";
+    case "lark":
+      return "通过本机 lark-cli 网关与飞书收发消息、状态与问询。";
     case "prompts":
       return "选择知名工具的内置系统提示词，或自定义你的规则。";
     default:
@@ -190,6 +196,7 @@ watch(
             <SettingsProfile v-else-if="activeTab === 'profile'" />
             <SettingsModels v-else-if="activeTab === 'models'" />
             <SettingsAgent v-else-if="activeTab === 'agent'" />
+            <SettingsLark v-else-if="activeTab === 'lark'" />
             <SettingsPrompts v-else-if="activeTab === 'prompts'" />
             <div
               v-else-if="activeTab === 'skills' || activeTab === 'mcp'"
