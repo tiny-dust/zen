@@ -165,9 +165,9 @@ async function onDeleteWorkspace() {
   await workspaceStore.remove(group.id);
 }
 
-/** 顶部常驻入口（技能 / MCP）：与「项目」触发器同构的行式按钮，一排两个 */
+/** 顶部常驻入口（技能 / MCP）：与「项目」触发器同构的行式按钮，上下排列 */
 const topEntryCls =
-  "h-8 flex-1 justify-start gap-1.5 rounded-[var(--radius-sm)] px-2 text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
+  "h-8 w-full justify-start gap-1.5 rounded-[var(--radius-sm)] px-2 text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
 
 /** 「工作区」区块头：弱色标签 + 悬浮显现的新建工作区按钮（与公共区组头视觉平级） */
 const sectionLabelCls = "min-w-0 flex-1 truncate pl-1 text-[11.5px] text-[var(--color-mut)]";
@@ -195,7 +195,7 @@ const sectionAddCls =
     </header>
 
     <!-- 顶部常驻入口：技能 / MCP -->
-    <div class="flex flex-none gap-1 px-2 pt-1">
+    <div class="flex flex-none flex-col gap-1 px-2 pt-1">
       <Button variant="ghost" :class="topEntryCls" @click="skillsOpen = true">
         <Sparkles class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         技能
