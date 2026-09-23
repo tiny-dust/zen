@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { FileCode, RefreshCw, Save } from "@lucide/vue";
+import { FileCode, FolderOpen, RefreshCw, Save } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
+import {
+  isAbsolutePathLike,
+  splitLineAnchor,
+  toPosixPath,
+  toWorkspaceRelativePath,
+} from "@/components/files/file-ref";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { classifyPathRef } from "@/lib/path-ref";
 import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useRightPanelStore } from "@/stores/right-panel";
@@ -22,6 +29,8 @@ const rightPanel = useRightPanelStore();
 const files = ref<WorkspaceFile[]>([]);
 const loading = ref(false);
 const selected = ref("");
+/** 消息流行号锚点（:12 / #L12）拆出的定位行 */
+const selectedLine = ref<number | undefined>(undefined);
 const expanded = ref(new Set<string>([""]));
 const query = ref("");
 const viewerRef = ref<InstanceType<typeof FileViewer> | null>(null);
@@ -102,9 +111,29 @@ async function load() {
   }
 }
 
+/** 引用是否指向目录：文件清单优先，未加载时按引用形态兜底 */
+function isDirPath(rel: string): boolean {
+  if (!rel) {
+    return true;
+  }
+  if (files.value.some((item) => item.isDir && item.path === rel)) {
+    return true;
+  }
+  if (files.value.some((item) => item.path.startsWith(`${rel}/`))) {
+    return true;
+  }
+  if (files.value.some((item) => !item.isDir && item.path === rel)) {
+    return false;
+  }
+  return classifyPathRef(rel) === "dir" || rel.endsWith("/");
+}
+
+const selectedIsDir = computed(() => !!selected.value && isDirPath(selected.value));
+
 function toggle(node: FileNode) {
   if (!node.isDir) {
     selected.value = node.path;
+    selectedLine.value = undefined;
     return;
   }
   const next = new Set(expanded.value);
@@ -120,6 +149,7 @@ watch(
   () => treeRoot.value,
   () => {
     selected.value = "";
+    selectedLine.value = undefined;
     expanded.value = new Set([""]);
     void load();
   },
@@ -159,26 +189,39 @@ function revertViewer() {
   viewerDirty.value = false;
 }
 
-// 消息流点击文件名 → 展开祖先目录并选中该文件
+// 消息流点击文件名 → 展开祖先目录并打开该文件；目录引用就地展开不进编辑器
 watch(
   () => rightPanel.pendingReveal,
-  (path) => {
-    if (!path) {
+  (raw) => {
+    if (!raw) {
       return;
     }
-    const next = new Set(expanded.value);
-    const segments = path.split("/");
-    let acc = "";
-    for (const segment of segments.slice(0, -1)) {
-      acc = acc ? `${acc}/${segment}` : segment;
-      next.add(acc);
+    rightPanel.pendingReveal = "";
+    const { file, line } = splitLineAnchor(raw);
+    let rel = toPosixPath(file);
+    if (rel === ".") {
+      rel = "";
     }
-    expanded.value = next;
-    selected.value = path;
+    if (isAbsolutePathLike(rel)) {
+      // 工作区内绝对路径折算成树内相对路径；工作区外保留绝对路径走预览回退
+      rel = toWorkspaceRelativePath(rel, treeRoot.value) ?? rel;
+    }
+    if (!isAbsolutePathLike(rel)) {
+      const segments = rel.split("/").filter(Boolean);
+      const dirSegments = isDirPath(rel) ? segments : segments.slice(0, -1);
+      const next = new Set(expanded.value);
+      let acc = "";
+      for (const segment of dirSegments) {
+        acc = acc ? `${acc}/${segment}` : segment;
+        next.add(acc);
+      }
+      expanded.value = next;
+    }
+    selectedLine.value = line;
+    selected.value = rel;
     if (!files.value.length) {
       void load();
     }
-    rightPanel.pendingReveal = "";
   },
   { immediate: true },
 );
@@ -261,12 +304,20 @@ watch(
         <FileCode class="size-5" aria-hidden="true" />
         <p class="m-0 text-[12px]">在左侧选择文件，可直接编辑保存</p>
       </div>
+      <div
+        v-else-if="selectedIsDir"
+        class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]"
+      >
+        <FolderOpen class="size-5" aria-hidden="true" />
+        <p class="m-0 max-w-full truncate px-2 text-[12px]">目录：{{ selected }}</p>
+      </div>
       <FileViewer
         v-else
         :key="`viewer-${treeRoot}-${selected}`"
         ref="viewerRef"
         :path="selected"
         :root="treeRoot"
+        :line="selectedLine"
         @dirty-change="onViewerDirty"
         @saved="onViewerDirty(false)"
       />

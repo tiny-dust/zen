@@ -1,5 +1,5 @@
-import { mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import MessageBubble from "@/components/MessageBubble.vue";
 
@@ -15,9 +15,11 @@ vi.mock("@/stores/chat", () => ({
   }),
 }));
 
+const revealFile = vi.hoisted(() => vi.fn());
+
 vi.mock("@/stores/right-panel", () => ({
   useRightPanelStore: () => ({
-    revealFile: vi.fn(),
+    revealFile,
   }),
 }));
 
@@ -204,5 +206,50 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).not.toContain("修统计");
     await wrapper.get("button").trigger("click");
     expect(wrapper.text()).toContain("修统计");
+  });
+});
+
+describe("MessageBubble 文件引用", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    delete (window as { zen?: unknown }).zen;
+    revealFile.mockClear();
+  });
+
+  function mountUserWithAttachment() {
+    return mountMessage({
+      id: "u-att",
+      role: "user",
+      content: "看下这个文件",
+      createdAt: 1,
+      meta: { attachments: [{ name: "a.ts", path: "/tmp/upload/a.ts" }] },
+    });
+  }
+
+  it("附件 chip 点击后在右侧面板打开", async () => {
+    const wrapper = mountUserWithAttachment();
+    await wrapper.get("button").trigger("click");
+    expect(revealFile).toHaveBeenCalledWith("/tmp/upload/a.ts");
+    wrapper.unmount();
+  });
+
+  it("附件 chip 右键弹出文件菜单", async () => {
+    (window as { zen?: unknown }).zen = {
+      shell: {
+        openPath: vi.fn(),
+        showInFolder: vi.fn(),
+        platformInfo: vi.fn().mockResolvedValue({
+          platform: "darwin",
+          showInFolderLabel: "在 Finder 中显示",
+          openFolderLabel: "打开文件夹",
+        }),
+      },
+    };
+    const wrapper = mountUserWithAttachment();
+    await wrapper.get(".file-label").trigger("contextmenu");
+    await flushPromises();
+    const items = [...document.body.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim());
+    expect(items).toEqual(["打开文件", "在 Finder 中显示"]);
+    wrapper.unmount();
   });
 });
