@@ -20,6 +20,7 @@ import { useAgentsStore } from "@/stores/agents";
 import { useBrowserStore } from "@/stores/browser";
 import { pathFromToolArgs } from "@/stores/chat-types";
 import type { PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-types";
+import type { BackgroundTranscripts } from "@/stores/chat-background";
 import { useGitStore } from "@/stores/git";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
@@ -37,6 +38,8 @@ export interface ChatEventContext {
   lastError: Ref<string>;
   isRunning: ComputedRef<boolean>;
   isPaused: Ref<boolean>;
+  /** 插入执行进行中：原 run 被打断（checkpoint 保留），插入 run 正在跑 */
+  insertActive: Ref<boolean>;
   runSummary: Ref<ChatRunSummary | null>;
   lastDoneReason: Ref<AgentDoneReason | null>;
   currentStep: Ref<number | null>;
@@ -53,6 +56,8 @@ export interface ChatEventContext {
   usedUpdateTasks: Ref<boolean>;
   /** 运行中插入的排队消息 */
   queuedMessages: Ref<QueuedMessage[]>;
+  /** 后台会话消息缓冲：切走的运行中会话，消息级事件持续归约进缓冲，切回时优先恢复 */
+  backgroundTranscripts: BackgroundTranscripts;
   /** run 正常结束后调度队列续发队首 */
   scheduleQueuedDispatch: () => void;
   /** done 后刷新参考文件与 git 状态 */
@@ -72,10 +77,16 @@ function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
  */
 export function createChatEventGateway(ctx: ChatEventContext) {
   const sessionStatusStore = useSessionStatusStore();
+  /** 后台会话中处于插入 run 的 sessionId：其 done(phase=insert) 不能当会话结束 */
+  const backgroundInserts = new Set<string>();
 
   /** 流式助手消息：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
+  /** 原 run 恢复后另起新助手气泡：原 run 的续跑输出不并进插入 run 的回复气泡 */
+  let breakAssistantBubble = false;
+
   function ensureAssistantMessage(): ChatMessage {
-    let last = lastAssistantOf(ctx.messages.value);
+    let last = breakAssistantBubble ? undefined : lastAssistantOf(ctx.messages.value);
+    breakAssistantBubble = false;
     if (!last) {
       const message: ChatMessage = {
         id: uuid(),
@@ -156,10 +167,49 @@ export function createChatEventGateway(ctx: ChatEventContext) {
    */
   function handleBackgroundEvent(event: AgentStreamEvent): void {
     const id = event.sessionId;
+    // 当前会话的子 Agent（sessionId 形如 `父::agentId`）：只把 runTerminal 进程
+    // 事件改挂到父会话喂「进程」面板，其余子事件不上任何面板
+    if (id.startsWith(`${ctx.sessionId.value}::`)) {
+      if (
+        event.type === "tool_start" ||
+        event.type === "tool_progress" ||
+        event.type === "tool_end"
+      ) {
+        useAgentProcessesStore().handleStreamEvent({
+          ...event,
+          sessionId: ctx.sessionId.value,
+        } as AgentStreamEvent);
+      }
+      return;
+    }
     if (id.includes("::")) {
       return;
     }
+    // 源侧已改写为父 sessionId 的子 Agent 面板事件：仅当属于当前会话时入面板，
+    // 避免后台会话事件经 ensureSession 串台到别的会话面板
+    if (id === ctx.sessionId.value) {
+      if (event.type === "tasks_updated") {
+        useSessionInfoStore().applyTasksUpdated(
+          event.sessionId,
+          event.version,
+          event.items,
+          event.agentName,
+        );
+      } else if (event.type === "reference_found") {
+        useSessionInfoStore().addReference(event.sessionId, event.reference);
+      }
+    }
+    // 消息级事件持续归约进后台缓冲（无缓冲的会话 apply 内部忽略），
+    // 切回运行中会话时优先用缓冲恢复，运行中未落库的流式内容不丢
+    ctx.backgroundTranscripts.apply(id, event);
     switch (event.type) {
+      case "insert_started":
+        // 后台会话进入插入 run：其 done（phase=insert）不能当会话结束
+        backgroundInserts.add(id);
+        break;
+      case "original_resumed":
+        backgroundInserts.delete(id);
+        break;
       case "approval_request":
       case "ask_user":
         sessionStatusStore.set(id, "needs_action");
@@ -170,6 +220,11 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         sessionStatusStore.set(id, "running");
         break;
       case "done": {
+        // 插入 run 的终态不是会话结束：保持 running，等 original_resumed
+        if (backgroundInserts.has(id) && event.phase === "insert") {
+          break;
+        }
+        backgroundInserts.delete(id);
         const isError = event.reason === "error";
         sessionStatusStore.set(id, isError ? "error" : "done");
         playNotifySound(isError ? "error" : "done");
@@ -339,7 +394,33 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         }
         break;
       }
+      case "insert_started":
+        // 插入 run 开始：原 run 已暂停，后续流事件属于插入 run。
+        // insertQueued 已乐观置位 insertActive；这里同步状态与提示文案
+        ctx.insertActive.value = true;
+        ctx.isPaused.value = false;
+        ctx.status.value = "thinking";
+        ctx.phase.value = "thinking";
+        ctx.statusText.value = "插入执行中…";
+        break;
+      case "original_resumed":
+        // 插入 run 完成，原 run 从 checkpoint 恢复：回到正常 running 语义。
+        // 之后的流式输出要另起新助手气泡，不并进插入 run 的回复
+        ctx.insertActive.value = false;
+        breakAssistantBubble = true;
+        ctx.isPaused.value = false;
+        ctx.status.value = "thinking";
+        ctx.statusText.value = "已恢复原任务，继续执行…";
+        break;
       case "done": {
+        // 插入 run 的终态：不是会话结束——不置 idle、不播音、不触发队列续发，
+        // 等 original_resumed 后原 run 继续跑，其 done 才走完整收尾
+        if (event.phase === "insert") {
+          ctx.isPaused.value = false;
+          ctx.pendingApproval.value = null;
+          ctx.statusText.value = "插入执行完成，准备恢复原任务…";
+          break;
+        }
         const message = ensureAssistantMessage();
         syncRunRefsFromMessage(message);
         const reason = ctx.runSummary.value?.reason ?? event.reason;
@@ -375,9 +456,15 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         break;
       }
       case "tasks_updated": {
-        // 任务清单只更新会话信息卡（悬浮面板）；不再往时间线插快照卡片
+        // 任务清单只更新会话信息卡（悬浮面板）；不再往时间线插快照卡片。
+        // 带 agentName 的是子 Agent 侧信道事件，store 内按 upsert 合并而非整表替换
         ctx.usedUpdateTasks.value = true;
-        useSessionInfoStore().applyTasksUpdated(event.sessionId, event.version, event.items);
+        useSessionInfoStore().applyTasksUpdated(
+          event.sessionId,
+          event.version,
+          event.items,
+          event.agentName,
+        );
         break;
       }
       case "reference_found":

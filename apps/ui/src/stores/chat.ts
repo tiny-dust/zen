@@ -19,6 +19,7 @@ import { useAgentStore } from "@/stores/agent";
 import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { createChatEventGateway } from "@/stores/chat-events";
+import { BackgroundTranscripts } from "@/stores/chat-background";
 import type { ComposerAttachment, PendingApproval, RunPhase } from "@/stores/chat-types";
 import { buildHistory, estimateHistoryTokens } from "@/stores/chat-types";
 import { createCompressionDomain } from "@/stores/chat-compress";
@@ -32,6 +33,9 @@ import { useSessionStatusStore } from "@/stores/session-status";
 import { useSkillUsageStore } from "@/stores/skill-usage";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
+
+/** 后台会话消息缓冲：非响应式普通对象，切走的运行中会话事件持续归约进缓冲 */
+const backgroundTranscripts = new BackgroundTranscripts();
 
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([]);
@@ -90,11 +94,56 @@ export const useChatStore = defineStore("chat", () => {
   } = composer;
 
   const isRunning = computed(() =>
+    insertActive.value ||
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
   );
 
   // ---------- 插入消息队列：运行中入队，run 正常结束后按序续发 ----------
   const queue = createMessageQueue({ input, isRunning, send });
+
+  /**
+   * 插入执行进行中：原 run 已被打断（checkpoint 保留），插入 run 正在跑。
+   * 期间 isRunning 保持 true（暂停落点会短暂发 status=paused，不能让 canSend 变 true），
+   * original_resumed 后复位。
+   */
+  const insertActive = ref(false);
+
+  /** 队列条「插入执行」：打断当前 run，该消息以最高权重先执行，完成后原任务自动续跑 */
+  async function insertQueued(id: string) {
+    const zen = window.zen;
+    const item = queue.queuedMessages.value.find((entry) => entry.id === id);
+    if (!zen || !item || !isRunning.value) {
+      return;
+    }
+    queue.remove(id);
+    insertActive.value = true;
+    // 本地先展示（带「已插入」徽标）；插入 run 的流事件会另起新助手气泡衔接在后面
+    const localMessage: ChatMessage = {
+      id: uuid(),
+      role: "user",
+      content: item.text,
+      createdAt: Date.now(),
+      meta: { inserted: true },
+    };
+    appendMessage(localMessage);
+    status.value = "thinking";
+    phase.value = "thinking";
+    statusText.value = "插入执行中…";
+    sessionStatusStore.set(sessionId.value, "running");
+
+    const result = await zen.agent.insert(sessionId.value, item.text);
+    if (!result.ok) {
+      // 插入失败（如正在等审批/提问）：消息退回队首不丢，气泡撤下，错误走 lastError
+      insertActive.value = false;
+      const index = messages.value.indexOf(localMessage);
+      if (index >= 0) {
+        messages.value.splice(index, 1);
+      }
+      queue.queuedMessages.value = [item, ...queue.queuedMessages.value];
+      lastError.value = result.error ?? "插入执行失败";
+      statusText.value = lastError.value;
+    }
+  }
 
   /** 本轮运行起点：消息流里展示已运行时长（审批等待计入本轮） */
   const runStartedAt = ref<number | null>(null);
@@ -201,6 +250,18 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   // ---------- 流事件网关：事件归约 + 审批/提问应答 ----------
+  /** 切走当前会话前：若其仍在运行，快照消息进后台缓冲，切回时可恢复未落库的流式内容 */
+  function stashRunningTranscript() {
+    const bgStatus = sessionStatusStore.get(sessionId.value);
+    if (
+      isRunning.value ||
+      bgStatus === "running" ||
+      bgStatus === "needs_action"
+    ) {
+      backgroundTranscripts.stash(sessionId.value, messages.value);
+    }
+  }
+
   const { handleStreamEvent, approve, submitAsk, dismissApproval } = createChatEventGateway({
     sessionId,
     messages,
@@ -210,6 +271,7 @@ export const useChatStore = defineStore("chat", () => {
     lastError,
     isRunning,
     isPaused,
+    insertActive,
     runSummary,
     lastDoneReason,
     currentStep,
@@ -221,6 +283,7 @@ export const useChatStore = defineStore("chat", () => {
     filesRevision,
     usedUpdateTasks,
     queuedMessages: queue.queuedMessages,
+    backgroundTranscripts,
     scheduleQueuedDispatch: queue.scheduleDispatch,
     refreshGit: () => {
       void refreshGit();
@@ -485,6 +548,7 @@ export const useChatStore = defineStore("chat", () => {
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
+    insertActive.value = false;
     queue.clear();
     editAnchorId.value = "";
     usedUpdateTasks.value = false;
@@ -538,6 +602,9 @@ export const useChatStore = defineStore("chat", () => {
       }
     }
 
+    // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
+    stashRunningTranscript();
+
     messages.value = [];
     input.value = "";
     attachments.value = [];
@@ -578,20 +645,30 @@ export const useChatStore = defineStore("chat", () => {
       return;
     }
     flushDraft();
+    // 切走前快照：旧会话（此时 sessionId.value 还是旧 id）仍在后台运行时，
+    // 把未落库的流式消息存进后台缓冲
+    stashRunningTranscript();
     sessionId.value = record.id;
     sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
     sessionStatusStore.markSeen(record.id);
     sessionName.value = found.session.title;
     sessionWorkspaceId.value = found.session.workspaceId ?? "common";
-    messages.value = found.messages;
+    // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容）；
+    // 否则用数据库恢复，并清掉过期缓冲
+    const bgStatus = sessionStatusStore.get(record.id);
+    const bgResumable = bgStatus === "running" || bgStatus === "needs_action";
+    const buffered = bgResumable ? backgroundTranscripts.take(record.id) : undefined;
+    if (!buffered) {
+      backgroundTranscripts.drop(record.id);
+    }
+    messages.value = buffered ?? found.messages;
     input.value = found.session.draft ?? "";
     attachments.value = [];
     resetRunState();
     // 切回仍在后台运行的会话：恢复运行态（isRunning=true），
     // 让 send() 走队列而不是再次 agent:run 顶掉后台 run；后续流事件正常流入展示
-    const bgStatus = sessionStatusStore.get(record.id);
-    if (bgStatus === "running" || bgStatus === "needs_action") {
+    if (bgResumable) {
       status.value = bgStatus === "needs_action" ? "awaiting-approval" : "thinking";
       phase.value = "answering";
       isPaused.value = false;
@@ -674,6 +751,8 @@ export const useChatStore = defineStore("chat", () => {
     editQueued: queue.edit,
     removeQueued: queue.remove,
     promoteQueued: queue.promote,
+    insertQueued,
+    insertActive,
     runStartedAt,
     hasMessages,
     canSend,

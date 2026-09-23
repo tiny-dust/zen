@@ -10,7 +10,7 @@
  * - mcp-runtime：MCP 运行时注册（main 侧注入）
  * - multi-agent / resource-lock / multi-agent-instructions：多 Agent 协作
  */
-export { AgentSession } from "./agent-session";
+export { AgentSession, insertUserContent } from "./agent-session";
 export type { AgentImageAttachment } from "./agent-session";
 export { runMockAgent } from "./mock-agent";
 export { registerMcpRuntime } from "./mcp-runtime";

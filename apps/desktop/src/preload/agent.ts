@@ -24,6 +24,9 @@ export const agentApi = {
     resume(sessionId: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:resume", sessionId);
     },
+    insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:insert", sessionId, text);
+    },
     resolveApproval(
       sessionId: string,
       decision: ToolApprovalDecision,

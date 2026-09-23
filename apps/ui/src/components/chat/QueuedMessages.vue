@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpToLine, Pencil, X } from "@lucide/vue";
+import { ArrowUpToLine, Pencil, X, Zap } from "@lucide/vue";
 
 import { Button } from "@/components/ui/button";
 
@@ -8,17 +8,20 @@ import type { QueuedMessage } from "@/stores/chat-types";
 defineProps<{
   /** 运行中插入的排队消息（按执行顺序排列） */
   items: QueuedMessage[];
+  /** 插入执行进行中：按钮禁用，避免并发插入 */
+  insertDisabled?: boolean;
 }>();
 
 defineEmits<{
   promote: [id: string];
   edit: [id: string];
   remove: [id: string];
+  insert: [id: string];
 }>();
 </script>
 
 <template>
-  <!-- 运行中插入的消息队列：每条可插队（移到最前）/ 编辑（放回输入框）/ 删除 -->
+  <!-- 运行中插入的消息队列：每条可插入执行 / 插队（移到最前）/ 编辑（放回输入框）/ 删除 -->
   <div
     v-if="items.length"
     class="mb-1.5 flex flex-col gap-0.5"
@@ -36,6 +39,17 @@ defineEmits<{
       <span class="min-w-0 flex-1 truncate text-[11.5px] text-[var(--color-txt)]" :title="item.text">
         {{ item.text }}
       </span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-accent)]"
+        :disabled="insertDisabled"
+        :title="insertDisabled ? '插入执行中' : '插入执行：打断当前任务，优先执行这条，完成后原任务自动继续'"
+        :aria-label="insertDisabled ? '插入执行中' : '插入执行'"
+        @click="$emit('insert', item.id)"
+      >
+        <Zap class="size-3" />
+      </Button>
       <Button
         variant="ghost"
         size="icon-xs"

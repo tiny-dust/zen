@@ -218,8 +218,10 @@ function registerIpc(): void {
     await sessions.get(request.sessionId)?.cancel();
     sessions.delete(request.sessionId);
 
-    // 流式累积助手回复：与 UI 共用 applyStreamToMessage；仅 done/明确错误终态落库
-    const accMessage: ChatMessage = {
+    // 流式累积助手回复：与 UI 共用 applyStreamToMessage；仅 done/明确错误终态落库。
+    // 插入执行会打断 run 一次（原 run → 插入 run → 原 run 续跑），
+    // 在 insert_started / original_resumed 边界轮换 accMessage，三段各自成一条助手消息落库。
+    let accMessage: ChatMessage = {
       id: randomUUID(),
       role: "assistant",
       content: "",
@@ -234,6 +236,17 @@ function registerIpc(): void {
       persistAssistant(request.sessionId, accMessage);
       persisted = true;
     };
+    const rotateAcc = () => {
+      persistRun();
+      accMessage = {
+        id: randomUUID(),
+        role: "assistant",
+        content: "",
+        createdAt: Date.now(),
+        parts: [],
+      };
+      persisted = false;
+    };
     const emitTo = (streamEvent: AgentStreamEvent) => {
       if (streamEvent.sessionId !== request.sessionId) {
         emit(event.sender, streamEvent);
@@ -242,6 +255,12 @@ function registerIpc(): void {
       if (streamEvent.type === "tasks_updated") {
         // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流
         saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
+      } else if (
+        streamEvent.type === "insert_started" ||
+        streamEvent.type === "original_resumed"
+      ) {
+        // 插入执行边界：上一段助手输出落库，此后事件归入新的一段
+        rotateAcc();
       } else if (streamEvent.type !== "reference_found") {
         applyStreamToMessage(accMessage, streamEvent);
       }
@@ -378,6 +397,35 @@ function registerIpc(): void {
     await session.resume();
     return { ok: true };
   });
+
+  // 插入执行：打断当前 run（保留 checkpoint），插入消息以最高权重先执行，
+  // 完成后原 run 从断点自动 resume。前置校验失败（等审批/提问/并发插入）直接拒绝，
+  // 不落库用户消息；校验通过后落库插入消息并异步驱动 insert，错误经流事件透出。
+  ipcMain.handle(
+    "agent:insert",
+    async (_event, sessionId: string, text: string) => {
+      const session = sessions.get(sessionId);
+      if (!session) {
+        return { ok: false, error: "session not running" };
+      }
+      if (typeof text !== "string" || !text.trim()) {
+        return { ok: false, error: "invalid insert request" };
+      }
+      const guard = session.canInsert();
+      if (!guard.ok) {
+        return guard;
+      }
+      appendMessage(sessionId, {
+        id: randomUUID(),
+        role: "user",
+        content: text,
+        createdAt: Date.now(),
+        meta: { inserted: true },
+      });
+      void session.insert(text).catch(() => undefined);
+      return { ok: true };
+    },
+  );
 
   ipcMain.handle(
     "agent:approval",

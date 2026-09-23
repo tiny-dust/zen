@@ -30,11 +30,63 @@ export interface AgentImageAttachment {
 }
 
 /**
+ * 插入消息的模型侧包装：原始文本保留在末尾，前置一段最高优先级指令。
+ * 渲染层气泡与落库均为原始文本，只有发给模型的 messages 带这段指令。
+ */
+export function insertUserContent(text: string): string {
+  return [
+    "【用户插入 · 最高优先级】用户在原任务执行过程中插入了以下信息。",
+    "请先处理这条插入信息（按它的要求行动）；处理完成后，再结合原任务的上下文继续推进原任务，并在回复中简要汇总当前进展。",
+    "",
+    "-----",
+    "",
+    text,
+  ].join("\n");
+}
+
+/**
+ * 子会话面板侧信道事件改写：把子 Agent 的 tasks_updated / reference_found
+ * 改挂到父会话（sessionId=父），并打上 agent 标识供 UI 区分来源。
+ * 返回 null 表示不是面板侧信道事件（调用方按原路径处理，一字不动）。
+ */
+export function rewriteSubAgentPanelEvent(
+  event: AgentStreamEvent,
+  parentSessionId: string,
+  agentId: string,
+  agentName: string,
+): AgentStreamEvent | null {
+  if (event.type === "tasks_updated") {
+    return {
+      type: "tasks_updated",
+      sessionId: parentSessionId,
+      // version=0 走父侧「更新当前版」语义：父无清单则建 v1，有则更新当前版
+      version: 0,
+      agentName,
+      // item id 加 agentId 前缀，避免与主 Agent 的 t1/t2 等条目 id 冲突
+      items: event.items.map((item) => ({
+        ...item,
+        id: `${agentId}-${item.id}`,
+        agentName,
+      })),
+    };
+  }
+  if (event.type === "reference_found") {
+    return {
+      type: "reference_found",
+      sessionId: parentSessionId,
+      reference: { ...event.reference, agent: agentName },
+    };
+  }
+  return null;
+}
+
+/**
  * 单个会话的有状态 Agent 运行时。
  *
  * 通过 AI SDK `ToolLoopAgent` 完成多步工具循环，并在需要审批的工具调用处暂停。
  * 审批通过/拒绝后，把 `tool-approval-response` 追加回消息并继续 loop。
  * `pause` 会中断当前流，`resume` 从最近一次完整 step 的 checkpoint 继续。
+ * `insert` 在 run 进行中插入高优先级消息：暂停原 run → 执行插入 run → 自动恢复原 run。
  */
 export class AgentSession {
   private readonly config: AgentSessionConfig;
@@ -45,6 +97,13 @@ export class AgentSession {
   private step = 0;
   /** run 是否仍活跃：暂停/等审批时 start/runStep 已返回，但 run 未结束 */
   private runActive = false;
+  /**
+   * 插入执行进行中：原 run 被暂停（checkpoint 保留），当前 controller 驱动插入 run。
+   * 插入 run 终态后由 finishInsertPhase 恢复原 run；期间禁止再次插入/暂停/恢复。
+   */
+  private inserting = false;
+  /** insert 暂停原 run 的落点等待：runStep 走到 paused 分支时放行 */
+  private pauseWaiters: Array<() => void> = [];
   /** 尚未 tool_end 的工具，run 终态时补 cancelled/interrupted */
   private openTools = new Map<string, string>();
   private pending: PendingApproval | null = null;
@@ -59,6 +118,8 @@ export class AgentSession {
   private readonly orchestrator: MultiAgentOrchestrator | null;
   /** 活跃子会话（agentId → session），resolveAsk 按 askId 路由到子会话 */
   private readonly childSessions = new Map<string, AgentSession>();
+  /** tasks_updated 版本归一化的 emit：子会话侧信道事件复用「更新当前版」语义 */
+  private readonly emitNormalized: (event: AgentStreamEvent) => void;
 
   constructor(config: AgentSessionConfig) {
     this.config = config;
@@ -76,11 +137,14 @@ export class AgentSession {
           sessionId: event.sessionId,
           version: this.taskVersion,
           items: event.items,
+          // 子会话侧信道事件的 agentName 必须透传，UI 才能走 upsert 合并分支
+          ...(event.agentName ? { agentName: event.agentName } : {}),
         });
         return;
       }
       config.emit(event);
     };
+    this.emitNormalized = emit;
     const hooks: ToolHooks = {
       emitAskEvent: (question) => {
         emit({ type: "ask_user", sessionId: config.sessionId, question });
@@ -224,10 +288,35 @@ export class AgentSession {
           spec.onProgress();
           return;
         }
+        // 面板侧信道改写（tasks_updated / reference_found）：改挂父会话，
+        // 其余事件路径一字不动，避免污染父会话消息流
+        const rewritten = rewriteSubAgentPanelEvent(
+          event,
+          this.config.sessionId,
+          spec.agentId,
+          spec.name,
+        );
+        if (rewritten) {
+          if (rewritten.type === "tasks_updated") {
+            // 经父侧归一化：version=0 → 「更新当前版」（父无清单则建 v1）
+            this.emitNormalized(rewritten);
+          } else {
+            this.config.emit(rewritten);
+          }
+          return;
+        }
         if (event.type === "tool_start") {
           openTools += 1;
           spec.onProgress();
           spec.onToolRunning(true);
+          // 子会话 runTerminal 进程事件原样上抛（sessionId 带 ::，UI 侧改归属），
+          // 供悬浮卡「进程」节展示子 Agent 的常驻命令
+          this.config.emit(event);
+          return;
+        }
+        if (event.type === "tool_progress") {
+          spec.onProgress();
+          this.config.emit(event);
           return;
         }
         if (event.type === "tool_end") {
@@ -236,6 +325,7 @@ export class AgentSession {
             spec.onToolRunning(false);
           }
           spec.onProgress();
+          this.config.emit(event);
           return;
         }
         if (event.type === "ask_user") {
@@ -382,6 +472,11 @@ export class AgentSession {
       });
     }
     await this.continueLoop();
+    // 插入 run 的审批链走完且到达终态：在这里恢复原 run
+    //（insert() 在等审批时提前返回，插入 run 的收尾由 approve 驱动）
+    if (this.inserting && !this.pending) {
+      await this.finishInsertPhase();
+    }
   }
 
   reject(decision: ToolApprovalDecision): Promise<void> {
@@ -408,7 +503,8 @@ export class AgentSession {
   }
 
   async pause(): Promise<void> {
-    if (!this.controller || this.paused) {
+    // 插入执行期间不允许暂停：paused 标志此刻表示「原 run 被插入挂起」
+    if (!this.controller || this.paused || this.inserting) {
       return;
     }
     this.paused = true;
@@ -416,11 +512,95 @@ export class AgentSession {
   }
 
   async resume(): Promise<void> {
-    if (!this.paused) {
+    // 插入执行期间原 run 的恢复由 finishInsertPhase 自动驱动，手动 resume 会与之冲突
+    if (!this.paused || this.inserting) {
       return;
     }
     this.paused = false;
     await this.continueLoop();
+  }
+
+  /** 插入执行前置检查：main 侧在落库插入消息前先调用，失败不产生副作用 */
+  canInsert(): { ok: boolean; error?: string } {
+    if (this.inserting) {
+      return { ok: false, error: "已有插入任务在执行，请等它完成后再插入" };
+    }
+    if (this.pending) {
+      return { ok: false, error: "正在等待工具审批，暂时不能插入执行" };
+    }
+    if (this.pendingAsks.size > 0) {
+      return { ok: false, error: "正在等待你回答提问，暂时不能插入执行" };
+    }
+    if (!this.runActive) {
+      return { ok: false, error: "当前没有运行中的任务" };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * 插入执行：打断当前 run（保留 checkpoint）→ 追加最高优先级插入消息 →
+   * 执行插入 run → 结束后自动从断点恢复原 run。
+   * main 侧应先 canInsert() 校验并落库用户消息，再 fire-and-forget 调用本方法。
+   */
+  async insert(text: string): Promise<{ ok: boolean; error?: string }> {
+    const guard = this.canInsert();
+    if (!guard.ok) {
+      return guard;
+    }
+    // 1. 暂停原 run：abort 当前流，checkpoint 停在最近一次完整 step
+    if (!this.paused) {
+      await this.suspendForInsert();
+      // 暂停落点等待期间可能被取消
+      if (!this.runActive) {
+        return { ok: false, error: "会话已取消" };
+      }
+    }
+    // 2. 追加插入消息（模型侧带最高优先级指令，原始文本保留）
+    this.messages.push({ role: "user", content: insertUserContent(text) });
+    this.inserting = true;
+    this.config.emit({ type: "insert_started", sessionId: this.sessionId, text });
+    // 3. 执行插入 run：正常流式 emit 各类事件
+    this.controller = new AbortController();
+    this.config.emit({ type: "status", sessionId: this.sessionId, status: "thinking" });
+    await this.runStep();
+    // 等审批时 runStep 已返回：插入 run 的续跑与收尾由 approve() 驱动
+    if (this.pending) {
+      return { ok: true };
+    }
+    // 4. 插入 run 终态：恢复原 run（cancel 后 runActive=false，跳过恢复）
+    await this.finishInsertPhase();
+    return { ok: true };
+  }
+
+  /** 暂停原 run 并等待 runStep 走到 paused 分支（checkpoint 落定） */
+  private async suspendForInsert(): Promise<void> {
+    const settled = new Promise<void>((resolve) => {
+      this.pauseWaiters.push(resolve);
+    });
+    this.paused = true;
+    this.controller?.abort();
+    // 兜底：runStep 已在收尾路径时 abort 分支可能不再走 paused 分支
+    await Promise.race([settled, new Promise<void>((resolve) => setTimeout(resolve, 3000))]);
+    // continueLoop 可能在首次 abort 后才换新 controller，再补一次确保停住
+    this.controller?.abort();
+  }
+
+  /** 插入 run 结束后恢复原 run：从 checkpoint 续跑（continueLoop） */
+  private async finishInsertPhase(): Promise<void> {
+    this.inserting = false;
+    if (this.runActive && this.paused) {
+      this.config.emit({ type: "original_resumed", sessionId: this.sessionId });
+      this.paused = false;
+      await this.continueLoop();
+    }
+  }
+
+  private resolvePauseWaiters(): void {
+    const waiters = this.pauseWaiters;
+    this.pauseWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
   }
 
   async cancel(): Promise<void> {
@@ -430,6 +610,8 @@ export class AgentSession {
       this.controller.abort();
     }
     this.paused = false;
+    // 插入执行中取消：插入 run 与原 run 一并终止，不再恢复
+    this.inserting = false;
     this.pending = null;
     for (const pending of this.pendingAsks.values()) {
       pending.reject(new Error("会话已取消"));
@@ -440,6 +622,7 @@ export class AgentSession {
       void child.cancel();
     }
     this.childSessions.clear();
+    this.resolvePauseWaiters();
     // runStep 已因暂停/等审批返回时，abort 不会再触发 done，这里补终态
     if (this.runActive && waiting) {
       this.finishRun("cancelled");
@@ -447,8 +630,20 @@ export class AgentSession {
   }
 
   private finishRun(reason: AgentDoneReason): void {
+    // 插入 run 的终态：只收尾插入 run 自己（补工具终态 + insert 阶段 done），
+    // runActive 保持 true——原 run 仍待 finishInsertPhase 恢复
+    if (this.inserting) {
+      this.emitUnfinishedTools(reason);
+      this.config.emit({ type: "done", sessionId: this.sessionId, reason, phase: "insert" });
+      return;
+    }
     this.runActive = false;
     this.pending = null;
+    this.emitUnfinishedTools(reason);
+    this.config.emit({ type: "done", sessionId: this.sessionId, reason });
+  }
+
+  private emitUnfinishedTools(reason: AgentDoneReason): void {
     // 未结束工具补终态事件，与 reducer / tool_end 协议一致
     const unfinishedState: ToolCallState = reason === "cancelled" ? "cancelled" : "interrupted";
     const unfinishedSummary = reason === "cancelled" ? "已取消，未完成" : "已中断，未完成";
@@ -464,7 +659,6 @@ export class AgentSession {
       });
     }
     this.openTools.clear();
-    this.config.emit({ type: "done", sessionId: this.sessionId, reason });
   }
 
   private async continueLoop(): Promise<void> {
@@ -538,8 +732,15 @@ export class AgentSession {
     // signal.aborted 兜底：abort 发生在工具执行中时，fullStream 可能直接结束
     // 而不再来 part（循环顶检查不到），这里仍按中断处理
     if (aborted || signal.aborted) {
+      // cancel() 已同步补发终态 done（runActive 已复位）：本次 runStep 静默退出
+      if (!this.runActive) {
+        this.resolvePauseWaiters();
+        return;
+      }
       if (this.paused) {
         this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
+        // insert 的 suspendForInsert 在等这个落点
+        this.resolvePauseWaiters();
         return;
       }
       this.finishRun("cancelled");
