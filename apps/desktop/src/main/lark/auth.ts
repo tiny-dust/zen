@@ -13,9 +13,15 @@ const CACHE_TTL_MS = 30_000;
 const AUTH_TIMEOUT_MS = 10_000;
 /** --version 最长等待 */
 const VERSION_TIMEOUT_MS = 5_000;
+/** contact +get-user（self）最长等待：头像缺失可接受，不能拖慢探测 */
+const PROFILE_TIMEOUT_MS = 8_000;
+/** 用户资料缓存：头像/姓名变化低频，同一 open_id 短期复用，避免每次探测都拉子进程 */
+const PROFILE_CACHE_TTL_MS = 10 * 60_000;
 
 let cache: { snapshot: LarkAuthSnapshot; at: number } | null = null;
 let inflight: Promise<LarkAuthSnapshot> | null = null;
+/** 用户资料（姓名/头像）短缓存：低频变化，按 open_id 复用 */
+let profileCache: { openId: string; name: string | null; avatarUrl: string | null; at: number } | null = null;
 
 function unavailableSnapshot(error: string, cliInstalled = false): LarkAuthSnapshot {
   return {
@@ -27,6 +33,7 @@ function unavailableSnapshot(error: string, cliInstalled = false): LarkAuthSnaps
     botReady: false,
     userOpenId: null,
     userName: null,
+    userAvatarUrl: null,
     error,
   };
 }
@@ -60,6 +67,33 @@ async function probeCliVersion(cliPath: string): Promise<string | null> {
   }
 }
 
+/** `contact +get-user`（省略 user_id 即自己）输出的宽松类型 */
+interface LarkUserProfileRaw {
+  data?: { user?: { name?: unknown; avatar_url?: unknown } };
+}
+
+/** 探测当前登录用户的姓名与头像（失败静默降级为 null，不影响登录态判定） */
+async function probeUserProfile(cliPath: string, openId: string): Promise<{ name: string | null; avatarUrl: string | null }> {
+  if (profileCache && profileCache.openId === openId && Date.now() - profileCache.at < PROFILE_CACHE_TTL_MS) {
+    return { name: profileCache.name, avatarUrl: profileCache.avatarUrl };
+  }
+  try {
+    const { stdout } = await execFileAsync(cliPath, ["contact", "+get-user", "--json"], {
+      timeout: PROFILE_TIMEOUT_MS,
+    });
+    const parsed = JSON.parse(stdout) as LarkUserProfileRaw;
+    const profile = {
+      name: asString(parsed.data?.user?.name),
+      avatarUrl: asString(parsed.data?.user?.avatar_url),
+    };
+    profileCache = { openId, ...profile, at: Date.now() };
+    return profile;
+  } catch {
+    // 探测失败不缓存（下次探测重试），也不阻塞登录态
+    return { name: null, avatarUrl: null };
+  }
+}
+
 async function probeAuthSnapshot(): Promise<LarkAuthSnapshot> {
   const cliPath = resolveLarkCliPath();
   if (!cliPath) {
@@ -77,7 +111,10 @@ async function probeAuthSnapshot(): Promise<LarkAuthSnapshot> {
   }
   const bot = raw.identities?.bot;
   const user = raw.identities?.user;
+  const userOpenId = asString(user?.openId);
   const version = await probeCliVersion(cliPath);
+  // 已登录时补探姓名/头像（profile 失败不影响 available）
+  const profile = userOpenId ? await probeUserProfile(cliPath, userOpenId) : { name: null, avatarUrl: null };
   return {
     cliInstalled: true,
     available: true,
@@ -86,8 +123,9 @@ async function probeAuthSnapshot(): Promise<LarkAuthSnapshot> {
     brand: asString(raw.brand),
     // 发消息走 bot 身份：available 为显式布尔才可信
     botReady: bot?.available === true,
-    userOpenId: asString(user?.openId),
-    userName: asString(user?.userName),
+    userOpenId,
+    userName: profile.name ?? asString(user?.userName),
+    userAvatarUrl: profile.avatarUrl,
     error: null,
   };
 }
