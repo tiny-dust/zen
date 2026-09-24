@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
-import { decodeChatMessageMeta, encodeChatMessageMeta } from "@zen/shared";
+import { decodeChatMessageMeta, encodeChatMessageMeta, uuidv7 } from "@zen/shared";
 
 import { getDb } from "./model-db-connection";
 
@@ -190,7 +190,7 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
   const db = getDb();
   const effective = workspaceId && getWorkspace(workspaceId) ? workspaceId : null;
   const row: SessionRow = {
-    id: id?.trim() || randomUUID(),
+    id: id?.trim() || uuidv7(),
     title: "新会话",
     workspace_id: effective === COMMON_ID ? null : effective,
     draft: "",
