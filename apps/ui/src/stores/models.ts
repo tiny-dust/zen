@@ -26,6 +26,8 @@ export const useModelsStore = defineStore("models", () => {
   const activeProviderId = ref<string | null>(null);
   const catalogVendors = ref<CatalogVendor[]>([]);
   const catalogModels = ref<CatalogModel[]>([]);
+  const refreshingCatalog = ref(false);
+  const catalogUpdatedAt = ref(0);
 
   const activeProvider = computed(
     () => providers.value.find((p) => p.id === activeProviderId.value) || null,
@@ -269,6 +271,35 @@ export const useModelsStore = defineStore("models", () => {
     return zen.models.catalogMatch(modelId);
   }
 
+  async function loadCatalogUpdatedAt() {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    try {
+      catalogUpdatedAt.value = await zen.models.catalogUpdatedAt();
+    } catch {
+      catalogUpdatedAt.value = 0;
+    }
+  }
+
+  /** 一键实时更新内置目录（models.dev）；成功后重载列表与更新时间 */
+  async function refreshCatalog(): Promise<number | null> {
+    const zen = window.zen;
+    if (!zen || refreshingCatalog.value) {
+      return null;
+    }
+    refreshingCatalog.value = true;
+    try {
+      const result = await zen.models.catalogRefresh();
+      catalogUpdatedAt.value = result.updatedAt;
+      await loadCatalogModels();
+      return result.count;
+    } finally {
+      refreshingCatalog.value = false;
+    }
+  }
+
   return {
     providers,
     selection,
@@ -299,6 +330,10 @@ export const useModelsStore = defineStore("models", () => {
     refreshFromProvider,
     loadCatalogVendors,
     loadCatalogModels,
+    loadCatalogUpdatedAt,
+    refreshCatalog,
+    refreshingCatalog,
+    catalogUpdatedAt,
     matchCatalog,
   };
 });
