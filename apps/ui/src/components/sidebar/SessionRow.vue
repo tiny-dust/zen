@@ -43,17 +43,18 @@ const resultDotLabel = computed(() =>
 
 /**
  * 行结构：单行标题（超长截断）+ 行尾状态槽（运行 spinner / 需要操作 / 未读点）；
- * 选中与运行中的会话整行圆角浅色底，历史会话为普通文本 + hover 高亮。
+ * 仅选中的会话整行圆角浅色底，其余（含运行中）为普通文本 + hover 高亮，
+ * 运行状态只通过行尾 spinner 表达，不参与选中底色。
  */
 const rowCls = classes(
   "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1.5 pl-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
   "text-[var(--color-side-item)]",
   [
-    !props.active && !running.value,
+    !props.active,
     "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
   ],
   [
-    props.active || running.value,
+    props.active,
     "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
   ],
   [needsAction.value, "text-[var(--color-txt-strong)]"],
