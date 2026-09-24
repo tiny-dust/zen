@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ExternalLink, HelpCircle, LogOut, Power, Settings } from "@lucide/vue";
+import { Check, ExternalLink, HelpCircle, LogOut, Settings } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref } from "vue";
 
@@ -387,10 +387,6 @@ const accountRowCls =
             <LogOut class="size-[15px] flex-none" />
             <span>退出 GitHub 登录</span>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="[menuItemCls, menuDanger]" @select="() => {}">
-            <Power class="size-[15px] flex-none" />
-            <span>退出应用</span>
-          </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -428,32 +424,32 @@ const accountRowCls =
             两个账户可并存绑定：登录其一后，在账户菜单点击另一个即可绑定。飞书连接桥接；GitHub 同步个人资料与配置。
           </DialogDescription>
           <div class="mt-1 grid w-full grid-cols-2 gap-2">
-            <button
-              type="button"
-              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+            <Button
+              variant="outline"
+              class="h-auto flex-col items-start gap-1.5 border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left hover:border-[var(--color-line)] hover:bg-[var(--color-np-btn-bg)]"
               @click="chooseLark"
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
                 <FeishuLogo class="size-4" />
                 飞书
               </span>
-              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+              <span class="text-[11.5px] leading-snug font-normal text-[var(--color-mut)]">
                 浏览器授权 · 连接飞书桥接
               </span>
-            </button>
-            <button
-              type="button"
-              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+            </Button>
+            <Button
+              variant="outline"
+              class="h-auto flex-col items-start gap-1.5 border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left hover:border-[var(--color-line)] hover:bg-[var(--color-np-btn-bg)]"
               @click="chooseGithub"
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
                 <GithubMark class="size-4" />
                 GitHub
               </span>
-              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+              <span class="text-[11.5px] leading-snug font-normal text-[var(--color-mut)]">
                 设备码授权 · 同步资料与配置
               </span>
-            </button>
+            </Button>
           </div>
           <div class="flex justify-end">
             <Button variant="ghost" size="sm" @click="closeLoginDialog">取消</Button>

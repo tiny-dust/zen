@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   ArrowUp,
-  Mic,
   Play,
   Plus,
   Sparkles,
@@ -344,16 +343,6 @@ function removeAttachment(id: string) {
             />
             <ModelPicker :compact="isCompactBar" />
             <PermissionPicker :compact="isCompactBar" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-              aria-label="语音"
-              title="语音（占位）"
-              disabled
-            >
-              <Mic class="size-4" />
-            </Button>
             <!-- 发送按钮位即运行状态位：运行中变停止，暂停时变继续 -->
             <Button
               v-if="isRunning || isPaused"
