@@ -17,7 +17,9 @@ export type LarkGatewayState = "off" | "starting" | "ready" | "error";
 
 /** lark-cli 登录态（auth status 的可展示字段，不含任何 token） */
 export interface LarkAuthSnapshot {
-  /** 本机是否找到可执行的 lark-cli */
+  /** 本机是否找到可执行的 lark-cli；即使未登录也为 true */
+  cliInstalled: boolean;
+  /** lark-cli auth status 是否成功返回可用身份信息 */
   available: boolean;
   /** lark-cli 版本（未解析到为 null） */
   version: string | null;
