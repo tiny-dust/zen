@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { ipcMain } from "electron";
 
 import type {
@@ -15,7 +18,8 @@ import { DEFAULT_LARK_BRIDGE_SETTINGS } from "@zen/shared";
 
 import { saveAgentSettings } from "../zen-dir";
 import { getSession, listWorkspaceGroups } from "../workspace-db";
-import { peekLarkAuthSnapshot, readLarkAuthSnapshot } from "./auth";
+import { invalidateLarkAuthCache, peekLarkAuthSnapshot, readLarkAuthSnapshot } from "./auth";
+import { invalidateLarkCliPathCache, npmExecutionEnv, resolveLarkCliPath, resolveNpmPath } from "./cli";
 import { collectSessionSummaries, LarkGateway, mapRunStateToLarkState } from "./gateway";
 import type { LarkChatStartResult, SessionRunState } from "./gateway";
 import { cancelLarkLogin, shutdownLarkLogin, startLarkLogin } from "./login";
@@ -25,6 +29,10 @@ import { cancelLarkLogin, shutdownLarkLogin, startLarkLogin } from "./login";
  * agent 流事件（ask_user / ask_resolved / done）喂给网关。
  * 单例 gateway 由本模块创建；sessions Map 在 index.ts，经 deps 注入回调访问。
  */
+
+const execFileAsync = promisify(execFile);
+const LARK_CLI_PACKAGE = "@larksuite/cli";
+let installInFlight: Promise<{ ok: boolean; error?: string }> | null = null;
 
 let gateway: LarkGateway | null = null;
 let broadcastFn: ((channel: string, payload: unknown) => void) | null = null;
@@ -112,8 +120,45 @@ export function registerLarkIpc(
     finalAssistantReply: lastAssistantReply,
   });
 
-  ipcMain.handle("lark:status", async (): Promise<LarkStatus> => {
+  ipcMain.handle("lark:status", async (_event, refresh?: boolean): Promise<LarkStatus> => {
+    if (refresh) {
+      invalidateLarkCliPathCache();
+      invalidateLarkAuthCache();
+    }
     return toLarkStatus(await readLarkAuthSnapshot());
+  });
+
+  ipcMain.handle("lark:install-cli", async (): Promise<{ ok: boolean; error?: string }> => {
+    if (installInFlight) {
+      return installInFlight;
+    }
+    const npmPath = resolveNpmPath();
+    if (!npmPath) {
+      return { ok: false, error: "未找到 npm，请先安装 Node.js 或将 npm 加入 PATH" };
+    }
+    installInFlight = execFileAsync(npmPath, ["install", "--global", LARK_CLI_PACKAGE], {
+      timeout: 120_000,
+      windowsHide: true,
+      shell: process.platform === "win32",
+      env: npmExecutionEnv(npmPath),
+      maxBuffer: 2 * 1024 * 1024,
+    })
+      .then(() => {
+        invalidateLarkCliPathCache();
+        invalidateLarkAuthCache();
+        if (!resolveLarkCliPath()) {
+          return { ok: false, error: "安装完成，但未在本机找到 lark-cli，请点击重新检查" };
+        }
+        return { ok: true };
+      })
+      .catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { ok: false, error: `安装 lark-cli 失败：${detail}` };
+      })
+      .finally(() => {
+        installInFlight = null;
+      });
+    return installInFlight;
   });
 
   // 飞书登录：device flow 由 login.ts 编排，各阶段经 lark:login-event 推给渲染层

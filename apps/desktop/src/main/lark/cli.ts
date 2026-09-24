@@ -12,6 +12,11 @@ import { delimiter, join } from "node:path";
 
 let cachedPath: string | null | undefined;
 
+/** 清除探测缓存：安装或升级 lark-cli 后让下一次检查重新扫描。 */
+export function invalidateLarkCliPathCache(): void {
+  cachedPath = undefined;
+}
+
 /** 探测结果缓存（含 null：找不到也缓存，避免每条指令重复全盘扫描） */
 export function resolveLarkCliPath(): string | null {
   if (cachedPath !== undefined) {
@@ -36,7 +41,7 @@ function isExecutableFile(path: string): boolean {
 
 /** PATH 逐目录扫描；可执行名按平台区分（Windows 是 npm 垫片 .cmd / .exe） */
 function findOnPath(): string | null {
-  const pathEnv = process.env["PATH"] ?? "";
+  const pathEnv = process.env["PATH"] ?? process.env["Path"] ?? "";
   const names = process.platform === "win32" ? ["lark-cli.cmd", "lark-cli.exe"] : ["lark-cli"];
   for (const dir of pathEnv.split(delimiter)) {
     if (!dir) {
@@ -52,10 +57,57 @@ function findOnPath(): string | null {
   return null;
 }
 
+/** Finder/桌面启动不会继承终端完整 PATH；补扫常见 Node/npm 安装位置。 */
+export function resolveNpmPath(): string | null {
+  const names = process.platform === "win32" ? ["npm.cmd", "npm.exe"] : ["npm"];
+  const pathEnv = process.env["PATH"] ?? process.env["Path"] ?? "";
+  const candidates = pathEnv
+    .split(delimiter)
+    .filter(Boolean)
+    .flatMap((dir) => names.map((name) => join(dir, name)));
+
+  if (process.platform === "win32") {
+    const appData = process.env["APPDATA"];
+    const programFiles = process.env["ProgramFiles"];
+    const localAppData = process.env["LOCALAPPDATA"];
+    if (appData) candidates.push(join(appData, "npm", "npm.cmd"));
+    if (programFiles) candidates.push(join(programFiles, "nodejs", "npm.cmd"));
+    if (localAppData) candidates.push(join(localAppData, "Programs", "nodejs", "npm.cmd"));
+  } else {
+    candidates.push("/opt/homebrew/bin/npm", "/usr/local/bin/npm", "/usr/bin/npm");
+    const home = homedir();
+    candidates.push(join(home, ".local", "bin", "npm"), join(home, ".volta", "bin", "npm"));
+    for (const root of [join(home, ".vite-plus", "js_runtime", "node"), join(home, ".nvm", "versions", "node")]) {
+      try {
+        for (const version of readdirSync(root)) candidates.push(join(root, version, "bin", "npm"));
+      } catch {
+        // optional runtime directory
+      }
+    }
+  }
+  return candidates.find(isExecutableFile) ?? null;
+}
+
+/** npm 运行时需要与 npm 同目录的 node；桌面启动时将其加入子进程 PATH。 */
+export function npmExecutionEnv(npmPath: string): NodeJS.ProcessEnv {
+  const npmDir = npmPath.replace(/[\\/]npm(?:\\.cmd|\\.exe)?$/i, "");
+  const pathKey = process.platform === "win32" && process.env["Path"] !== undefined ? "Path" : "PATH";
+  const currentPath = process.env[pathKey] ?? process.env["PATH"] ?? process.env["Path"] ?? "";
+  const pathParts = currentPath.split(delimiter).filter(Boolean);
+  if (npmDir && !pathParts.includes(npmDir)) {
+    pathParts.unshift(npmDir);
+  }
+  return { ...process.env, [pathKey]: pathParts.join(delimiter) };
+}
+
 /** `npm prefix -g`（npm 不在 PATH / 超时等情况返回 null，不抛错） */
 function npmGlobalPrefix(): string | null {
+  const npmPath = resolveNpmPath();
+  if (!npmPath) {
+    return null;
+  }
   try {
-    const stdout = execFileSync("npm", ["prefix", "-g"], {
+    const stdout = execFileSync(npmPath, ["prefix", "-g"], {
       timeout: 5000,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

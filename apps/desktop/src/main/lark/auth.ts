@@ -17,8 +17,9 @@ const VERSION_TIMEOUT_MS = 5_000;
 let cache: { snapshot: LarkAuthSnapshot; at: number } | null = null;
 let inflight: Promise<LarkAuthSnapshot> | null = null;
 
-function unavailableSnapshot(error: string): LarkAuthSnapshot {
+function unavailableSnapshot(error: string, cliInstalled = false): LarkAuthSnapshot {
   return {
+    cliInstalled,
     available: false,
     version: null,
     appId: null,
@@ -72,12 +73,13 @@ async function probeAuthSnapshot(): Promise<LarkAuthSnapshot> {
     raw = JSON.parse(stdout) as LarkAuthStatusRaw;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return unavailableSnapshot(`lark-cli auth status 失败：${reason}`);
+    return unavailableSnapshot(`lark-cli auth status 失败：${reason}`, true);
   }
   const bot = raw.identities?.bot;
   const user = raw.identities?.user;
   const version = await probeCliVersion(cliPath);
   return {
+    cliInstalled: true,
     available: true,
     version,
     appId: asString(raw.appId),

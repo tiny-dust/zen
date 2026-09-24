@@ -95,7 +95,8 @@ export interface PlatformInfo {
 export interface ZenApi {
   app: {
     info(): Promise<AppInfo>;
-    openExternal(url: string): Promise<{ ok: boolean }>;
+    openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
+    openSystemExternal(url: string): Promise<{ ok: boolean; error?: string }>;
   };
   shell: {
     listOpeners(): Promise<DesktopOpener[]>;
@@ -371,7 +372,8 @@ export interface ZenApi {
   };
   /** 飞书桥接：lark-cli 网关状态（lark:status / lark:changed，main 侧托管启停） */
   lark: {
-    status(): Promise<LarkStatus>;
+    status(refresh?: boolean): Promise<LarkStatus>;
+    installCli(): Promise<{ ok: boolean; error?: string }>;
     onChanged(handler: (status: LarkStatus) => void): () => void;
     /** 发起飞书登录（lark-cli device flow）；各阶段经 onLoginEvent 推送 */
     login(): Promise<void>;
