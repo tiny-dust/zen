@@ -52,6 +52,7 @@ import type {
   ReadFileResult,
   SessionRecord,
   SetModelsEnabledInput,
+  AgentServiceInfo,
   SkillSummary,
   SyncResult,
   TerminalCreateResult,
@@ -372,6 +373,12 @@ export interface ZenApi {
     openExternal(cwd?: string): Promise<{ ok: boolean; opener?: string; error?: string }>;
     onData(handler: (event: PtyDataEvent) => void): () => void;
     onExit(handler: (event: PtyExitEvent) => void): () => void;
+  };
+  /** 长驻服务（runTerminal 起的 dev server 等）：主进程进程组跟踪，可关闭 */
+  services: {
+    list(): Promise<AgentServiceInfo[]>;
+    kill(id: string): Promise<{ ok: boolean; error?: string }>;
+    onChange(handler: (services: AgentServiceInfo[]) => void): () => void;
   };
   /** 飞书桥接：lark-cli 网关状态（lark:status / lark:changed，main 侧托管启停） */
   lark: {

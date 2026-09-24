@@ -31,6 +31,14 @@ export interface MemoryAgentBridge {
   ): Promise<{ ok: boolean; error?: string }>;
 }
 
+/** 长驻服务桥（main 侧登记 runTerminal 进程组；settle 后收集存活服务） */
+export interface ServicesAgentBridge {
+  /** runTerminal 已 spawn（detached，pid 即进程组 id）：登记命令与归属会话 */
+  track(request: { sessionId: string; command: string; cwd: string; pid: number }): void;
+  /** runTerminal 结束（完成/超时/中断）：检测进程组存活者，有则收集为长驻服务 */
+  settle(pid: number): void;
+}
+
 export interface AgentSessionConfig {
   sessionId: string;
   workspaceRoot: string;
@@ -55,6 +63,8 @@ export interface AgentSessionConfig {
   mcpTools?: McpToolBridge[];
   /** 内嵌 WebContentsView + CDP 浏览器桥（desktop 注入；缺省时不注册 browser.* 工具） */
   browserBridge?: BrowserAgentBridge;
+  /** 长驻服务桥（desktop 注入；runTerminal 进程组登记与收集，缺省不收集） */
+  servicesBridge?: ServicesAgentBridge;
   /** 是否启用多 Agent 协作工具（spawnAgent 等）；子 Agent 应为 false */
   multiAgent?: boolean;
   /**

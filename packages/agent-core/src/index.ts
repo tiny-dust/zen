@@ -18,6 +18,7 @@ export type {
   AgentSkillHint,
   McpToolBridge,
   MemoryAgentBridge,
+  ServicesAgentBridge,
   AgentSessionConfig,
 } from "./agent-config";
 
