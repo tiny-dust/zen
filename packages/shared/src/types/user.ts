@@ -17,6 +17,9 @@ export interface GitHubUser {
 
 export type AppIconId = "zen-ink" | "zen-mint" | "zen-ember" | "zen-mono" | "custom";
 
+/** 左下角/资料页展示哪个账户的身份：auto = GitHub 优先、无 GitHub 用飞书 */
+export type DisplayAccount = "auto" | "github" | "lark";
+
 export interface ShortcutBinding {
   id: string;
   label: string;
@@ -33,6 +36,8 @@ export interface AppSettings {
   updateFeedUrl: string | null;
   /** 代码高亮主题（对话消息列表与预览），对应 UI 侧 CODE_THEMES 目录里的 id */
   codeTheme: string;
+  /** 左下角/资料页展示哪个账户的身份 */
+  displayAccount: DisplayAccount;
 }
 
 /** 默认代码主题：GitHub 深浅成对 */

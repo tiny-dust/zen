@@ -39,6 +39,7 @@ const defaultSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
+  displayAccount: "auto",
 };
 
 interface StoredAuth {
