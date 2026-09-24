@@ -39,7 +39,7 @@ const showSessionColumn = computed(() => isWide.value && sessionOpen.value);
 const centerClass = computed(() =>
   classes(
     "flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)]",
-    [showSessionColumn.value, "grid-cols-[minmax(0,1fr)_250px]"],
+    [showSessionColumn.value, "grid-cols-[minmax(0,1fr)_350px]"],
   ),
 );
 
