@@ -62,7 +62,7 @@ function ensureLarkLoginListener() {
         larkLoginPhase.value = "waiting";
         larkLoginUrl.value = event.url;
         // 授权页走系统浏览器，与设置页登录流程一致
-        void window.zen?.app.openExternal(event.url);
+        void window.zen?.app.openSystemExternal(event.url);
       } else if (event.status === "done") {
         closeLoginDialog();
         void agentStore.refreshLark();
@@ -114,7 +114,7 @@ async function chooseLark() {
 
 function openLarkLoginUrl() {
   if (larkLoginUrl.value) {
-    void window.zen?.app.openExternal(larkLoginUrl.value);
+    void window.zen?.app.openSystemExternal(larkLoginUrl.value);
   }
 }
 

@@ -14,8 +14,11 @@ export const appApi = {
     info(): Promise<AppInfo> {
       return ipcRenderer.invoke("app:info");
     },
-    openExternal(url: string): Promise<{ ok: boolean }> {
+    openExternal(url: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("app:open-external", url);
+    },
+    openSystemExternal(url: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("app:open-system-external", url);
     },
   },
   shell: {

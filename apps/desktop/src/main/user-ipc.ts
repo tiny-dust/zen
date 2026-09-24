@@ -365,10 +365,9 @@ export function registerUserIpc(): void {
       return { ok: false };
     }
     const target = url.trim();
-    // http(s)：优先应用内右侧浏览器面板（系统浏览器仅作 browser 面板上的显式按钮）
+    // 普通网页链接仍在应用内浏览器打开；授权流程使用 app:open-system-external。
     if (/^https?:\/\//i.test(target)) {
       const { getBrowserService } = await import("./browser/service");
-      const { BrowserWindow } = await import("electron");
       const service = getBrowserService();
       const win = BrowserWindow.fromWebContents(event.sender);
       if (win) {
@@ -382,6 +381,18 @@ export function registerUserIpc(): void {
       return { ok: true };
     }
     return { ok: false, error: "仅支持 http(s) 在应用内打开" };
+  });
+
+  ipcMain.handle("app:open-system-external", async (_event, url: string) => {
+    if (typeof url !== "string" || !url.trim() || !/^https?:\/\//i.test(url.trim())) {
+      return { ok: false, error: "仅支持 http(s) 链接" };
+    }
+    try {
+      await shell.openExternal(url.trim());
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "无法打开系统浏览器" };
+    }
   });
 
   ipcMain.handle("settings:get", async () => loadSettings());
