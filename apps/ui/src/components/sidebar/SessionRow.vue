@@ -45,36 +45,44 @@ const resultDotLabel = computed(() =>
  * 行结构：单行标题（超长截断）+ 行尾状态槽（运行 spinner / 需要操作 / 未读点）；
  * 仅选中的会话整行圆角浅色底，其余（含运行中）为普通文本 + hover 高亮，
  * 运行状态只通过行尾 spinner 表达，不参与选中底色。
+ * 注意必须是 computed：普通 const 只在 setup 时求值一次，点击切换会话后
+ * props.active 变化不会反映到 class（高亮会冻结在首帧状态）。
  */
-const rowCls = classes(
-  "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1.5 pl-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
-  "text-[var(--color-side-item)]",
-  [
-    !props.active,
-    "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
-  ],
-  [
-    props.active,
-    "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
-  ],
-  [needsAction.value, "text-[var(--color-txt-strong)]"],
+const rowCls = computed(() =>
+  classes(
+    "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1.5 pl-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
+    "text-[var(--color-side-item)]",
+    [
+      !props.active,
+      "hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt)]",
+    ],
+    [
+      props.active,
+      "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
+    ],
+    [needsAction.value, "text-[var(--color-txt-strong)]"],
+  ),
 );
 
-const titleCls = classes("block min-w-0 flex-1 truncate", [
-  !props.active && props.session.archived,
-  "text-[var(--color-dim)]",
-]);
+const titleCls = computed(() =>
+  classes("block min-w-0 flex-1 truncate", [
+    !props.active && props.session.archived,
+    "text-[var(--color-dim)]",
+  ]),
+);
 
 const slotCls = "flex size-4 flex-none items-center justify-center";
 
 /** 行尾操作簇：绝对定位悬浮于行上，hover/聚焦时显现，不改变标题排版；
     底色不透明（--color-side-chip），盖住截断在按钮区下的标题文字 */
-const hoverClusterCls = classes(
-  "absolute top-1/2 right-1.5 z-10 flex -translate-y-1/2 items-center gap-px rounded-[var(--radius-sm)] p-px",
-  props.active ? "bg-[var(--color-side-chip-active)]" : "bg-[var(--color-side-chip)]",
-  "pointer-events-none opacity-0 transition-opacity duration-[var(--motion-fast)]",
-  "group-hover/session:pointer-events-auto group-hover/session:opacity-100",
-  "focus-within:pointer-events-auto focus-within:opacity-100",
+const hoverClusterCls = computed(() =>
+  classes(
+    "absolute top-1/2 right-1.5 z-10 flex -translate-y-1/2 items-center gap-px rounded-[var(--radius-sm)] p-px",
+    props.active ? "bg-[var(--color-side-chip-active)]" : "bg-[var(--color-side-chip)]",
+    "pointer-events-none opacity-0 transition-opacity duration-[var(--motion-fast)]",
+    "group-hover/session:pointer-events-auto group-hover/session:opacity-100",
+    "focus-within:pointer-events-auto focus-within:opacity-100",
+  ),
 );
 const actionSlotCls = "flex size-7 flex-none items-center justify-center rounded-[var(--radius-sm)]";
 const ghostActionCls = classes(
