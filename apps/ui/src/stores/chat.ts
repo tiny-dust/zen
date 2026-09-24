@@ -406,9 +406,28 @@ export const useChatStore = defineStore("chat", () => {
     await send();
   }
 
-  async function send() {
+  /**
+   * 异常终止（失败/取消/步骤上限）后的「继续」：不截断历史，
+   * 把之前轮次已完成的工作读进上下文后接着做，而不是像重试那样整轮重跑。
+   */
+  async function continueRun() {
+    if (isRunning.value) {
+      return;
+    }
+    await send(
+      "继续。请先回顾上面的历史与已完成进度（必要时查看当前文件状态确认），接着完成剩余工作，不要重复已完成的操作。",
+    );
+  }
+
+  /**
+   * 发送消息。overrideText 提供时（「继续」续跑）以该文本为消息内容：
+   * 不读输入框草稿、不带附件/技能/元素标注、不清空任何 composer 状态，
+   * 且保留全部历史（不截断分叉），让 Agent 读完之前的进度后接着做。
+   */
+  async function send(overrideText?: string) {
+    const continued = overrideText != null;
     const zen = window.zen;
-    const text = input.value.trim();
+    const text = (continued ? overrideText : input.value).trim();
     if (!zen || (!text && !attachments.value.length)) {
       return;
     }
@@ -416,14 +435,21 @@ export const useChatStore = defineStore("chat", () => {
     if (isRunning.value) {
       if (text) {
         queue.enqueue(text);
-        input.value = "";
+        if (!continued) {
+          input.value = "";
+        }
       }
       return;
     }
-    // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送
+    // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送；
+    // 「继续」不走分叉（要保留全部历史），仅放弃未发送的编辑锚点
     if (editAnchorId.value) {
-      await truncateFrom(editAnchorId.value);
-      editAnchorId.value = "";
+      if (continued) {
+        editAnchorId.value = "";
+      } else {
+        await truncateFrom(editAnchorId.value);
+        editAnchorId.value = "";
+      }
     }
     // 免登录可用：会话与本地 Agent 功能不依赖 GitHub；仅云同步等账号功能需登录
 
@@ -435,10 +461,12 @@ export const useChatStore = defineStore("chat", () => {
       await modelsStore.refresh();
     }
 
-    const attachmentRefs: AttachmentRef[] = attachments.value.map((item) => ({
-      name: item.name,
-      path: item.path,
-    }));
+    const attachmentRefs: AttachmentRef[] = continued
+      ? []
+      : attachments.value.map((item) => ({
+          name: item.name,
+          path: item.path,
+        }));
 
     // 技能已以内联 token（/skill:名称）写在正文里，随消息直接发给 Agent；
     // meta.skills 供气泡渲染 tag（正文展示时会隐藏 token）
@@ -457,9 +485,12 @@ export const useChatStore = defineStore("chat", () => {
     currentStep.value = null;
     // 不清空 lastInputTokens/lastOutputTokens：既是运行中的上下文统计，
     // 也是下一次发送判断超限压缩的依据（清空会让 overThreshold 永远不触发）
-    input.value = "";
-    attachments.value = [];
-    elementMarks.value = [];
+    // 「继续」不消费 composer 状态：草稿、附件、元素标注留给用户下一次正常发送
+    if (!continued) {
+      input.value = "";
+      attachments.value = [];
+      elementMarks.value = [];
+    }
     sessionStatusStore.set(sessionId.value, "running");
     useAgentsStore().ensureSession(sessionId.value);
     useAgentProcessesStore().ensureSession(sessionId.value);
@@ -845,6 +876,7 @@ export const useChatStore = defineStore("chat", () => {
     startEditFrom,
     cancelEdit,
     retryFrom,
+    continueRun,
     editAnchorId,
     approve,
     submitAsk,

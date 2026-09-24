@@ -256,6 +256,18 @@ const runToneClass = computed(() => {
   }
 });
 
+/**
+ * 「继续」按钮：仅最后一条助手消息且本轮异常终止（失败/取消/步骤上限）时显示。
+ * 与「重试」（截断本轮重新生成）区分：继续保留全部历史，从已完成进度接着做。
+ */
+const canContinue = computed(() => {
+  if (props.streaming || chatStore.messages.at(-1)?.id !== props.message.id) {
+    return false;
+  }
+  const reason = runSummary.value?.reason;
+  return reason != null && reason !== "stop";
+});
+
 /** system 消息：默认中性通知；meta.severity=danger 才用危险红 */
 const systemTone = computed(() => {
   const meta = props.message.meta as { severity?: string; kind?: string } | undefined;
@@ -555,11 +567,23 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="重新生成本轮回复"
-        title="重试"
+        aria-label="重新生成本轮回复（丢弃本轮历史重跑）"
+        title="重试：丢弃本轮，从上一条消息重新生成"
         @click="chatStore.retryFrom(message.id)"
       >
         <RefreshCw class="size-3.5" />
+      </Button>
+      <!-- 异常终止后专用：保留历史续跑，与左侧「重试」（截断重跑）区分 -->
+      <Button
+        v-if="canContinue"
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md text-[var(--color-accent)] hover:text-[var(--color-txt-strong)]"
+        aria-label="继续执行：保留历史，从已完成进度接着做"
+        title="继续：保留历史，从上次中断的进度接着执行（不重跑本轮）"
+        @click="chatStore.continueRun()"
+      >
+        <Play class="size-3.5" />
       </Button>
     </div>
   </div>
