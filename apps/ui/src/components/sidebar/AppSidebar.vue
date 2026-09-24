@@ -165,7 +165,7 @@ async function onDeleteWorkspace() {
   await workspaceStore.remove(group.id);
 }
 
-/** 顶部常驻入口（技能 / MCP）：与「项目」触发器同构的行式按钮，上下排列 */
+/** 顶部常驻入口（技能 / MCP）：单行两列，与列表行同构 */
 const topEntryCls =
   "h-8 w-full justify-start gap-1.5 rounded-[var(--radius-sm)] px-2 text-[12.5px] font-normal text-[var(--color-side-item)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]";
 
@@ -194,8 +194,8 @@ const sectionAddCls =
       </div>
     </header>
 
-    <!-- 顶部常驻入口：技能 / MCP -->
-    <div class="flex flex-none flex-col gap-1 px-2 pt-1">
+    <!-- 顶部常驻入口：技能 / MCP（两列 grid 均分；Button 自带 shrink-0，flex + w-full 会溢出被侧栏裁掉） -->
+    <div class="grid flex-none grid-cols-2 gap-1 px-2 pt-1">
       <Button variant="ghost" :class="topEntryCls" @click="skillsOpen = true">
         <Sparkles class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         技能
@@ -262,18 +262,6 @@ const sectionAddCls =
         @delete-workspace="pendingWorkspaceDelete = group"
       />
     </div>
-
-    <!-- 新建会话：悬浮圆形按钮 -->
-    <Button
-      variant="ghost"
-      size="icon-lg"
-      class="absolute right-3 bottom-24 z-10 rounded-full border border-[var(--color-line-strong)] bg-[var(--color-composer-surface)] text-[var(--color-txt)] shadow-[var(--shadow-tip)] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)] dark:hover:bg-[var(--color-side-hover)]"
-      aria-label="新建会话"
-      title="新建会话"
-      @click="chatStore.newTask()"
-    >
-      <Plus class="size-4" />
-    </Button>
 
     <div class="flex-none border-t border-[var(--color-line-soft)] p-2">
       <UserBlock />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bell, Info, PanelLeft, PanelRight, Search, SquareTerminal } from "@lucide/vue";
+import { Bell, Info, PanelLeft, PanelRight, Plus, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
 import OpenWithButton from "@/components/topbar/OpenWithButton.vue";
@@ -57,15 +57,6 @@ function toggleButtonClass(active: boolean) {
           variant="ghost"
           size="icon-sm"
           :class="toggleButtonClass(false)"
-          aria-label="搜索"
-          title="搜索"
-        >
-          <Search />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          :class="toggleButtonClass(false)"
           aria-label="通知"
           title="通知"
         >
@@ -81,6 +72,16 @@ function toggleButtonClass(active: boolean) {
 
     <div class="flex h-full min-w-0 items-center justify-end gap-1.5">
       <OpenWithButton />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        :class="toggleButtonClass(false)"
+        aria-label="新对话"
+        title="新对话"
+        @click="chatStore.newTask()"
+      >
+        <Plus />
+      </Button>
       <Button
         variant="ghost"
         size="icon-sm"

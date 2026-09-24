@@ -5,12 +5,10 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import AppIcon from "@/components/base/AppIcon.vue";
 import { Response } from "@/components/ai-elements/response";
 import { CODE_THEMES } from "@/components/ai-elements/response/extensions";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
@@ -19,8 +17,6 @@ import type { UpdateStatusInfo } from "@zen/shared";
 
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
-
-const menuBarVisible = ref(true);
 
 /** 代码主题预览片段：同一份代码左浅右深各渲染一份（取色规则见 styles.css 预览节） */
 const PREVIEW_SNIPPET = `function greet() {
@@ -118,39 +114,6 @@ async function downloadUpdate() {
 
 <template>
   <section class="flex flex-col">
-    <Card size="sm" class="settings-card">
-      <CardContent class="p-0">
-        <div class="settings-row">
-          <div>
-            <div class="settings-row-title">默认打开目标</div>
-            <div class="settings-row-desc">默认用哪个程序打开文件夹/位置</div>
-          </div>
-          <Badge variant="secondary">Finder</Badge>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-row-title">默认新建项目位置</div>
-            <div class="settings-row-desc">新建空白项目默认落盘位置</div>
-          </div>
-          <Button variant="ghost" size="sm">选择目录</Button>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-row-title">语言</div>
-            <div class="settings-row-desc">应用 UI 语言</div>
-          </div>
-          <Badge variant="outline">简体中文</Badge>
-        </div>
-        <div class="settings-row">
-          <div>
-            <div class="settings-row-title">在菜单栏中显示</div>
-            <div class="settings-row-desc">在 macOS 菜单栏显示 Zen 图标</div>
-          </div>
-          <Switch v-model="menuBarVisible" />
-        </div>
-      </CardContent>
-    </Card>
-
     <!-- 软件更新（临时开放）：generic 更新源，局域网/本机静态目录即可 -->
     <h3 class="settings-section-title">软件更新</h3>
     <Card size="sm" class="settings-card">
