@@ -63,7 +63,9 @@ export function registerGitQueryIpc(): void {
     try {
       const branch = (await git(workdir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
       const [porcelain, unstaged, staged, upstream] = await Promise.all([
-        git(workdir, ["status", "--porcelain"]),
+        // -uall：未跟踪目录展开到具体文件（与 VS Code 变更列表一致，默认只给 `?? dir/`）；
+        // quotepath=false：中文/特殊字符路径按原样输出，不夹 \xNN 转义与引号
+        git(workdir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"]),
         git(workdir, ["diff", "--numstat"]),
         git(workdir, ["diff", "--cached", "--numstat"]),
         // 左=上游独有（落后），右=本地独有（待推送）；无上游时为空
