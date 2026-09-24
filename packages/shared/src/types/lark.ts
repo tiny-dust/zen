@@ -32,6 +32,8 @@ export interface LarkAuthSnapshot {
   userOpenId: string | null;
   /** 当前登录用户姓名（缺失为 null） */
   userName: string | null;
+  /** 当前登录用户头像 URL（缺失/探测失败为 null） */
+  userAvatarUrl: string | null;
   /** 不可用原因（available=false 时给出；探测成功为 null/缺省） */
   error?: string | null;
 }
