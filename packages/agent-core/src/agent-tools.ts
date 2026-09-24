@@ -1,5 +1,5 @@
 import { jsonSchema, tool } from "ai";
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import { z } from "zod";
 
 import { readSkillById } from "@zen/skills";
@@ -166,10 +166,18 @@ export function buildToolSet(
             // 持续运行的命令（dev server / watch）：边跑边收输出尾部，
             // 节流推送 tool_progress.outputTail 供「进程」节实时刷新；仅保留尾部限量
             const TAIL_LIMIT = 8000;
+            const OUTPUT_LIMIT = 1024 * 1024;
             let tail = "";
+            let stdoutText = "";
+            let stderrText = "";
             let lastEmitAt = 0;
-            const appendTail = (chunk: string) => {
+            const appendChunk = (chunk: string, isStderr: boolean) => {
               tail = (tail + chunk).slice(-TAIL_LIMIT);
+              if (isStderr) {
+                stderrText = (stderrText + chunk).slice(-OUTPUT_LIMIT);
+              } else {
+                stdoutText = (stdoutText + chunk).slice(-OUTPUT_LIMIT);
+              }
               const now = Date.now();
               if (now - lastEmitAt < 500) {
                 return;
@@ -186,45 +194,54 @@ export function buildToolSet(
                 },
               });
             };
-            // settle 兜底：exec 回调与 abort 可能竞态，只取第一个结果；
+            // settle 兜底：close 回调与 abort 可能竞态，只取第一个结果；
             // 暂停/取消必须立刻生效，否则 fullStream 等不到下一个 part，run 卡在工具里
             let settled = false;
+            let childPid = 0;
+            let timedOut = false;
             const settle = (value: { ok: boolean; exitCode: number; output: string }) => {
               if (settled) {
                 return;
               }
               settled = true;
               abortSignal?.removeEventListener("abort", onAbort);
+              // 结束后检测进程组存活者：dev server 等孙进程在 shell 被 kill 后仍存活，
+              // 交给 main 侧收集为长驻服务（右栏「服务」可管理/关闭）
+              if (childPid > 0) {
+                config.servicesBridge?.settle(childPid);
+              }
               resolve(value);
             };
-            const child = exec(
-              command,
-              {
-                cwd: workspaceRoot,
-                timeout: Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000),
-                maxBuffer: 1024 * 1024,
-                windowsHide: true,
-                env: process.env,
-              },
-              (error, stdout, stderr) => {
-                const exitCode =
-                  typeof (error as { code?: unknown } | null)?.code === "number"
-                    ? (error as unknown as { code: number }).code
-                    : error
-                      ? 1
-                      : 0;
-                const output = truncateOutput(
-                  `${stdout || ""}${stderr ? `\n[stderr]\n${stderr}` : ""}`.trim() ||
-                    "(no output)",
-                );
-                settle({
-                  ok: !error,
-                  exitCode,
-                  output,
-                });
-              },
-            );
+            // spawn（而非 exec）：detached 让 shell 真正成为进程组长（pgid = pid，
+            // exec 不转发 detached），超时/中断只杀 shell，存活的孙进程仍留在同一
+            // 进程组，settle 后可整组跟踪与关闭
+            const child = spawn(command, {
+              cwd: workspaceRoot,
+              shell: true,
+              detached: true,
+              windowsHide: true,
+              env: process.env,
+            });
+            childPid = child.pid ?? 0;
+            if (childPid > 0) {
+              config.servicesBridge?.track({ sessionId, command, cwd: workspaceRoot, pid: childPid });
+            }
+            const timer = setTimeout(() => {
+              timedOut = true;
+              child.kill();
+            }, Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000));
+            child.on("close", (code) => {
+              clearTimeout(timer);
+              // 与原 exec 契约一致：stdout 在前，stderr 以 [stderr] 标记拼接
+              const combined = `${stdoutText}${stderrText ? `\n[stderr]\n${stderrText}` : ""}`.trim();
+              settle({
+                ok: !timedOut && code === 0,
+                exitCode: code ?? 1,
+                output: truncateOutput(combined || "(no output)"),
+              });
+            });
             const onAbort = () => {
+              clearTimeout(timer);
               child.kill();
               settle({ ok: false, exitCode: -1, output: "已中断（暂停或取消）" });
             };
@@ -233,8 +250,8 @@ export function buildToolSet(
             } else {
               abortSignal?.addEventListener("abort", onAbort, { once: true });
             }
-            child.stdout?.on("data", (chunk) => appendTail(String(chunk)));
-            child.stderr?.on("data", (chunk) => appendTail(String(chunk)));
+            child.stdout?.on("data", (chunk) => appendChunk(String(chunk), false));
+            child.stderr?.on("data", (chunk) => appendChunk(String(chunk), true));
           });
         }, abortSignal);
       },

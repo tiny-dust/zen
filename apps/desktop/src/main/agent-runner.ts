@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { AgentSession, runMockAgent } from "@zen/agent-core";
 
 import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
+import { getAgentServicesRegistry } from "./agent-services";
 import { getBrowserService } from "./browser/service";
 import { notifyLarkEvent } from "./lark/ipc";
 import { appendMemoryNote, readMemorySnapshot, renderMemoryContext } from "./memory";
@@ -228,6 +229,8 @@ export async function runAgentRequest(
       skillExtraPaths: agentSettings.skillExtraPaths,
       mcpTools,
       browserBridge: getBrowserService(),
+      // runTerminal 进程组跟踪：settle 后存活的 dev server 等收集为长驻服务（右栏「服务」）
+      servicesBridge: getAgentServicesRegistry()?.bridge(),
       emit: emitTo,
     });
     sessions.set(request.sessionId, session);

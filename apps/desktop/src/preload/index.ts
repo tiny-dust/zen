@@ -12,6 +12,7 @@ import { memoryApi } from "./memory";
 import { modelsApi } from "./models";
 import { sessionApi } from "./session";
 import { settingsApi } from "./settings";
+import { servicesApi } from "./services";
 import { skillsApi } from "./skills";
 import { syncApi } from "./sync";
 import { terminalApi } from "./terminal";
@@ -43,6 +44,7 @@ const zen = {
   },
   ...browserApi,
   ...terminalApi,
+  ...servicesApi,
 };
 
 contextBridge.exposeInMainWorld("zen", zen);

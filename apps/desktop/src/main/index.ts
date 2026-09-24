@@ -7,6 +7,8 @@ import { registerMcpRuntime } from "@zen/agent-core";
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
 import { runAgentRequest, startLarkChat } from "./agent-runner";
+import { getAgentServicesRegistry, initAgentServices, shutdownAgentServices } from "./agent-services";
+import { registerAgentServicesIpc } from "./agent-services-ipc";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
@@ -321,6 +323,7 @@ app.whenReady().then(() => {
   registerGitIpc();
   registerShellIpc();
   registerAgentIpc(broadcast);
+  registerAgentServicesIpc(initAgentServices(broadcast));
   registerMcpIpc();
   registerCacheIpc();
   registerSkillsMarketIpc();
@@ -365,4 +368,7 @@ app.on("will-quit", () => {
   shutdownTerminalService();
   shutdownBrowserService();
   shutdownLark();
+  void shutdownAgentServices().catch((error) => {
+    console.warn("[zen] 长驻服务清理失败:", error);
+  });
 });
