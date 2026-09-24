@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Check, CloudDownload, CloudUpload, ExternalLink, KeyRound, MessageCircle } from "@lucide/vue";
+import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import zenAvatar from "@/assets/agent-logos/zen.png";
+import FeishuLogo from "@/components/brand/FeishuLogo.vue";
+import GithubMark from "@/components/brand/GithubMark.vue";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +39,9 @@ const larkIdentity = computed(() => {
   }
   return snapshot.userName || snapshot.userOpenId;
 });
+
+/** 左下角展示身份偏好（auto = GitHub 优先） */
+const displayPref = computed(() => settingsStore.settings.displayAccount ?? "auto");
 
 let disposeLarkLogin: (() => void) | null = null;
 onMounted(() => {
@@ -246,8 +251,43 @@ function resetLark() {
 
         <!-- 飞书桥接身份（与 GitHub 账号并存展示，互不覆盖） -->
         <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
-          <MessageCircle class="size-3.5 text-[var(--color-ok)]" aria-hidden="true" />
+          <FeishuLogo class="size-3.5 flex-none" />
           <span>飞书：{{ larkIdentity }}（已连接）</span>
+        </div>
+
+        <!-- 关联账户：登录其一后可绑定另一个；两账户并存时可选择左下角展示身份 -->
+        <div
+          v-if="larkIdentity"
+          class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3"
+        >
+          <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">关联账户</div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors duration-[var(--motion-fast)]"
+              :class="
+                displayPref === 'lark'
+                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)]'
+                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)]'
+              "
+              @click="settingsStore.setDisplayAccount('lark')"
+            >
+              <FeishuLogo class="size-3.5 flex-none" />
+              展示飞书（{{ larkIdentity }}）
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors duration-[var(--motion-fast)]"
+              :class="
+                displayPref !== 'lark'
+                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)]'
+                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)]'
+              "
+              @click="settingsStore.setDisplayAccount('github')"
+            >
+              展示 GitHub（@{{ user.login }}）
+            </button>
+          </div>
         </div>
 
         <!-- 配置云同步 -->
@@ -320,7 +360,7 @@ function resetLark() {
 
         <!-- 已连接的飞书身份（与 GitHub 账号并存展示，互不覆盖） -->
         <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
-          <MessageCircle class="size-3.5 text-[var(--color-ok)]" aria-hidden="true" />
+          <FeishuLogo class="size-3.5 flex-none" />
           <span>飞书：{{ larkIdentity }}（已连接）</span>
         </div>
 
@@ -360,33 +400,33 @@ function resetLark() {
           </div>
         </div>
 
-        <!-- 登录方式选择（GitHub / 飞书） -->
+        <!-- 登录方式选择（飞书优先 / GitHub） -->
         <div v-else-if="loginChoiceOpen" class="flex w-full flex-col gap-2">
           <div class="grid w-full grid-cols-2 gap-2">
-            <button
-              type="button"
-              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
-              @click="chooseGithub"
-            >
-              <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-                <KeyRound class="size-4" aria-hidden="true" />
-                GitHub
-              </span>
-              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
-                设备码授权 · 同步个人资料与配置
-              </span>
-            </button>
             <button
               type="button"
               class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
               @click="chooseLark"
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-                <MessageCircle class="size-4" aria-hidden="true" />
+                <FeishuLogo class="size-4" />
                 飞书
               </span>
               <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
                 浏览器授权 · 连接飞书桥接
+              </span>
+            </button>
+            <button
+              type="button"
+              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+              @click="chooseGithub"
+            >
+              <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+                <GithubMark class="size-4" />
+                GitHub
+              </span>
+              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+                设备码授权 · 同步个人资料与配置
               </span>
             </button>
           </div>
