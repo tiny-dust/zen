@@ -254,26 +254,38 @@ export interface LarkChatStartResult {
  * 飞书「对话」入口：按项目路径找到工作区（找不到则 createWorkspace），
  * 新建会话并异步运行 agent。立即返回（不等 run 结束），运行状态走「状态」查询、
  * 完成后由网关推送最终回复。
+ * workspacePath 为 null 时在「公共区」新建会话（workspaceId "common" → workspace_id NULL），
+ * agent 产物目录由 runAgentRequest 按无项目会话兜底（~/.zen/cache/sessions/<sessionId>）。
  */
 export function startLarkChat(
-  workspacePath: string,
+  workspacePath: string | null,
   message: string,
   sessions: Map<string, AgentSession>,
 ): LarkChatStartResult {
   try {
-    if (!workspacePath || !message?.trim()) {
+    if (!message?.trim()) {
       return { ok: false, error: "invalid lark chat request" };
     }
-    const existing = listWorkspaceGroups().find(
-      (group) => group.kind === "workspace" && group.path === workspacePath,
-    );
-    const workspace = existing ?? createWorkspace(workspacePath);
-    const session = createSession(workspace.id);
+    let workspaceId: string;
+    let workspaceRoot: string;
+    if (workspacePath) {
+      const existing = listWorkspaceGroups().find(
+        (group) => group.kind === "workspace" && group.path === workspacePath,
+      );
+      const workspace = existing ?? createWorkspace(workspacePath);
+      workspaceId = workspace.id;
+      workspaceRoot = workspacePath;
+    } else {
+      // 公共区会话：createSession 对 "common" 映射为 workspace_id NULL
+      workspaceId = "common";
+      workspaceRoot = "";
+    }
+    const session = createSession(workspaceId);
     const request: AgentRunRequest = {
       sessionId: session.id,
-      workspaceId: workspace.id,
+      workspaceId,
       // main 侧按 workspaceId 解析实际目录，不信任该字段（与渲染层口径一致）
-      workspaceRoot: workspacePath,
+      workspaceRoot,
       userMessage: message,
       history: [],
     };
