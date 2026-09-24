@@ -13,7 +13,7 @@ const RIGHT_MAX_RATIO = 0.75;
 /** 中央聊天列保底宽度：拖任何一侧都不允许把聊天区压到该值以下 */
 const CENTER_MIN = 420;
 /** 中央区里的会话信息卡列宽（≥1100px 且开启时占位，需一并保底） */
-const SESSION_COL_W = 250;
+const SESSION_COL_W = 350;
 const WIDE_BREAKPOINT = 1100;
 /** 两条 5px 拖拽手柄的宽度预算 */
 const HANDLE_BUDGET = 10;
