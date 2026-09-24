@@ -45,6 +45,8 @@ onMounted(() => {
       if (event.status === "url") {
         larkPhase.value = "waiting";
         larkUrl.value = event.url;
+        // 授权页走系统浏览器，避免在内置浏览器打开与设置弹窗冲突；按钮仅作手动兜底
+        void window.zen?.app.openExternal(event.url);
       } else if (event.status === "done") {
         larkPhase.value = "done";
         larkUrl.value = null;
@@ -165,7 +167,7 @@ async function cancelLark() {
 
 function openLarkUrl() {
   if (larkUrl.value) {
-    void userStore.openExternal(larkUrl.value);
+    void window.zen?.app.openExternal(larkUrl.value);
   }
 }
 

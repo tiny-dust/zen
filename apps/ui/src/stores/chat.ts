@@ -13,7 +13,7 @@ import type {
   ReasoningEffort,
   SessionRecord,
 } from "@zen/shared";
-import { restoreRunSummaryFromMessages } from "@zen/shared";
+import { restoreRunSummaryFromMessages, uuidv7 } from "@zen/shared";
 import { expandBrowserElementTokens } from "@/lib/browser-element";
 import { useAgentStore } from "@/stores/agent";
 import { useAgentProcessesStore } from "@/stores/agent-processes";
@@ -44,7 +44,8 @@ export const useChatStore = defineStore("chat", () => {
   const phase = ref<RunPhase>("answering");
   const statusText = ref("");
   const lastError = ref("");
-  const sessionId = ref(uuid());
+  // 会话唯一 key 用 uuidv7：创建即生成，侧栏高亮/事件路由都按它区分
+  const sessionId = ref(uuidv7());
   const sessionName = ref("新会话");
   /** 会话是否已落库；启动后的本地会话在首发消息前补建，避免 agent:run 报 session not found */
   const sessionPersisted = ref(false);
@@ -636,11 +637,13 @@ export const useChatStore = defineStore("chat", () => {
     flushDraft();
     const seq = ++switchSeq;
 
-    // 先建库再切状态：创建失败时保留当前现场并提示
+    // 先建库再切状态：创建失败时保留当前现场并提示。
+    // 会话 id 由渲染层生成（uuidv7），保证每个会话有唯一 key，不依赖 DB 兜底
+    const newId = uuidv7();
     let record: SessionRecord | undefined;
     if (zen) {
       try {
-        record = await zen.session.create(target);
+        record = await zen.session.create(target, newId);
       } catch (error) {
         lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
         statusText.value = lastError.value;
@@ -668,11 +671,11 @@ export const useChatStore = defineStore("chat", () => {
     sessionWorkspaceId.value = target;
     workspaceStore.setActive(target);
     if (record) {
-      sessionId.value = record.id;
+      sessionId.value = record.id || newId;
       sessionPersisted.value = true;
       workspaceStore.appendSessionLocal(target, record);
     } else {
-      sessionId.value = uuid();
+      sessionId.value = newId;
       sessionPersisted.value = false;
     }
     useSessionInfoStore().ensureSession(sessionId.value);

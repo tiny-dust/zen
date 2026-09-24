@@ -155,17 +155,18 @@ const menuDanger = "text-[var(--color-danger-fg)] [&_svg]:text-[var(--color-dang
             <span>设置</span>
             <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem :class="menuItemCls" @select="openProfile">
-            <CloudOff v-if="!auth.loggedIn" :class="menuIconCls" />
-            <HelpCircle v-else :class="menuIconCls" />
-            <span>{{ auth.loggedIn ? "个人资料与同步" : "登录以启用云同步" }}</span>
+          <DropdownMenuItem
+            v-if="!auth.loggedIn"
+            :class="menuItemCls"
+            :disabled="loading"
+            @select="userStore.login()"
+          >
+            <CloudOff :class="menuIconCls" />
+            <span>{{ loading ? "授权中…" : "登录" }}</span>
           </DropdownMenuItem>
-          <DropdownMenuItem v-if="!auth.loggedIn" :class="menuItemCls" :disabled="loading" @select="userStore.login()">
-            <span>{{ loading ? "授权中…" : "登录 GitHub" }}</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem v-else :class="menuItemCls" disabled>
+          <DropdownMenuItem v-else :class="menuItemCls" @select="openProfile">
             <HelpCircle :class="menuIconCls" />
-            <span>帮助与反馈</span>
+            <span>个人资料与同步</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
