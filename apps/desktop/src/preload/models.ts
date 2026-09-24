@@ -4,6 +4,7 @@ import type {
   AddModelInput,
   CatalogMatch,
   CatalogModel,
+  CatalogRefreshResult,
   CatalogVendor,
   FetchModelsResult,
   ModelCapabilities,
@@ -68,6 +69,12 @@ export const modelsApi = {
     },
     catalogMatch(modelId: string): Promise<CatalogMatch> {
       return ipcRenderer.invoke("models:catalog-match", modelId);
+    },
+    catalogRefresh(): Promise<CatalogRefreshResult> {
+      return ipcRenderer.invoke("models:catalog-refresh");
+    },
+    catalogUpdatedAt(): Promise<number> {
+      return ipcRenderer.invoke("models:catalog-updated-at");
     },
   },
 };

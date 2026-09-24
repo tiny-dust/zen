@@ -1,15 +1,65 @@
 import type { CatalogMatch, CatalogModel } from "@zen/shared";
 
 import { buildCatalogModels, CATALOG_VENDORS } from "./model-catalog-data";
+import { fetchRemoteCatalogModels } from "./model-catalog-remote";
 import { getDb } from "./model-db-connection";
 
+/** 内存目录缓存：DB 为空时兜底使用静态种子 */
 let memoryCatalog: CatalogModel[] | null = null;
+/** DB 目录缓存：刷新后失效重读，避免每次列表都查库 */
+let dbCatalog: CatalogModel[] | null = null;
 
-export function getMemoryCatalog(): CatalogModel[] {
+function getSeeds(): CatalogModel[] {
   if (!memoryCatalog) {
     memoryCatalog = buildCatalogModels();
   }
   return memoryCatalog;
+}
+
+function loadDbCatalog(): CatalogModel[] {
+  if (dbCatalog) {
+    return dbCatalog;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT model_key, vendor, vendor_label, model_id, display_name, capabilities_json
+       FROM catalog_models`,
+    )
+    .all() as Array<{
+    model_key: string;
+    vendor: string;
+    vendor_label: string;
+    model_id: string;
+    display_name: string;
+    capabilities_json: string;
+  }>;
+  dbCatalog = rows.map((row) => {
+    let capabilities: CatalogModel["capabilities"] = { source: "catalog" };
+    try {
+      capabilities = JSON.parse(row.capabilities_json) as CatalogModel["capabilities"];
+    } catch {
+      // 能力 JSON 损坏时保留兜底，不让单条脏数据炸掉整个目录
+    }
+    return {
+      vendor: row.vendor,
+      vendorLabel: row.vendor_label,
+      modelKey: row.model_key,
+      id: row.model_id,
+      name: row.display_name,
+      capabilities,
+    };
+  });
+  return dbCatalog;
+}
+
+/** 生效目录：用户点过「更新」后为 DB 快照（实时数据源），否则回退内置种子 */
+function getEffectiveCatalog(): CatalogModel[] {
+  const rows = loadDbCatalog();
+  return rows.length ? rows : getSeeds();
+}
+
+export function getMemoryCatalog(): CatalogModel[] {
+  return getEffectiveCatalog();
 }
 
 export function listCatalogVendors() {
@@ -84,7 +134,7 @@ function scoreMatch(candidate: string, model: CatalogModel): number {
 
 export function matchCatalogModel(modelId: string): CatalogMatch {
   const candidates = splitModelIdCandidates(modelId);
-  const catalog = getMemoryCatalog();
+  const catalog = getEffectiveCatalog();
   let best: CatalogModel | null = null;
   let bestScore = 0;
 
@@ -105,29 +155,70 @@ export function matchCatalogModel(modelId: string): CatalogMatch {
 }
 
 export function listCatalogModels(vendor?: string): CatalogModel[] {
-  const catalog = getMemoryCatalog();
+  const catalog = getEffectiveCatalog();
   if (!vendor || vendor === "all") {
     return catalog;
   }
   return catalog.filter((item) => item.vendor === vendor);
 }
 
-/** 启动时 upsert 目录，保证官方模型更新能同步到本地 SQLite */
-export function seedCatalogIfEmpty(models: CatalogModel[] = getMemoryCatalog()): void {
-  const now = Date.now();
-  const stmt = getDb().prepare(
+export interface CatalogRefreshResult {
+  count: number;
+  updatedAt: number;
+}
+
+/**
+ * 一键实时更新：拉取 models.dev 目录并整表替换落库。
+ * 替换语义保证已下架/已移除的条目不再出现；空结果不落库，保留当前目录。
+ */
+export async function refreshCatalogFromRemote(): Promise<CatalogRefreshResult> {
+  const { models, fetchedAt } = await fetchRemoteCatalogModels();
+  const db = getDb();
+  const insert = db.prepare(
     `INSERT INTO catalog_models
       (model_key, vendor, vendor_label, model_id, display_name, capabilities_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(model_key) DO UPDATE SET
-       vendor = excluded.vendor,
-       vendor_label = excluded.vendor_label,
-       model_id = excluded.model_id,
-       display_name = excluded.display_name,
-       capabilities_json = excluded.capabilities_json,
-       updated_at = excluded.updated_at`,
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
-  const tx = getDb().transaction(() => {
+  db.transaction(() => {
+    db.prepare(`DELETE FROM catalog_models`).run();
+    for (const model of models) {
+      insert.run(
+        model.modelKey,
+        model.vendor,
+        model.vendorLabel,
+        model.id,
+        model.name,
+        JSON.stringify(model.capabilities),
+        fetchedAt,
+      );
+    }
+  })();
+  dbCatalog = null;
+  return { count: models.length, updatedAt: fetchedAt };
+}
+
+/** 目录最近一次更新时间（种子写入或实时刷新取较新者）；0 表示从未写入 */
+export function getCatalogUpdatedAt(): number {
+  const row = getDb()
+    .prepare(`SELECT MAX(updated_at) AS updated_at FROM catalog_models`)
+    .get() as { updated_at: number | null };
+  return row.updated_at ?? 0;
+}
+
+/** 空库时写入内置种子；用户刷新后的 DB 快照不在启动时被覆盖 */
+export function seedCatalogIfEmpty(models: CatalogModel[] = getSeeds()): void {
+  const db = getDb();
+  const count = db.prepare(`SELECT COUNT(*) AS count FROM catalog_models`).get() as { count: number };
+  if (count.count > 0) {
+    return;
+  }
+  const now = Date.now();
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO catalog_models
+      (model_key, vendor, vendor_label, model_id, display_name, capabilities_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  db.transaction(() => {
     for (const model of models) {
       stmt.run(
         model.modelKey,
@@ -139,6 +230,6 @@ export function seedCatalogIfEmpty(models: CatalogModel[] = getMemoryCatalog()):
         now,
       );
     }
-  });
-  tx();
+  })();
+  dbCatalog = null;
 }

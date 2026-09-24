@@ -20,6 +20,7 @@ import type {
   BrowserViewBounds,
   CatalogMatch,
   CatalogModel,
+  CatalogRefreshResult,
   CatalogVendor,
   ChatMessage,
   DeviceCodeInfo,
@@ -189,6 +190,8 @@ export interface ZenApi {
     catalogVendors(): Promise<CatalogVendor[]>;
     catalogList(vendor?: string): Promise<CatalogModel[]>;
     catalogMatch(modelId: string): Promise<CatalogMatch>;
+    catalogRefresh(): Promise<CatalogRefreshResult>;
+    catalogUpdatedAt(): Promise<number>;
   };
   agent: {
     run(request: AgentRunRequest): Promise<{ ok: boolean; error?: string }>;

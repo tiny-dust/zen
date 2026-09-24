@@ -3,9 +3,11 @@ import { ipcMain } from "electron";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
 import {
+  getCatalogUpdatedAt,
   listCatalogModels,
   listCatalogVendors,
   matchCatalogModel,
+  refreshCatalogFromRemote,
   seedCatalogIfEmpty,
 } from "./model-catalog";
 import {
@@ -119,4 +121,8 @@ export function registerModelIpc(): void {
   ipcMain.handle("models:catalog-match", async (_event, modelId: string) =>
     matchCatalogModel(modelId),
   );
+
+  ipcMain.handle("models:catalog-refresh", async () => refreshCatalogFromRemote());
+
+  ipcMain.handle("models:catalog-updated-at", async () => getCatalogUpdatedAt());
 }

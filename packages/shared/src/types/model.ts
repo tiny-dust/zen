@@ -169,6 +169,14 @@ export interface CatalogMatch {
   candidates: string[];
 }
 
+/** 一键实时更新目录的结果 */
+export interface CatalogRefreshResult {
+  /** 更新后目录内模型数量 */
+  count: number;
+  /** 本次更新时间戳（ms） */
+  updatedAt: number;
+}
+
 export interface FetchModelsResult {
   models: Array<{
     id: string;

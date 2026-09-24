@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Plus, Search } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Search } from "@lucide/vue";
 
 import CapabilityLine from "@/components/settings/CapabilityLine.vue";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
@@ -31,6 +31,19 @@ const modelsStore = useModelsStore();
 const query = ref("");
 const expanded = ref<Set<string>>(new Set());
 const allModels = ref<CatalogModel[]>([]);
+const refreshMessage = ref<string | null>(null);
+const refreshFailed = ref(false);
+
+const updatedAtLabel = computed(() => {
+  const ts = modelsStore.catalogUpdatedAt;
+  if (!ts) {
+    return "";
+  }
+  const date = new Date(ts);
+  const sameDay = new Date().toDateString() === date.toDateString();
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return sameDay ? `今天 ${time}` : date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+});
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -76,12 +89,34 @@ function isKnown(model: CatalogModel) {
 async function load() {
   const rows = await modelsStore.loadCatalogModels();
   allModels.value = rows;
+  void modelsStore.loadCatalogUpdatedAt();
   // 默认展开有结果的第一家
   if (!expanded.value.size && rows.length) {
     const first = rows[0];
     if (first) {
       expanded.value = new Set([first.vendor]);
     }
+  }
+}
+
+/** 一键实时更新目录（models.dev）：成功提示数量，失败提示保留旧目录 */
+async function onRefresh() {
+  if (modelsStore.refreshingCatalog) {
+    return;
+  }
+  refreshMessage.value = null;
+  refreshFailed.value = false;
+  try {
+    const count = await modelsStore.refreshCatalog();
+    if (count !== null) {
+      refreshMessage.value = `已更新 ${count} 个模型`;
+      // 新目录可能新增/移除厂商分组，重置展开状态让默认展开逻辑重新生效
+      expanded.value = new Set();
+      await load();
+    }
+  } catch (err) {
+    refreshFailed.value = true;
+    refreshMessage.value = err instanceof Error ? err.message : "更新失败，已保留当前目录";
   }
 }
 
@@ -141,12 +176,33 @@ onMounted(() => {
             </p>
           </div>
         </Button>
-        <div class="px-2.5 pb-1 pt-2">
-          <div class="text-[12px] text-[var(--color-txt-strong)]">使用模板创建</div>
-          <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
-            选择预设配置作为起点，保存前仍可修改所有字段。
-          </p>
+        <div class="flex items-center justify-between px-2.5 pb-1 pt-2">
+          <div>
+            <div class="text-[12px] text-[var(--color-txt-strong)]">使用模板创建</div>
+            <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
+              数据源 models.dev{{ updatedAtLabel ? ` · 更新于 ${updatedAtLabel}` : "" }}；已下架模型自动移除。
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 shrink-0 gap-1.5 rounded-lg px-2 text-[12px] font-normal"
+            :disabled="modelsStore.refreshingCatalog"
+            :title="modelsStore.refreshingCatalog ? '正在更新...' : '从 models.dev 实时拉取最新模型与能力'"
+            @click="onRefresh"
+          >
+            <Loader2 v-if="modelsStore.refreshingCatalog" class="size-3.5 animate-spin" aria-hidden="true" />
+            <RefreshCw v-else class="size-3.5" aria-hidden="true" />
+            {{ modelsStore.refreshingCatalog ? "更新中" : "更新" }}
+          </Button>
         </div>
+        <p
+          v-if="refreshMessage"
+          class="m-0 px-2.5 pb-1 text-[11.5px]"
+          :class="refreshFailed ? 'text-[var(--color-danger-fg)]' : 'text-[var(--color-mut)]'"
+        >
+          {{ refreshMessage }}
+        </p>
       </div>
 
       <div class="max-h-[min(420px,55vh)] overflow-auto px-1.5 pb-2.5 pt-1">
