@@ -171,3 +171,9 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 - 2026-09-22（记忆 + 会话技能/MCP 调用感知）：
   - **记忆（~/.zen/memory）**：主进程启动自动采集设备环境快照（platform/arch/home/shell/locale/timezone + PATH 工具扫描，跨平台候选名与 F_OK/X_OK 分支），备注由 Agent `updateMemory` 工具或设置页维护（会落库，删除走 ConfirmDialog）；`agent:run` 时渲染成文本块注入系统提示词（`memoryContext`），settings → Agent 页新增「记忆」卡（快照 mono chips + 设备备注 + 用户习惯，重采/增删）。
   - **本会话调用 tag**：`SkillUsageTags.vue` 挂 composer 上方（AskUserCard 与附件之间）——`loadSkill` / `mcp.<server>.*` 的 tool_start/tool_end 与用户随消息携带的 `/skill:` token 都会弹出 tag（TransitionGroup 上浮缩放，token 动效），运行中带 spinner，重复调用 ×N，悬浮 tooltip 显示次数；按会话隔离（store keyed by sessionId），done 时落定所有进行中动效，每会话最多 16 条。
+- 2026-09-24（全模块 UI 重构 · 模块 1 侧边栏/标题栏）：
+  - **新建会话入口收敛**：删除侧栏悬浮圆形 FAB（`bottom-24` 魔法定位、与组级 hover `+` 重复、悬浮层遮挡列表）；「新对话」按第 4 节定型描述回到标题栏右簇（`AppTitlebar`，OpenWith 之后）。
+  - **死控件清理**：标题栏 collapsed 分支的「搜索」按钮无点击处理，删除；用户块「退出应用」菜单项 `@select="() => {}"`（无 quit IPC），删除。
+  - **技能 / MCP 合并为单行两列**（原两行常驻占一倍纵向空间）。
+  - **UserBlock 登录卡片原生化**：登录方式选择的两个裸 `<button>` 迁移到 `Button variant="outline"`（外观不变），对齐第 3 节第 3 条。
+  - 验证：`vue-tsc` 0 错、vitest 211 过（`MessageBubble.test.ts` 5 例为存量失败，与本批改动无关，HEAD 上同样失败）、dev 实例 DOM 复查（标题栏新对话=1、悬浮 FAB=0、组级 +=4、无控制台报错）。
