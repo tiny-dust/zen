@@ -141,6 +141,19 @@ export async function startLarkLogin(
     flow = current;
     emit(emitEvent, { status: "url", url, expiresInSeconds: Number(expiresIn) });
 
+    // spawn 失败会通过 error 事件上报；没有监听会让 Electron 主进程收到未捕获异常并退出。
+    poller.on("error", (error) => {
+      if (flow !== current) {
+        return;
+      }
+      current.cancelled = true;
+      finishFlow();
+      emit(emitEvent, {
+        status: "error",
+        message: error instanceof Error ? error.message : "lark-cli 授权轮询启动失败",
+      });
+    });
+
     poller.on("close", async (code) => {
       // 只有仍是当前流程时才收敛结果（被取消/已被超时清理则静默）
       if (flow !== current) {
