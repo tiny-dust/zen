@@ -36,8 +36,8 @@ export interface LarkIpcDeps {
   resolveAsk: (askId: string, answer: string) => boolean;
   /** 会话运行状态快照（sessions Map 里没有 → 返回 null → 空闲） */
   sessionState?: (sessionId: string) => SessionRunState | null;
-  /** 飞书「对话」命令：按项目路径找到/新建工作区，新建会话并异步运行 agent */
-  startChat?: (workspacePath: string, message: string) => LarkChatStartResult;
+  /** 飞书「对话」命令：按项目路径找到/新建工作区，新建会话并异步运行 agent；路径为 null 时在公共区建会话 */
+  startChat?: (workspacePath: string | null, message: string) => LarkChatStartResult;
 }
 
 function toLarkState(sessionId: string): LarkSessionState {

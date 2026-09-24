@@ -227,7 +227,7 @@ export function buildStatusReply(
   return ["📊 Zen 运行中的会话", ...lines].join("\n");
 }
 
-/** 「帮助」指令回复 */
+/** 「帮助」指令回复（卡片降级文案；「菜单」同款内容见 buildMenuCard） */
 export function buildHelpReply(): string {
   return [
     "📖 Zen 指令",
@@ -238,7 +238,8 @@ export function buildHelpReply(): string {
     "• 分支 <项目名> / branches — 查看项目本地分支",
     "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
     "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-    "• 帮助 / help — 本帮助",
+    "• 菜单 / 帮助 / help — 本帮助",
+    "直接发送普通文本（非指令）会在公共区新建会话并运行 Agent。",
     "收到问询推送时，直接回复文字或选项编号即可写回会话。",
   ].join("\n");
 }
@@ -256,7 +257,7 @@ export function parseLarkCommand(text: string): LarkCommand | null {
   if (normalized === "状态" || normalized === "status") {
     return "status";
   }
-  if (normalized === "帮助" || normalized === "help") {
+  if (normalized === "帮助" || normalized === "help" || normalized === "菜单" || normalized === "menu") {
     return "help";
   }
   if (normalized === "项目" || normalized === "projects") {
@@ -417,6 +418,192 @@ export function buildAskPushText(entry: LarkPendingAsk, pendingCount: number): s
   return lines.join("\n");
 }
 
+/** 飞书 interactive 卡片（im +messages-send --msg-type interactive 的 content JSON） */
+export interface LarkCard {
+  config?: { wide_screen_mode?: boolean };
+  header?: { title: { tag: "plain_text"; content: string }; template: string };
+  elements: unknown[];
+}
+
+function cardOf(header: { title: string; template: string }, body: string, note: string): LarkCard {
+  return {
+    config: { wide_screen_mode: true },
+    header: { title: { tag: "plain_text", content: header.title }, template: header.template },
+    elements: [
+      { tag: "div", text: { tag: "lark_md", content: body } },
+      { tag: "hr" },
+      { tag: "note", elements: [{ tag: "plain_text", content: note }] },
+    ],
+  };
+}
+
+/** 飞书 interactive 卡片 2.0（schema 2.0：组件直接放 body.elements，按钮不再包 action 容器） */
+export interface LarkCard2 {
+  schema: "2.0";
+  config: { update_multi: boolean; width_mode: string };
+  header: { title: { tag: "plain_text"; content: string }; template: string };
+  body: { elements: unknown[] };
+}
+
+/** 卡片交互元素回调 value 的统一载荷（序列化为 JSON 字符串放进 behaviors.value / option value） */
+export interface AskActionValue {
+  k: "ask";
+  askId: string;
+  seq: number;
+  /** 选项原文，写回时直接使用；form 提交按钮为空串 */
+  a: string;
+}
+
+export function buildAskActionValue(askId: string, seq: number, answer: string): string {
+  const value: AskActionValue = { k: "ask", askId, seq, a: answer };
+  return JSON.stringify(value);
+}
+
+export function parseAskActionValue(raw: string): AskActionValue | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const obj = parsed as Record<string, unknown>;
+    if (
+      obj.k !== "ask" ||
+      typeof obj.askId !== "string" ||
+      !obj.askId ||
+      typeof obj.seq !== "number" ||
+      typeof obj.a !== "string"
+    ) {
+      return null;
+    }
+    return { k: "ask", askId: obj.askId, seq: obj.seq, a: obj.a };
+  } catch {
+    return null;
+  }
+}
+
+function plainText(content: string): { tag: "plain_text"; content: string } {
+  return { tag: "plain_text", content };
+}
+
+function askOption(
+  entry: LarkPendingAsk,
+  option: string,
+): { text: { tag: "plain_text"; content: string }; value: string } {
+  return { text: plainText(option), value: buildAskActionValue(entry.askId, entry.seq, option) };
+}
+
+function askButton(entry: LarkPendingAsk, option: string, primary: boolean): Record<string, unknown> {
+  return {
+    tag: "button",
+    text: plainText(option),
+    type: primary ? "primary_filled" : "default",
+    behaviors: [{ type: "callback", value: buildAskActionValue(entry.askId, entry.seq, option) }],
+  };
+}
+
+/**
+ * 「问询推送」卡片（Card 2.0）：单选 ≤4 选项走按钮排，>4 走下拉 select_static，
+ * 多选走 form + multi_select_static + 提交按钮；无选项保持纯文本引导回复。
+ * 卡片发送失败/超长的降级仍由 sendOutgoing 统一处理。
+ */
+export function buildAskPushCard(entry: LarkPendingAsk, pendingCount: number): LarkCard2 {
+  const question = entry.question;
+  const lines: string[] = [];
+  if (question.agentName) {
+    lines.push(`**来自** ${question.agentName}`);
+  }
+  lines.push(question.question);
+  if (question.options.length) {
+    lines.push("");
+    question.options.forEach((option, index) => {
+      lines.push(`${index + 1}. ${option}`);
+    });
+    if (question.multiSelect) {
+      lines.push("（可多选：回复「1,2」这样的编号组合）");
+    }
+  }
+  const elements: unknown[] = [{ tag: "markdown", content: lines.join("\n") }];
+  if (question.options.length && question.multiSelect) {
+    elements.push({
+      tag: "form",
+      name: "form_ask",
+      elements: [
+        {
+          tag: "multi_select_static",
+          name: "answer",
+          placeholder: plainText("请选择（可多选）"),
+          options: question.options.map((option) => askOption(entry, option)),
+        },
+        {
+          tag: "button",
+          text: plainText("提交"),
+          type: "primary_filled",
+          form_action_type: "submit",
+          name: "btn_submit",
+          behaviors: [{ type: "callback", value: buildAskActionValue(entry.askId, entry.seq, "") }],
+        },
+      ],
+    });
+  } else if (question.options.length && question.options.length <= 4) {
+    elements.push(...question.options.map((option, index) => askButton(entry, option, index === 0)));
+  } else if (question.options.length) {
+    elements.push({
+      tag: "select_static",
+      placeholder: plainText("请选择"),
+      options: question.options.map((option) => askOption(entry, option)),
+    });
+  }
+  elements.push(
+    { tag: "hr" },
+    {
+      tag: "note",
+      elements: [
+        plainText(
+          pendingCount > 1
+            ? `多个问询待回答：回复 #序号 开头，如 #${entry.seq} <答案>`
+            : "直接回复文字或选项编号即可",
+        ),
+      ],
+    },
+  );
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: {
+      title: plainText(`🔔 Zen 问询 · ${entry.sessionTitle || "Zen 会话"}`),
+      template: "orange",
+    },
+    body: { elements },
+  };
+}
+
+/** 「会话完成」卡片：标题=会话名，正文=最终助手回复摘要（截断 800 字） */
+export function buildSessionDoneCard(title: string, reply: string): LarkCard {
+  return cardOf(
+    { title: `✅ ${title} 已完成`, template: "green" },
+    truncateText(reply, 800),
+    "发送「状态」查看运行中的会话，「帮助」查看全部指令",
+  );
+}
+
+/** 「菜单/帮助」卡片：列出现有指令 + 直接对话说明 */
+export function buildMenuCard(): LarkCard {
+  return cardOf(
+    { title: "📖 Zen 指令菜单", template: "blue" },
+    [
+      "• 列表 / sessions — 最近会话清单",
+      "• 状态 / status — 运行中的会话与待答问询",
+      "• 项目 / projects — 项目清单",
+      "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
+      "• 分支 <项目名> / branches — 查看项目本地分支",
+      "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
+      "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
+      "• 菜单 / 帮助 / help — 本菜单",
+    ].join("\n"),
+    "直接发送普通文本（非指令）会在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号",
+  );
+}
+
 /**
  * 选项编号答案 → 选项文本；不匹配（非纯数字组合 / 越界）返回 null（用原文回答）。
  * 拼接方式镜像 UI 多选提交（AskUserCard.submitPicked：picked.join("、")）。
@@ -522,6 +709,168 @@ export function applyAskReply(
   };
 }
 
+// ---------- 纯逻辑：卡片交互回调（card.action.trigger）解析 ----------
+
+/** card.action.trigger 事件行的所需字段（lark-cli 扁平 NDJSON） */
+export interface LarkCardActionRecord {
+  eventId: string;
+  operatorId: string;
+  messageId: string;
+  chatId: string;
+  actionTag: string;
+  /** 按钮 behaviors.value 回传（开发者定义的 value，JSON 字符串） */
+  actionValue: string;
+  /** select_static 单选选中项 value */
+  option: string;
+  /** multi_select_static 勾选值（逗号分隔字符串形态） */
+  options: string;
+  /** form 提交时各组件按 name 映射的 JSON 字符串 */
+  formValue: string;
+}
+
+/** 单行回调 NDJSON → 记录；空行/坏 JSON/缺 event_id 返回 null */
+export function parseCardActionLine(line: string): LarkCardActionRecord | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const obj = raw as Record<string, unknown>;
+  const str = (key: string): string => (typeof obj[key] === "string" ? (obj[key] as string) : "");
+  // event_id 是去重键，缺失的行不可安全处理
+  const eventId = str("event_id");
+  if (!eventId) {
+    return null;
+  }
+  return {
+    eventId,
+    operatorId: str("operator_id"),
+    messageId: str("message_id"),
+    chatId: str("chat_id"),
+    actionTag: str("action_tag"),
+    actionValue: str("action_value"),
+    option: str("option"),
+    options: str("options"),
+    formValue: str("form_value"),
+  };
+}
+
+/** 从回调记录定位到的问询答案 */
+export interface CardAskAnswer {
+  askId: string;
+  seq: number;
+  answer: string;
+}
+
+interface MultiAskValues {
+  askId: string;
+  seq: number;
+  answers: string[];
+}
+
+/**
+ * 多值字段（form_value.answer / options）→ 选项文本列表。
+ * 兼容三种形态：value JSON 数组、多个 value JSON 逗号连接、纯文本逗号/顿号分隔。
+ * askId/seq 取第一个可解析的 value JSON。
+ */
+function parseMultiAskValues(raw: unknown): MultiAskValues | null {
+  const segments = Array.isArray(raw) ? raw : [raw];
+  let askId = "";
+  let seq = 0;
+  const answers: string[] = [];
+  for (const segment of segments) {
+    if (typeof segment !== "string") {
+      continue;
+    }
+    const text = segment.trim();
+    if (!text) {
+      continue;
+    }
+    const direct = parseAskActionValue(text);
+    if (direct) {
+      if (!askId) {
+        askId = direct.askId;
+        seq = direct.seq;
+      }
+      answers.push(direct.a);
+      continue;
+    }
+    const embedded = text.match(/\{[^{}]*\}/g) ?? [];
+    let matched = false;
+    for (const chunk of embedded) {
+      const parsed = parseAskActionValue(chunk);
+      if (parsed) {
+        if (!askId) {
+          askId = parsed.askId;
+          seq = parsed.seq;
+        }
+        answers.push(parsed.a);
+        matched = true;
+      }
+    }
+    if (matched) {
+      continue;
+    }
+    for (const part of text.split(/[,，、]/)) {
+      const piece = part.trim();
+      if (piece) {
+        answers.push(piece);
+      }
+    }
+  }
+  return answers.length ? { askId, seq, answers } : null;
+}
+
+/**
+ * 按 action_tag 分发提取答案：
+ * - select_static：option 即 value JSON 字符串；
+ * - button：优先 action_value（普通按钮），否则 form_value.answer（form 提交，多选按「、」拼接）；
+ * - 其他 tag 忽略。
+ */
+export function extractCardAskAnswer(record: LarkCardActionRecord): CardAskAnswer | null {
+  if (record.actionTag === "select_static") {
+    const value = parseAskActionValue(record.option);
+    return value ? { askId: value.askId, seq: value.seq, answer: value.a } : null;
+  }
+  if (record.actionTag !== "button") {
+    return null;
+  }
+  const buttonValue = record.actionValue ? parseAskActionValue(record.actionValue) : null;
+  if (buttonValue?.a) {
+    return { askId: buttonValue.askId, seq: buttonValue.seq, answer: buttonValue.a };
+  }
+  if (!record.formValue) {
+    return null;
+  }
+  let form: unknown;
+  try {
+    form = JSON.parse(record.formValue);
+  } catch {
+    return null;
+  }
+  const answer =
+    form && typeof form === "object" && !Array.isArray(form)
+      ? (form as Record<string, unknown>).answer
+      : undefined;
+  const multi = parseMultiAskValues(answer);
+  if (!multi) {
+    return null;
+  }
+  return {
+    askId: buttonValue?.askId || multi.askId,
+    seq: buttonValue?.seq ?? multi.seq,
+    answer: multi.answers.join("、"),
+  };
+}
+
 // ---------- 进程管理薄封装（测试通过 deps 注入替身，不打真实网络） ----------
 
 /** 飞书「对话」启动结果（与 agent-runner 的 startLarkChat 返回结构一致） */
@@ -541,8 +890,8 @@ export interface LarkGatewayDeps {
   onStateChange: () => void;
   /** 项目清单（「项目」指令与项目名匹配的数据源） */
   listProjects?: () => LarkProjectSummary[];
-  /** 「对话」指令：按项目路径找到/新建工作区，新建会话并异步运行 agent */
-  startChat?: (workspacePath: string, message: string) => Promise<LarkChatStartResult>;
+  /** 「对话」指令：按项目路径找到/新建工作区，新建会话并异步运行 agent；路径为 null 时在公共区建会话 */
+  startChat?: (workspacePath: string | null, message: string) => Promise<LarkChatStartResult>;
   /** 「分支」指令：默认走 git-ops（30s 超时 + 输出截断） */
   listBranches?: (projectPath: string) => Promise<BranchListResult>;
   /** 「切换」指令：默认走 git-ops（脏工作区拒绝） */
@@ -551,13 +900,15 @@ export interface LarkGatewayDeps {
   commitProject?: (projectPath: string, message: string) => Promise<CommitResult>;
   /** 飞书会话 done 后读取最终助手回复（做完成推送摘要） */
   finalAssistantReply?: (sessionId: string) => string | null;
-  /** 替身注入点：默认 spawn lark-cli event consume */
-  spawnEvents?: (cliPath: string) => import("node:child_process").ChildProcess;
-  /** 替身注入点：默认 execFile im +messages-send */
+  /** 替身注入点：默认 spawn lark-cli event consume（eventKey 区分消息/卡片回调两个常驻通道） */
+  spawnEvents?: (cliPath: string, eventKey: string) => import("node:child_process").ChildProcess;
+  /** 替身注入点：默认 execFile im +messages-send；cardJson 非空时走 interactive 卡片 */
   sendMessage?: (
     cliPath: string,
+    /** 接收者 open_id（主通道是绑定的操控者；无权限提示发给事件发送者） */
     openId: string,
     markdown: string,
+    cardJson: string | undefined,
     idempotencyKey: string,
   ) => Promise<void>;
 }
@@ -567,6 +918,23 @@ const RESTART_DELAY_MS = 5_000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const MAX_SEND_LENGTH = 4000;
 
+/** 两个常驻事件消费通道（消息指令 / 卡片交互回调） */
+type LarkEventChannel = "messages" | "cardActions";
+
+const EVENT_KEYS: Record<LarkEventChannel, string> = {
+  messages: "im.message.receive_v1",
+  cardActions: "card.action.trigger",
+};
+
+/** 单个消费通道的子进程与重试状态 */
+interface ChannelState {
+  child: import("node:child_process").ChildProcess | null;
+  stdoutBuffer: string;
+  stderrTail: string[];
+  consecutiveFailures: number;
+  restartTimer: NodeJS.Timeout | null;
+}
+
 function clampSendText(text: string): string {
   if (text.length <= MAX_SEND_LENGTH) {
     return text;
@@ -574,49 +942,39 @@ function clampSendText(text: string): string {
   return `${text.slice(0, MAX_SEND_LENGTH - 6)}\n…（已截断）`;
 }
 
-function defaultSpawnEvents(cliPath: string): import("node:child_process").ChildProcess {
+function defaultSpawnEvents(cliPath: string, eventKey: string): import("node:child_process").ChildProcess {
   // stdin 保持打开不写入不 end：lark-cli event consume 靠 stdin 存活维持长连接
-  return spawn(cliPath, ["event", "consume", "im.message.receive_v1", "--as", "bot"], {
+  return spawn(cliPath, ["event", "consume", eventKey, "--as", "bot"], {
     stdio: ["pipe", "pipe", "pipe"],
   });
 }
 
-async function defaultSendMarkdown(
+async function defaultSendMessage(
   cliPath: string,
   openId: string,
   markdown: string,
+  cardJson: string | undefined,
   idempotencyKey: string,
 ): Promise<void> {
-  // execFile 不经 shell：markdown 里的特殊字符不会被 shell 解释
-  await execFileAsync(
-    cliPath,
-    [
-      "im",
-      "+messages-send",
-      "--as",
-      "bot",
-      "--user-id",
-      openId,
-      "--markdown",
-      markdown,
-      "--idempotency-key",
-      idempotencyKey,
-    ],
-    { timeout: 15_000 },
-  );
+  // execFile 不经 shell：markdown/卡片 JSON 里的特殊字符不会被 shell 解释
+  const args = ["im", "+messages-send", "--as", "bot", "--user-id", openId];
+  if (cardJson) {
+    args.push("--msg-type", "interactive", "--content", cardJson);
+  } else {
+    args.push("--markdown", markdown);
+  }
+  args.push("--idempotency-key", idempotencyKey);
+  await execFileAsync(cliPath, args, { timeout: 15_000 });
 }
 
 export class LarkGateway {
   private state: LarkGatewayState = "off";
   private gatewayError: string | null = null;
-  private child: import("node:child_process").ChildProcess | null = null;
   private cliPath: string | null = null;
   private allowedOpenId: string | null = null;
   private stopping = false;
-  private restartTimer: NodeJS.Timeout | null = null;
-  private consecutiveFailures = 0;
-  private stdoutBuffer = "";
-  private stderrTail: string[] = [];
+  /** 两个常驻消费通道的状态（messages / cardActions），按 channel 懒初始化 */
+  private readonly channels = new Map<LarkEventChannel, ChannelState>();
   /** askId → 待答问询 */
   private readonly pendingAsks = new Map<string, LarkPendingAsk>();
   /** 本网关刚写回的 askId（ask_resolved 事件到达时不重复提示） */
@@ -624,6 +982,8 @@ export class LarkGateway {
   private askSeq = 0;
   private lastSendError: string | null = null;
   private readonly deduper = new LarkMessageDeduper();
+  /** 卡片回调 event_id 独立去重表 */
+  private readonly cardActionDeduper = new LarkMessageDeduper();
   /** 飞书「对话」启动的会话（sessionId → 标题）：done 时推送最终回复摘要 */
   private readonly larkSessions = new Map<string, string>();
 
@@ -643,7 +1003,9 @@ export class LarkGateway {
       return;
     }
     this.stopping = false;
-    this.consecutiveFailures = 0;
+    for (const channel of this.channels.values()) {
+      channel.consecutiveFailures = 0;
+    }
     this.cliPath = resolveLarkCliPath();
     if (!this.cliPath) {
       this.setState("error", "未找到 lark-cli 可执行文件，请先安装并登录 @larksuite/cli");
@@ -658,21 +1020,22 @@ export class LarkGateway {
       this.setState("error", "lark-cli bot 身份未就绪，请先运行 lark-cli auth login");
       return;
     }
-    this.spawnConsumer();
+    this.spawnAll();
   }
 
-  /** 停止：SIGTERM 优雅退出（不 kill -9），清重启定时器 */
+  /** 停止：两个消费通道都 SIGTERM 优雅退出（不 kill -9），清重启定时器 */
   stop(): void {
     this.stopping = true;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
-    this.consecutiveFailures = 0;
-    const child = this.child;
-    this.child = null;
-    if (child && child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
+    for (const channel of this.channels.values()) {
+      if (channel.restartTimer) {
+        clearTimeout(channel.restartTimer);
+        channel.restartTimer = null;
+      }
+      const child = channel.child;
+      channel.child = null;
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGTERM");
+      }
     }
     this.setState("off", null);
   }
@@ -691,7 +1054,7 @@ export class LarkGateway {
       question,
     };
     this.pendingAsks.set(question.askId, entry);
-    void this.sendReply(buildAskPushText(entry, this.pendingAsks.size));
+    void this.sendReply(buildAskPushText(entry, this.pendingAsks.size), buildAskPushCard(entry, this.pendingAsks.size));
   }
 
   /** ask_resolved 事件（含非飞书渠道回答）：移除待答；非本网关写回的补一条提示 */
@@ -727,7 +1090,7 @@ export class LarkGateway {
     // emitTo 先喂网关再同步落库（persistRun），微任务里最终助手消息已持久化
     queueMicrotask(() => {
       const reply = this.deps.finalAssistantReply?.(sessionId)?.trim() || "（无文本回复）";
-      void this.sendReply(`✅ ${title} 已完成\n${truncateText(reply, 800)}`);
+      void this.sendReply(`✅ ${title} 已完成\n${truncateText(reply, 800)}`, buildSessionDoneCard(title, reply));
     });
   }
 
@@ -747,72 +1110,111 @@ export class LarkGateway {
     this.deps.onStateChange();
   }
 
-  private spawnConsumer(): void {
+  private channelOf(channel: LarkEventChannel): ChannelState {
+    let state = this.channels.get(channel);
+    if (!state) {
+      state = {
+        child: null,
+        stdoutBuffer: "",
+        stderrTail: [],
+        consecutiveFailures: 0,
+        restartTimer: null,
+      };
+      this.channels.set(channel, state);
+    }
+    return state;
+  }
+
+  /** 拉起全部消费通道（messages 指令通道 + card.action.trigger 卡片回调通道） */
+  private spawnAll(): void {
     if (!this.cliPath) {
       return;
     }
     this.setState("starting", null);
-    this.stdoutBuffer = "";
-    this.stderrTail = [];
+    this.spawnConsumer("messages");
+    this.spawnConsumer("cardActions");
+  }
+
+  private spawnConsumer(channel: LarkEventChannel): void {
+    if (!this.cliPath) {
+      return;
+    }
+    const state = this.channelOf(channel);
+    if (state.restartTimer) {
+      clearTimeout(state.restartTimer);
+      state.restartTimer = null;
+    }
+    state.stdoutBuffer = "";
+    state.stderrTail = [];
     let settled = false;
     let child: import("node:child_process").ChildProcess;
     try {
-      child = (this.deps.spawnEvents ?? defaultSpawnEvents)(this.cliPath);
+      child = (this.deps.spawnEvents ?? defaultSpawnEvents)(this.cliPath, EVENT_KEYS[channel]);
     } catch (error) {
-      this.handleUnexpectedExit(error instanceof Error ? error.message : String(error));
+      this.handleUnexpectedExit(channel, error instanceof Error ? error.message : String(error));
       return;
     }
-    this.child = child;
+    state.child = child;
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
-      this.onStdoutChunk(chunk);
+      this.onStdoutChunk(channel, chunk);
     });
     child.stderr?.on("data", (chunk: string) => {
-      this.onStderrChunk(chunk);
+      this.onStderrChunk(channel, chunk);
     });
     child.on("error", (error) => {
       if (settled) {
         return;
       }
       settled = true;
-      this.child = null;
-      this.handleUnexpectedExit(error.message);
+      state.child = null;
+      this.handleUnexpectedExit(channel, error.message);
     });
     child.on("close", (code, signal) => {
       if (settled) {
         return;
       }
       settled = true;
-      this.child = null;
+      state.child = null;
       if (this.stopping) {
         // 主动 stop 已把状态置 off，不再重复广播
         return;
       }
       this.handleUnexpectedExit(
+        channel,
         signal ? `进程被信号终止（${signal}）` : `进程异常退出（code=${code ?? "null"}）`,
       );
     });
   }
 
-  private onStdoutChunk(chunk: string): void {
-    this.stdoutBuffer += chunk;
-    let index = this.stdoutBuffer.indexOf("\n");
+  private onStdoutChunk(channel: LarkEventChannel, chunk: string): void {
+    const state = this.channelOf(channel);
+    state.stdoutBuffer += chunk;
+    let index = state.stdoutBuffer.indexOf("\n");
     while (index >= 0) {
-      const line = this.stdoutBuffer.slice(0, index);
-      this.stdoutBuffer = this.stdoutBuffer.slice(index + 1);
-      this.handleEventLine(line);
-      index = this.stdoutBuffer.indexOf("\n");
+      const line = state.stdoutBuffer.slice(0, index);
+      state.stdoutBuffer = state.stdoutBuffer.slice(index + 1);
+      if (channel === "messages") {
+        this.handleEventLine(line);
+      } else {
+        this.handleCardActionLine(line);
+      }
+      index = state.stdoutBuffer.indexOf("\n");
     }
     // 异常超长半行（非 NDJSON 输出）直接丢弃，防内存膨胀
-    if (this.stdoutBuffer.length > 1_000_000) {
-      this.stdoutBuffer = "";
+    if (state.stdoutBuffer.length > 1_000_000) {
+      state.stdoutBuffer = "";
     }
   }
 
   private handleEventLine(line: string): void {
     const record = parseLarkEventLine(line);
-    if (!record || !isHandleableLarkEvent(record, this.allowedOpenId)) {
+    if (!record) {
+      return;
+    }
+    if (!isHandleableLarkEvent(record, this.allowedOpenId)) {
+      this.maybeReplyUnauthorized(record);
       return;
     }
     if (!this.deduper.firstSeen(record.messageId)) {
@@ -823,45 +1225,130 @@ export class LarkGateway {
     });
   }
 
-  private onStderrChunk(chunk: string): void {
+  /**
+   * 操作鉴权：非绑定 open_id 的所有指令一律忽略；仅在「已锁定操控者 + 对方是
+   * 用户身份的 p2p 文本私信」时回一句无权限提示（未配置操控者时保持静默，
+   * 避免与任何陌生人产生交互；同一 message_id 去重防事件重投重复回复）。
+   */
+  private maybeReplyUnauthorized(record: LarkEventRecord): void {
+    if (
+      !this.allowedOpenId ||
+      !record.senderId ||
+      record.senderId === this.allowedOpenId ||
+      record.senderType !== "user" ||
+      record.messageType !== "text" ||
+      record.chatType !== "p2p" ||
+      !this.deduper.firstSeen(`unauth:${record.messageId}`)
+    ) {
+      return;
+    }
+    const recipient = record.senderId;
+    void this.sendUnauthorizedReply(recipient).catch(() => undefined);
+  }
+
+  /** 非绑定用户的固定无权限提示（独立通道发送，失败静默不影响主通道状态） */
+  private async sendUnauthorizedReply(recipientOpenId: string): Promise<void> {
+    const cliPath = this.cliPath;
+    if (!cliPath) {
+      return;
+    }
+    try {
+      await (this.deps.sendMessage ?? defaultSendMessage)(
+        cliPath,
+        recipientOpenId,
+        "⛔ 无权限：仅绑定的飞书用户可操控 Zen。",
+        undefined,
+        randomUUID(),
+      );
+    } catch {
+      // 提示发送失败直接忽略
+    }
+  }
+
+  private onStderrChunk(channel: LarkEventChannel, chunk: string): void {
+    const state = this.channelOf(channel);
     for (const line of chunk.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) {
         continue;
       }
-      if (trimmed.includes(READY_MARKER)) {
+      // ready marker 自带 event_key，只认本通道的 ready，防两通道串扰
+      if (trimmed.includes(READY_MARKER) && trimmed.includes(EVENT_KEYS[channel])) {
+        state.consecutiveFailures = 0;
         if (this.state !== "ready") {
-          this.consecutiveFailures = 0;
           this.setState("ready", null);
         }
         continue;
       }
-      this.stderrTail.push(trimmed);
-      if (this.stderrTail.length > 20) {
-        this.stderrTail.shift();
+      state.stderrTail.push(trimmed);
+      if (state.stderrTail.length > 20) {
+        state.stderrTail.shift();
       }
     }
   }
 
-  /** 非主动 stop 的退出：5s 退避重启；连续失败达到上限转 error 态停止重启 */
-  private handleUnexpectedExit(reason: string): void {
-    this.consecutiveFailures += 1;
-    if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      const tail = this.stderrTail.slice(-5).join(" | ");
+  /** 非主动 stop 的退出：5s 退避重启该通道；连续失败达到上限转 error 态停止重启 */
+  private handleUnexpectedExit(channel: LarkEventChannel, reason: string): void {
+    const state = this.channelOf(channel);
+    state.consecutiveFailures += 1;
+    if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      const tail = state.stderrTail.slice(-5).join(" | ");
       this.setState(
         "error",
-        `飞书事件监听连续 ${this.consecutiveFailures} 次异常退出（${reason}）${tail ? `：${tail}` : ""}`,
+        `飞书事件监听连续 ${state.consecutiveFailures} 次异常退出（${reason}）${tail ? `：${tail}` : ""}`,
       );
       return;
     }
     this.setState("starting", `事件监听退出（${reason}），${RESTART_DELAY_MS / 1000}s 后重试`);
-    this.restartTimer = setTimeout(() => {
-      this.restartTimer = null;
+    state.restartTimer = setTimeout(() => {
+      state.restartTimer = null;
       if (this.stopping) {
         return;
       }
-      this.spawnConsumer();
+      this.spawnConsumer(channel);
     }, RESTART_DELAY_MS);
+  }
+
+  /** card.action.trigger 通道：event_id 去重 → operator 鉴权（非白名单静默）→ 写回答案 */
+  private handleCardActionLine(line: string): void {
+    const record = parseCardActionLine(line);
+    if (!record) {
+      return;
+    }
+    if (!this.cardActionDeduper.firstSeen(record.eventId)) {
+      return;
+    }
+    if (!this.allowedOpenId || record.operatorId !== this.allowedOpenId) {
+      return;
+    }
+    const answer = extractCardAskAnswer(record);
+    if (!answer || !answer.answer.trim()) {
+      return;
+    }
+    void this.applyCardAskAnswer(answer).catch((error) => {
+      console.warn("[lark] 处理卡片回调失败:", error);
+    });
+  }
+
+  /** 按 askId 定位问询并写回；文案风格复用 applyAskReply */
+  private async applyCardAskAnswer(answer: CardAskAnswer): Promise<void> {
+    const entry = this.pendingAsks.get(answer.askId);
+    if (this.deps.resolveAsk(answer.askId, answer.answer)) {
+      if (entry) {
+        this.pendingAsks.delete(answer.askId);
+        this.selfResolved.add(answer.askId);
+      }
+      await this.sendReply(
+        entry ? `✅ 已回答：${truncateText(entry.question.question, 80)}` : "✅ 已回答",
+      );
+      return;
+    }
+    this.pendingAsks.delete(answer.askId);
+    await this.sendReply(
+      entry
+        ? `该问询已失效（可能已在 Zen 内回答或已取消）：${truncateText(entry.question.question, 80)}`
+        : "该问询已失效（可能已在 Zen 内回答或已取消）",
+    );
   }
 
   private async handleText(text: string): Promise<void> {
@@ -879,7 +1366,7 @@ export class LarkGateway {
       return;
     }
     if (command === "help") {
-      await this.sendReply(buildHelpReply());
+      await this.sendReply(buildHelpReply(), buildMenuCard());
       return;
     }
     if (command === "projects") {
@@ -895,15 +1382,31 @@ export class LarkGateway {
       }
       return;
     }
-    const result = applyAskReply(text, [...this.pendingAsks.values()], this.deps.resolveAsk);
-    for (const askId of result.resolvedAskIds) {
-      this.pendingAsks.delete(askId);
-      this.selfResolved.add(askId);
+    const pending = [...this.pendingAsks.values()];
+    if (pending.length) {
+      const result = applyAskReply(text, pending, this.deps.resolveAsk);
+      for (const askId of result.resolvedAskIds) {
+        this.pendingAsks.delete(askId);
+        this.selfResolved.add(askId);
+      }
+      for (const askId of result.invalidAskIds) {
+        this.pendingAsks.delete(askId);
+      }
+      await this.sendReply(result.reply);
+      return;
     }
-    for (const askId of result.invalidAskIds) {
-      this.pendingAsks.delete(askId);
+    // 非指令普通文本：直接在公共区新建会话并运行 agent（旧「对话 <项目> <内容>」指令不受影响）
+    if (!this.deps.startChat) {
+      await this.sendReply("网关未装配会话启动能力。");
+      return;
     }
-    await this.sendReply(result.reply);
+    await this.sendReply(
+      `🚀 已在公共区开始新会话：${truncateText(text.trim(), 80)}\n运行期间可发送「状态」查看进度。`,
+    );
+    const result = await this.deps.startChat(null, text.trim());
+    if (!result.ok) {
+      await this.sendReply(`❌ 会话启动失败：${result.error ?? "未知原因"}`);
+    }
   }
 
   /** 带参数指令执行；返回要回复的文案，null 表示已自行发送回复 */
@@ -992,15 +1495,30 @@ export class LarkGateway {
     return `❌ 提交失败：${result.error ?? "未知原因"}`;
   }
 
-  /** 指令回复发送；上一次发送失败时在本条前提示一次 */
-  private async sendReply(text: string): Promise<void> {
-    const notice = this.lastSendError;
-    this.lastSendError = null;
-    const body = notice ? `⚠️ 上一条消息发送失败：${notice}\n\n${text}` : text;
-    await this.sendMarkdown(body);
+  /** 指令回复发送；可带卡片（1.0 或 2.0），卡片超长或上次发送失败时降级纯文本 */
+  private async sendReply(text: string, card?: LarkCard | LarkCard2): Promise<void> {
+    await this.sendOutgoing(text, card);
   }
 
   async sendMarkdown(text: string): Promise<void> {
+    await this.sendOutgoing(text);
+  }
+
+  /** 出站发送：优先卡片；序列化超长或上一次发送失败时降级为纯文本（失败提示前置） */
+  private async sendOutgoing(markdown: string, card?: LarkCard | LarkCard2): Promise<void> {
+    const notice = this.lastSendError;
+    this.lastSendError = null;
+    let cardJson: string | undefined;
+    if (card && !notice) {
+      const json = JSON.stringify(card);
+      // 超出 CLI 单条消息长度上限：放弃卡片走纯文本（clampSendText 统一截断）
+      cardJson = json.length <= MAX_SEND_LENGTH ? json : undefined;
+    }
+    const body = notice ? `⚠️ 上一条消息发送失败：${notice}\n\n${markdown}` : markdown;
+    await this.sendOutgoingRaw(cardJson ? markdown : clampSendText(body), cardJson);
+  }
+
+  private async sendOutgoingRaw(markdown: string, cardJson?: string): Promise<void> {
     const cliPath = this.cliPath;
     const openId = this.allowedOpenId;
     if (!cliPath || !openId) {
@@ -1009,10 +1527,11 @@ export class LarkGateway {
       return;
     }
     try {
-      await (this.deps.sendMessage ?? defaultSendMarkdown)(
+      await (this.deps.sendMessage ?? defaultSendMessage)(
         cliPath,
         openId,
-        clampSendText(text),
+        markdown,
+        cardJson,
         randomUUID(),
       );
     } catch (error) {
