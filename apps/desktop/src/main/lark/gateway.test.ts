@@ -17,6 +17,7 @@ import {
   buildStatusReply,
   collectSessionSummaries,
   extractCardAskAnswer,
+  eventNotSubscribedError,
   formatRelativeTime,
   isHandleableLarkEvent,
   LarkGateway,
@@ -1374,6 +1375,40 @@ describe("双消费通道（messages + card.action.trigger）", () => {
       expect(gateway.snapshot().gatewayError).toContain("连续 5 次");
       await vi.advanceTimersByTimeAsync(10_000);
       expect(spawnEvents).toHaveBeenCalledTimes(2 + 4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("eventNotSubscribedError：命中未订阅提示且 eventKey 匹配 → 永久错误文案；其他行/不匹配 → null", () => {
+    const line =
+      '"message": "EventKey card.action.trigger requires callbacks not subscribed in console: card.action.trigger",';
+    expect(eventNotSubscribedError(line, "card.action.trigger")).toContain("未在飞书开放平台订阅回调");
+    expect(eventNotSubscribedError(line, "im.message.receive_v1")).toBeNull();
+    expect(
+      eventNotSubscribedError("[event] ready event_key=card.action.trigger", "card.action.trigger"),
+    ).toBeNull();
+    expect(eventNotSubscribedError("普通 stderr 行", "card.action.trigger")).toBeNull();
+  });
+
+  it("事件未订阅（stderr 报 requires callbacks not subscribed + close code=2）→ 立即 error 且不再重启，messages 通道不受影响", async () => {
+    vi.useFakeTimers();
+    try {
+      const { gateway, spawned, spawnEvents } = channelGateway();
+      (gateway as unknown as { spawnAll(): void }).spawnAll();
+      childOfChannel(spawned, "card.action.trigger").stderr.emit(
+        "data",
+        '"message": "EventKey card.action.trigger requires callbacks not subscribed in console: card.action.trigger",\n',
+      );
+      childOfChannel(spawned, "card.action.trigger").emit("close", 2, null);
+      expect(gateway.snapshot().state).toBe("error");
+      expect(gateway.snapshot().gatewayError).toContain("未在飞书开放平台订阅回调");
+      expect(gateway.snapshot().gatewayError).toContain("card.action.trigger");
+      await vi.advanceTimersByTimeAsync(10_000);
+      // 永久性配置错误不重试：两个通道各 spawn 一次
+      expect(spawnEvents).toHaveBeenCalledTimes(2);
+      // messages 通道未被 kill
+      expect(childOfChannel(spawned, "im.message.receive_v1").kill).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

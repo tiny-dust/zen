@@ -933,6 +933,8 @@ interface ChannelState {
   stderrTail: string[];
   consecutiveFailures: number;
   restartTimer: NodeJS.Timeout | null;
+  /** 配置类永久错误（如事件未在开放平台订阅）：不再重试，直接转 error 态 */
+  permanentError: string | null;
 }
 
 function clampSendText(text: string): string {
@@ -940,6 +942,19 @@ function clampSendText(text: string): string {
     return text;
   }
   return `${text.slice(0, MAX_SEND_LENGTH - 6)}\n…（已截断）`;
+}
+
+/**
+ * stderr 行命中「事件回调未在开放平台订阅」（CLI validation/failed_precondition，
+ * 进程固定 code=2 退出）→ 返回面向用户的永久性错误提示；其他行返回 null。
+ * eventKey 需与通道一致，防两通道 stderr 串扰。
+ */
+export function eventNotSubscribedError(line: string, eventKey: string): string | null {
+  const match = /EventKey (\S+) requires callbacks not subscribed/.exec(line);
+  if (!match || match[1] !== eventKey) {
+    return null;
+  }
+  return `事件 ${eventKey} 未在飞书开放平台订阅回调：请到开放平台应用后台「事件与回调」订阅后，重新启用飞书桥接`;
 }
 
 function defaultSpawnEvents(cliPath: string, eventKey: string): import("node:child_process").ChildProcess {
@@ -1119,6 +1134,7 @@ export class LarkGateway {
         stderrTail: [],
         consecutiveFailures: 0,
         restartTimer: null,
+        permanentError: null,
       };
       this.channels.set(channel, state);
     }
@@ -1146,6 +1162,7 @@ export class LarkGateway {
     }
     state.stdoutBuffer = "";
     state.stderrTail = [];
+    state.permanentError = null;
     let settled = false;
     let child: import("node:child_process").ChildProcess;
     try {
@@ -1275,10 +1292,16 @@ export class LarkGateway {
       // ready marker 自带 event_key，只认本通道的 ready，防两通道串扰
       if (trimmed.includes(READY_MARKER) && trimmed.includes(EVENT_KEYS[channel])) {
         state.consecutiveFailures = 0;
-        if (this.state !== "ready") {
-          this.setState("ready", null);
+        const permanent = this.activePermanentError();
+        // 恢复 ready 时保留其他通道的永久性错误提示（如卡片回调未订阅）
+        if (this.state !== "ready" || this.gatewayError !== permanent) {
+          this.setState("ready", permanent);
         }
         continue;
+      }
+      const notSubscribed = eventNotSubscribedError(trimmed, EVENT_KEYS[channel]);
+      if (notSubscribed) {
+        state.permanentError = notSubscribed;
       }
       state.stderrTail.push(trimmed);
       if (state.stderrTail.length > 20) {
@@ -1287,9 +1310,23 @@ export class LarkGateway {
     }
   }
 
-  /** 非主动 stop 的退出：5s 退避重启该通道；连续失败达到上限转 error 态停止重启 */
+  /** 任一通道的永久性配置错误（如事件未订阅）：messages 通道仍可用，但提示保持可见 */
+  private activePermanentError(): string | null {
+    for (const state of this.channels.values()) {
+      if (state.permanentError) {
+        return state.permanentError;
+      }
+    }
+    return null;
+  }
+
+  /** 非主动 stop 的退出：永久性配置错误直接转 error 态；否则 5s 退避重启该通道，连续失败达上限转 error 态停止重启 */
   private handleUnexpectedExit(channel: LarkEventChannel, reason: string): void {
     const state = this.channelOf(channel);
+    if (state.permanentError) {
+      this.setState("error", state.permanentError);
+      return;
+    }
     state.consecutiveFailures += 1;
     if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       const tail = state.stderrTail.slice(-5).join(" | ");
