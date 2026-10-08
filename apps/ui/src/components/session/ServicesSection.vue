@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { RefreshCw, Server, X } from "@lucide/vue";
+import { Server, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
 
+import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
 import { useAgentServicesStore } from "@/stores/agent-services";
 
 /**
- * 右侧悬浮面板 · 服务模块：主进程收集的 runTerminal 长驻进程
- * （dev server / watch 等，进程组跟踪）。行内可直接关闭整个进程组。
+ * 会话信息卡「服务」节：主进程收集的 runTerminal 长驻进程
+ * （dev server / watch 等，进程组跟踪）。行内可关闭整个进程组。
  */
 const services = useAgentServicesStore();
 const { items, error, killingIds } = storeToRefs(services);
+const open = ref(true);
 
 onMounted(() => {
   services.bindEvents();
@@ -19,30 +21,23 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-2" aria-label="长驻服务">
-    <div class="flex flex-none items-center gap-0.5">
-      <span class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]">
-        服务 {{ items.length }}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="刷新服务列表"
-        title="刷新"
-        @click="services.refresh()"
-      >
-        <RefreshCw />
-      </Button>
-    </div>
+  <section v-if="items.length" class="flex flex-col">
+    <SessionSectionHead
+      :icon="Server"
+      title="服务"
+      :open="open"
+      :count="`${items.length}`"
+      @toggle="open = !open"
+    />
 
     <p
-      v-if="error"
-      class="m-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-err)]"
+      v-if="open && error"
+      class="m-0 mt-1 truncate px-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-err)]"
     >
       {{ error }}
     </p>
 
-    <div class="min-h-0 flex-1 overflow-y-auto pb-1 [scrollbar-width:thin]">
+    <div v-if="open" class="mt-1 flex flex-col gap-0.5">
       <div
         v-for="item in items"
         :key="item.id"
@@ -74,10 +69,6 @@ onMounted(() => {
           <X class="size-3" />
         </Button>
       </div>
-
-      <p v-if="!items.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
-        暂无长驻服务
-      </p>
     </div>
-  </div>
+  </section>
 </template>

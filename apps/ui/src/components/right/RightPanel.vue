@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import GraphPanel from "@/components/right/GitGraph.vue";
-import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, Server, SquareTerminal, X } from "@lucide/vue";
+import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 
 import AgentsPanel from "@/components/right/AgentsPanel.vue";
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
 import ChangesPanel from "@/components/right/ChangesPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
-import RightServicesPanel from "@/components/right/RightServicesPanel.vue";
 import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
 import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
@@ -20,8 +19,8 @@ const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
 const { tabs, activeId, activeTab } = storeToRefs(rightPanel);
 
-// 头部保留文件 / 浏览器 / 变更 / 图谱 / 服务；
-// 终端与子 Agent 由悬浮信息卡「进程」「子 Agent」进入，不再放开关。
+// 头部保留文件 / 浏览器 / 变更 / 图谱；
+// 终端与服务由悬浮信息卡「进程」「服务」进入，不再放开关。
 
 function iconFor(kind: string) {
   if (kind === "files") {
@@ -38,9 +37,6 @@ function iconFor(kind: string) {
   }
   if (kind === "terminals") {
     return SquareTerminal;
-  }
-  if (kind === "services") {
-    return Server;
   }
   return RefreshCw;
 }
@@ -137,16 +133,6 @@ function tabCls(id: string) {
         <Button
           variant="ghost"
           size="icon-xs"
-          :disabled="rightPanel.hasKind('services')"
-          :aria-label="rightPanel.hasKind('services') ? '服务面板已打开' : '打开服务面板'"
-          title="服务（长驻进程）"
-          @click="rightPanel.ensureTab('services')"
-        >
-          <Server />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
           aria-label="收起面板"
           title="收起面板"
@@ -166,7 +152,6 @@ function tabCls(id: string) {
       <GraphPanel v-else-if="activeTab?.kind === 'graph'" />
       <AgentsPanel v-else-if="activeTab?.kind === 'agents'" />
       <RightTerminalsPanel v-else-if="activeTab?.kind === 'terminals'" />
-      <RightServicesPanel v-else-if="activeTab?.kind === 'services'" />
     </div>
   </aside>
 </template>

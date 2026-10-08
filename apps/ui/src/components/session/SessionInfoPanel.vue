@@ -7,6 +7,7 @@ import CommitPanel from "@/components/session/CommitPanel.vue";
 import EnvInfoSection from "@/components/session/EnvInfoSection.vue";
 import ProcessesSection from "@/components/session/ProcessesSection.vue";
 import ReferencesSection from "@/components/session/ReferencesSection.vue";
+import ServicesSection from "@/components/session/ServicesSection.vue";
 import TaskListSection from "@/components/session/TaskListSection.vue";
 import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
@@ -66,6 +67,7 @@ async function openCommitPanel() {
       <EnvInfoSection @open-commit="openCommitPanel" />
       <TaskListSection :class="dividerCls" />
       <ProcessesSection :class="dividerCls" />
+      <ServicesSection :class="dividerCls" />
       <AgentsSection :class="dividerCls" />
       <ReferencesSection :class="dividerCls" />
     </div>

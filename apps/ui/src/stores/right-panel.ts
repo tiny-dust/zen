@@ -9,8 +9,7 @@ export type RightPanelKind =
   | "changes"
   | "graph"
   | "agents"
-  | "terminals"
-  | "services";
+  | "terminals";
 
 export interface RightPanelTab {
   id: string;
@@ -25,7 +24,6 @@ const TITLE: Record<RightPanelKind, string> = {
   graph: "图谱",
   agents: "Agents",
   terminals: "终端",
-  services: "服务",
 };
 
 /**
