@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Plus, RefreshCw, ScanSearch, Trash2, Wand2 } from "@lucide/vue";
+import { Download, Pencil, Plus, RefreshCw, ScanSearch, Trash2, Wand2, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
@@ -36,15 +36,20 @@ const form = ref<{
   name: string;
   transport: McpTransport;
   command: string;
+  env: string;
   url: string;
   headers: string;
 }>({
   name: "",
   transport: "stdio",
   command: "",
+  env: "",
   url: "",
   headers: "",
 });
+
+// 正在编辑的服务 id；null 表示表单处于「添加」模式
+const editingId = ref<string | null>(null);
 
 const appliedPreset = ref<McpServerPreset | null>(null);
 const formError = ref("");
@@ -69,6 +74,7 @@ function applyPreset(preset: McpServerPreset) {
     name: preset.name,
     transport: preset.transport,
     command: preset.command ? [preset.command, ...(preset.args ?? [])].join(" ") : "",
+    env: "",
     url: preset.url ?? "",
     headers: "",
   };
@@ -79,11 +85,11 @@ function setTransport(transport: McpTransport) {
   appliedPreset.value = null;
 }
 
-async function addServer() {
+/** 把表单解析成 McpServerConfig；添加与编辑共用，id 由调用方决定 */
+function buildConfigFromForm(): { config: McpServerConfig } | { error: string } {
   const name = form.value.name.trim();
   if (!name) {
-    formError.value = "请填写服务名称";
-    return;
+    return { error: "请填写服务名称" };
   }
   const base = {
     id: `${name}-${Date.now().toString(36)}`,
@@ -91,39 +97,110 @@ async function addServer() {
     transport: form.value.transport,
     enabled: true,
   };
-  let config: McpServerConfig;
   if (form.value.transport === "stdio") {
     const commandLine = form.value.command.trim();
     if (!commandLine) {
-      formError.value = "请填写启动命令";
-      return;
+      return { error: "请填写启动命令" };
     }
     const [cmd, ...args] = commandLine.split(/\s+/);
-    config = { ...base, command: cmd ?? commandLine, args };
-  } else {
-    const url = form.value.url.trim();
-    if (!/^https?:\/\//.test(url)) {
-      formError.value = "请填写 http(s):// 开头的服务地址";
-      return;
-    }
-    let headers: Record<string, string> | undefined;
-    const raw = form.value.headers.trim();
-    if (raw) {
+    let env: Record<string, string> | undefined;
+    const envRaw = form.value.env.trim();
+    if (envRaw) {
       try {
-        headers = JSON.parse(raw) as Record<string, string>;
+        env = JSON.parse(envRaw) as Record<string, string>;
       } catch {
-        formError.value = "请求头不是合法 JSON，例如 {\"Authorization\":\"Bearer xxx\"}";
-        return;
+        return { error: "环境变量不是合法 JSON，例如 {\"API_KEY\":\"xxx\"}" };
       }
     }
-    config = { ...base, url, headers };
+    return { config: { ...base, command: cmd ?? commandLine, args, env } };
   }
+  const url = form.value.url.trim();
+  if (!/^https?:\/\//.test(url)) {
+    return { error: "请填写 http(s):// 开头的服务地址" };
+  }
+  let headers: Record<string, string> | undefined;
+  const raw = form.value.headers.trim();
+  if (raw) {
+    try {
+      headers = JSON.parse(raw) as Record<string, string>;
+    } catch {
+      return { error: "请求头不是合法 JSON，例如 {\"Authorization\":\"Bearer xxx\"}" };
+    }
+  }
+  return { config: { ...base, url, headers } };
+}
 
+function resetForm() {
+  form.value = { name: "", transport: "stdio", command: "", env: "", url: "", headers: "" };
+  appliedPreset.value = null;
   formError.value = "";
-  await agentStore.saveMcpServers([...mcpServers.value, config]);
+}
+
+async function addServer() {
+  const parsed = buildConfigFromForm();
+  if ("error" in parsed) {
+    formError.value = parsed.error;
+    return;
+  }
+  formError.value = "";
+  await agentStore.saveMcpServers([...mcpServers.value, parsed.config]);
   await agentStore.refreshMcp();
   appliedPreset.value = null;
-  form.value = { name: "", transport: "stdio", command: "", url: "", headers: "" };
+  resetForm();
+}
+
+/** 编辑既有服务（含扫描导入的）：表单预填，保存时保留 id / enabled，其余字段以表单为准 */
+function startEdit(config: McpServerConfig) {
+  editingId.value = config.id;
+  appliedPreset.value = null;
+  formError.value = "";
+  form.value = {
+    name: config.name,
+    transport: config.transport,
+    command:
+      config.transport === "stdio"
+        ? [config.command ?? "", ...(config.args ?? [])].filter(Boolean).join(" ")
+        : "",
+    env: config.env ? JSON.stringify(config.env, null, 2) : "",
+    url: config.url ?? "",
+    headers: config.headers ? JSON.stringify(config.headers, null, 2) : "",
+  };
+}
+
+function cancelEdit() {
+  editingId.value = null;
+  resetForm();
+}
+
+async function saveEdit() {
+  const target = mcpServers.value.find((item) => item.id === editingId.value);
+  if (!target) {
+    cancelEdit();
+    return;
+  }
+  const parsed = buildConfigFromForm();
+  if ("error" in parsed) {
+    formError.value = parsed.error;
+    return;
+  }
+  formError.value = "";
+  await agentStore.saveMcpServers(
+    mcpServers.value.map((item) =>
+      item.id === target.id
+        ? { ...parsed.config, id: target.id, enabled: target.enabled }
+        : item,
+    ),
+  );
+  await agentStore.refreshMcp();
+  cancelEdit();
+}
+
+async function submitForm() {
+  if (editingId.value) {
+    await saveEdit();
+  } else {
+    await addServer();
+  }
 }
 
 async function toggleServer(config: McpServerConfig) {
@@ -302,7 +379,9 @@ function endpointText(config: McpServerConfig): string {
     <!-- 添加表单 -->
     <section class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
       <div class="flex items-center justify-between gap-2">
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">添加服务</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+          {{ editingId ? "编辑服务" : "添加服务" }}
+        </h3>
         <Badge v-if="appliedPreset" variant="secondary" class="text-[10px]">
           预设：{{ appliedPreset.name }}
         </Badge>
@@ -342,7 +421,13 @@ function endpointText(config: McpServerConfig): string {
               v-model="form.command"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
               placeholder="启动命令，如 npx -y @modelcontextprotocol/server-filesystem ~/docs"
-              @keydown.enter="addServer"
+              @keydown.enter="submitForm"
+            />
+            <Input
+              v-model="form.env"
+              class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
+              placeholder='环境变量（JSON，可选），如 {"API_KEY":"xxx"}'
+              @keydown.enter="submitForm"
             />
           </template>
           <template v-else>
@@ -350,19 +435,22 @@ function endpointText(config: McpServerConfig): string {
               v-model="form.url"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
               :placeholder="form.transport === 'sse' ? 'https://example.com/sse' : 'https://example.com/mcp'"
-              @keydown.enter="addServer"
+              @keydown.enter="submitForm"
             />
             <Input
               v-model="form.headers"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
               placeholder='附加请求头（JSON，可选），如 {"Authorization":"Bearer xxx"}'
-              @keydown.enter="addServer"
+              @keydown.enter="submitForm"
             />
           </template>
         </div>
 
-        <Button variant="outline" size="sm" class="flex-none" @click="addServer">
-          <Plus :size="13" data-icon="inline-start" />添加
+        <Button variant="outline" size="sm" class="flex-none" @click="submitForm">
+          <Plus v-if="!editingId" :size="13" data-icon="inline-start" />{{ editingId ? "保存" : "添加" }}
+        </Button>
+        <Button v-if="editingId" variant="ghost" size="sm" class="flex-none" @click="cancelEdit">
+          <X :size="13" data-icon="inline-start" />取消
         </Button>
       </div>
       <p v-if="formError" class="m-0 text-[11.5px] text-[var(--color-err)]">{{ formError }}</p>
@@ -386,6 +474,14 @@ function endpointText(config: McpServerConfig): string {
             {{ stateLabel(item.state) }}
           </Badge>
           <span class="min-w-0 flex-1" />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :aria-label="`编辑 ${item.config.name}`"
+            @click="startEdit(item.config)"
+          >
+            <Pencil :size="13" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
