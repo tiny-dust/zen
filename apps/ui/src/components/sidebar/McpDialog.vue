@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { Download, Plus, RefreshCw, ScanSearch, Trash2 } from "@lucide/vue";
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ScanSearch,
+  Trash2,
+  X,
+} from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 
@@ -37,12 +47,23 @@ const { mcpStatuses } = storeToRefs(agentStore);
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
 useBrowserOverlayGuard(open);
 
-const form = ref({
+const form = ref<{
+  name: string;
+  transport: McpTransport;
+  command: string;
+  env: string;
+  url: string;
+  headers: string;
+}>({
   name: "",
-  transport: "stdio" as McpTransport,
+  transport: "stdio",
   command: "",
+  env: "",
   url: "",
+  headers: "",
 });
+// 正在编辑的服务 id；null 表示表单处于「添加」模式（与 SettingsMcp 一致）
+const editingId = ref<string | null>(null);
 const formError = ref("");
 
 const mcpServers = computed<McpServerConfig[]>(() =>
@@ -51,44 +72,165 @@ const mcpServers = computed<McpServerConfig[]>(() =>
 
 watch(open, (value) => {
   if (value) {
-    void agentStore.refreshMcp();
+    void agentStore.refreshMcp().then(() => {
+      // 默认展开运行中的服务，便于直接查看工具清单
+      expandedIds.value = new Set(
+        mcpStatuses.value.filter((item) => item.state === "running").map((item) => item.config.id),
+      );
+    });
   }
 });
 
-async function addServer() {
+/** 各服务工具清单的展开状态 */
+const expandedIds = ref<Set<string>>(new Set());
+
+function toggleTools(id: string) {
+  const next = new Set(expandedIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  expandedIds.value = next;
+}
+
+/** inputSchema 参数摘要：参数名/类型/是否必填，不渲染整段 JSON */
+function schemaSummary(schema: Record<string, unknown>): string {
+  const properties = schema["properties"];
+  if (!properties || typeof properties !== "object") {
+    return "";
+  }
+  const props = properties as Record<string, unknown>;
+  const requiredList = Array.isArray(schema["required"]) ? schema["required"] : [];
+  const required = new Set(
+    requiredList.filter((item): item is string => typeof item === "string"),
+  );
+  const entries = Object.entries(props);
+  const parts = entries.slice(0, 6).map(([name, def]) => {
+    const type =
+      def && typeof def === "object" && typeof (def as { type?: unknown }).type === "string"
+        ? (def as { type: string }).type
+        : "any";
+    return `${name}: ${type}${required.has(name) ? "" : "?"}`;
+  });
+  return parts.join("，") + (entries.length > 6 ? "…" : "");
+}
+
+/** 把表单解析成 McpServerConfig；添加与编辑共用，id 由调用方决定 */
+function buildConfigFromForm(): { config: McpServerConfig } | { error: string } {
   const name = form.value.name.trim();
   if (!name) {
-    formError.value = "请填写服务名称";
-    return;
+    return { error: "请填写服务名称" };
   }
-  const base: McpServerConfig = {
+  const base = {
     id: `${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`,
     name,
     transport: form.value.transport,
     enabled: true,
   };
   if (form.value.transport === "stdio") {
-    const parts = form.value.command.trim().split(/\s+/).filter(Boolean);
-    if (!parts.length) {
-      formError.value = "请填写启动命令";
-      return;
+    const commandLine = form.value.command.trim();
+    if (!commandLine) {
+      return { error: "请填写启动命令" };
     }
-    base.command = parts[0]!;
-    base.args = parts.slice(1);
-  } else {
-    const url = form.value.url.trim();
-    if (!url) {
-      formError.value = "请填写服务 URL";
-      return;
+    const [cmd, ...args] = commandLine.split(/\s+/);
+    let env: Record<string, string> | undefined;
+    const envRaw = form.value.env.trim();
+    if (envRaw) {
+      try {
+        env = JSON.parse(envRaw) as Record<string, string>;
+      } catch {
+        return { error: "环境变量不是合法 JSON，例如 {\"API_KEY\":\"xxx\"}" };
+      }
     }
-    base.url = url;
+    return { config: { ...base, command: cmd ?? commandLine, args, env } };
   }
-  await agentStore.saveMcpServers([...mcpServers.value, base]);
-  form.value = { name: "", transport: "stdio", command: "", url: "" };
+  const url = form.value.url.trim();
+  if (!/^https?:\/\//.test(url)) {
+    return { error: "请填写 http(s):// 开头的服务地址" };
+  }
+  let headers: Record<string, string> | undefined;
+  const raw = form.value.headers.trim();
+  if (raw) {
+    try {
+      headers = JSON.parse(raw) as Record<string, string>;
+    } catch {
+      return { error: "请求头不是合法 JSON，例如 {\"Authorization\":\"Bearer xxx\"}" };
+    }
+  }
+  return { config: { ...base, url, headers } };
+}
+
+function resetForm() {
+  form.value = { name: "", transport: "stdio", command: "", env: "", url: "", headers: "" };
   formError.value = "";
 }
 
+async function addServer() {
+  const parsed = buildConfigFromForm();
+  if ("error" in parsed) {
+    formError.value = parsed.error;
+    return;
+  }
+  await agentStore.saveMcpServers([...mcpServers.value, parsed.config]);
+  resetForm();
+}
+
+/** 编辑既有服务（含扫描导入的）：表单预填，保存时保留 id / enabled，其余字段以表单为准 */
+function startEdit(config: McpServerConfig) {
+  editingId.value = config.id;
+  formError.value = "";
+  form.value = {
+    name: config.name,
+    transport: config.transport,
+    command:
+      config.transport === "stdio"
+        ? [config.command ?? "", ...(config.args ?? [])].filter(Boolean).join(" ")
+        : "",
+    env: config.env ? JSON.stringify(config.env, null, 2) : "",
+    url: config.url ?? "",
+    headers: config.headers ? JSON.stringify(config.headers, null, 2) : "",
+  };
+}
+
+function cancelEdit() {
+  editingId.value = null;
+  resetForm();
+}
+
+async function saveEdit() {
+  const target = mcpServers.value.find((item) => item.id === editingId.value);
+  if (!target) {
+    cancelEdit();
+    return;
+  }
+  const parsed = buildConfigFromForm();
+  if ("error" in parsed) {
+    formError.value = parsed.error;
+    return;
+  }
+  await agentStore.saveMcpServers(
+    mcpServers.value.map((item) =>
+      item.id === target.id
+        ? { ...parsed.config, id: target.id, enabled: target.enabled }
+        : item,
+    ),
+  );
+  cancelEdit();
+}
+
+async function submitForm() {
+  if (editingId.value) {
+    await saveEdit();
+  } else {
+    await addServer();
+  }
+}
+
 async function removeServer(config: McpServerConfig) {
+  if (editingId.value === config.id) {
+    cancelEdit();
+  }
   await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== config.id));
 }
 
@@ -163,7 +305,9 @@ function stateLabel(state: string) {
 
       <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">添加服务</div>
+          <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            {{ editingId ? "编辑服务" : "添加服务" }}
+          </div>
           <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
             <Input v-model="form.name" class="h-8 text-[12px]" placeholder="名称，如 filesystem" />
             <Select v-model="form.transport">
@@ -176,22 +320,41 @@ function stateLabel(state: string) {
                 <SelectItem value="sse">SSE（远程旧版）</SelectItem>
               </SelectContent>
             </Select>
-            <Input
-              v-if="form.transport === 'stdio'"
-              v-model="form.command"
-              class="h-8 text-[12px] md:col-span-2"
-              placeholder="命令，如 npx -y @modelcontextprotocol/server-filesystem /path"
-            />
-            <Input
-              v-else
-              v-model="form.url"
-              class="h-8 text-[12px] md:col-span-2"
-              placeholder="https://…"
-            />
+            <template v-if="form.transport === 'stdio'">
+              <Input
+                v-model="form.command"
+                class="h-8 text-[12px] md:col-span-2"
+                placeholder="命令，如 npx -y @modelcontextprotocol/server-filesystem /path"
+                @keydown.enter="submitForm"
+              />
+              <Input
+                v-model="form.env"
+                class="h-8 text-[12px] md:col-span-2"
+                placeholder='环境变量（JSON，可选），如 {"API_KEY":"xxx"}'
+                @keydown.enter="submitForm"
+              />
+            </template>
+            <template v-else>
+              <Input
+                v-model="form.url"
+                class="h-8 text-[12px] md:col-span-2"
+                placeholder="https://…"
+                @keydown.enter="submitForm"
+              />
+              <Input
+                v-model="form.headers"
+                class="h-8 text-[12px] md:col-span-2"
+                placeholder='附加请求头（JSON，可选），如 {"Authorization":"Bearer xxx"}'
+                @keydown.enter="submitForm"
+              />
+            </template>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <Button size="sm" @click="addServer">
-              <Plus class="size-3.5" />添加
+            <Button size="sm" @click="submitForm">
+              <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? "保存" : "添加" }}
+            </Button>
+            <Button v-if="editingId" variant="ghost" size="sm" @click="cancelEdit">
+              <X class="size-3.5" />取消
             </Button>
             <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
               <RefreshCw class="size-3.5" />刷新状态
@@ -272,9 +435,17 @@ function stateLabel(state: string) {
                     {{ item.config.name }}
                   </span>
                   <Badge variant="secondary" class="text-[10px]">{{ stateLabel(item.state) }}</Badge>
-                  <span class="text-[10.5px] text-[var(--color-dim)]">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-5 gap-0.5 px-1 text-[10.5px] text-[var(--color-dim)] hover:bg-transparent!"
+                    :aria-expanded="expandedIds.has(item.config.id)"
+                    @click="toggleTools(item.config.id)"
+                  >
+                    <ChevronDown v-if="expandedIds.has(item.config.id)" class="size-3" />
+                    <ChevronRight v-else class="size-3" />
                     {{ item.tools.length }} 个工具
-                  </span>
+                  </Button>
                 </div>
                 <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]">
                   {{ item.config.transport === "stdio"
@@ -284,7 +455,41 @@ function stateLabel(state: string) {
                 <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
                   {{ item.error }}
                 </p>
+                <div
+                  v-if="expandedIds.has(item.config.id)"
+                  class="mt-1.5 flex flex-col gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2.5 py-1.5"
+                >
+                  <p
+                    v-if="item.state === 'running' && !item.tools.length"
+                    class="m-0 text-[11px] text-[var(--color-dim)]"
+                  >
+                    无工具
+                  </p>
+                  <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col gap-0.5">
+                    <span class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
+                      {{ tool.name }}
+                    </span>
+                    <p class="m-0 text-[11px] text-[var(--color-mut)]">
+                      {{ tool.description || "无描述" }}
+                    </p>
+                    <p
+                      v-if="schemaSummary(tool.inputSchema)"
+                      class="m-0 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+                      :title="schemaSummary(tool.inputSchema)"
+                    >
+                      参数：{{ schemaSummary(tool.inputSchema) }}
+                    </p>
+                  </div>
+                </div>
               </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="`编辑 ${item.config.name}`"
+                @click="startEdit(item.config)"
+              >
+                <Pencil class="size-3.5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
