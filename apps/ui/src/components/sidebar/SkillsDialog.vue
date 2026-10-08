@@ -23,6 +23,8 @@ import type { SkillMarketHit, SkillSummary, SkillUpdateInfo } from "@zen/shared"
 
 const open = defineModel<boolean>("open", { default: false });
 
+type SkillUpdateResult = { state: "updating" | "ok" | "error"; message: string };
+
 const agentStore = useAgentStore();
 const { skills, settings } = storeToRefs(agentStore);
 
@@ -37,6 +39,9 @@ const statusMsg = ref("");
 const newSkillPath = ref("");
 const refreshing = ref(false);
 const updateMap = ref<Record<string, SkillUpdateInfo>>({});
+const resultMap = ref<Record<string, SkillUpdateResult>>({});
+const batchRunning = ref(false);
+const batchProgress = ref({ done: 0, total: 0 });
 
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
 useBrowserOverlayGuard(open);
@@ -82,11 +87,49 @@ function updateOf(skill: SkillSummary): SkillUpdateInfo | undefined {
   return updateMap.value[skill.id];
 }
 
+function resultOf(skill: SkillSummary): SkillUpdateResult | undefined {
+  return resultMap.value[skill.id];
+}
+
+function truncateText(text: string, max = 80): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function resultText(skill: SkillSummary): string {
+  const result = resultMap.value[skill.id];
+  if (!result) {
+    return "";
+  }
+  if (result.state === "updating") {
+    return "更新中…";
+  }
+  if (result.state === "ok") {
+    return "更新成功";
+  }
+  return result.message ? `更新失败：${truncateText(result.message)}` : "更新失败";
+}
+
+function resultCls(skill: SkillSummary): string {
+  const state = resultMap.value[skill.id]?.state;
+  if (state === "ok") {
+    return "text-[var(--color-ok)]";
+  }
+  if (state === "error") {
+    return "text-[var(--color-danger-fg)]";
+  }
+  return "text-[var(--color-mut)]";
+}
+
+const updatableSkills = computed(() =>
+  installedSkills.value.filter((skill) => updateOf(skill)?.hasUpdate),
+);
+
 watch(open, (value) => {
   if (!value) {
     return;
   }
   statusMsg.value = "";
+  resultMap.value = {};
   void refreshAll();
   void agentStore.refreshMcp();
 });
@@ -187,23 +230,72 @@ async function installSkill(hit: SkillMarketHit) {
   }
 }
 
-async function updateSkill(skill: SkillSummary) {
+/** 串行执行一次市场更新，结果写入行内 resultMap；返回是否成功 */
+async function runSkillUpdate(skill: SkillSummary): Promise<boolean> {
   const zen = window.zen;
   if (!zen?.skills?.marketUpdate) {
+    resultMap.value[skill.id] = { state: "error", message: "技能市场 IPC 不可用" };
+    return false;
+  }
+  resultMap.value[skill.id] = { state: "updating", message: "" };
+  try {
+    // skill 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
+    const result = await zen.skills.marketUpdate({ ...skill });
+    resultMap.value[skill.id] = {
+      state: result.ok ? "ok" : "error",
+      message: result.ok ? "" : result.error || "更新失败",
+    };
+    return result.ok;
+  } catch (error) {
+    resultMap.value[skill.id] = {
+      state: "error",
+      message: error instanceof Error ? error.message : String(error),
+    };
+    return false;
+  }
+}
+
+async function updateSkill(skill: SkillSummary) {
+  if (batchRunning.value) {
     return;
   }
   busyId.value = skill.id;
-  statusMsg.value = `正在更新 ${skill.name}…`;
   try {
-    const result = await zen.skills.marketUpdate({ ...skill });
-    statusMsg.value = result.ok
-      ? `已更新 ${skill.name}${result.dir ? ` → ${result.dir}` : ""}`
-      : result.error || "更新失败";
+    await runSkillUpdate(skill);
     await refreshAll();
-  } catch (error) {
-    statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
     busyId.value = "";
+  }
+}
+
+/** 全部更新：串行逐个更新（避免并发 git 操作冲突），完成后汇总并刷新 */
+async function updateAll() {
+  if (batchRunning.value || busyId.value) {
+    return;
+  }
+  const targets = updatableSkills.value;
+  if (!targets.length) {
+    return;
+  }
+  batchRunning.value = true;
+  batchProgress.value = { done: 0, total: targets.length };
+  let okCount = 0;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      batchProgress.value = { done: i + 1, total: targets.length };
+      busyId.value = targets[i].id;
+      if (await runSkillUpdate(targets[i])) {
+        okCount += 1;
+      }
+    }
+    await refreshAll();
+    const failCount = targets.length - okCount;
+    statusMsg.value = failCount
+      ? `已更新 ${okCount} 个，失败 ${failCount} 个`
+      : `已更新 ${okCount} 个`;
+  } finally {
+    busyId.value = "";
+    batchRunning.value = false;
   }
 }
 
@@ -312,6 +404,19 @@ const tabCls = (id: Tab) =>
           <RefreshCw v-else :size="13" data-icon="inline-start" />
           刷新
         </Button>
+        <Button
+          v-if="updatableSkills.length >= 2"
+          variant="outline"
+          size="sm"
+          class="h-7 text-[12px]"
+          :disabled="batchRunning || !!busyId"
+          title="串行更新全部可更新的技能"
+          @click="updateAll"
+        >
+          <Loader2 v-if="batchRunning" class="size-3.5 animate-spin" data-icon="inline-start" />
+          <Upload v-else class="size-3.5" data-icon="inline-start" />
+          {{ batchRunning ? `更新中 ${batchProgress.done}/${batchProgress.total}` : "全部更新" }}
+        </Button>
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -344,7 +449,15 @@ const tabCls = (id: Tab) =>
                     {{ skill.dir }}
                   </p>
                   <p
-                    v-if="updateOf(skill)?.note"
+                    v-if="resultOf(skill)"
+                    class="m-0 mt-0.5 truncate text-[10.5px]"
+                    :class="resultCls(skill)"
+                    :title="resultOf(skill)?.state === 'error' ? resultOf(skill)?.message : undefined"
+                  >
+                    {{ resultText(skill) }}
+                  </p>
+                  <p
+                    v-else-if="updateOf(skill)?.note"
                     class="m-0 mt-0.5 text-[10.5px] text-[var(--color-dim)]"
                   >
                     {{ updateOf(skill)?.note }}
@@ -356,7 +469,7 @@ const tabCls = (id: Tab) =>
                     size="sm"
                     variant="outline"
                     class="h-7 text-[12px]"
-                    :disabled="busyId === skill.id"
+                    :disabled="batchRunning || busyId === skill.id"
                     @click="updateSkill(skill)"
                   >
                     <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />

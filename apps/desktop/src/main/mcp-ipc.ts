@@ -14,14 +14,41 @@ import { readMcpConfig, writeMcpConfig } from "./zen-dir";
 
 const clients = new Map<string, McpClient>();
 const toolsCache = new Map<string, McpToolInfo[]>();
+/** 每个 client 建立时的配置签名；同 id 配置变化后据此重启旧进程并作废缓存 */
+const configSignatures = new Map<string, string>();
+
+function configSignature(config: McpServerConfig): string {
+  return JSON.stringify([
+    config.name,
+    config.transport,
+    config.command ?? "",
+    config.args ?? [],
+    config.env ?? {},
+    config.url ?? "",
+    config.headers ?? {},
+    config.enabled,
+  ]);
+}
+
+function dropClient(id: string): void {
+  clients.get(id)?.shutdown();
+  clients.delete(id);
+  toolsCache.delete(id);
+  configSignatures.delete(id);
+}
 
 function clientFor(config: McpServerConfig): McpClient {
+  const signature = configSignature(config);
   const existing = clients.get(config.id);
   if (existing) {
-    return existing;
+    if (configSignatures.get(config.id) === signature) {
+      return existing;
+    }
+    dropClient(config.id);
   }
   const client = createMcpClient(config);
   clients.set(config.id, client);
+  configSignatures.set(config.id, signature);
   return client;
 }
 
@@ -69,13 +96,13 @@ export function registerMcpIpc(): void {
     if (!Array.isArray(servers)) {
       return [];
     }
-    // 关掉被移除/禁用的进程
-    const keep = new Set(servers.filter((item) => item.enabled).map((item) => item.id));
-    for (const [id, client] of clients) {
-      if (!keep.has(id)) {
-        client.shutdown();
-        clients.delete(id);
-        toolsCache.delete(id);
+    // 关掉被移除/禁用的进程；同 id 但配置变化的也要作废旧进程与缓存，随后按新配置惰性重建
+    const nextById = new Map(servers.map((item) => [item.id, item]));
+    for (const id of [...clients.keys()]) {
+      const next = nextById.get(id);
+      const unchanged = next?.enabled && configSignatures.get(id) === configSignature(next);
+      if (!unchanged) {
+        dropClient(id);
       }
     }
     await writeMcpConfig(servers);
@@ -149,4 +176,5 @@ export function shutdownMcp(): void {
   }
   clients.clear();
   toolsCache.clear();
+  configSignatures.clear();
 }
