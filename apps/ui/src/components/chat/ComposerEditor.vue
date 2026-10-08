@@ -324,17 +324,6 @@ defineExpose({
   white-space: nowrap;
 }
 
-.composer-token-file {
-  padding: 0;
-  background: none;
-  border-radius: 0;
-}
-
-.composer-token-file .composer-token-name {
-  display: inline-flex;
-  max-width: 100%;
-}
-
 .composer-token:hover .composer-token-name {
   text-decoration: underline;
   text-underline-offset: 2px;

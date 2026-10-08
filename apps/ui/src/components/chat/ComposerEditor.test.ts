@@ -160,11 +160,12 @@ describe("ComposerEditor atomic tokens", () => {
   });
 
   it("updates attachment decoration without changing source", async () => {
-    const wrapper = editor("$报告.ts");
+    // 数字开头的名字不呈引用形态（排除 "$5.00"），注册附件后才成 chip
+    const wrapper = editor("$2026报告.pdf");
     expect(wrapper.find(".file-label").exists()).toBe(false);
-    await wrapper.setProps({ attachments: [{ id: "file-1", name: "报告.ts", path: "/tmp/报告.ts", size: 1, isImage: false }] });
+    await wrapper.setProps({ attachments: [{ id: "file-1", name: "2026报告.pdf", path: "/tmp/2026报告.pdf", size: 1, isImage: false }] });
     expect(wrapper.find(".file-label").exists()).toBe(true);
-    expect(wrapper.get(".composer-editor").element.textContent).toBe("$报告.ts");
+    expect(wrapper.get(".composer-editor").element.textContent).toBe("$2026报告.pdf");
   });
 
   it("renders unregistered @/$ path mentions as file chips without changing source", () => {

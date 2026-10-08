@@ -11,6 +11,7 @@ vi.mock("@/stores/chat", () => ({
     runStartedAt: null,
     statusText: "",
     input: "",
+    messages: [] as ChatMessage[],
     elementMarks: [] as unknown[],
   }),
 }));
