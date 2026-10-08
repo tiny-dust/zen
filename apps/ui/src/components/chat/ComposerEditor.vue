@@ -295,7 +295,8 @@ defineExpose({
   color: var(--color-dim);
 }
 
-/* 附件引用 token：蓝色链接样式 + 文件图标 */
+/* 附件引用 token：蓝色链接样式 + 文件图标。
+   vertical-align 1.8px：把 12px chip 文字基线与 14px 正文基线对齐（text-bottom 会高 1px） */
 .composer-token {
   display: inline-flex;
   align-items: center;
@@ -309,7 +310,7 @@ defineExpose({
   color: var(--color-link);
   font-size: 12px;
   line-height: 18px;
-  vertical-align: text-bottom;
+  vertical-align: 1.8px;
   cursor: default;
 }
 
