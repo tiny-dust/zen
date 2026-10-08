@@ -11,6 +11,8 @@ import type {
   WorkspaceGroup,
 } from "@zen/shared";
 
+import { acquireLarkBridgeLock, releaseLarkBridgeLock } from "./bridge-lock";
+import type { LarkBridgeLockResult } from "./bridge-lock";
 import { readLarkAuthSnapshot } from "./auth";
 import { resolveLarkCliPath } from "./cli";
 import {
@@ -231,15 +233,17 @@ export function buildStatusReply(
 export function buildHelpReply(): string {
   return [
     "📖 Zen 指令",
-    "• 列表 / sessions — 最近会话清单",
-    "• 状态 / status — 运行中的会话与待答问询",
+    "• 列表 / 会话 / sessions — 最近会话清单",
+    "• 状态 / 进度 / status — 运行中的会话与待答问询",
     "• 项目 / projects — 项目清单",
     "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
+    "• 新会话 <消息> / new — 强制新建会话",
+    "• 继续 <消息> / continue — 追加到当前绑定会话",
     "• 分支 <项目名> / branches — 查看项目本地分支",
     "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
     "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-    "• 菜单 / 帮助 / help — 本帮助",
-    "直接发送普通文本（非指令）会在公共区新建会话并运行 Agent。",
+    "• 菜单 / 功能列表 / 帮助 / help — 本帮助",
+    "直接发送普通文本会继续当前绑定会话；无绑定会话时在公共区新建会话并运行 Agent。",
     "收到问询推送时，直接回复文字或选项编号即可写回会话。",
   ].join("\n");
 }
@@ -251,13 +255,25 @@ export type LarkCommand = "sessions" | "status" | "help" | "projects";
 /** 指令全等匹配（去空白、大小写不敏感）；非指令文本返回 null 走问询回复解析 */
 export function parseLarkCommand(text: string): LarkCommand | null {
   const normalized = text.trim().toLowerCase();
-  if (normalized === "列表" || normalized === "sessions") {
+  if (
+    normalized === "列表" ||
+    normalized === "会话" ||
+    normalized === "清单" ||
+    normalized === "sessions"
+  ) {
     return "sessions";
   }
-  if (normalized === "状态" || normalized === "status") {
+  if (normalized === "状态" || normalized === "进度" || normalized === "status") {
     return "status";
   }
-  if (normalized === "帮助" || normalized === "help" || normalized === "菜单" || normalized === "menu") {
+  if (
+    normalized === "帮助" ||
+    normalized === "help" ||
+    normalized === "菜单" ||
+    normalized === "menu" ||
+    normalized === "功能列表" ||
+    normalized === "指令"
+  ) {
     return "help";
   }
   if (normalized === "项目" || normalized === "projects") {
@@ -266,12 +282,12 @@ export function parseLarkCommand(text: string): LarkCommand | null {
   return null;
 }
 
-/** 带参数指令（对话/分支/切换/提交）的解析结果 */
+/** 带参数指令（对话/分支/切换/提交/新会话/继续）的解析结果 */
 export interface ParsedProjectCommand {
-  kind: "chat" | "branches" | "checkout" | "commit";
-  /** 第一个参数（项目名，包含匹配）；缺失为 "" */
+  kind: "chat" | "branches" | "checkout" | "commit" | "new" | "continue";
+  /** 第一个参数（项目名，包含匹配）；new/continue 无项目参数，恒为 "" */
   project: string;
-  /** 第二个参数（消息 / 分支名 / 提交说明）；缺失为 "" */
+  /** 第二个参数（消息 / 分支名 / 提交说明）；new/continue 为整段消息；缺失为 "" */
   arg: string;
 }
 
@@ -281,6 +297,8 @@ export interface ParsedProjectCommand {
  * - 分支 <项目> / branches <project>（项目名取整段剩余文本，允许含空格）
  * - 切换 <项目> <分支> / checkout <project> <branch>
  * - 提交 <项目> <说明> / commit <project> <message>
+ * - 新会话 <消息> / new <message>（强制新建会话）
+ * - 继续 <消息> / continue <message>（追加到当前绑定会话）
  */
 export function parseProjectCommand(text: string): ParsedProjectCommand | null {
   const headMatch = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
@@ -305,6 +323,12 @@ export function parseProjectCommand(text: string): ParsedProjectCommand | null {
   }
   if (head === "提交" || head === "commit") {
     return { kind: "commit", project: parts.first, arg: parts.remainder };
+  }
+  if (head === "新会话" || head === "new") {
+    return { kind: "new", project: "", arg: rest };
+  }
+  if (head === "继续" || head === "continue") {
+    return { kind: "continue", project: "", arg: rest };
   }
   return null;
 }
@@ -378,6 +402,10 @@ export function buildProjectCommandUsage(kind: ParsedProjectCommand["kind"]): st
       return "用法：切换 <项目名> <分支名>";
     case "commit":
       return "用法：提交 <项目名> <说明>";
+    case "new":
+      return "用法：新会话 <消息>（强制在公共区新建会话）";
+    case "continue":
+      return "用法：继续 <消息>（追加到当前绑定会话）";
   }
 }
 
@@ -560,8 +588,8 @@ export function buildAskPushCard(entry: LarkPendingAsk, pendingCount: number): L
       tag: "markdown",
       content:
         pendingCount > 1
-          ? `<font color='grey'>多个问询待回答：回复 #序号 开头，如 #${entry.seq} <答案></font>`
-          : "<font color='grey'>直接回复文字或选项编号即可</font>",
+          ? `<font color='grey'>点击按钮，或直接回复选项编号 / 文字；多个问询待回答时以 #序号 开头，如 #${entry.seq} <答案></font>`
+          : "<font color='grey'>点击按钮，或直接回复选项编号 / 文字</font>",
     },
   );
   return {
@@ -572,6 +600,32 @@ export function buildAskPushCard(entry: LarkPendingAsk, pendingCount: number): L
       template: "orange",
     },
     body: { elements },
+  };
+}
+
+/** 「问询已回答」卡片（延迟更新替换原卡片）：正文显示已选答案，去掉交互组件 */
+export function buildAskAnsweredCard(entry: LarkPendingAsk, answer: string): LarkCard2 {
+  const lines: string[] = [];
+  if (entry.question.agentName) {
+    lines.push(`**来自** ${entry.question.agentName}`);
+  }
+  lines.push(entry.question.question);
+  lines.push("");
+  lines.push(`**已选择：** ${answer}`);
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: {
+      title: plainText(`✅ Zen 问询 · ${entry.sessionTitle || "Zen 会话"}`),
+      template: "green",
+    },
+    body: {
+      elements: [
+        { tag: "markdown", content: lines.join("\n") },
+        { tag: "hr" },
+        { tag: "markdown", content: "<font color='grey'>已写回会话</font>" },
+      ],
+    },
   };
 }
 
@@ -589,16 +643,18 @@ export function buildMenuCard(): LarkCard {
   return cardOf(
     { title: "📖 Zen 指令菜单", template: "blue" },
     [
-      "• 列表 / sessions — 最近会话清单",
-      "• 状态 / status — 运行中的会话与待答问询",
+      "• 列表 / 会话 / sessions — 最近会话清单",
+      "• 状态 / 进度 / status — 运行中的会话与待答问询",
       "• 项目 / projects — 项目清单",
       "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
+      "• 新会话 <消息> / new — 强制新建会话",
+      "• 继续 <消息> / continue — 追加到当前绑定会话",
       "• 分支 <项目名> / branches — 查看项目本地分支",
       "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
       "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-      "• 菜单 / 帮助 / help — 本菜单",
+      "• 菜单 / 功能列表 / 帮助 / help — 本菜单",
     ].join("\n"),
-    "直接发送普通文本（非指令）会在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号",
+    "直接发送普通文本会继续当前绑定会话；无绑定会话时在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号",
   );
 }
 
@@ -724,6 +780,10 @@ export interface LarkCardActionRecord {
   options: string;
   /** form 提交时各组件按 name 映射的 JSON 字符串 */
   formValue: string;
+  /** 卡片延迟更新 token（30 分钟有效、最多 2 次）；缺失为空串 */
+  token: string;
+  /** 触发时的卡片 userDSL 原文（JSON 字符串）；缺失为空串 */
+  cardContent: string;
 }
 
 /** 单行回调 NDJSON → 记录；空行/坏 JSON/缺 event_id 返回 null */
@@ -758,6 +818,8 @@ export function parseCardActionLine(line: string): LarkCardActionRecord | null {
     option: str("option"),
     options: str("options"),
     formValue: str("form_value"),
+    token: str("token"),
+    cardContent: str("card_content"),
   };
 }
 
@@ -877,6 +939,8 @@ export interface LarkChatStartResult {
   sessionId?: string;
   title?: string;
   error?: string;
+  /** 失败原因分类：missing=会话不存在/已归档（可回退新建）；busy=会话正在运行 */
+  reason?: "missing" | "busy";
 }
 
 export interface LarkGatewayDeps {
@@ -890,6 +954,8 @@ export interface LarkGatewayDeps {
   listProjects?: () => LarkProjectSummary[];
   /** 「对话」指令：按项目路径找到/新建工作区，新建会话并异步运行 agent；路径为 null 时在公共区建会话 */
   startChat?: (workspacePath: string | null, message: string) => Promise<LarkChatStartResult>;
+  /** 「继续」/普通文本续聊：向当前绑定会话追加消息（历史从 workspace-db 读取） */
+  continueChat?: (sessionId: string, message: string) => Promise<LarkChatStartResult>;
   /** 「分支」指令：默认走 git-ops（30s 超时 + 输出截断） */
   listBranches?: (projectPath: string) => Promise<BranchListResult>;
   /** 「切换」指令：默认走 git-ops（脏工作区拒绝） */
@@ -909,6 +975,11 @@ export interface LarkGatewayDeps {
     cardJson: string | undefined,
     idempotencyKey: string,
   ) => Promise<void>;
+  /** 替身注入点：默认 lark-cli api POST /open-apis/interactive/v1/card/update（卡片延迟更新） */
+  updateCard?: (cliPath: string, token: string, cardJson: string) => Promise<void>;
+  /** 替身注入点：默认 bridge-lock 文件锁（跨进程单实例，防重复处理事件） */
+  acquireLock?: () => LarkBridgeLockResult;
+  releaseLock?: () => void;
 }
 
 const READY_MARKER = "[event] ready event_key=";
@@ -980,6 +1051,31 @@ async function defaultSendMessage(
   await execFileAsync(cliPath, args, { timeout: 15_000 });
 }
 
+/** 卡片延迟更新（card.action.trigger 自带 token，30 分钟有效、最多 2 次）：整体替换卡片 */
+async function defaultUpdateCard(cliPath: string, token: string, cardJson: string): Promise<void> {
+  const data = JSON.stringify({ token, card: JSON.parse(cardJson) as unknown });
+  await execFileAsync(
+    cliPath,
+    ["api", "POST", "/open-apis/interactive/v1/card/update", "--as", "bot", "--data", data],
+    { timeout: 15_000 },
+  );
+}
+
+/**
+ * 发送失败通知摘要：丢掉 execFile 错误里的整条命令行（含卡片 JSON dump），
+ * 只留截断 200 字的错误信息 + Feishu log_id 一行；原始细节由调用方 console.warn。
+ */
+export function summarizeSendError(detail: string): string {
+  const logId = /\blog_id["']?\s*[:=]\s*"?([A-Za-z0-9_-]+)/i.exec(detail)?.[1];
+  const body = detail
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^command failed/i.test(line) && !/^\s*at\s+/.test(line))
+    .join(" ");
+  const summary = truncateText(body || "发送失败", 200);
+  return logId ? `${summary}\nlog_id: ${logId}` : summary;
+}
+
 export class LarkGateway {
   private state: LarkGatewayState = "off";
   private gatewayError: string | null = null;
@@ -999,6 +1095,10 @@ export class LarkGateway {
   private readonly cardActionDeduper = new LarkMessageDeduper();
   /** 飞书「对话」启动的会话（sessionId → 标题）：done 时推送最终回复摘要 */
   private readonly larkSessions = new Map<string, string>();
+  /** 当前绑定会话（普通文本/「继续」追加到这里）；done 不解绑，归档/删除后由续聊失败回退新建 */
+  private currentSessionId: string | null = null;
+  private currentSessionTitle = "";
+  private lockHeld = false;
 
   constructor(private readonly deps: LarkGatewayDeps) {}
 
@@ -1019,24 +1119,38 @@ export class LarkGateway {
     for (const channel of this.channels.values()) {
       channel.consecutiveFailures = 0;
     }
+    // 先抢跨进程单实例锁：lark-cli event bus 会把事件广播给所有 consumer，
+    // 多实例同时消费会重复处理同一条消息（默认 bridge-lock，测试注入替身）
+    const lock = (this.deps.acquireLock ?? acquireLarkBridgeLock)();
+    if (!lock.ok) {
+      this.setState(
+        "error",
+        `飞书桥接已被另一个 Zen 实例占用（PID ${lock.holderPid ?? "未知"}），本次未启动事件监听；请退出另一实例或关闭其飞书桥接`,
+      );
+      return;
+    }
+    this.lockHeld = true;
     this.cliPath = resolveLarkCliPath();
     if (!this.cliPath) {
+      this.releaseBridgeLock();
       this.setState("error", "未找到 lark-cli 可执行文件，请先安装并登录 @larksuite/cli");
       return;
     }
     const auth = await readLarkAuthSnapshot();
     if (!auth.available) {
+      this.releaseBridgeLock();
       this.setState("error", `lark-cli 不可用：${auth.error ?? "未知原因"}`);
       return;
     }
     if (!auth.botReady) {
+      this.releaseBridgeLock();
       this.setState("error", "lark-cli bot 身份未就绪，请先运行 lark-cli auth login");
       return;
     }
     this.spawnAll();
   }
 
-  /** 停止：两个消费通道都 SIGTERM 优雅退出（不 kill -9），清重启定时器 */
+  /** 停止：两个消费通道都 SIGTERM 优雅退出（不 kill -9），清重启定时器并释放单实例锁 */
   stop(): void {
     this.stopping = true;
     for (const channel of this.channels.values()) {
@@ -1050,7 +1164,16 @@ export class LarkGateway {
         child.kill("SIGTERM");
       }
     }
+    this.releaseBridgeLock();
     this.setState("off", null);
+  }
+
+  private releaseBridgeLock(): void {
+    if (!this.lockHeld) {
+      return;
+    }
+    this.lockHeld = false;
+    (this.deps.releaseLock ?? releaseLarkBridgeLock)();
   }
 
   /** askUser 问询推送（同一 askId 不重复推送；网关关闭时静默丢弃） */
@@ -1082,9 +1205,11 @@ export class LarkGateway {
     void this.sendReply("ℹ️ 该问询已在 Zen 内回答");
   }
 
-  /** 「对话」启动成功后登记会话：done 时推送最终助手回复摘要 */
+  /** 「对话」/续聊启动成功后登记会话：done 时推送最终回复摘要，并绑定为当前续聊会话 */
   trackSession(sessionId: string, title: string): void {
     this.larkSessions.set(sessionId, title);
+    this.currentSessionId = sessionId;
+    this.currentSessionTitle = title;
   }
 
   /** 会话 done：清理该会话全部待答（问询随 run 终结，不再可回答） */
@@ -1360,18 +1485,19 @@ export class LarkGateway {
     if (!answer || !answer.answer.trim()) {
       return;
     }
-    void this.applyCardAskAnswer(answer).catch((error) => {
+    void this.applyCardAskAnswer(answer, record.token).catch((error) => {
       console.warn("[lark] 处理卡片回调失败:", error);
     });
   }
 
-  /** 按 askId 定位问询并写回；文案风格复用 applyAskReply */
-  private async applyCardAskAnswer(answer: CardAskAnswer): Promise<void> {
+  /** 按 askId 定位问询并写回；成功后用延迟更新 token 把卡片替换为已回答状态 */
+  private async applyCardAskAnswer(answer: CardAskAnswer, token: string): Promise<void> {
     const entry = this.pendingAsks.get(answer.askId);
     if (this.deps.resolveAsk(answer.askId, answer.answer)) {
       if (entry) {
         this.pendingAsks.delete(answer.askId);
         this.selfResolved.add(answer.askId);
+        await this.updateCardQuietly(token, buildAskAnsweredCard(entry, answer.answer));
       }
       await this.sendReply(
         entry ? `✅ 已回答：${truncateText(entry.question.question, 80)}` : "✅ 已回答",
@@ -1386,14 +1512,35 @@ export class LarkGateway {
     );
   }
 
+  /** 卡片延迟更新（token 30 分钟有效、最多 2 次）：失败只记日志，不影响写回与回执 */
+  private async updateCardQuietly(token: string, card: LarkCard2): Promise<void> {
+    if (!token || !this.cliPath) {
+      return;
+    }
+    try {
+      await (this.deps.updateCard ?? defaultUpdateCard)(this.cliPath, token, JSON.stringify(card));
+    } catch (error) {
+      console.warn("[lark] 卡片延迟更新失败:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  /** 指令回复：有待答问询被指令打断时，末尾提醒剩余待答数量 */
+  private async sendCommandReply(text: string, card?: LarkCard | LarkCard2): Promise<void> {
+    const count = this.pendingAsks.size;
+    const reminder = count ? `\n⚠️ 还有 ${count} 个问询未回答，回复 #序号 可回答` : "";
+    await this.sendReply(text + reminder, card);
+  }
+
   private async handleText(text: string): Promise<void> {
+    // ① 指令随时可用（打断问询时在回复末尾提醒）；② 非指令文本优先回答待答问询；
+    // ③ 无待答时续聊当前绑定会话；④ 无绑定会话才新建
     const command = parseLarkCommand(text);
     if (command === "sessions") {
-      await this.sendReply(buildSessionsReply(this.deps.listSessions(10)));
+      await this.sendCommandReply(buildSessionsReply(this.deps.listSessions(10)));
       return;
     }
     if (command === "status") {
-      await this.sendReply(
+      await this.sendCommandReply(
         buildStatusReply(this.deps.listSessions(50), (sessionId) =>
           this.firstPendingQuestion(sessionId),
         ),
@@ -1401,19 +1548,19 @@ export class LarkGateway {
       return;
     }
     if (command === "help") {
-      await this.sendReply(buildHelpReply(), buildMenuCard());
+      await this.sendCommandReply(buildHelpReply(), buildMenuCard());
       return;
     }
     if (command === "projects") {
-      await this.sendReply(buildProjectsReply(this.deps.listProjects?.() ?? []));
+      await this.sendCommandReply(buildProjectsReply(this.deps.listProjects?.() ?? []));
       return;
     }
     const projectCommand = parseProjectCommand(text);
     if (projectCommand) {
       const reply = await this.handleProjectCommand(projectCommand);
-      // null = 「对话」已自行发送回执（「已开始」/失败提示），无需补发
+      // null = 「对话」/「新会话」/「继续」已自行发送回执，无需补发
       if (reply !== null) {
-        await this.sendReply(reply);
+        await this.sendCommandReply(reply);
       }
       return;
     }
@@ -1430,15 +1577,37 @@ export class LarkGateway {
       await this.sendReply(result.reply);
       return;
     }
-    // 非指令普通文本：直接在公共区新建会话并运行 agent（旧「对话 <项目> <内容>」指令不受影响）
+    await this.handlePlainMessage(text.trim(), false);
+  }
+
+  /** 非指令普通文本：续聊当前绑定会话（forceNew 跳过续聊直接新建）；绑定会话失效时回退新建 */
+  private async handlePlainMessage(message: string, forceNew: boolean): Promise<void> {
+    if (!forceNew && this.currentSessionId && this.deps.continueChat) {
+      const result = await this.deps.continueChat(this.currentSessionId, message);
+      if (result.ok) {
+        await this.sendReply(
+          `💬 已继续会话「${result.title ?? this.currentSessionTitle}」：${truncateText(message, 80)}\n运行期间可发送「状态」查看进度。`,
+        );
+        return;
+      }
+      if (result.reason !== "missing") {
+        // busy 等：保留绑定，等运行结束后再续聊
+        await this.sendReply(`❌ ${result.error ?? "续聊失败"}`);
+        return;
+      }
+      // 会话已归档/删除：解绑并回退新建
+      this.currentSessionId = null;
+      this.currentSessionTitle = "";
+    }
     if (!this.deps.startChat) {
       await this.sendReply("网关未装配会话启动能力。");
       return;
     }
+    const hint = forceNew ? "" : "\n发送「新会话 <内容>」可另起会话";
     await this.sendReply(
-      `🚀 已在公共区开始新会话：${truncateText(text.trim(), 80)}\n运行期间可发送「状态」查看进度。`,
+      `🚀 已在公共区开始新会话：${truncateText(message, 80)}${hint}\n运行期间可发送「状态」查看进度。`,
     );
-    const result = await this.deps.startChat(null, text.trim());
+    const result = await this.deps.startChat(null, message);
     if (!result.ok) {
       await this.sendReply(`❌ 会话启动失败：${result.error ?? "未知原因"}`);
     }
@@ -1457,6 +1626,20 @@ export class LarkGateway {
     }
     if (cmd.kind === "commit" && !cmd.project) {
       return buildProjectCommandUsage("commit");
+    }
+    if ((cmd.kind === "new" || cmd.kind === "continue") && !cmd.arg) {
+      return buildProjectCommandUsage(cmd.kind);
+    }
+    if (cmd.kind === "new") {
+      await this.handlePlainMessage(cmd.arg, true);
+      return null;
+    }
+    if (cmd.kind === "continue") {
+      if (!this.currentSessionId) {
+        return "当前没有绑定的会话，发送普通消息可新建，或用「新会话 <消息>」明确新建。";
+      }
+      await this.handlePlainMessage(cmd.arg, false);
+      return null;
     }
 
     const projects = this.deps.listProjects?.() ?? [];
@@ -1571,8 +1754,33 @@ export class LarkGateway {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // 原始细节（含命令行/卡片 JSON）只进主进程日志，通知走短摘要
       console.warn("[lark] 飞书消息发送失败:", message);
-      this.lastSendError = message;
+      this.lastSendError = summarizeSendError(message);
     }
+  }
+
+  /** 发送测试问询卡片（设置页验证按钮回调）；假 askId，回调写回会回「该问询已失效」，属预期 */
+  sendTestAskCard(): { ok: boolean; error?: string } {
+    if (!this.cliPath || !this.allowedOpenId) {
+      return { ok: false, error: "请先启用飞书桥接并绑定操控者" };
+    }
+    const entry: LarkPendingAsk = {
+      askId: `test-${randomUUID()}`,
+      sessionId: "",
+      sessionTitle: "测试问询",
+      seq: 0,
+      question: {
+        askId: `test-${randomUUID()}`,
+        toolCallId: "test",
+        question: "这是一条测试问询卡片：点击按钮或回复选项编号，验证卡片交互是否生效。",
+        options: ["选项 A", "选项 B"],
+        allowFreeText: true,
+      },
+    };
+    entry.question.askId = entry.askId;
+    // 不入 pendingAsks：测试卡片不占用真实问询回复路由
+    void this.sendReply(buildAskPushText(entry, 1), buildAskPushCard(entry, 1));
+    return { ok: true };
   }
 }

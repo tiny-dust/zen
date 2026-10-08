@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import {
   applyAskReply,
   buildAskActionValue,
+  buildAskAnsweredCard,
   buildAskPushCard,
   buildAskPushText,
   buildBranchesReply,
@@ -30,6 +31,7 @@ import {
   parseLarkCommand,
   parseLarkEventLine,
   parseProjectCommand,
+  summarizeSendError,
 } from "./gateway";
 import type {
   LarkCard2,
@@ -619,12 +621,12 @@ describe("卡片构建（纯函数）", () => {
     expect(body).toContain("**来自** 主进程飞书桥接");
     expect(body).toContain("选择哪个方案？");
     expect(body).toContain("1. 方案 A");
-    expect(body).toContain("直接回复文字或选项编号即可");
+    expect(body).toContain("点击按钮，或直接回复选项编号 / 文字");
   });
 
   it("buildAskPushCard：多条待答尾注换成 #序号 指引", () => {
     const card = buildAskPushCard(pendingOf({ askId: "a1", seq: 4 }), 3);
-    expect(JSON.stringify(card)).toContain("回复 #序号 开头，如 #4 <答案>");
+    expect(JSON.stringify(card)).toContain("以 #序号 开头，如 #4 <答案>");
   });
 
   it("buildSessionDoneCard：标题=会话名+已完成，正文=摘要，note 引导查询", () => {
@@ -869,6 +871,8 @@ function actionRecordOf(
     option: "",
     options: "",
     formValue: "",
+    token: "",
+    cardContent: "",
     ...overrides,
   };
 }
@@ -1467,6 +1471,289 @@ describe("双消费通道（messages + card.action.trigger）", () => {
     );
     await flush();
     expect(resolveAsk).toHaveBeenCalledWith("a1", "方案 B");
+  });
+});
+
+// ---------- 新增：指令同义词 / 会话连续性 / 锁 / 卡片更新 / 失败摘要 ----------
+
+describe("指令同义词与新会话/继续指令", () => {
+  it("parseLarkCommand：功能列表/指令→help，进度→status，会话/清单→sessions", () => {
+    expect(parseLarkCommand("功能列表")).toBe("help");
+    expect(parseLarkCommand("指令")).toBe("help");
+    expect(parseLarkCommand("进度")).toBe("status");
+    expect(parseLarkCommand("会话")).toBe("sessions");
+    expect(parseLarkCommand("清单")).toBe("sessions");
+    expect(parseLarkCommand("功能列表 ")).toBe("help");
+  });
+
+  it("parseProjectCommand：新会话/new 与 继续/continue 解析", () => {
+    expect(parseProjectCommand("新会话 帮我写个快排")).toEqual({
+      kind: "new",
+      project: "",
+      arg: "帮我写个快排",
+    });
+    expect(parseProjectCommand("new fix the bug")).toEqual({
+      kind: "new",
+      project: "",
+      arg: "fix the bug",
+    });
+    expect(parseProjectCommand("继续 追加一个导出按钮")).toEqual({
+      kind: "continue",
+      project: "",
+      arg: "追加一个导出按钮",
+    });
+    expect(parseProjectCommand("continue keep going")).toEqual({
+      kind: "continue",
+      project: "",
+      arg: "keep going",
+    });
+  });
+
+  it("新会话/继续缺消息 → 用法提示；帮助文案含续聊语义", () => {
+    expect(buildProjectCommandUsage("new")).toContain("新会话 <消息>");
+    expect(buildProjectCommandUsage("continue")).toContain("继续 <消息>");
+    const help = buildHelpReply();
+    expect(help).toContain("新会话 <消息> / new");
+    expect(help).toContain("继续 <消息> / continue");
+    expect(help).toContain("继续当前绑定会话");
+  });
+});
+
+describe("会话连续性（mock deps）", () => {
+  async function flush(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("绑定会话后普通文本 → continueChat 续聊，不新建会话", async () => {
+    const continueChat = vi.fn(async () => ({ ok: true, sessionId: "s9", title: "修复登录 bug" }));
+    const startChat = vi.fn();
+    const { gateway, sent } = gatewayOf({ continueChat, startChat });
+    gateway.trackSession("s9", "修复登录 bug");
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "再补一个边界用例",
+    );
+    expect(continueChat).toHaveBeenCalledWith("s9", "再补一个边界用例");
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sent[0]).toContain("💬 已继续会话「修复登录 bug」");
+    expect(sent[0]).toContain("再补一个边界用例");
+  });
+
+  it("续聊 busy → 只报错不新建；missing → 解绑回退新建", async () => {
+    const continueChat = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, error: "会话正在运行，请等待完成或先回答问询", reason: "busy" })
+      .mockResolvedValueOnce({ ok: false, error: "会话不存在或已归档", reason: "missing" });
+    const startChat = vi.fn(async () => ({ ok: true, sessionId: "sNew", title: "新消息" }));
+    const { gateway, sent } = gatewayOf({ continueChat, startChat });
+    gateway.trackSession("s9", "旧会话");
+
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("第一条");
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sent[0]).toContain("会话正在运行");
+
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("第二条");
+    expect(startChat).toHaveBeenCalledWith(null, "第二条");
+    expect(sent[1]).toContain("已在公共区开始新会话");
+  });
+
+  it("done 不解绑：完成后普通文本仍续聊同一会话", async () => {
+    const continueChat = vi.fn(async () => ({ ok: true, sessionId: "s9", title: "任务" }));
+    const startChat = vi.fn();
+    const { gateway } = gatewayOf({ continueChat, startChat, finalAssistantReply: () => "done" });
+    gateway.trackSession("s9", "任务");
+    gateway.onSessionDone("s9");
+    await flush();
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("继续追问");
+    expect(continueChat).toHaveBeenCalledWith("s9", "继续追问");
+    expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it("「新会话」强制新建（跳过续聊）；「继续」无绑定会话时提示", async () => {
+    const continueChat = vi.fn(async () => ({ ok: true, sessionId: "s9", title: "旧" }));
+    const startChat = vi.fn(async () => ({ ok: true, sessionId: "s10", title: "新任务" }));
+    const { gateway, sent } = gatewayOf({ continueChat, startChat });
+    gateway.trackSession("s9", "旧");
+
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "新会话 帮我写个快排",
+    );
+    expect(continueChat).not.toHaveBeenCalled();
+    expect(startChat).toHaveBeenCalledWith(null, "帮我写个快排");
+    expect(sent[0]).toContain("已在公共区开始新会话");
+
+    const { gateway: g2, sent: s2 } = gatewayOf({ continueChat, startChat });
+    await (g2 as unknown as { handleText(text: string): Promise<void> }).handleText("继续 追加内容");
+    expect(s2[0]).toContain("当前没有绑定的会话");
+  });
+
+  it("指令打断待答问询 → 回复末尾提醒剩余待答数量", async () => {
+    const resolveAsk = vi.fn(() => true);
+    const { gateway, sent } = gatewayOf({ resolveAsk });
+    gateway.pushAsk(
+      {
+        askId: "a1",
+        toolCallId: "tc1",
+        question: "选择哪个方案？",
+        options: [],
+        allowFreeText: true,
+      },
+      "s1",
+      "重构登录模块",
+    );
+    await flush();
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("状态");
+    expect(sent[sent.length - 1]).toContain("⚠️ 还有 1 个问询未回答，回复 #序号 可回答");
+  });
+});
+
+describe("跨进程单实例锁（gateway.start）", () => {
+  it("锁占用 → error 态且不 spawn consumer；stop 释放锁", async () => {
+    const spawnEvents = vi.fn();
+    const acquireLock = vi.fn(() => ({ ok: false, holderPid: 4242 }));
+    const releaseLock = vi.fn();
+    const { gateway } = gatewayOf({ spawnEvents, acquireLock, releaseLock });
+    (gateway as unknown as { state: string }).state = "off";
+    await gateway.start({ allowedOpenId: "ou_allowed" });
+    expect(acquireLock).toHaveBeenCalled();
+    expect(gateway.snapshot().state).toBe("error");
+    expect(gateway.snapshot().gatewayError).toContain("PID 4242");
+    expect(spawnEvents).not.toHaveBeenCalled();
+    // 未抢到锁不释放
+    expect(releaseLock).not.toHaveBeenCalled();
+  });
+
+  it("抢到锁后 stop → 调用 releaseLock", async () => {
+    const acquireLock = vi.fn(() => ({ ok: true }));
+    const releaseLock = vi.fn();
+    const { gateway } = gatewayOf({ acquireLock, releaseLock });
+    (gateway as unknown as { state: string }).state = "off";
+    // start 会走真实 cli/auth 探测后失败——只验证锁生命周期：手动置 lockHeld 后 stop
+    (gateway as unknown as { lockHeld: boolean }).lockHeld = true;
+    gateway.stop();
+    expect(releaseLock).toHaveBeenCalled();
+  });
+});
+
+describe("卡片延迟更新与发送失败摘要", () => {
+  async function flush(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  async function feedCardAction(gateway: LarkGateway, line: string): Promise<void> {
+    (gateway as unknown as { handleCardActionLine(line: string): void }).handleCardActionLine(line);
+    await flush();
+    await flush();
+  }
+
+  it("写回成功且带 token → updateCard 以「已选择」卡片替换；失败静默不影响回执", async () => {
+    const resolveAsk = vi.fn(() => true);
+    const updateCard = vi.fn(async () => undefined);
+    const { gateway, sent } = gatewayOf({ resolveAsk, updateCard });
+    gateway.pushAsk(
+      {
+        askId: "a1",
+        toolCallId: "tc1",
+        question: "选择哪个方案？",
+        options: ["方案 A", "方案 B"],
+        allowFreeText: true,
+      },
+      "s1",
+      "重构登录模块",
+    );
+    await flush();
+    await feedCardAction(
+      gateway,
+      JSON.stringify({
+        event_id: "ev1",
+        operator_id: "ou_allowed",
+        action_tag: "button",
+        action_value: buildAskActionValue("a1", 1, "方案 B"),
+        token: "delay-token-1",
+      }),
+    );
+    expect(updateCard).toHaveBeenCalledTimes(1);
+    const [cli, token, cardJson] = updateCard.mock.calls[0]! as unknown as [string, string, string];
+    expect(cli).toBe("lark-cli-stub");
+    expect(token).toBe("delay-token-1");
+    expect(cardJson).toContain("已选择");
+    expect(cardJson).toContain("方案 B");
+    expect(cardJson).toContain("已写回会话");
+    expect(sent[sent.length - 1]).toContain("✅ 已回答");
+
+    // 更新失败静默：写回回执照发
+    const failing = gatewayOf({ resolveAsk, updateCard: vi.fn(async () => { throw new Error("token expired"); }) });
+    failing.gateway.pushAsk(
+      {
+        askId: "a2",
+        toolCallId: "tc1",
+        question: "选哪个？",
+        options: ["A"],
+        allowFreeText: true,
+      },
+      "s1",
+      "任务",
+    );
+    await flush();
+    await feedCardAction(
+      failing.gateway,
+      JSON.stringify({
+        event_id: "ev2",
+        operator_id: "ou_allowed",
+        action_tag: "button",
+        action_value: buildAskActionValue("a2", 1, "A"),
+        token: "expired-token",
+      }),
+    );
+    expect(failing.sent[failing.sent.length - 1]).toContain("✅ 已回答");
+  });
+
+  it("buildAskAnsweredCard：已选择答案 + 尾注「已写回会话」，无交互元素", () => {
+    const entry = pendingOf({ askId: "a1", seq: 1 });
+    entry.question.options = ["方案 A", "方案 B"];
+    const card = buildAskAnsweredCard(entry, "方案 B");
+    const body = JSON.stringify(card);
+    expect(body).toContain("已选择");
+    expect(body).toContain("方案 B");
+    expect(body).toContain("已写回会话");
+    expect(body).not.toContain("button");
+    expect(body).not.toContain("select_static");
+  });
+
+  it("summarizeSendError：丢掉命令行 dump，截断 200 字并保留 log_id", () => {
+    const detail = [
+      "Command failed: lark-cli im +messages-send --content {\"schema\":\"2.0\",\"body\":{\"elements\":[{\"tag\":\"markdown\",\"content\":\"超长卡片正文……\"}]}",
+      '{"code":230001,"msg":"param invalid","log_id":"20261008104300ABCDEF"}',
+    ].join("\n");
+    const summary = summarizeSendError(detail);
+    expect(summary).not.toContain("Command failed");
+    expect(summary).not.toContain("schema");
+    expect(summary).toContain("log_id: 20261008104300ABCDEF");
+    expect(summary.split("\n")[0]!.length).toBeLessThanOrEqual(200);
+    // 纯命令行错误：兜底文案
+    expect(summarizeSendError("Command failed: lark-cli foo --bar")).toBe("发送失败");
+  });
+
+  it("发送失败后的下一条通知只带短摘要（不 dump 卡片 JSON）", async () => {
+    let call = 0;
+    const out: string[] = [];
+    const sendMessage = vi.fn(async (_cli: string, _open: string, markdown: string) => {
+      call += 1;
+      if (call === 1) {
+        throw new Error(
+          'Command failed: lark-cli im +messages-send --content {"schema":"2.0","secret":"卡片JSON"}\n{"msg":"denied","log_id":"LOG123"}',
+        );
+      }
+      out.push(markdown);
+    });
+    const { gateway } = gatewayOf({ sendMessage });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("列表");
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("列表");
+    const notice = out[out.length - 1] ?? "";
+    expect(notice).toContain("⚠️ 上一条消息发送失败");
+    expect(notice).toContain("log_id: LOG123");
+    expect(notice).not.toContain("卡片JSON");
   });
 });
 

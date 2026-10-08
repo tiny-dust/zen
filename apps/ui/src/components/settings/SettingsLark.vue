@@ -27,6 +27,8 @@ const gatewayLabel = computed(() =>
 );
 const checking = ref(false);
 const installing = ref(false);
+const testing = ref(false);
+const testHint = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 
 onMounted(() => {
@@ -72,6 +74,24 @@ async function installCli() {
 
 function setLarkEnabled(enabled: boolean) {
   void agentStore.updateSettings({ larkBridge: { ...settings.value.larkBridge, enabled } });
+}
+
+async function sendTestAskCard() {
+  if (!window.zen?.lark) {
+    return;
+  }
+  testing.value = true;
+  testHint.value = null;
+  try {
+    const result = await window.zen.lark.testAskCard();
+    testHint.value = result.ok
+      ? "测试卡片已发送到飞书；点击卡片按钮，若回执「该问询已失效」说明按钮回调已通。"
+      : (result.error ?? "发送测试卡片失败");
+  } catch (error) {
+    testHint.value = error instanceof Error ? error.message : "发送测试卡片失败";
+  } finally {
+    testing.value = false;
+  }
 }
 </script>
 
@@ -161,11 +181,25 @@ function setLarkEnabled(enabled: boolean) {
       </p>
     </div>
     <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11.5px] leading-relaxed text-[var(--color-mut)]">
+      <div class="font-medium text-[var(--color-txt-strong)]">卡片按钮回调</div>
+      <div>
+        问询卡片按钮依赖飞书开放平台「应用 → 事件与回调 → 回调配置」开启卡片回调（<code>card.action.trigger</code>）；未开启时按钮点击无反应（不会报错），可直接回复选项编号兑底。
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+        <Button variant="outline" size="xs" :disabled="testing" @click="sendTestAskCard">
+          {{ testing ? "发送中" : "发送测试问询卡片" }}
+        </Button>
+        <span v-if="testHint" class="min-w-0 text-[11px]" :class="testHint.includes('已发送') ? 'text-[var(--color-ok)]' : 'text-[var(--color-err)]'">
+          {{ testHint }}
+        </span>
+      </div>
+    </div>
+    <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11.5px] leading-relaxed text-[var(--color-mut)]">
       <div class="font-medium text-[var(--color-txt-strong)]">使用说明</div>
       <div>1. 点击“一键安装 lark-cli”，或在终端执行 <code>npm install -g @larksuite/cli</code>。</div>
       <div>2. 在设置的“个人资料”页点击“登录”并选择飞书完成授权；启用桥接后，Zen 会自动绑定当前账号的 open_id。</div>
       <div>3. 在飞书开放平台为应用开启机器人能力，并订阅 <code>im.message.receive_v1</code>；卡片问询还需订阅 <code>card.action.trigger</code>。</div>
-      <div>4. 在飞书私聊机器人发送“帮助”查看指令；发送“列表”“状态”查看会话，普通文本会在公共区启动 Agent。</div>
+      <div>4. 在飞书私聊机器人发送“帮助”查看指令；发送“列表”“状态”查看会话，普通文本会继续当前会话，无绑定会话时新建 Agent 会话。</div>
       <div>5. 只有安全绑定的账号可以操控 Zen；API Key 与登录 token 不会展示在此页。</div>
     </div>
     <p v-if="actionError" class="m-0 text-[11.5px] text-[var(--color-err)]">{{ actionError }}</p>
