@@ -608,7 +608,7 @@ describe("带参数指令执行（mock deps）", () => {
 // ---------- 卡片推送（interactive card）与降级 ----------
 
 describe("卡片构建（纯函数）", () => {
-  it("buildAskPushCard：header 标题=会话名，正文含 agentName/问题/选项，note 为回复指引", () => {
+  it("buildAskPushCard：header 标题=会话名，正文含 agentName/问题/选项，尾注为回复指引", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
     entry.question.agentName = "主进程飞书桥接";
     entry.question.options = ["方案 A", "方案 B"];
@@ -622,7 +622,7 @@ describe("卡片构建（纯函数）", () => {
     expect(body).toContain("直接回复文字或选项编号即可");
   });
 
-  it("buildAskPushCard：多条待答 note 换成 #序号 指引", () => {
+  it("buildAskPushCard：多条待答尾注换成 #序号 指引", () => {
     const card = buildAskPushCard(pendingOf({ askId: "a1", seq: 4 }), 3);
     expect(JSON.stringify(card)).toContain("回复 #序号 开头，如 #4 <答案>");
   });
@@ -880,6 +880,8 @@ describe("卡片 2.0 构建（纯函数）", () => {
     const card = buildAskPushCard(entry, 1);
     expect(card.schema).toBe("2.0");
     expect(card.config).toEqual({ update_multi: true, width_mode: "default" });
+    // schema 2.0 不支持 note 组件（飞书 ErrCode 200861）：尾注必须走 markdown
+    expect(JSON.stringify(card)).not.toContain('"tag":"note"');
     const buttons = elementsOf(card).filter((el) => el.tag === "button");
     expect(buttons).toHaveLength(2);
     const btn0 = buttons[0]!;
