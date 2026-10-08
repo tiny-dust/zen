@@ -4,7 +4,10 @@ export type ApprovalVerdict = "allow" | "confirm";
 
 /** 只读终端命令白名单：smart 模式自动放行 */
 const READONLY_COMMAND_RE =
-  /^\s*(ls|cat|head|tail|wc|pwd|echo|which|whoami|date|file|find|grep|rg|node\s+(-v|--version)|npm\s+(ls|view|search|test --)|git\s+(status|log|diff|show|branch|rev-parse|remote|tag)|pnpm\s+(ls|list|-v)|python3?\s+(-V|--version))\b/;
+  /^\s*(ls|cat|head|tail|wc|pwd|echo|which|whoami|date|file|find|grep|rg|node\s+(-v|--version)|npm\s+(ls|view|search|test --)|git\s+(status|log|diff|show|branch|rev-parse|remote|tag)|pnpm\s+(ls|list|-v)|python3?\s+(-V|--version))(?=\s|$|;|\||&)/;
+
+/** shell 连接符：命令需按连接符拆分后逐段校验，任一段不只读则整条命令需确认 */
+const SHELL_SEPARATOR_RE = /\|\||&&|[;|&\r\n]/;
 
 export function riskForTool(toolName: string): ToolRisk {
   if (
@@ -53,7 +56,9 @@ export function riskForTool(toolName: string): ToolRisk {
 }
 
 function isReadonlyCommand(command: string): boolean {
-  return READONLY_COMMAND_RE.test(command);
+  // 引号内的连接符会被拆开：拆出的片段无法命中白名单时倾向 confirm，方向保守
+  const segments = command.split(SHELL_SEPARATOR_RE).filter((segment) => segment.trim().length > 0);
+  return segments.length > 0 && segments.every((segment) => READONLY_COMMAND_RE.test(segment));
 }
 
 /**

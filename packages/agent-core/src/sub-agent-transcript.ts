@@ -9,15 +9,19 @@ import type { AgentStreamEvent, AgentTranscriptEntry } from "@zen/shared";
  * - 工具按 toolCallId 归并生命周期（input-streaming → running → ok/error/…），
  *   保留工具名、入参、tool_end 摘要与输出尾部
  * - ask_user / ask_resolved 记为 ask 条目（提问与用户回答）
- * - 限量：条目数与单条正文均截断，避免长任务把 snapshot 撑爆
+ * - 限量：条目数有上限；单条正文上限宽松（正常长度绝不截断，此前 20KB 会把
+ *   子 Agent 长报告截成「…（已截断）」碎片），仅防极端流把 snapshot 撑爆
  */
 
 const MAX_ENTRIES = 300;
-const MAX_TEXT_CHARS = 20_000;
-const MAX_OUTPUT_CHARS = 4_000;
-const MAX_ARGS_JSON_CHARS = 800;
+const MAX_TEXT_CHARS = 200_000;
+const MAX_OUTPUT_CHARS = 20_000;
+const MAX_ARGS_JSON_CHARS = 4_000;
+const MAX_SUMMARY_CHARS = 4_000;
 
-function truncateText(text: string, limit: number, marker = "…（已截断）"): string {
+const TRUNCATED_MARKER = "…（已截断）";
+
+function truncateText(text: string, limit: number, marker = TRUNCATED_MARKER): string {
   if (text.length <= limit) {
     return text;
   }
@@ -79,9 +83,9 @@ export class SubAgentTranscript {
         const entry = this.findTool(event.toolCallId);
         if (entry) {
           entry.state = event.state ?? (event.ok ? "ok" : "error");
-          entry.summary = truncateText(event.summary, 400);
+          entry.summary = truncateText(event.summary, MAX_SUMMARY_CHARS);
           if (entry.state === "denied" || !event.ok) {
-            entry.text = truncateText(event.summary, 400);
+            entry.text = truncateText(event.summary, MAX_SUMMARY_CHARS);
           }
           const output = typeof event.output === "string" ? event.output : undefined;
           if (output) {
@@ -93,10 +97,10 @@ export class SubAgentTranscript {
             id: `e${this.seq++}`,
             t: Date.now(),
             kind: "tool",
-            text: truncateText(event.summary, 400),
+            text: truncateText(event.summary, MAX_SUMMARY_CHARS),
             toolName: event.toolName,
             state: event.state ?? (event.ok ? "ok" : "error"),
-            summary: truncateText(event.summary, 400),
+            summary: truncateText(event.summary, MAX_SUMMARY_CHARS),
           });
           this.trim();
         }
@@ -108,7 +112,7 @@ export class SubAgentTranscript {
       case "tool_progress": {
         const entry = this.findTool(event.event.toolCallId);
         if (entry && entry.state === "running") {
-          entry.summary = truncateText(event.event.message, 400);
+          entry.summary = truncateText(event.event.message, MAX_SUMMARY_CHARS);
           this.version += 1;
           return true;
         }
@@ -121,7 +125,7 @@ export class SubAgentTranscript {
           id: `e${this.seq++}`,
           t: Date.now(),
           kind: "ask",
-          text: truncateText(event.question.question, 400),
+          text: truncateText(event.question.question, MAX_SUMMARY_CHARS),
         });
         this.trim();
         this.version += 1;
@@ -131,7 +135,7 @@ export class SubAgentTranscript {
           id: `e${this.seq++}`,
           t: Date.now(),
           kind: "ask",
-          text: truncateText(`回答：${event.answer}`, 400),
+          text: truncateText(`回答：${event.answer}`, MAX_SUMMARY_CHARS),
         });
         this.trim();
         this.version += 1;
@@ -143,7 +147,7 @@ export class SubAgentTranscript {
           id: `e${this.seq++}`,
           t: Date.now(),
           kind: "error",
-          text: truncateText(event.message, 800),
+          text: truncateText(event.message, MAX_SUMMARY_CHARS),
         });
         this.trim();
         this.version += 1;
@@ -178,6 +182,10 @@ export class SubAgentTranscript {
     const id = this[slot];
     const last = id ? this.entries[this.entries.length - 1] : undefined;
     if (id && last && last.id === id && last.kind === kind) {
+      // 已截断的条目不再续拼：避免截断标记落在中间、后续正文被反复重截
+      if (last.text.endsWith(TRUNCATED_MARKER)) {
+        return;
+      }
       last.text = truncateText(last.text + text, MAX_TEXT_CHARS);
       last.t = Date.now();
       this.version += 1;

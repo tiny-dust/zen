@@ -246,3 +246,267 @@ describe("MultiAgentOrchestrator 多问询并发", () => {
     expect(orchestrator.list().find((n) => n.name === "second")?.status).toBe("queued");
   });
 });
+
+describe("MultiAgentOrchestrator 依赖 / 重试 / 取消 / 工具", () => {
+  it("依赖满足后入队执行；依赖失败则自身失败；未知依赖被忽略", async () => {
+    const orchestrator = createOrchestrator(async (spec) =>
+      spec.task === "会失败"
+        ? { ok: false, text: "", error: "故意失败" }
+        : { ok: true, text: "ok" },
+    );
+
+    const base = orchestrator.spawn({ name: "base", task: "基础任务" });
+    const child = orchestrator.spawn({ name: "child", task: "依赖任务", dependsOn: [base.id, "ghost-id"] });
+    expect(child.status).toBe("waiting_deps");
+    // 不存在的依赖 id 直接被过滤，不会卡死
+    expect(child.dependsOn).toEqual([base.id]);
+
+    const nodes = await orchestrator.waitForAgents([base.id, child.id]);
+    expect(nodes.map((n) => n.status)).toEqual(["done", "done"]);
+    expect(nodes[1]?.log.some((line) => line.text.includes("依赖已满足"))).toBe(true);
+
+    const failing = orchestrator.spawn({
+      name: "failing",
+      task: "会失败",
+      maxAttempts: 1,
+    });
+    await orchestrator.waitForAgents([failing.id]);
+    const after = orchestrator.spawn({ name: "after", task: "依赖失败任务", dependsOn: [failing.id] });
+    const [failedChild] = await orchestrator.waitForAgents([after.id]);
+    expect(failedChild?.status).toBe("error");
+    expect(failedChild?.error).toContain("依赖的子任务失败");
+  });
+
+  it("失败按 maxAttempts 重试，耗尽后标记 error；runChild 抛异常同样收尾", async () => {
+    let attempts = 0;
+    const orchestrator = createOrchestrator(async () => {
+      attempts += 1;
+      return { ok: false, text: "", error: "子任务炸了" };
+    });
+    const spawned = orchestrator.spawn({ name: "retry", task: "x", maxAttempts: 2 });
+    const [node] = await orchestrator.waitForAgents([spawned.id]);
+    expect(attempts).toBe(2);
+    expect(node?.status).toBe("error");
+    expect(node?.error).toBe("子任务炸了");
+    expect(node?.log.some((line) => line.text.includes("将重试"))).toBe(true);
+
+    const throwing = createOrchestrator(async () => {
+      throw new Error("runChild 崩了");
+    });
+    const crashed = throwing.spawn({ name: "crash", task: "x" });
+    const [crashedNode] = await throwing.waitForAgents([crashed.id]);
+    expect(crashedNode?.status).toBe("error");
+    expect(crashedNode?.error).toBe("runChild 崩了");
+  });
+
+  it("父会话 signal 中止会级联取消子任务", async () => {
+    const parent = new AbortController();
+    const orchestrator = createOrchestrator(
+      (spec) =>
+        new Promise((_, reject) => {
+          spec.signal.addEventListener("abort", () => reject(new Error("已取消")), { once: true });
+        }),
+      { getParentSignal: () => parent.signal },
+    );
+
+    const spawned = orchestrator.spawn({ name: "cancellable", task: "x", maxAttempts: 3 });
+    await new Promise((r) => setTimeout(r, 10));
+    parent.abort();
+    const [node] = await orchestrator.waitForAgents([spawned.id]);
+    expect(node?.status).toBe("cancelled");
+    expect(node?.reason).toBe("cancelled");
+  });
+
+  it("onTranscript/onLog 写入节点并裁剪超长日志", async () => {
+    const orchestrator = createOrchestrator(async (spec) => {
+      for (let i = 0; i < 50; i += 1) {
+        spec.onLog(`log-${i}`);
+      }
+      spec.onTranscript?.([{ kind: "text", text: "记录" }] as never);
+      return { ok: true, text: "done" };
+    });
+
+    const spawned = orchestrator.spawn({ name: "logs", task: "x" });
+    const [node] = await orchestrator.waitForAgents([spawned.id]);
+    expect(node?.log.length).toBe(40);
+    expect(node?.transcript).toEqual([{ kind: "text", text: "记录" }]);
+    const snapshot = orchestrator.snapshot();
+    expect(snapshot.agents[0]?.transcript).toEqual([{ kind: "text", text: "记录" }]);
+  });
+
+  it("busyResource 随资源锁占用变化", async () => {
+    const lock = new ResourceLock();
+    const orchestrator = createOrchestrator(
+      async (spec) =>
+        lock.run(spec.agentId, "write", async () => {
+          await new Promise((r) => setTimeout(r, 40));
+          return { ok: true, text: "written" };
+        }),
+      { resourceLock: lock },
+    );
+
+    const spawned = orchestrator.spawn({ name: "writer", task: "x" });
+    await new Promise((r) => setTimeout(r, 15));
+    expect(orchestrator.list()[0]?.busyResource).toBe("write");
+    const [node] = await orchestrator.waitForAgents([spawned.id]);
+    expect(node?.status).toBe("done");
+    expect(orchestrator.list()[0]?.busyResource).toBeNull();
+  });
+
+  it("cancelAll 取消进行中任务；dispose 后不再调度新任务", async () => {
+    const orchestrator = createOrchestrator(
+      (spec) =>
+        new Promise((_, reject) => {
+          spec.signal.addEventListener("abort", () => reject(new Error("取消")), { once: true });
+        }),
+      { subAgentIdleTimeoutMs: 10_000 },
+    );
+
+    const running = orchestrator.spawn({ name: "r", task: "x", maxAttempts: 3 });
+    await new Promise((r) => setTimeout(r, 10));
+    await orchestrator.cancelAll();
+    const [cancelled] = await orchestrator.waitForAgents([running.id]);
+    expect(cancelled?.status).toBe("cancelled");
+    expect(cancelled?.error).toBe("主会话已取消");
+
+    orchestrator.dispose();
+    const late = orchestrator.spawn({ name: "late", task: "x" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(orchestrator.list().find((n) => n.id === late.id)?.status).toBe("queued");
+  });
+
+  it("buildTools：spawnAgent / listAgents / waitForAgents / collectAgentResults", async () => {
+    const orchestrator = createOrchestrator(async () => ({ ok: true, text: "结果文本" }));
+    const tools = orchestrator.buildTools();
+    const options = { toolCallId: "tc", messages: [] } as never;
+
+    const spawned = (await tools.spawnAgent!.execute!(
+      { name: "t1", task: "任务一", maxAttempts: 2 },
+      options,
+    )) as { id: string; status: string };
+    // spawn 返回快照时 runOne 可能已把状态推进到 running
+    expect(["queued", "running"]).toContain(spawned.status);
+
+    const listed = (await tools.listAgents!.execute!({}, options)) as Array<{
+      id: string;
+      hasResult: boolean;
+    }>;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.id).toBe(spawned.id);
+    expect(typeof listed[0]?.hasResult).toBe("boolean");
+
+    const waited = (await tools.waitForAgents!.execute!({ ids: [spawned.id] }, options)) as Array<{
+      status: string;
+      result: string;
+    }>;
+    expect(waited[0]?.status).toBe("done");
+    expect(waited[0]?.result).toContain("结果文本");
+
+    const collected = (await tools.collectAgentResults!.execute!(
+      { ids: [spawned.id] },
+      options,
+    )) as Array<{ result: string; task: string }>;
+    expect(collected[0]?.task).toBe("任务一");
+    expect(collected[0]?.result).toContain("结果文本");
+
+    const all = (await tools.collectAgentResults!.execute!({}, options)) as unknown[];
+    expect(all).toHaveLength(1);
+    const none = (await tools.waitForAgents!.execute!({}, options)) as unknown[];
+    expect(none).toHaveLength(1);
+  });
+});
+
+describe("MultiAgentOrchestrator 手动重试与结果保留", () => {
+  it("失败的子任务手动重试后重新排队执行，尝试次数重置", async () => {
+    let calls = 0;
+    const orchestrator = createOrchestrator(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, text: "", error: "第一次失败" };
+      }
+      return { ok: true, text: "重试成功" };
+    });
+
+    const spawned = orchestrator.spawn({ name: "易失败任务", task: "跑一次", maxAttempts: 1 });
+    const [failed] = await orchestrator.waitForAgents([spawned.id]);
+    expect(failed?.status).toBe("error");
+    expect(failed?.attempts).toBe(1);
+
+    expect(orchestrator.retry(spawned.id)).toBe(true);
+    const [retried] = await orchestrator.waitForAgents([spawned.id]);
+    expect(retried?.status).toBe("done");
+    expect(retried?.result).toBe("重试成功");
+    // 重试预算重新计算（重新从第 1 次开始）
+    expect(retried?.attempts).toBe(1);
+    expect(retried?.error).toBeUndefined();
+    expect(retried?.log.some((line) => line.text.includes("手动重试"))).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("已取消的子任务可手动重试", async () => {
+    let calls = 0;
+    const orchestrator = createOrchestrator(
+      (spec) =>
+        new Promise((resolve) => {
+          calls += 1;
+          if (calls > 1) {
+            resolve({ ok: true, text: "恢复执行" });
+            return;
+          }
+          spec.signal.addEventListener(
+            "abort",
+            () => resolve({ ok: false, text: "", error: "cancelled" }),
+            { once: true },
+          );
+        }),
+    );
+
+    const spawned = orchestrator.spawn({ name: "可取消任务", task: "x", maxAttempts: 1 });
+    await new Promise((r) => setTimeout(r, 10));
+    orchestrator.cancelAll();
+    const [cancelled] = await orchestrator.waitForAgents([spawned.id]);
+    expect(cancelled?.status).toBe("cancelled");
+
+    expect(orchestrator.retry(spawned.id)).toBe(true);
+    const [retried] = await orchestrator.waitForAgents([spawned.id]);
+    expect(retried?.status).toBe("done");
+    expect(retried?.result).toBe("恢复执行");
+  });
+
+  it("完成/进行中的子任务与不存在的 id 拒绝重试", async () => {
+    const orchestrator = createOrchestrator(async () => ({ ok: true, text: "ok" }));
+    const spawned = orchestrator.spawn({ name: "成功任务", task: "x" });
+    await orchestrator.waitForAgents([spawned.id]);
+    expect(orchestrator.retry(spawned.id)).toBe(false);
+    expect(orchestrator.retry("missing-id")).toBe(false);
+  });
+
+  it("依赖的子任务仍失败时拒绝重试（先重试依赖）", async () => {
+    const orchestrator = createOrchestrator(async () => ({
+      ok: false,
+      text: "",
+      error: "依赖源失败",
+    }));
+    const first = orchestrator.spawn({ name: "A", task: "a", maxAttempts: 1 });
+    const second = orchestrator.spawn({
+      name: "B",
+      task: "b",
+      dependsOn: [first.id],
+      maxAttempts: 1,
+    });
+    await orchestrator.waitForAgents([first.id, second.id]);
+    expect(orchestrator.list().find((item) => item.id === second.id)?.error).toBe(
+      "依赖的子任务失败，未执行",
+    );
+    expect(orchestrator.retry(second.id)).toBe(false);
+    expect(orchestrator.retry(first.id)).toBe(true);
+  });
+
+  it("终态结果完整保留，不再截断到 2000 字符", async () => {
+    const long = "报告内容 ".repeat(1_000); // 约 5K 字符
+    const orchestrator = createOrchestrator(async () => ({ ok: true, text: long }));
+    const spawned = orchestrator.spawn({ name: "长报告", task: "x" });
+    const [node] = await orchestrator.waitForAgents([spawned.id]);
+    expect(node?.result).toBe(long);
+  });
+});

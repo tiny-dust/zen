@@ -88,3 +88,90 @@ describe("composer skill selection", () => {
     expect(wrapper.find(".composer-token-skill").exists()).toBe(false);
   });
 });
+
+describe("@ 文件补全引用本会话上传文件", () => {
+  function setupTriggers(text: string, overrides: {
+    uploadedFiles?: () => Array<{ name: string; path: string }>;
+    registerUploaded?: (file: { name: string; path: string }) => void;
+  } = {}) {
+    let source = text;
+    return useComposerTriggers({
+      caret: () => source.length,
+      value: () => source,
+      setValue: (next) => {
+        source = next;
+      },
+      setCaret: () => undefined,
+      focus: () => undefined,
+      uploadedFiles: overrides.uploadedFiles,
+      registerUploaded: overrides.registerUploaded,
+    });
+  }
+
+  it("已上传文件置顶、带 uploaded 标记，选中插入 $名称 并登记为附件", () => {
+    vi.stubGlobal("zen", {
+      workspace: {
+        listFiles: vi.fn().mockResolvedValue([
+          { name: "a.txt", path: "src/a.txt", isDir: false },
+        ]),
+      },
+    });
+    const registerUploaded = vi.fn();
+    const uploaded = [{ name: "报告.pdf", path: "/u/报告.pdf" }];
+    const triggers = setupTriggers("@报告", {
+      uploadedFiles: () => uploaded,
+      registerUploaded,
+    });
+    triggers.evaluate();
+    expect(triggers.open.value).toBe(true);
+    // 已上传置顶 + uploaded 标记（弹层据此渲染「已上传」标识）
+    expect(triggers.items.value[0]).toMatchObject({
+      label: "报告.pdf",
+      desc: "/u/报告.pdf",
+    });
+    expect(triggers.items.value[0].uploaded).toBe(uploaded[0]);
+    // 附件 token 语法：`$名称 `（与 ComposerEditor/removeAttachment 约定一致）
+    expect(triggers.items.value[0].insert).toBe("$报告.pdf ");
+
+    triggers.apply(triggers.items.value[0]);
+    expect(registerUploaded).toHaveBeenCalledWith(uploaded[0]);
+  });
+
+  it("按 path 去重：已上传覆盖工作区树同 path 条目", async () => {
+    vi.stubGlobal("zen", {
+      workspace: {
+        listFiles: vi.fn().mockResolvedValue([
+          { name: "dup.txt", path: "/u/dup.txt", isDir: false },
+          { name: "tree.txt", path: "src/tree.txt", isDir: false },
+        ]),
+      },
+    });
+    const triggers = setupTriggers("@", {
+      uploadedFiles: () => [{ name: "dup.txt", path: "/u/dup.txt" }],
+    });
+    triggers.evaluate();
+    // 等 listFiles 返回
+    await Promise.resolve();
+    await Promise.resolve();
+    const paths = triggers.items.value.map((item) => item.desc);
+    expect(paths.filter((path) => path === "/u/dup.txt")).toHaveLength(1);
+    expect(triggers.items.value.find((item) => item.desc === "/u/dup.txt")?.uploaded).toBeTruthy();
+    // 工作区文件仍以 $path 插入
+    const tree = triggers.items.value.find((item) => item.desc === "src/tree.txt");
+    expect(tree?.insert).toBe("$src/tree.txt ");
+  });
+
+  it("模糊打分仍生效：不匹配的已上传文件被剔除", () => {
+    vi.stubGlobal("zen", {
+      workspace: { listFiles: vi.fn().mockResolvedValue([]) },
+    });
+    const triggers = setupTriggers("@报告", {
+      uploadedFiles: () => [
+        { name: "报告.pdf", path: "/u/报告.pdf" },
+        { name: "photo.png", path: "/u/photo.png" },
+      ],
+    });
+    triggers.evaluate();
+    expect(triggers.items.value.map((item) => item.label)).toEqual(["报告.pdf"]);
+  });
+});

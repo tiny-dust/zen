@@ -199,6 +199,8 @@ export interface ZenApi {
     cancel(sessionId: string): Promise<{ ok: boolean; error?: string }>;
     pause(sessionId: string): Promise<{ ok: boolean; error?: string }>;
     resume(sessionId: string): Promise<{ ok: boolean; error?: string }>;
+    /** 手动重试失败/取消的子 Agent（右栏 Agents 面板「重试」按钮） */
+    retrySubAgent(sessionId: string, agentId: string): Promise<{ ok: boolean; error?: string }>;
     /** 插入执行：打断当前 run（保留 checkpoint），插入消息优先执行后自动恢复原 run */
     insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }>;
     resolveApproval(

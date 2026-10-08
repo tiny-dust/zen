@@ -24,6 +24,13 @@ export const agentApi = {
     resume(sessionId: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:resume", sessionId);
     },
+    /** 手动重试失败/取消的子 Agent（右栏 Agents 面板「重试」按钮） */
+    retrySubAgent(
+      sessionId: string,
+      agentId: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:retry-sub-agent", sessionId, agentId);
+    },
     insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:insert", sessionId, text);
     },

@@ -154,6 +154,9 @@ const triggers = useComposerTriggers({
     editorRef.value?.focus();
   },
   rootPath: () => useWorkspaceStore().pathOf(sessionWorkspaceId.value),
+  // 本会话上传过的文件（当前附件 + 历史消息附件）：@ 弹层置顶可搜
+  uploadedFiles: () => chatStore.sessionUploadedFiles,
+  registerUploaded: (file) => chatStore.registerAttachmentRef(file),
 });
 
 // 浏览器「标注」等：写入 composer 光标处
@@ -412,6 +415,12 @@ function removeAttachment(id: string) {
             <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
             <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
           </template>
+          <span
+            v-if="item.uploaded"
+            class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] leading-4 text-[var(--color-dim)]"
+          >
+            已上传
+          </span>
           <span v-if="item.icon === 'skill'" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
             {{ item.desc }}
           </span>

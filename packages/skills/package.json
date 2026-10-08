@@ -9,9 +9,12 @@
     "gray-matter": "4.0.3"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@types/node": "22.20.2"
+    "@types/node": "22.20.2",
+    "@vitest/coverage-v8": "5.0.0",
+    "vitest": "5.0.0"
   }
 }

@@ -15,6 +15,8 @@ import type {
 } from "@zen/shared";
 import { restoreRunSummaryFromMessages, uuidv7 } from "@zen/shared";
 import { expandBrowserElementTokens } from "@/lib/browser-element";
+import { parseSessionDraft } from "@/lib/session-draft";
+import type { SessionDraftState } from "@/lib/session-draft";
 import { useAgentStore } from "@/stores/agent";
 import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
@@ -28,6 +30,7 @@ import { createMessageQueue } from "@/stores/chat-queue";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
 import { useSessionDraft } from "@/composables/useSessionDraft";
+import type { UploadedFileRef } from "@/composables/useComposerTriggers";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
 import { useSkillUsageStore } from "@/stores/skill-usage";
@@ -98,8 +101,6 @@ export const useChatStore = defineStore("chat", () => {
   const lastDoneReason = ref<AgentDoneReason | null>(null);
   const runSummary = ref<ChatRunSummary | null>(null);
 
-  const { flushDraft } = useSessionDraft(input, sessionId);
-
   // ---------- 输入框域：附件 / 浏览器标注 / 技能 token / 外部插入 ----------
   const composer = createComposerDomain({ input, attachments });
   const {
@@ -107,16 +108,71 @@ export const useChatStore = defineStore("chat", () => {
     pendingComposerInsert,
     addAttachment,
     removeAttachment,
+    registerAttachmentRef,
     extractSkills,
     insertAtComposerCaret,
     insertBrowserElement,
     removeElementMark,
   } = composer;
 
+  // 草稿三件套随输随存（防抖 400ms，切换前 flushDraft 同步落）
+  const { flushDraft } = useSessionDraft({ input, attachments, elementMarks }, sessionId);
+
+  /**
+   * 非当前会话的 composer 草稿内存暂存：切走时按旧 sessionId 暂存，切回时优先恢复。
+   * 未持久化会话的 setDraft 打到 UPDATE 0 行，只能靠这份兜底；持久化会话以此为最新态。
+   */
+  const stashedDrafts = new Map<string, SessionDraftState>();
+
+  /** 切走当前会话前：composer 现场按旧 sessionId 暂存（正文 + 附件 + 标注） */
+  function stashComposerDraft() {
+    stashedDrafts.set(sessionId.value, {
+      text: input.value,
+      attachments: attachments.value.map((item) => ({ ...item })),
+      elementMarks: elementMarks.value.map((item) => ({ ...item })),
+    });
+  }
+
+  /** 切入会话后：暂存优先（含未持久化会话），否则解析库内 draft（旧纯文本按正文恢复） */
+  function restoreComposerDraft(id: string, persisted: string | null | undefined) {
+    const state = stashedDrafts.get(id) ?? parseSessionDraft(persisted);
+    stashedDrafts.delete(id);
+    input.value = state.text;
+    attachments.value = state.attachments;
+    elementMarks.value = state.elementMarks;
+  }
+
   const isRunning = computed(() =>
     insertActive.value ||
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
   );
+
+  /**
+   * 本会话上传过的文件（当前 composer 附件 + 已发送消息 meta.attachments）：
+   * 供 @ 文件补全置顶检索，按 path 去重；path 为空（粘贴图未落盘）不可引用，跳过。
+   */
+  const sessionUploadedFiles = computed<UploadedFileRef[]>(() => {
+    const byPath = new Map<string, UploadedFileRef>();
+    for (const item of attachments.value) {
+      if (item.path) {
+        byPath.set(item.path, {
+          name: item.name,
+          path: item.path,
+          size: item.size,
+          isImage: item.isImage,
+        });
+      }
+    }
+    for (const message of messages.value) {
+      const meta = message.meta as { attachments?: Array<{ name: string; path?: string }> } | undefined;
+      for (const item of meta?.attachments ?? []) {
+        if (item.path && !byPath.has(item.path)) {
+          byPath.set(item.path, { name: item.name, path: item.path });
+        }
+      }
+    }
+    return [...byPath.values()];
+  });
 
   // ---------- 插入消息队列：运行中入队，run 正常结束后按序续发 ----------
   const queue = createMessageQueue({ input, isRunning, send });
@@ -689,10 +745,12 @@ export const useChatStore = defineStore("chat", () => {
     // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
+    stashComposerDraft();
 
     messages.value = [];
     input.value = "";
     attachments.value = [];
+    elementMarks.value = [];
     resetRunState();
     sessionName.value = "新会话";
     useSessionInfoStore().clear();
@@ -741,6 +799,7 @@ export const useChatStore = defineStore("chat", () => {
     // 把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
+    stashComposerDraft();
     sessionId.value = record.id;
     sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
@@ -756,8 +815,8 @@ export const useChatStore = defineStore("chat", () => {
       backgroundTranscripts.drop(record.id);
     }
     messages.value = buffered ?? found.messages;
-    input.value = found.session.draft ?? "";
-    attachments.value = [];
+    // 恢复该会话 composer 草稿：内存暂存优先（未持久化会话兜底），否则解析库内 draft
+    restoreComposerDraft(record.id, found.session.draft);
     resetRunState();
     // 切回仍在后台运行的会话：恢复运行态（isRunning=true），
     // 让 send() 走队列而不是再次 agent:run 顶掉后台 run；后续流事件正常流入展示
@@ -869,6 +928,8 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit,
     addAttachment,
     removeAttachment,
+    registerAttachmentRef,
+    sessionUploadedFiles,
     send,
     cancel,
     pause,
