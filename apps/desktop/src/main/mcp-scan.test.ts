@@ -377,6 +377,20 @@ describe("VS Code settings.json 的 mcp 键", () => {
 });
 
 describe("容错与去重", () => {
+  it("扫描只读：不改动传入的已导入配置（用户编辑保留）", async () => {
+    const home = makeRoot();
+    write(join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { cur: { command: "cur-cmd", env: { T: "1" } } } }));
+    const existing: McpServerConfig[] = [
+      { id: "x", name: "cur-edited", transport: "stdio", command: "edited-cmd", args: ["--x"], env: { T: "2" }, enabled: false },
+    ];
+    const snapshot = JSON.stringify(existing);
+    const found = await scanMcpSources(undefined, existing, ctxFor("darwin", home));
+
+    // 用户改过名/端点的条目不会被回滚，也不会被当成已导入重复命中
+    expect(JSON.stringify(existing)).toBe(snapshot);
+    expect(found.map((item) => item.alreadyImported)).toEqual([false]);
+  });
+
   it("坏 JSON / 坏 TOML 跳过不崩，好文件照常发现", async () => {
     const home = makeRoot();
     write(join(home, ".cursor", "mcp.json"), "{ 这不是 JSON");
