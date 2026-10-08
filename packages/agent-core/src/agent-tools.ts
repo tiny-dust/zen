@@ -481,8 +481,8 @@ export function buildToolSet(
     const toolName = `mcp.${bridge.serverName}.${bridge.name}`;
     toolSet[toolName] = tool({
       description: bridge.description
-        ? `[MCP ${bridge.serverName}] ${bridge.description}`
-        : `[MCP ${bridge.serverName}] ${bridge.name}`,
+        ? `[MCP ${bridge.serverName}.${bridge.name}] ${bridge.description}`
+        : `[MCP ${bridge.serverName}.${bridge.name}] ${bridge.name}`,
       inputSchema: jsonSchema(bridge.inputSchema),
       execute: async (input: unknown) => {
         const { callMcpTool } = await importMcpRuntime();
