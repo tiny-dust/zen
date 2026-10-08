@@ -556,14 +556,12 @@ export function buildAskPushCard(entry: LarkPendingAsk, pendingCount: number): L
   elements.push(
     { tag: "hr" },
     {
-      tag: "note",
-      elements: [
-        plainText(
-          pendingCount > 1
-            ? `多个问询待回答：回复 #序号 开头，如 #${entry.seq} <答案>`
-            : "直接回复文字或选项编号即可",
-        ),
-      ],
+      // schema 2.0 不再支持 note 组件（unsupported tag note）：用灰色 markdown 呈现回复指引
+      tag: "markdown",
+      content:
+        pendingCount > 1
+          ? `<font color='grey'>多个问询待回答：回复 #序号 开头，如 #${entry.seq} <答案></font>`
+          : "<font color='grey'>直接回复文字或选项编号即可</font>",
     },
   );
   return {
