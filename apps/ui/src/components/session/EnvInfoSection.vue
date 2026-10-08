@@ -4,7 +4,6 @@ import {
   ChevronRight,
   CircleCheck,
   ExternalLink,
-  FoldVertical,
   Gauge,
   GitBranch,
   GitPullRequestArrow,
@@ -48,7 +47,7 @@ const contextTitle = computed(() => {
     parts.push("上次请求输入：API 未返回 usage");
   }
   parts.push(`估算当前 ${estimatedInputTokens.value} tokens · ${estimatedUsage.value ?? 0}%`);
-  parts.push("百分比 = 输入占用 / 模型上下文窗口；≥70% 时下次发送自动压缩");
+  parts.push("百分比 = 输入占用 / 模型上下文窗口；接近 80% 时下次发送自动压缩");
   return parts.join("\n");
 });
 
@@ -136,17 +135,6 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           <template v-else-if="lastRequestUsage != null">{{ lastRequestUsage }}%</template>
           <template v-else>估 {{ estimatedUsage }}%</template>
         </span>
-        <Button
-          v-if="chatStore.hasMessages"
-          variant="ghost"
-          size="icon-sm"
-          class="flex-none text-[var(--color-dim)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
-          aria-label="压缩上下文：开启后更早对话折叠为摘要"
-          title="压缩上下文：开启后每次发送把更早对话折叠成「目标/进度/变更」摘要，本会话保持"
-          @click="chatStore.compressNow()"
-        >
-          <FoldVertical class="size-3.5" aria-hidden="true" />
-        </Button>
       </div>
 
       <!-- 变更文件 -->
