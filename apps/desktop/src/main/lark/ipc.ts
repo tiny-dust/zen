@@ -233,7 +233,10 @@ export async function syncLarkGatewayWithSettings(settings: AgentSettings): Prom
     }
   }
   if (lastSettings.enabled) {
-    void gateway.start(lastSettings);
+    void gateway.start({
+      allowedOpenId: lastSettings.allowedOpenId,
+      quickCommands: lastSettings.quickCommands ?? [],
+    });
   } else {
     gateway.stop();
   }

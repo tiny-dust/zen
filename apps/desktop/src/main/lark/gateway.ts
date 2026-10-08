@@ -6,6 +6,7 @@ import type {
   AskUserQuestionEvent,
   LarkGatewayState,
   LarkProjectSummary,
+  LarkQuickCommand,
   LarkSessionState,
   LarkSessionSummary,
   WorkspaceGroup,
@@ -230,8 +231,8 @@ export function buildStatusReply(
 }
 
 /** 「帮助」指令回复（卡片降级文案；「菜单」同款内容见 buildMenuCard） */
-export function buildHelpReply(): string {
-  return [
+export function buildHelpReply(quickCommands: LarkQuickCommand[] = []): string {
+  const lines = [
     "📖 Zen 指令",
     "• 列表 / 会话 / sessions — 最近会话清单",
     "• 状态 / 进度 / status — 运行中的会话与待答问询",
@@ -245,7 +246,22 @@ export function buildHelpReply(): string {
     "• 菜单 / 功能列表 / 帮助 / help — 本帮助",
     "直接发送普通文本会继续当前绑定会话；无绑定会话时在公共区新建会话并运行 Agent。",
     "收到问询推送时，直接回复文字或选项编号即可写回会话。",
-  ].join("\n");
+  ];
+  const quick = buildQuickCommandLines(quickCommands);
+  return [...lines, ...quick].join("\n");
+}
+
+/** 自定义快捷命令的清单行（帮助文案与菜单卡片共用） */
+export function buildQuickCommandLines(quickCommands: LarkQuickCommand[]): string[] {
+  if (!quickCommands.length) {
+    return [];
+  }
+  return [
+    "⚡ 自定义快捷命令（在 Zen 设置 → 飞书桥接 配置）",
+    ...quickCommands.map(
+      (item) => `• /${item.alias} — ${item.label || item.alias}（${truncateText(item.prompt, 60)}）`,
+    ),
+  ];
 }
 
 // ---------- 纯逻辑：项目/分支/提交指令解析与文案 ----------
@@ -391,6 +407,37 @@ export function buildBranchesReply(
   return [`🌿 ${project.name} 的本地分支`, ...lines].join("\n");
 }
 
+// ---------- 纯逻辑：自定义快捷命令（/别名）解析与展开 ----------
+
+/** 「/别名 [附加文本]」的解析结果 */
+export interface ParsedQuickCommand {
+  /** 别名（已小写化，匹配时不区分大小写） */
+  alias: string;
+  /** 别名后的附加文本；无则空串 */
+  arg: string;
+}
+
+/**
+ * 快捷命令解析：整段首个 token 必须是 /别名（别名内不含斜杠）才算快捷命令，
+ * 含内部斜杠的路径类文本（如 /Users/x/y）原样放行，不误伤普通消息。
+ */
+export function parseQuickCommand(text: string): ParsedQuickCommand | null {
+  const match = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  return { alias: (match[1] ?? "").toLowerCase(), arg: (match[2] ?? "").trim() };
+}
+
+/** 快捷命令展开：prompt 含 $1 时用附加文本整体替换，否则追加在 prompt 之后 */
+export function expandQuickCommand(prompt: string, arg: string): string {
+  const base = prompt.trim();
+  if (base.includes("$1")) {
+    return base.replace(/\$1/g, arg).trim();
+  }
+  return arg ? `${base} ${arg}` : base;
+}
+
 /** 带参数指令的用法提示 */
 export function buildProjectCommandUsage(kind: ParsedProjectCommand["kind"]): string {
   switch (kind) {
@@ -507,6 +554,41 @@ export function parseAskActionValue(raw: string): AskActionValue | null {
   } catch {
     return null;
   }
+}
+
+/** 菜单卡片按钮回调载荷：k="cmd"，t 为等价于用户输入的指令/快捷命令文本 */
+export interface CmdActionValue {
+  k: "cmd";
+  t: string;
+}
+
+export function buildCmdActionValue(text: string): string {
+  const value: CmdActionValue = { k: "cmd", t: text };
+  return JSON.stringify(value);
+}
+
+export function parseCmdActionValue(raw: string): CmdActionValue | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const obj = parsed as Record<string, unknown>;
+    if (obj.k !== "cmd" || typeof obj.t !== "string" || !obj.t.trim()) {
+      return null;
+    }
+    return { k: "cmd", t: obj.t };
+  } catch {
+    return null;
+  }
+}
+
+/** 按钮回调里的指令文本（非问询按钮）；不是指令按钮返回 null */
+export function extractCardCommand(record: LarkCardActionRecord): string | null {
+  if (record.actionTag !== "button") {
+    return null;
+  }
+  return parseCmdActionValue(record.actionValue)?.t ?? null;
 }
 
 function plainText(content: string): { tag: "plain_text"; content: string } {
@@ -638,24 +720,52 @@ export function buildSessionDoneCard(title: string, reply: string): LarkCard {
   );
 }
 
-/** 「菜单/帮助」卡片：列出现有指令 + 直接对话说明 */
-export function buildMenuCard(): LarkCard {
-  return cardOf(
-    { title: "📖 Zen 指令菜单", template: "blue" },
-    [
-      "• 列表 / 会话 / sessions — 最近会话清单",
-      "• 状态 / 进度 / status — 运行中的会话与待答问询",
-      "• 项目 / projects — 项目清单",
-      "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
-      "• 新会话 <消息> / new — 强制新建会话",
-      "• 继续 <消息> / continue — 追加到当前绑定会话",
-      "• 分支 <项目名> / branches — 查看项目本地分支",
-      "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
-      "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-      "• 菜单 / 功能列表 / 帮助 / help — 本菜单",
-    ].join("\n"),
-    "直接发送普通文本会继续当前绑定会话；无绑定会话时在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号",
-  );
+/** 菜单按钮（Card 2.0）：点击回调 CmdActionValue，等价于用户直接输入该指令文本 */
+function menuButton(label: string, text: string, primary = false): Record<string, unknown> {
+  return {
+    tag: "button",
+    text: plainText(label),
+    type: primary ? "primary_filled" : "default",
+    behaviors: [{ type: "callback", value: buildCmdActionValue(text) }],
+  };
+}
+
+/** 「菜单/帮助」卡片（Card 2.0）：指令清单 + 可点按钮（内置常用指令 + 自定义快捷命令） */
+export function buildMenuCard(quickCommands: LarkQuickCommand[] = []): LarkCard2 {
+  const lines = [
+    "• 列表 / 会话 / sessions — 最近会话清单",
+    "• 状态 / 进度 / status — 运行中的会话与待答问询",
+    "• 项目 / projects — 项目清单",
+    "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
+    "• 新会话 <消息> / new — 强制新建会话",
+    "• 继续 <消息> / continue — 追加到当前绑定会话",
+    "• 分支 <项目名> / branches — 查看项目本地分支",
+    "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
+    "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
+    "• 菜单 / 功能列表 / 帮助 / help — 本菜单",
+  ];
+  lines.push("", ...buildQuickCommandLines(quickCommands));
+  const elements: unknown[] = [{ tag: "markdown", content: lines.join("\n") }, { tag: "hr" }];
+  // 常用查询指令按钮；自定义快捷命令一键点选（按钮回调与直接输入等价）
+  elements.push(menuButton("📊 状态", "状态", true), menuButton("📋 列表", "列表"), menuButton("📂 项目", "项目"));
+  for (const item of quickCommands) {
+    elements.push(menuButton(`⚡ ${item.label || item.alias}`, `/${item.alias}`));
+  }
+  elements.push({
+    // schema 2.0 不再支持 note 组件：用灰色 markdown 呈现回复指引
+    tag: "markdown",
+    content:
+      "<font color='grey'>点击按钮或直接发送指令文字；普通文本会继续当前绑定会话，无绑定会话时在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号</font>",
+  });
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: {
+      title: plainText("📖 Zen 指令菜单"),
+      template: "blue",
+    },
+    body: { elements },
+  };
 }
 
 /**
@@ -1098,6 +1208,8 @@ export class LarkGateway {
   /** 当前绑定会话（普通文本/「继续」追加到这里）；done 不解绑，归档/删除后由续聊失败回退新建 */
   private currentSessionId: string | null = null;
   private currentSessionTitle = "";
+  /** 自定义快捷命令（设置变更实时生效） */
+  private quickCommands: LarkQuickCommand[] = [];
   private lockHeld = false;
 
   constructor(private readonly deps: LarkGatewayDeps) {}
@@ -1110,8 +1222,13 @@ export class LarkGateway {
    * 启动事件网关（enabled 时由 ipc 层调用；重复调用幂等）。
    * allowedOpenId 变更无需重启子进程：事件过滤实时读最新值。
    */
-  async start(settings: { allowedOpenId: string | null }): Promise<void> {
+  async start(settings: {
+    allowedOpenId: string | null;
+    quickCommands?: LarkQuickCommand[];
+  }): Promise<void> {
     this.allowedOpenId = settings.allowedOpenId;
+    // 快捷命令变更无需重启子进程：指令解析实时读最新值
+    this.quickCommands = settings.quickCommands ?? [];
     if (this.state === "starting" || this.state === "ready") {
       return;
     }
@@ -1482,12 +1599,19 @@ export class LarkGateway {
       return;
     }
     const answer = extractCardAskAnswer(record);
-    if (!answer || !answer.answer.trim()) {
+    if (answer && answer.answer.trim()) {
+      void this.applyCardAskAnswer(answer, record.token).catch((error) => {
+        console.warn("[lark] 处理卡片回调失败:", error);
+      });
       return;
     }
-    void this.applyCardAskAnswer(answer, record.token).catch((error) => {
-      console.warn("[lark] 处理卡片回调失败:", error);
-    });
+    // 菜单卡片按钮：等价于用户直接输入指令/快捷命令文本
+    const command = extractCardCommand(record);
+    if (command) {
+      void this.handleText(command).catch((error) => {
+        console.warn("[lark] 处理卡片指令按钮失败:", error);
+      });
+    }
   }
 
   /** 按 askId 定位问询并写回；成功后用延迟更新 token 把卡片替换为已回答状态 */
@@ -1548,7 +1672,7 @@ export class LarkGateway {
       return;
     }
     if (command === "help") {
-      await this.sendCommandReply(buildHelpReply(), buildMenuCard());
+      await this.sendCommandReply(buildHelpReply(this.quickCommands), buildMenuCard(this.quickCommands));
       return;
     }
     if (command === "projects") {
@@ -1562,6 +1686,12 @@ export class LarkGateway {
       if (reply !== null) {
         await this.sendCommandReply(reply);
       }
+      return;
+    }
+    // /别名 快捷命令：展开为预设文本后走同一管线（可命中内置指令或作为消息启动/续聊）
+    const quick = parseQuickCommand(text);
+    if (quick) {
+      await this.handleQuickCommand(quick);
       return;
     }
     const pending = [...this.pendingAsks.values()];
@@ -1578,6 +1708,31 @@ export class LarkGateway {
       return;
     }
     await this.handlePlainMessage(text.trim(), false);
+  }
+
+  /**
+   * 自定义快捷命令执行：/别名 → 展开 prompt（支持 $1 占位或追加附加文本），
+   * 展开结果若命中内置指令直接执行，否则按普通消息启动/续聊会话。
+   */
+  private async handleQuickCommand(quick: ParsedQuickCommand): Promise<void> {
+    const hit = this.quickCommands.find((item) => item.alias.trim().toLowerCase() === quick.alias);
+    if (!hit) {
+      const known = this.quickCommands.map((item) => `/${item.alias}`).join("、");
+      await this.sendCommandReply(
+        known
+          ? `❓ 未识别的快捷命令 /${quick.alias}。可用：${known}`
+          : `❓ 未识别的快捷命令 /${quick.alias}（尚未配置快捷命令，在 Zen 设置 → 飞书桥接 配置）`,
+      );
+      return;
+    }
+    const expanded = expandQuickCommand(hit.prompt, quick.arg);
+    // 展开结果先按内置指令执行（如 prompt 为「状态」），否则作为消息走会话管线
+    const command = parseLarkCommand(expanded);
+    if (command) {
+      await this.handleText(expanded);
+      return;
+    }
+    await this.handlePlainMessage(expanded, false);
   }
 
   /** 非指令普通文本：续聊当前绑定会话（forceNew 跳过续聊直接新建）；绑定会话失效时回退新建 */

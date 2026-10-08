@@ -38,17 +38,31 @@ export interface LarkAuthSnapshot {
   error?: string | null;
 }
 
+/** 飞书快捷命令：/别名 触发或「菜单」卡片按钮点按，展开为预设文本走指令/对话管线 */
+export interface LarkQuickCommand {
+  id: string;
+  /** 触发别名（不含斜杠），如 review */
+  alias: string;
+  /** 卡片按钮展示名；缺省用 alias */
+  label: string;
+  /** 展开后的完整文本：内置指令词（如 状态）或预设消息（如 审查当前分支改动） */
+  prompt: string;
+}
+
 /** 飞书集成设置（持久化在 AgentSettings.larkBridge） */
 export interface LarkBridgeSettings {
   /** 启用后：监听飞书消息指令 + 推送问询 */
   enabled: boolean;
   /** 允许操控 zen 的飞书用户 open_id（非该用户发的消息一律忽略） */
   allowedOpenId: string | null;
+  /** 自定义快捷命令（「帮助」/「菜单」展示，/别名 触发） */
+  quickCommands: LarkQuickCommand[];
 }
 
 export const DEFAULT_LARK_BRIDGE_SETTINGS: LarkBridgeSettings = {
   enabled: false,
   allowedOpenId: null,
+  quickCommands: [],
 };
 
 /** lark:status 返回的整体快照 */
