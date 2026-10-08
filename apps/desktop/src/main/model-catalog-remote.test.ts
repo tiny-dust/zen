@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { mapRemoteCatalog } from "./model-catalog-remote";
+import { fetchRemoteCatalogModels, mapRemoteCatalog } from "./model-catalog-remote";
 
 describe("mapRemoteCatalog", () => {
   const sample = {
@@ -95,5 +95,127 @@ describe("mapRemoteCatalog", () => {
     expect(mapRemoteCatalog(null)).toEqual([]);
     expect(mapRemoteCatalog([1, 2])).toEqual([]);
     expect(mapRemoteCatalog("nope")).toEqual([]);
+  });
+});
+
+describe("mapRemoteCatalog 边角", () => {
+  it("音频/视频输入 → media；字符串数字 limit 也接受；name 缺省回退 id", () => {
+    const models = mapRemoteCatalog({
+      anthropic: {
+        id: "anthropic",
+        models: {
+          audio: {
+            id: "audio-model",
+            modalities: { input: ["text", "audio"], output: ["text"] },
+            limit: { context: "200000", output: "8192" },
+          },
+          video: {
+            id: "video-model",
+            name: "  ",
+            modalities: { input: ["video", "TEXT"], output: ["Text"] },
+            limit: { context: -5, output: 0 },
+          },
+        },
+      },
+    });
+    const audio = models.find((m) => m.modelKey === "audio-model");
+    expect(audio?.capabilities.media).toBe(true);
+    expect(audio?.capabilities.contextWindow).toBe(200000);
+    expect(audio?.capabilities.maxOutputTokens).toBe(8192);
+
+    const video = models.find((m) => m.modelKey === "video-model");
+    // 大小写归一后仍算 text 进 text 出
+    expect(video).toBeDefined();
+    expect(video?.name).toBe("video-model");
+    expect(video?.capabilities.media).toBe(true);
+    expect(video?.capabilities.contextWindow).toBeUndefined();
+    expect(video?.capabilities.maxOutputTokens).toBeUndefined();
+  });
+
+  it("同键去重：优先进 reasoning 标记的条目", () => {
+    const models = mapRemoteCatalog({
+      openai: {
+        id: "openai",
+        models: {
+          a: {
+            id: "same",
+            modalities: { input: ["text"], output: ["text"] },
+            limit: { context: 1, output: 1 },
+          },
+          b: {
+            id: "same",
+            reasoning: true,
+            modalities: { input: ["text"], output: ["text"] },
+            limit: { context: 2, output: 2 },
+          },
+        },
+      },
+    });
+    const deduped = models.filter((m) => m.modelKey === "same");
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]?.capabilities.reasoning).toBe(true);
+    expect(deduped[0]?.capabilities.contextWindow).toBe(2);
+  });
+
+  it("provider.models 缺失/非对象 → 不产出条目", () => {
+    expect(mapRemoteCatalog({ openai: { id: "openai" } })).toEqual([]);
+    expect(mapRemoteCatalog({ openai: "str" })).toEqual([]);
+  });
+});
+
+describe("fetchRemoteCatalogModels", () => {
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function stubFetch(response: Partial<Response> & { jsonBody?: unknown }): void {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: response.ok ?? true,
+      status: response.status ?? 200,
+      json: async () => response.jsonBody,
+    })) as unknown as typeof fetch;
+  }
+
+  it("成功拉取 → 映射 models + fetchedAt", async () => {
+    stubFetch({
+      jsonBody: {
+        openai: {
+          id: "openai",
+          models: {
+            gpt: {
+              id: "gpt",
+              modalities: { input: ["text"], output: ["text"] },
+            },
+          },
+        },
+      },
+    });
+    const result = await fetchRemoteCatalogModels();
+    expect(result.models.map((m) => m.modelKey)).toEqual(["gpt"]);
+    expect(typeof result.fetchedAt).toBe("number");
+  });
+
+  it("HTTP 错误 → 报状态码；数据为空 → 报空源", async () => {
+    stubFetch({ ok: false, status: 503 });
+    await expect(fetchRemoteCatalogModels()).rejects.toThrow("HTTP 503");
+
+    stubFetch({ jsonBody: { unknown: {} } });
+    await expect(fetchRemoteCatalogModels()).rejects.toThrow("数据源返回为空");
+  });
+
+  it("网络异常/超时分别报网络异常/请求超时", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    await expect(fetchRemoteCatalogModels()).rejects.toThrow("网络异常");
+
+    globalThis.fetch = vi.fn(async () => {
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    }) as unknown as typeof fetch;
+    await expect(fetchRemoteCatalogModels()).rejects.toThrow("请求超时");
   });
 });

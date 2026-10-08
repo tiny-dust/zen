@@ -59,6 +59,9 @@ vi.mock("@zen/mcp-client", () => ({
       },
       connect: async () => {
         fake.connectCalls += 1;
+        if (fake.config.command === "boom") {
+          throw new Error("connect failed");
+        }
         fake.connected = true;
       },
       listTools: async () => {
@@ -74,7 +77,7 @@ vi.mock("@zen/mcp-client", () => ({
   },
 }));
 
-import { registerMcpIpc, shutdownMcp } from "./mcp-ipc";
+import { callMcpTool, enabledMcpTools, registerMcpIpc, shutdownMcp } from "./mcp-ipc";
 
 const baseConfig: McpServerConfig = {
   id: "srv-1",
@@ -173,5 +176,63 @@ describe("mcp-ipc 配置签名", () => {
     expect(state.clients).toHaveLength(2);
     await handler("mcp:set-servers")(null, []);
     expect(state.clients[1]?.shutdownCalls).toBe(1);
+  });
+});
+
+describe("mcp-ipc 工具桥接与调用", () => {
+  it("enabledMcpTools：跳过禁用 server，缓存后不重复 listTools，标注 serverName", async () => {
+    state.stored.servers = [baseConfig, { ...baseConfig, id: "srv-2", name: "off", enabled: false }];
+    const tools = await enabledMcpTools();
+    expect(tools.map((tool) => tool.name)).toEqual(["tool-of-demo"]);
+    expect(tools[0]?.serverName).toBe("demo");
+    // 再次调用走缓存
+    await enabledMcpTools();
+    expect(state.clients).toHaveLength(1);
+    expect(state.clients[0]?.listToolsCalls).toBe(1);
+  });
+
+  it("enabledMcpTools：单个 server 连接失败不影响其他 server", async () => {
+    state.stored.servers = [
+      { ...baseConfig, id: "bad", name: "bad", command: "boom" },
+      baseConfig,
+    ];
+    const tools = await enabledMcpTools();
+    expect(tools.map((tool) => tool.serverName)).toEqual(["demo"]);
+    expect(state.clients).toHaveLength(2);
+  });
+
+  it("callMcpTool：未启用/不存在 → 错误文本；命中 → 透传 callTool", async () => {
+    await expect(callMcpTool("ghost", "t", {})).resolves.toEqual({
+      ok: false,
+      text: "",
+      error: "MCP server 不存在或未启用: ghost",
+    });
+
+    state.stored.servers = [baseConfig];
+    await expect(callMcpTool("demo", "run", { a: 1 })).resolves.toEqual({ ok: true, text: "ok" });
+    expect(state.clients).toHaveLength(1);
+  });
+
+  it("mcp:scan 透传 workspaceRoot；mcp:set-servers 非数组 → 空数组", async () => {
+    state.stored.servers = [baseConfig];
+    const scan = await handler("mcp:scan")(null, "/tmp/ws");
+    expect(Array.isArray(scan)).toBe(true);
+    expect(await handler("mcp:set-servers")(null, "not-an-array")).toEqual([]);
+  });
+
+  it("连接失败的 server 在 mcp:list 标 error 态；禁用标 stopped", async () => {
+    state.stored.servers = [
+      { ...baseConfig, id: "bad", name: "bad", command: "boom" },
+      { ...baseConfig, id: "off", name: "off", enabled: false },
+    ];
+    const statuses = (await handler("mcp:list")(null)) as Array<{
+      state: string;
+      error?: string;
+      tools: unknown[];
+    }>;
+    expect(statuses.map((item) => item.state)).toEqual(["error", "stopped"]);
+    expect(statuses[0]?.error).toBeTruthy();
+    expect(statuses[0]?.tools).toEqual([]);
+    expect(state.clients).toHaveLength(1);
   });
 });

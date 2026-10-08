@@ -84,15 +84,33 @@ describe("SubAgentTranscript", () => {
     expect(snap.at(-1)).toMatchObject({ kind: "tool", toolName: "readFile" });
   });
 
+  it("常规长度的子 Agent 报告不再截断（回归：20KB 上限曾把长报告截成碎片）", () => {
+    const t = new SubAgentTranscript();
+    const report = "条目内容 ".repeat(5_000); // 约 50K 字符的长报告
+    t.push(delta(report));
+    const snap = t.snapshot();
+    expect(snap[0]?.text).toBe(report);
+    expect(snap[0]?.text).not.toContain("（已截断）");
+  });
+
   it("超长正文与入参被截断，revision 反映变更", () => {
     const t = new SubAgentTranscript();
     const before = t.revision;
-    t.push(delta("x".repeat(25_000)));
-    t.push({ type: "tool_start", sessionId: "p::a", toolCallId: "t1", toolName: "runTerminal", args: { command: "y".repeat(2_000) } });
+    t.push(delta("x".repeat(250_000)));
+    t.push({ type: "tool_start", sessionId: "p::a", toolCallId: "t1", toolName: "runTerminal", args: { command: "y".repeat(6_000) } });
     const snap = t.snapshot();
-    expect(snap[0]?.text.length).toBeLessThan(25_000);
+    expect(snap[0]?.text.length).toBeLessThan(250_000);
     expect(snap[0]?.text.endsWith("…（已截断）")).toBe(true);
-    expect(JSON.stringify(snap[1]?.args).length).toBeLessThan(2_000);
+    expect(JSON.stringify(snap[1]?.args).length).toBeLessThan(6_000);
     expect(t.revision).toBeGreaterThan(before);
+  });
+
+  it("已截断的条目不再续拼后续 delta（避免截断标记落在中间）", () => {
+    const t = new SubAgentTranscript();
+    t.push(delta("x".repeat(250_000)));
+    t.push(delta("尾巴"));
+    const snap = t.snapshot();
+    expect(snap[0]?.text.endsWith("…（已截断）")).toBe(true);
+    expect(snap[0]?.text).not.toContain("尾巴");
   });
 });

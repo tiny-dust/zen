@@ -1,6 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
+const { cliState, authState, spawnMock, execFileMock } = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+  execFileMock: vi.fn(),
+  cliState: { path: null as string | null },
+  authState: {
+    snapshot: {
+      cliInstalled: true,
+      available: false,
+      version: null,
+      appId: null,
+      brand: null,
+      botReady: false,
+      userOpenId: null,
+      userName: null,
+      userAvatarUrl: null,
+      error: "未登录",
+    } as unknown,
+  },
+}));
+
+// gateway.start() 默认走真实 cli/auth 探测：测试里替身化，避免拉起真实子进程
+vi.mock("./cli", () => ({ resolveLarkCliPath: () => cliState.path }));
+vi.mock("./auth", () => ({ readLarkAuthSnapshot: vi.fn(async () => authState.snapshot) }));
+// 默认 spawn/execFile 封装（defaultSpawnEvents/defaultSendMessage/defaultUpdateCard）走替身
+vi.mock("node:child_process", () => ({ spawn: spawnMock, execFile: execFileMock }));
+
 import {
   applyAskReply,
   buildAskActionValue,
@@ -1889,5 +1915,572 @@ describe("快捷命令执行与菜单按钮（mock deps）", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sent[sent.length - 1]).toContain("Zen 会话");
+  });
+});
+
+// ---------- 边界补测（纯函数边角 + 网关生命周期/默认封装） ----------
+
+describe("纯函数边角", () => {
+  it("parseProjectCommand：空文本无指令头 → null", () => {
+    expect(parseProjectCommand("")).toBeNull();
+    expect(parseProjectCommand("   ")).toBeNull();
+  });
+
+  it("parseAskActionValue / parseCmdActionValue：非对象 JSON → null", () => {
+    expect(parseAskActionValue("null")).toBeNull();
+    expect(parseAskActionValue("[]")).toBeNull();
+    expect(parseAskActionValue("123")).toBeNull();
+    expect(parseCmdActionValue("null")).toBeNull();
+    expect(parseCmdActionValue("[]")).toBeNull();
+  });
+
+  it("extractCardCommand：坏 action_value → null", () => {
+    const record = {
+      eventId: "e1",
+      operatorId: "ou_allowed",
+      messageId: "om_1",
+      chatId: "oc_1",
+      actionTag: "button",
+      actionValue: "{not-json",
+      option: "",
+      options: "",
+      formValue: "",
+      token: "",
+      cardContent: "",
+    };
+    expect(extractCardCommand(record)).toBeNull();
+  });
+
+  it("buildAskAnsweredCard：带 agentName 时标注来源", () => {
+    const entry = pendingOf({
+      askId: "a1",
+      seq: 1,
+      question: {
+        askId: "a1",
+        toolCallId: "tc1",
+        question: "选哪个？",
+        options: [],
+        allowFreeText: true,
+        agentName: "coder",
+      },
+    });
+    const card = buildAskAnsweredCard(entry, "方案 A");
+    const body = JSON.stringify(card);
+    expect(body).toContain("来自");
+    expect(body).toContain("coder");
+  });
+
+  it("applyAskReply：防御分支（pending[0] 缺失）→ 无待答提示", () => {
+    const result = applyAskReply("答案", [undefined as unknown as LarkPendingAsk], () => true);
+    expect(result.reply).toBe("当前没有待回答的问询。");
+    expect(result.resolvedAskIds).toEqual([]);
+  });
+
+  it("extractCardAskAnswer：form_value.answer 混入非字符串段 → 跳过并按顿号拼接", () => {
+    const record = {
+      eventId: "e1",
+      operatorId: "ou",
+      messageId: "om",
+      chatId: "oc",
+      actionTag: "button",
+      actionValue: "",
+      option: "",
+      options: "",
+      formValue: JSON.stringify({ answer: [123, "甲", null, "乙"] }),
+      token: "",
+      cardContent: "",
+    };
+    expect(extractCardAskAnswer(record)).toEqual({ askId: "", seq: 0, answer: "甲、乙" });
+  });
+
+  it("LarkMessageDeduper：limit 为负时安全退出淘汰循环", () => {
+    const deduper = new LarkMessageDeduper(-1);
+    expect(deduper.firstSeen("m1")).toBe(true);
+  });
+});
+
+describe("gateway.start 生命周期分支（mock cli/auth/lock）", () => {
+  function offGateway(deps: Partial<ConstructorParameters<typeof LarkGateway>[0]> = {}) {
+    const g = gatewayOf(deps);
+    (g.gateway as unknown as { state: string }).state = "off";
+    (g.gateway as unknown as { cliPath: string | null }).cliPath = null;
+    return g;
+  }
+
+  it("抢到锁后 cli 探测失败 → error 且释放锁", async () => {
+    const releaseLock = vi.fn();
+    const spawnEvents = vi.fn();
+    const { gateway } = offGateway({
+      acquireLock: () => ({ ok: true }),
+      releaseLock,
+      spawnEvents,
+    });
+    cliState.path = null;
+    await gateway.start({ allowedOpenId: "ou_allowed" });
+    expect(gateway.snapshot().state).toBe("error");
+    expect(gateway.snapshot().gatewayError).toContain("未找到 lark-cli");
+    expect(releaseLock).toHaveBeenCalled();
+    expect(spawnEvents).not.toHaveBeenCalled();
+  });
+
+  it("auth 不可用 → error；bot 未就绪 → error", async () => {
+    cliState.path = "/tmp/lark-cli";
+    authState.snapshot = { available: false, error: "token 过期" };
+    const a = offGateway({ acquireLock: () => ({ ok: true }), releaseLock: vi.fn() });
+    await a.gateway.start({ allowedOpenId: "ou" });
+    expect(a.gateway.snapshot().gatewayError).toContain("token 过期");
+
+    authState.snapshot = { available: true, botReady: false };
+    const b = offGateway({ acquireLock: () => ({ ok: true }), releaseLock: vi.fn() });
+    await b.gateway.start({ allowedOpenId: "ou" });
+    expect(b.gateway.snapshot().state).toBe("error");
+    expect(b.gateway.snapshot().gatewayError).toContain("bot 身份未就绪");
+  });
+
+  it("auth 可用 → spawn 两个通道；再 start 时重置连续失败计数", async () => {
+    cliState.path = "/tmp/lark-cli";
+    authState.snapshot = { available: true, botReady: true };
+    const spawned: string[] = [];
+    const { gateway } = offGateway({
+      acquireLock: () => ({ ok: true }),
+      releaseLock: vi.fn(),
+      spawnEvents: (_cli, eventKey) => {
+        spawned.push(eventKey);
+        return fakeChild() as unknown as import("node:child_process").ChildProcess;
+      },
+    });
+    await gateway.start({ allowedOpenId: "ou_allowed" });
+    expect(gateway.snapshot().state).toBe("starting");
+    expect(spawned).toEqual(["im.message.receive_v1", "card.action.trigger"]);
+    // 重复 start 幂等（starting 态直接返回，不重复 spawn）
+    await gateway.start({ allowedOpenId: "ou_allowed" });
+    expect(spawned).toHaveLength(2);
+  });
+
+  it("stop 清重启定时器并 SIGTERM 子进程；无子进程时安全", () => {
+    const { gateway } = gatewayOf();
+    (gateway as unknown as { handleUnexpectedExit(c: string, r: string): void }).handleUnexpectedExit(
+      "messages",
+      "boom",
+    );
+    gateway.stop();
+    expect(gateway.snapshot().state).toBe("off");
+    // 再 stop 幂等
+    gateway.stop();
+  });
+
+  it("pushAsk：off 态静默丢弃；同 askId 不重复推送", async () => {
+    const { gateway, sent } = gatewayOf();
+    (gateway as unknown as { state: string }).state = "off";
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    expect(sent).toHaveLength(0);
+
+    (gateway as unknown as { state: string }).state = "ready";
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent).toHaveLength(1);
+  });
+
+  it("onAskResolved：未知 askId 静默；自写回不补提示；外部回答补提示", async () => {
+    const { gateway, sent } = gatewayOf();
+    gateway.onAskResolved("ghost");
+    expect(sent).toHaveLength(0);
+
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sent.length = 0;
+
+    // 模拟自写回：把 a1 加入 selfResolved 后由卡片回调路径移除——直接走 applyAskReply 等价流程
+    (gateway as unknown as { selfResolved: Set<string> }).selfResolved.add("a1");
+    gateway.onAskResolved("a1");
+    expect(sent).toHaveLength(0);
+
+    gateway.pushAsk(
+      { askId: "a2", toolCallId: "t", question: "q2", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sent.length = 0;
+    gateway.onAskResolved("a2");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent).toEqual(["ℹ️ 该问询已在 Zen 内回答"]);
+  });
+
+  it("onSessionDone：清掉该会话全部待答；无登记标题时不推送", async () => {
+    const { gateway, sent } = gatewayOf();
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    gateway.pushAsk(
+      { askId: "a2", toolCallId: "t", question: "q", options: [], allowFreeText: true },
+      "s2",
+      "会话2",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sent.length = 0;
+
+    gateway.onSessionDone("s1");
+    expect(sent).toHaveLength(0); // s1 未 trackSession（无标题）→ 不推送
+    // s1 的待答已清：直接回文本不再走问询
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("随便聊聊");
+    expect(sent[sent.length - 1]).not.toContain("已回答");
+  });
+
+  it("firstPendingQuestion：命中返回问题文本，否则 null", async () => {
+    const { gateway } = gatewayOf();
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "选哪个？", options: [], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(gateway.firstPendingQuestion("s1")).toBe("选哪个？");
+    expect(gateway.firstPendingQuestion("s9")).toBeNull();
+  });
+
+  it("「状态」指令带出 firstPendingQuestion；指令打断问询时尾注剩余数量", async () => {
+    const sessions = [sessionOf({ id: "s1", title: "重构", updatedAt: NOW })];
+    const { gateway, sent } = gatewayOf({ listSessions: () => sessions.map((s) => ({
+      id: s.id, title: s.title, state: "running", updatedAt: s.updatedAt, isCurrent: true,
+    })) });
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "选哪个？", options: [], allowFreeText: true },
+      "s1",
+      "重构",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sent.length = 0;
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("状态");
+    expect(sent[0]).toContain("选哪个？");
+    expect(sent[0]).toContain("还有 1 个问询未回答");
+  });
+});
+
+describe("消费通道与默认封装", () => {
+  async function flush(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("spawnConsumer：spawn 抛错 → 走异常退出重试；restartTimer 清理", () => {
+    const spawnEvents = vi.fn(() => {
+      throw new Error("spawn boom");
+    });
+    const { gateway } = gatewayOf({ spawnEvents });
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    expect(gateway.snapshot().state).toBe("starting");
+    expect(gateway.snapshot().gatewayError).toContain("spawn boom");
+    // 再次 spawn 清掉旧 timer
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    gateway.stop();
+  });
+
+  it("child error 事件 → 异常退出处理；close 在 settled 后静默", async () => {
+    const child = fakeChild();
+    const { gateway } = gatewayOf({ spawnEvents: () => child as unknown as import("node:child_process").ChildProcess });
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    child.emit("error", new Error("pipe broke"));
+    expect(gateway.snapshot().gatewayError).toContain("pipe broke");
+    // settled 后 close/error 不再处理
+    child.emit("error", new Error("again"));
+    child.emit("close", 1, null);
+    gateway.stop();
+  });
+
+  it("close 在 stopping 后静默；stdout 半行超长丢弃；坏行跳过", async () => {
+    const child = fakeChild();
+    const { gateway, sent } = gatewayOf({ spawnEvents: () => child as unknown as import("node:child_process").ChildProcess });
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    child.stdout.emit("data", "not-json\n");
+    child.stdout.emit("data", "x".repeat(1_000_001));
+    await flush();
+    expect(sent).toHaveLength(0);
+    gateway.stop();
+    child.emit("close", 1, null);
+    expect(gateway.snapshot().state).toBe("off");
+  });
+
+  it("stderr：超 20 行滚动截尾；ready marker 恢复并保留永久错误提示", () => {
+    const messages = fakeChild();
+    const cardActions = fakeChild();
+    const spawned: Record<string, FakeChild> = {};
+    const { gateway } = gatewayOf({
+      spawnEvents: (_cli, eventKey) => {
+        const child = eventKey === "card.action.trigger" ? cardActions : messages;
+        spawned[eventKey] = child;
+        return child as unknown as import("node:child_process").ChildProcess;
+      },
+    });
+    (gateway as unknown as { spawnAll(): void }).spawnAll();
+    // messages 通道滚动截尾
+    for (let i = 0; i < 25; i += 1) {
+      messages.stderr.emit("data", `warn ${i}\n`);
+    }
+    // cardActions 通道报未订阅 → 永久错误
+    cardActions.stderr.emit(
+      "data",
+      "EventKey card.action.trigger requires callbacks not subscribed\n",
+    );
+    // messages ready marker 恢复 → 保留 cardActions 的永久错误
+    messages.stderr.emit("data", "[event] ready event_key=im.message.receive_v1\n");
+    expect(gateway.snapshot().gatewayError).toContain("card.action.trigger");
+    // 再次 ready marker 不重复广播状态变化
+    messages.stderr.emit("data", "[event] ready event_key=im.message.receive_v1\n");
+    gateway.stop();
+  });
+
+  it("handleEventLine：同 message_id 重投只处理一次；handleText 抛错被吞", async () => {
+    const listSessions = vi.fn(() => {
+      throw new Error("db down");
+    });
+    const child = fakeChild();
+    const { gateway } = gatewayOf({
+      listSessions,
+      spawnEvents: () => child as unknown as import("node:child_process").ChildProcess,
+    });
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    const line = JSON.stringify({
+      message_id: "om_dup",
+      chat_id: "oc_1",
+      chat_type: "p2p",
+      message_type: "text",
+      sender_id: "ou_allowed",
+      sender_type: "user",
+      content: "列表",
+    });
+    child.stdout.emit("data", `${line}\n${line}\n`);
+    await flush();
+    await flush();
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    gateway.stop();
+  });
+
+  it("未授权私信回执独立通道：cliPath 缺失时静默", async () => {
+    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => undefined);
+    const child = fakeChild();
+    const { gateway } = gatewayOf({
+      sendMessage,
+      spawnEvents: () => child as unknown as import("node:child_process").ChildProcess,
+    });
+    (gateway as unknown as { spawnConsumer(c: string): void }).spawnConsumer("messages");
+    (gateway as unknown as { cliPath: string | null }).cliPath = null;
+    child.stdout.emit(
+      "data",
+      `${JSON.stringify({
+        message_id: "om_x",
+        chat_id: "oc_1",
+        chat_type: "p2p",
+        message_type: "text",
+        sender_id: "ou_intruder",
+        sender_type: "user",
+        content: "列表",
+      })}\n`,
+    );
+    await flush();
+    await flush();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    // cliPath 就绪后同一场景回无权限提示（且 message_id 去重防重投）
+    (gateway as unknown as { cliPath: string | null }).cliPath = "lark-cli-stub";
+    child.stdout.emit(
+      "data",
+      `${JSON.stringify({
+        message_id: "om_y",
+        chat_id: "oc_1",
+        chat_type: "p2p",
+        message_type: "text",
+        sender_id: "ou_intruder",
+        sender_type: "user",
+        content: "列表",
+      })}\n`,
+    );
+    await flush();
+    await flush();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[2]).toContain("无权限");
+  });
+
+  it("defaultSendMessage：cardJson 走 interactive，markdown 走 --markdown；defaultUpdateCard 走 api POST", async () => {
+    execFileMock.mockImplementation(
+      (
+        _cmd: string,
+        _args: string[],
+        _opts: unknown,
+        callback: (err: Error | null) => void,
+      ) => callback(null),
+    );
+    // 不注入 sendMessage/updateCard → 走默认封装
+    const gateway = new LarkGateway({
+      listSessions: () => [],
+      resolveAsk: () => true,
+      onStateChange: () => undefined,
+    });
+    (gateway as unknown as { cliPath: string }).cliPath = "lark-cli-stub";
+    (gateway as unknown as { allowedOpenId: string }).allowedOpenId = "ou_allowed";
+    (gateway as unknown as { state: string }).state = "ready";
+
+    await gateway.sendMarkdown("hello");
+    let call = execFileMock.mock.calls.at(-1);
+    expect(call?.[0]).toBe("lark-cli-stub");
+    expect(call?.[1]).toContain("--markdown");
+    expect(call?.[1]).toContain("--idempotency-key");
+
+    gateway.pushAsk(
+      { askId: "a1", toolCallId: "t", question: "q", options: ["A"], allowFreeText: true },
+      "s1",
+      "会话",
+    );
+    await flush();
+    call = execFileMock.mock.calls.at(-1);
+    expect(call?.[1]).toContain("--msg-type");
+    expect(call?.[1]).toContain("interactive");
+
+    // updateCard：带 token 写回成功 → api POST 替换卡片
+    const line = JSON.stringify({
+      event_id: "ev-1",
+      operator_id: "ou_allowed",
+      message_id: "om_1",
+      chat_id: "oc_1",
+      action_tag: "button",
+      action_value: buildAskActionValue("a1", 1, "A"),
+      option: "",
+      options: "",
+      form_value: "",
+      token: "tk-1",
+      card_content: "",
+    });
+    (gateway as unknown as { handleCardActionLine(l: string): void }).handleCardActionLine(line);
+    await flush();
+    await flush();
+    await flush();
+    const updateCall = execFileMock.mock.calls.find((item) =>
+      (item[1] as string[]).some((arg) => String(arg).includes("/open-apis/interactive/v1/card/update")),
+    );
+    expect(updateCall).toBeTruthy();
+    expect(updateCall?.[1]).toContain("api");
+  });
+
+  it("sendTestAskCard：未配置操控者报错；就绪时发测试卡片", async () => {
+    const gateway = new LarkGateway({
+      listSessions: () => [],
+      resolveAsk: () => false,
+      onStateChange: () => undefined,
+      sendMessage: vi.fn(async () => undefined),
+    });
+    expect(gateway.sendTestAskCard().ok).toBe(false);
+    (gateway as unknown as { cliPath: string }).cliPath = "lark-cli-stub";
+    (gateway as unknown as { allowedOpenId: string }).allowedOpenId = "ou_allowed";
+    (gateway as unknown as { state: string }).state = "ready";
+    expect(gateway.sendTestAskCard()).toEqual({ ok: true });
+  });
+
+  it("无 allowedOpenId 发送 → 记录失败原因，下一条消息前置短提示", async () => {
+    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => undefined);
+    const gateway = new LarkGateway({
+      listSessions: () => [],
+      resolveAsk: () => false,
+      onStateChange: () => undefined,
+      sendMessage,
+    });
+    (gateway as unknown as { cliPath: string }).cliPath = "lark-cli-stub";
+    (gateway as unknown as { state: string }).state = "ready";
+    await gateway.sendMarkdown("第一条");
+    expect(sendMessage).not.toHaveBeenCalled();
+    (gateway as unknown as { allowedOpenId: string }).allowedOpenId = "ou_allowed";
+    await gateway.sendMarkdown("第二条");
+    expect(sendMessage.mock.calls[0]?.[2]).toContain("上一条消息发送失败");
+    expect(sendMessage.mock.calls[0]?.[2]).toContain("第二条");
+  });
+});
+
+describe("项目指令边界分支", () => {
+  it("「继续」缺消息 → 用法提示；有绑定时续聊", async () => {
+    const continueChat = vi.fn(async () => ({ ok: true, title: "T" }));
+    const { gateway, sent } = gatewayOf({ continueChat });
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("继续");
+    expect(sent[0]).toContain("继续 <消息>");
+    gateway.trackSession("s1", "T");
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("继续 加一句");
+    expect(continueChat).toHaveBeenCalledWith("s1", "加一句");
+  });
+
+  it("「新会话」强制新建（hint 变化）；项目无本地路径提示", async () => {
+    const startChat = vi.fn(async () => ({ ok: true, sessionId: "s1", title: "t" }));
+    const { gateway, sent } = gatewayOf({
+      startChat,
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "" })],
+    });
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("新会话 你好");
+    expect(startChat).toHaveBeenCalledWith(null, "你好");
+    expect(sent[0]).not.toContain("可另起会话");
+
+    sent.length = 0;
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("对话 zen hi");
+    expect(sent[0]).toContain("没有本地路径");
+  });
+
+  it("网关未装配 startChat：普通文本与对话指令均提示", async () => {
+    const { gateway, sent } = gatewayOf({
+      listProjects: () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })],
+    });
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("你好");
+    expect(sent[0]).toContain("网关未装配会话启动能力");
+    sent.length = 0;
+    await (gateway as unknown as { handleText(t: string): Promise<void> }).handleText("对话 zen hi");
+    expect(sent[0]).toContain("网关未装配会话启动能力");
+  });
+
+  it("分支获取失败 → 错误摘要；切换成功/失败分支文案", async () => {
+    const projects = () => [projectOf({ id: "w1", name: "zen", path: "/tmp/zen" })];
+    const failing = gatewayOf({
+      listProjects: projects,
+      listBranches: vi.fn(async () => {
+        throw new Error("not a git repo");
+      }),
+    });
+    await (failing.gateway as unknown as { handleText(t: string): Promise<void> }).handleText("分支 zen");
+    expect(failing.sent[0]).toContain("获取分支失败");
+    expect(failing.sent[0]).toContain("not a git repo");
+
+    const okCheckout = gatewayOf({
+      listProjects: projects,
+      checkoutBranch: vi.fn(async () => ({ ok: true })),
+    });
+    await (okCheckout.gateway as unknown as { handleText(t: string): Promise<void> }).handleText("切换 zen dev");
+    expect(okCheckout.sent[0]).toContain("✅ 已切换到分支 dev");
+
+    const badCheckout = gatewayOf({
+      listProjects: projects,
+      checkoutBranch: vi.fn(async () => ({ ok: false, error: "分支不存在" })),
+    });
+    await (badCheckout.gateway as unknown as { handleText(t: string): Promise<void> }).handleText("切换 zen nope");
+    expect(badCheckout.sent[0]).toContain("❌ 切换失败：分支不存在");
+
+    const badCommit = gatewayOf({
+      listProjects: projects,
+      commitProject: vi.fn(async () => ({ ok: false, error: "钩子拒绝" })),
+    });
+    await (badCommit.gateway as unknown as { handleText(t: string): Promise<void> }).handleText("提交 zen x");
+    expect(badCommit.sent[0]).toContain("❌ 提交失败：钩子拒绝");
   });
 });

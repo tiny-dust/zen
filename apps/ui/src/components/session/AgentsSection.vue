@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, SquareTerminal } from "@lucide/vue";
+import { Bot, RotateCcw, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref } from "vue";
 
@@ -27,6 +27,15 @@ function meta(status: SubAgentStatus) {
 function openMessages(node: AgentNode) {
   agentsStore.select(node.id);
   rightPanel.ensureTab("agents");
+}
+
+/** 失败/取消的子 Agent 可手动重试；结果经状态流转反馈（失败原因见右栏消息面板） */
+function canRetry(node: AgentNode) {
+  return node.status === "error" || node.status === "cancelled";
+}
+
+async function onRetry(node: AgentNode) {
+  await agentsStore.retry(node);
 }
 
 /** 独占资源 → 中文标签（busyResource 展示用） */
@@ -95,6 +104,18 @@ function extraLine(node: AgentNode): string {
           class="size-3 flex-none text-[var(--color-dim)]"
           aria-hidden="true"
         />
+        <span
+          v-if="canRetry(node)"
+          role="button"
+          tabindex="0"
+          class="flex-none rounded-[var(--radius-sm)] p-0.5 text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
+          title="重试"
+          aria-label="重试子 Agent"
+          @click.stop="onRetry(node)"
+          @keydown.enter.stop="onRetry(node)"
+        >
+          <RotateCcw class="size-3" aria-hidden="true" />
+        </span>
       </Button>
     </div>
   </section>

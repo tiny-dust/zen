@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Bot, MessageCircleQuestion, SquareTerminal } from "@lucide/vue";
+import { Bot, MessageCircleQuestion, RotateCcw, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
@@ -171,6 +171,24 @@ function kindLabel(row: Row): string {
 
 const segmentKindLabel = (kind: "result" | "error") =>
   kindLabel({ key: "", kind, text: "" } as Row);
+
+/** 手动重试：失败/取消的子 Agent 重新排队执行 */
+const retryError = ref("");
+const canRetry = computed(
+  () => selected.value?.status === "error" || selected.value?.status === "cancelled",
+);
+
+async function onRetry() {
+  const node = selected.value;
+  if (!node) {
+    return;
+  }
+  retryError.value = "";
+  const result = await agentsStore.retry(node);
+  if (!result.ok) {
+    retryError.value = result.error || "重试失败";
+  }
+}
 </script>
 
 <template>
@@ -184,10 +202,24 @@ const segmentKindLabel = (kind: "result" | "error") =>
       <span v-if="selected" class="flex-none" :class="meta(selected.status).cls">
         {{ meta(selected.status).label }}
       </span>
+      <button
+        v-if="selected && canRetry"
+        type="button"
+        class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[11px] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
+        aria-label="重试子 Agent"
+        @click="onRetry"
+      >
+        <RotateCcw class="size-3" aria-hidden="true" />
+        重试
+      </button>
       <span class="ml-auto flex-none tabular-nums text-[11px] text-[var(--color-dim)]">
         并发 {{ running }}/{{ limit }}
       </span>
     </div>
+
+    <p v-if="retryError" class="m-0 px-1 text-[11px] text-[var(--color-danger-fg)]" role="alert">
+      重试失败：{{ retryError }}
+    </p>
 
     <div
       v-if="nodes.length > 1"

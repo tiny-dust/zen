@@ -45,6 +45,9 @@ export const SUB_AGENT_IDLE_TIMEOUT_MS = 4 * 60_000;
 export const SUB_AGENT_TIMEOUT_MS = SUB_AGENT_IDLE_TIMEOUT_MS;
 
 const MAX_LOG_LINES = 40;
+const MAX_LOG_CHARS = 2_000;
+/** 终态结果（collectAgentResults 聚合用）完整保留的保险丝上限 */
+const MAX_RESULT_CHARS = 50_000;
 const MAX_RETRY = 2;
 
 const TERMINAL_STATUSES = new Set<SubAgentStatus>(["done", "error", "cancelled"]);
@@ -173,7 +176,7 @@ export class MultiAgentOrchestrator {
   }
 
   private appendLog(agent: AgentNodeState, text: string): void {
-    agent.log.push({ t: now(), text: truncate(text, 240) });
+    agent.log.push({ t: now(), text: truncate(text, MAX_LOG_CHARS) });
     if (agent.log.length > MAX_LOG_LINES) {
       agent.log.splice(0, agent.log.length - MAX_LOG_LINES);
     }
@@ -211,6 +214,37 @@ export class MultiAgentOrchestrator {
 
   list(): AgentNodeState[] {
     return this.snapshot().agents;
+  }
+
+  /**
+   * 手动重试：失败/取消的子任务重新排队执行（UI 面板「重试」按钮）。
+   * 尝试次数重置（重试预算重新计算），日志保留；依赖未满足时回到等待依赖，
+   * 依赖仍失败则拒绝（先重试依赖）。
+   */
+  retry(agentId: string): boolean {
+    const agent = this.nodes.get(agentId);
+    if (!agent || this.disposed) {
+      return false;
+    }
+    if (agent.status !== "error" && agent.status !== "cancelled") {
+      return false;
+    }
+    if (this.hasFailedDependency(agent)) {
+      return false;
+    }
+    agent.attempts = 0;
+    agent.error = undefined;
+    agent.result = undefined;
+    agent.reason = undefined;
+    agent.endedAt = undefined;
+    agent.waitingUser = false;
+    agent.transcript = [];
+    agent.status = this.dependenciesMet(agent) ? "queued" : "waiting_deps";
+    this.appendLog(agent, "手动重试");
+    this.emitStatus(agent);
+    this.emitTree();
+    void this.pump();
+    return true;
   }
 
   private dependenciesMet(agent: AgentNodeState): boolean {
@@ -432,7 +466,7 @@ export class MultiAgentOrchestrator {
           agent.status = "done";
           agent.reason = "stop";
           agent.waitingUser = false;
-          agent.result = truncate(result.text, 2000);
+          agent.result = truncate(result.text, MAX_RESULT_CHARS);
           agent.endedAt = now();
           this.appendLog(agent, "执行完成");
           return;

@@ -56,15 +56,10 @@
     "updates:serve": "node scripts/updates-server.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "brand:dev": "bash scripts/brand-dev-app.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@zen/shared": "workspace:*",
-    "@zen/agent-core": "workspace:*",
-    "@zen/skills": "workspace:*",
-    "@zen/mcp-client": "workspace:*",
-    "@zen/tools-browser": "workspace:*",
-    "@zen/tools-terminal": "workspace:*",
     "@lydell/node-pty": "1.2.0-beta.15",
     "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
     "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
@@ -72,6 +67,12 @@
     "@lydell/node-pty-linux-x64": "1.2.0-beta.15",
     "@lydell/node-pty-win32-arm64": "1.2.0-beta.15",
     "@lydell/node-pty-win32-x64": "1.2.0-beta.15",
+    "@zen/agent-core": "workspace:*",
+    "@zen/mcp-client": "workspace:*",
+    "@zen/shared": "workspace:*",
+    "@zen/skills": "workspace:*",
+    "@zen/tools-browser": "workspace:*",
+    "@zen/tools-terminal": "workspace:*",
     "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9",
     "rattail": "2.2.0"
@@ -82,11 +83,13 @@
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "22.20.2",
     "@vitejs/plugin-vue": "6.0.8",
+    "@vitest/coverage-v8": "5.0.0",
     "electron": "44.3.0",
     "electron-builder": "26.16.1",
     "electron-vite": "5.0.0",
     "typescript": "5.9.3",
-    "vite": "7.3.6"
+    "vite": "7.3.6",
+    "vitest": "5.0.0"
   },
   "description": "Zen — 极致精简，专注编程的 AI Agent 桌面端",
   "author": {

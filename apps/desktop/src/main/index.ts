@@ -201,6 +201,20 @@ function registerIpc(): void {
     return { ok: true };
   });
 
+  // 手动重试失败/取消的子 Agent（右栏 Agents 面板「重试」按钮）
+  ipcMain.handle("agent:retry-sub-agent", async (_event, sessionId: string, agentId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return { ok: false, error: "session not running" };
+    }
+    if (typeof agentId !== "string" || !agentId) {
+      return { ok: false, error: "invalid agent id" };
+    }
+    return session.retrySubAgent(agentId)
+      ? { ok: true }
+      : { ok: false, error: "子 Agent 不存在或不在可重试状态" };
+  });
+
   // 插入执行：打断当前 run（保留 checkpoint），插入消息以最高权重先执行，
   // 完成后原 run 从断点自动 resume。前置校验失败（等审批/提问/并发插入）直接拒绝，
   // 不落库用户消息；校验通过后落库插入消息并异步驱动 insert，错误经流事件透出。

@@ -13,6 +13,16 @@ export interface TriggerItem {
   id?: string;
   dir?: string;
   source?: "builtin" | "user";
+  /** 会话内已上传文件条目：置顶 + 「已上传」标识，apply 时先登记为 composer 附件 */
+  uploaded?: UploadedFileRef;
+}
+
+/** 本会话上传过的文件（当前 composer 附件 + 已发送消息附件），path 唯一 */
+export interface UploadedFileRef {
+  name: string;
+  path: string;
+  size?: number;
+  isImage?: boolean;
 }
 
 export type TriggerKind = "skill" | "file";
@@ -72,6 +82,10 @@ export function useComposerTriggers(options: {
   focus: () => void;
   /** @ 文件补全的根目录；不传则用 main 的默认目录 */
   rootPath?: () => string | undefined;
+  /** 本会话上传过的文件（当前附件 + 历史消息附件），@ 弹层置顶展示 */
+  uploadedFiles?: () => UploadedFileRef[];
+  /** 选中已上传文件时登记为 composer 附件（path 去重），`$名称` 才能按附件 token 渲染并随消息发送 */
+  registerUploaded?: (file: UploadedFileRef) => void;
 }) {
   const open = ref(false);
   const kind = ref<TriggerKind>("skill");
@@ -120,9 +134,23 @@ export function useComposerTriggers(options: {
   });
 
   const fileItems = computed<TriggerItem[]>(() => {
-    // 全量文件参与打分（上限 4000 量级，逐键计算可接受），避免头部截断漏掉深目录文件
-    return rankByQuery(
-      files.value.map((file) => ({
+    // 本会话上传过的文件（当前附件 + 历史消息附件）置顶；同 path 只保留已上传条目
+    const uploaded = options.uploadedFiles?.() ?? [];
+    const uploadedPaths = new Set(uploaded.map((file) => file.path));
+    const uploadedEntries = uploaded.map((file) => ({
+      haystack: `${file.name} ${file.path}`,
+      value: {
+        insert: `$${file.name} `,
+        label: file.name,
+        desc: file.path,
+        icon: "file" as const,
+        uploaded: file,
+      },
+    }));
+    // 工作区文件全量参与打分（上限 4000 量级，逐键计算可接受），避免头部截断漏掉深目录文件
+    const treeEntries = files.value
+      .filter((file) => !uploadedPaths.has(file.path))
+      .map((file) => ({
         // 文件名在前：文件名命中排在纯路径命中之前
         haystack: `${file.name} ${file.path}`,
         value: {
@@ -131,9 +159,12 @@ export function useComposerTriggers(options: {
           desc: file.path,
           icon: file.isDir ? ("dir" as const) : ("file" as const),
         },
-      })),
-      query.value,
-    ).slice(0, 30);
+      }));
+    // 已上传置顶（组内仍按模糊打分），工作区文件树跟在后面
+    return [
+      ...rankByQuery(uploadedEntries, query.value),
+      ...rankByQuery(treeEntries, query.value),
+    ].slice(0, 30);
   });
 
   const items = computed<TriggerItem[]>(() =>
@@ -207,6 +238,11 @@ export function useComposerTriggers(options: {
     const target = item ?? activeItem.value;
     if (!open.value || !target) {
       return false;
+    }
+    // 已上传文件先登记为 composer 附件：`$名称` 绑定到附件才是附件 token，
+    // 发送时随消息带 attachmentRefs（含 path），Agent 才能打开工作区外的文件
+    if (target.uploaded) {
+      options.registerUploaded?.(target.uploaded);
     }
     const value = options.value();
     const cursor = Math.min(Math.max(options.caret(), 0), value.length);

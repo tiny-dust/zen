@@ -41,6 +41,24 @@ export function createComposerDomain(options: ComposerDomainOptions) {
     attachments.value = attachments.value.filter((item) => item.id !== id);
   }
 
+  /**
+   * 把引用到的上传文件登记为附件（按 path 去重）：
+   * `$名称` 只有绑定到附件才是 ComposerEditor 的附件 token，且随消息发 attachmentRefs，
+   * Agent 才能按 path 打开工作区外的文件。
+   */
+  function registerAttachmentRef(ref: { name: string; path: string; size?: number; isImage?: boolean }) {
+    if (attachments.value.some((item) => item.path === ref.path)) {
+      return;
+    }
+    attachments.value.push({
+      id: uuid(),
+      name: ref.name,
+      path: ref.path,
+      size: ref.size ?? 0,
+      isImage: ref.isImage ?? /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(ref.name),
+    });
+  }
+
   /** 正文里的内联技能 token（/skill:名称）→ SelectedSkill（发送时进 meta.skills 渲染 tag） */
   function extractSkills(text: string): SelectedSkill[] {
     const known = useAgentStore().skills;
@@ -70,7 +88,13 @@ export function createComposerDomain(options: ComposerDomainOptions) {
 
   /** 浏览器标注：登记元素并以 `$el:标签` tag 插入光标处 */
   function insertBrowserElement(elementRef: BrowserElementRef) {
-    elementSeq += 1;
+    // 草稿恢复的历史标注可能已占用 be_N：新标注从现有 id 之后继续编号，避免串绑
+    let seq = elementSeq;
+    const usedIds = new Set(elementMarks.value.map((item) => item.id));
+    while (usedIds.has(`be_${seq + 1}`)) {
+      seq += 1;
+    }
+    elementSeq = seq + 1;
     const used = new Set(elementMarks.value.map((item) => item.label));
     const mark = createElementMark(elementRef, elementSeq, used);
     elementMarks.value = [...elementMarks.value, mark];
@@ -91,6 +115,7 @@ export function createComposerDomain(options: ComposerDomainOptions) {
     pendingComposerInsert,
     addAttachment,
     removeAttachment,
+    registerAttachmentRef,
     extractSkills,
     insertAtComposerCaret,
     insertBrowserElement,

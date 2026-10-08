@@ -309,8 +309,9 @@ async function uninstallSkill(skill: SkillSummary) {
   try {
     // skill 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
     const result = await zen.skills.uninstall({ ...skill });
-    statusMsg.value = result.ok ? `已卸载 ${skill.name}` : result.error || "卸载失败";
+    // 先刷新列表，再写结果文案，避免 refreshAll 的状态覆盖「已卸载」反馈
     await refreshAll();
+    statusMsg.value = result.ok ? `已卸载 ${skill.name}` : result.error || "卸载失败";
   } catch (error) {
     statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {

@@ -236,6 +236,11 @@ export class AgentSession {
     return this.orchestrator?.snapshot() ?? null;
   }
 
+  /** 手动重试失败/取消的子 Agent（UI 面板「重试」按钮）；无可重试目标时返回 false */
+  retrySubAgent(agentId: string): boolean {
+    return this.orchestrator?.retry(agentId) ?? false;
+  }
+
   /** 只读运行状态快照（外部集成如飞书桥接展示会话状态用，不改变任何行为） */
   getRunState(): {
     runActive: boolean;

@@ -117,6 +117,15 @@ export const useAgentsStore = defineStore("agents", () => {
     selectedId.value = id;
   }
 
+  /** 手动重试失败/取消的子 Agent；结果由调用方展示 */
+  async function retry(node: AgentNode): Promise<{ ok: boolean; error?: string }> {
+    const zen = window.zen;
+    if (!zen) {
+      return { ok: false, error: "桌面桥接不可用" };
+    }
+    return zen.agent.retrySubAgent(node.sessionId, node.id);
+  }
+
   function clear() {
     sessionId.value = "";
     nodes.value = [];
@@ -148,6 +157,7 @@ export const useAgentsStore = defineStore("agents", () => {
     applyStatus,
     handleStreamEvent,
     select,
+    retry,
     clear,
   };
 });
