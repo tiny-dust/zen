@@ -95,7 +95,15 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
     const lines = config.mcpTools
       .map((bridge) => `- mcp.${bridge.serverName}.${bridge.name}: ${bridge.description ?? ""}`)
       .join("\n");
-    parts.push(`已连接的 MCP 工具（调用前注意这些是外部服务）：\n${lines}`);
+    parts.push(
+      `已连接的 MCP 工具（按任务主动调用，不要被动等用户点名）：\n${lines}\n` +
+        `主动调用规则：\n` +
+        `1. 当用户任务与某个 MCP 工具的用途/描述匹配时（尤其是飞书/Lark、日历、文档、邮件、任务等外部域操作），` +
+        `优先调用对应的 mcp.<server>.<tool> 完成，而不是用内置工具模拟、编造结果，或反问用户「要不要用某某」。\n` +
+        `2. 工具参数不明确时，先读该工具的描述与输入 schema 再调用；同一 server 有多个工具时选用途最贴合的那个。\n` +
+        `3. 调用失败时把错误原文透出，并给出替代方案（换其它工具/让用户检查服务配置），不要静默吞掉。\n` +
+        `4. 清单里没有能覆盖任务的 MCP 工具、而任务又明确需要外部系统时，提示用户到「MCP 服务」弹窗配置或启用对应服务。`,
+    );
   }
   if (config.multiAgent !== false) {
     parts.push(multiAgentInstructions());
