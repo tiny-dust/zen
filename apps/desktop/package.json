@@ -8,7 +8,6 @@
   "build": {
     "appId": "com.zen.desktop",
     "productName": "Zen",
-    "executableName": "zen",
     "directories": {
       "output": "release"
     },
@@ -27,7 +26,8 @@
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "executableName": "zen"
     },
     "linux": {
       "target": [
@@ -35,7 +35,8 @@
       ],
       "icon": "build/icon.png",
       "category": "Development",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "executableName": "zen"
     },
     "npmRebuild": false,
     "asarUnpack": [
