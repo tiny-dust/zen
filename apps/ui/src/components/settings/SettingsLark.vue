@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { Bot, Check, CircleAlert, Download, RefreshCw } from "@lucide/vue";
+import { Bot, Check, CircleAlert, Download, Pencil, Plus, RefreshCw, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAgentStore } from "@/stores/agent";
 
-import type { LarkGatewayState } from "@zen/shared";
+import type { LarkGatewayState, LarkQuickCommand } from "@zen/shared";
 
 /**
  * 飞书桥接：开关走 AgentSettings.larkBridge，状态来自 lark:status / lark:changed
@@ -91,6 +92,69 @@ async function sendTestAskCard() {
     testHint.value = error instanceof Error ? error.message : "发送测试卡片失败";
   } finally {
     testing.value = false;
+  }
+}
+
+// ---------- 自定义快捷命令（/别名 → 预设文本；菜单卡片一键点选） ----------
+const quickForm = ref({ alias: "", label: "", prompt: "" });
+const editingQuickId = ref<string | null>(null);
+const quickHint = ref<string | null>(null);
+
+const quickCommands = computed(() => settings.value.larkBridge.quickCommands ?? []);
+
+function saveQuickCommands(next: LarkQuickCommand[]) {
+  void agentStore.updateSettings({
+    larkBridge: { ...settings.value.larkBridge, quickCommands: next },
+  });
+}
+
+function startEditQuick(item: LarkQuickCommand) {
+  editingQuickId.value = item.id;
+  quickForm.value = { alias: item.alias, label: item.label, prompt: item.prompt };
+  quickHint.value = null;
+}
+
+function cancelEditQuick() {
+  editingQuickId.value = null;
+  quickForm.value = { alias: "", label: "", prompt: "" };
+  quickHint.value = null;
+}
+
+function submitQuickCommand() {
+  const alias = quickForm.value.alias.trim().replace(/^\/+/, "");
+  const prompt = quickForm.value.prompt.trim();
+  if (!alias || !prompt) {
+    quickHint.value = "别名与预设内容不能为空";
+    return;
+  }
+  if (!/^[^\s/]+$/.test(alias)) {
+    quickHint.value = "别名不能含空格或斜杠";
+    return;
+  }
+  const duplicated = quickCommands.value.some(
+    (item) => item.alias.toLowerCase() === alias.toLowerCase() && item.id !== editingQuickId.value,
+  );
+  if (duplicated) {
+    quickHint.value = `别名 /${alias} 已存在`;
+    return;
+  }
+  const entry: LarkQuickCommand = {
+    id: editingQuickId.value ?? `qc-${Date.now()}`,
+    alias,
+    label: quickForm.value.label.trim() || alias,
+    prompt,
+  };
+  const next = editingQuickId.value
+    ? quickCommands.value.map((item) => (item.id === editingQuickId.value ? entry : item))
+    : [...quickCommands.value, entry];
+  saveQuickCommands(next);
+  cancelEditQuick();
+}
+
+function removeQuickCommand(id: string) {
+  saveQuickCommands(quickCommands.value.filter((item) => item.id !== id));
+  if (editingQuickId.value === id) {
+    cancelEditQuick();
   }
 }
 </script>
@@ -179,6 +243,51 @@ async function sendTestAskCard() {
       <p v-if="larkStatus.gatewayError" class="m-0 text-[11.5px] text-[var(--color-err)]">
         {{ larkStatus.gatewayError }}
       </p>
+    </div>
+    <!-- 自定义快捷命令：/别名 触发 + 菜单卡片按钮一键点选 -->
+    <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
+      <div class="flex flex-col gap-0.5">
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">快捷命令</span>
+        <span class="text-[11px] text-[var(--color-mut)]">
+          在飞书发送 /别名 触发预设内容（预设可为内置指令如「状态」或任意消息）；也显示为「菜单」卡片按钮。保存后即时生效。
+        </span>
+      </div>
+      <div
+        v-for="item in quickCommands"
+        :key="item.id"
+        class="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-line-soft)] px-2.5 py-1.5"
+      >
+        <div class="flex min-w-0 flex-col">
+          <span class="truncate text-[11.5px] text-[var(--color-txt-strong)]">
+            /{{ item.alias }}
+            <span v-if="item.label && item.label !== item.alias" class="text-[var(--color-mut)]">· {{ item.label }}</span>
+          </span>
+          <span class="truncate text-[11px] text-[var(--color-mut)]" :title="item.prompt">{{ item.prompt }}</span>
+        </div>
+        <div class="flex shrink-0 gap-1">
+          <Button variant="ghost" size="icon" class="size-6" aria-label="编辑快捷命令" @click="startEditQuick(item)">
+            <Pencil :size="12" />
+          </Button>
+          <Button variant="ghost" size="icon" class="size-6" aria-label="删除快捷命令" @click="removeQuickCommand(item.id)">
+            <Trash2 :size="12" />
+          </Button>
+        </div>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <div class="grid gap-1.5 sm:grid-cols-3">
+          <Input v-model="quickForm.alias" placeholder="别名，如 review" class="h-7 text-[11.5px]" />
+          <Input v-model="quickForm.label" placeholder="按钮名（可选）" class="h-7 text-[11.5px]" />
+          <Input v-model="quickForm.prompt" placeholder="预设内容，如 审查当前分支改动" class="h-7 text-[11.5px]" />
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <Button size="xs" @click="submitQuickCommand">
+            <Plus v-if="!editingQuickId" :size="12" data-icon="inline-start" />
+            {{ editingQuickId ? "保存修改" : "添加快捷命令" }}
+          </Button>
+          <Button v-if="editingQuickId" variant="outline" size="xs" @click="cancelEditQuick">取消</Button>
+          <span v-if="quickHint" class="min-w-0 text-[11px] text-[var(--color-err)]">{{ quickHint }}</span>
+        </div>
+      </div>
     </div>
     <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11.5px] leading-relaxed text-[var(--color-mut)]">
       <div class="font-medium text-[var(--color-txt-strong)]">卡片按钮回调</div>
