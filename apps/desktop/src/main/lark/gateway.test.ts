@@ -8,6 +8,7 @@ import {
   buildAskPushCard,
   buildAskPushText,
   buildBranchesReply,
+  buildCmdActionValue,
   buildHelpReply,
   buildMenuCard,
   buildProjectCandidatesReply,
@@ -17,7 +18,9 @@ import {
   buildSessionDoneCard,
   buildStatusReply,
   collectSessionSummaries,
+  expandQuickCommand,
   extractCardAskAnswer,
+  extractCardCommand,
   eventNotSubscribedError,
   formatRelativeTime,
   isHandleableLarkEvent,
@@ -28,9 +31,11 @@ import {
   matchProjectSummaries,
   parseAskActionValue,
   parseCardActionLine,
+  parseCmdActionValue,
   parseLarkCommand,
   parseLarkEventLine,
   parseProjectCommand,
+  parseQuickCommand,
   summarizeSendError,
 } from "./gateway";
 import type {
@@ -1757,3 +1762,132 @@ describe("卡片延迟更新与发送失败摘要", () => {
   });
 });
 
+
+// ---------- 自定义快捷命令（/别名）与菜单卡片按钮 ----------
+
+describe("自定义快捷命令解析与展开", () => {
+  it("parseQuickCommand：/别名 与 /别名 附加文本；含斜杠路径不误判", () => {
+    expect(parseQuickCommand("/review")).toEqual({ alias: "review", arg: "" });
+    expect(parseQuickCommand("/Review 登录模块")).toEqual({ alias: "review", arg: "登录模块" });
+    // 含内部斜杠的路径类文本不是快捷命令
+    expect(parseQuickCommand("/Users/x/y")).toBeNull();
+    expect(parseQuickCommand("普通文本")).toBeNull();
+  });
+
+  it("expandQuickCommand：$1 占位替换；无占位追加附加文本", () => {
+    expect(expandQuickCommand("审查 $1", "登录模块")).toBe("审查 登录模块");
+    expect(expandQuickCommand("审查当前分支改动", "顺便跑测试")).toBe("审查当前分支改动 顺便跑测试");
+    expect(expandQuickCommand("状态", "")).toBe("状态");
+  });
+
+  it("CmdActionValue 往返 + extractCardCommand 只认按钮", () => {
+    const raw = buildCmdActionValue("/review");
+    expect(parseCmdActionValue(raw)).toEqual({ k: "cmd", t: "/review" });
+    const record = {
+      eventId: "e1",
+      operatorId: "ou",
+      messageId: "m",
+      chatId: "c",
+      actionTag: "button",
+      actionValue: raw,
+      option: "",
+      options: "",
+      formValue: "",
+      token: "",
+      cardContent: "",
+    } as LarkCardActionRecord;
+    expect(extractCardCommand(record)).toBe("/review");
+    // 问询按钮不是指令按钮
+    expect(extractCardCommand({ ...record, actionValue: buildAskActionValue("a1", 1, "x") })).toBeNull();
+    expect(extractCardCommand({ ...record, actionTag: "select_static" })).toBeNull();
+  });
+});
+
+describe("快捷命令执行与菜单按钮（mock deps）", () => {
+  const quick = [{ id: "qc1", alias: "review", label: "评审", prompt: "审查当前分支改动" }];
+
+  async function gatewayWithQuick() {
+    const startChat = vi.fn(async () => ({ ok: true, sessionId: "s1", title: "审查" }));
+    const g = gatewayOf({ startChat });
+    await (g.gateway as unknown as { start(s: unknown): Promise<void> }).start({
+      allowedOpenId: "ou_allowed",
+      quickCommands: quick,
+    });
+    return { ...g, startChat };
+  }
+
+  it("/别名 → 展开 prompt 走会话管线（回执含展开内容）", async () => {
+    const { gateway, sent, startChat } = await gatewayWithQuick();
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("/review");
+    expect(startChat).toHaveBeenCalledWith(null, "审查当前分支改动");
+    expect(sent[0]).toContain("审查当前分支改动");
+  });
+
+  it("/别名 附加文本 → 追加到 prompt 后执行", async () => {
+    const { gateway, startChat } = await gatewayWithQuick();
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText(
+      "/review 顺便跑测试",
+    );
+    expect(startChat).toHaveBeenCalledWith(null, "审查当前分支改动 顺便跑测试");
+  });
+
+  it("prompt 为内置指令词（状态）→ 直接执行指令而不是开会话", async () => {
+    const { gateway, sent, startChat } = await gatewayWithQuick();
+    await (
+      gateway as unknown as { start(s: unknown): Promise<void> }
+    ).start({
+      allowedOpenId: "ou_allowed",
+      quickCommands: [{ id: "qc2", alias: "st", label: "状态", prompt: "状态" }],
+    });
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("/st");
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sent[sent.length - 1]).toContain("Zen 状态");
+  });
+
+  it("未配置的 /别名 → 提示可用快捷命令，不误开新会话", async () => {
+    const { gateway, sent, startChat } = await gatewayWithQuick();
+    await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("/nope");
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sent[sent.length - 1]).toContain("未识别的快捷命令");
+    expect(sent[sent.length - 1]).toContain("/review");
+  });
+
+  it("帮助文案与菜单卡片含自定义快捷命令与可点按钮", async () => {
+    const help = buildHelpReply(quick);
+    expect(help).toContain("/review");
+    expect(help).toContain("审查当前分支改动");
+    const card = buildMenuCard(quick);
+    const body = JSON.stringify(card);
+    expect(body).toContain("/review");
+    // 按钮 behaviors.value 里的 CmdActionValue（内层 JSON 在卡片 JSON 里会转义，解析后比较）
+    const buttons = (card.body.elements as Array<Record<string, any>>).filter(
+      (el) => el.tag === "button",
+    );
+    const values = buttons.map(
+      (btn) => parseCmdActionValue(btn.behaviors[0].value as string)?.t,
+    );
+    expect(values).toContain("状态");
+    expect(values).toContain("/review");
+  });
+
+  it("菜单按钮回调（k=cmd）→ 按输入文本执行指令", async () => {
+    const { gateway, sent } = await gatewayWithQuick();
+    const line = JSON.stringify({
+      event_id: "ev-cmd-1",
+      operator_id: "ou_allowed",
+      message_id: "om_1",
+      chat_id: "oc_1",
+      action_tag: "button",
+      action_value: buildCmdActionValue("列表"),
+      option: "",
+      options: "",
+      form_value: "",
+      token: "",
+      card_content: "",
+    });
+    (gateway as unknown as { handleCardActionLine(line: string): void }).handleCardActionLine(line);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent[sent.length - 1]).toContain("Zen 会话");
+  });
+});
