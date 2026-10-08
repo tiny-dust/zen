@@ -101,6 +101,8 @@ export async function loadAgentSettings(): Promise<AgentSettings> {
     ...DEFAULT_AGENT_SETTINGS,
     ...stored,
     prompt: { ...DEFAULT_AGENT_SETTINGS.prompt, ...stored.prompt },
+    // 旧配置缺 quickCommands 等新字段时按默认补齐，避免 undefined 进网关
+    larkBridge: { ...DEFAULT_AGENT_SETTINGS.larkBridge, ...stored.larkBridge },
   };
 }
 
