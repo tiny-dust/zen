@@ -165,7 +165,7 @@ export function useComposerTriggers(options: {
     const before = value.slice(0, cursor);
     // / 唤起技能；@/$ 唤起文件引用（@ 前不能是字母数字等，避免邮箱误触）
     const skillMatch = /(?:^|\s)(\/[\w-]*)$/.exec(before);
-    const fileMatch = /(?:^|[^\w.@$/])([@$][\w./-]*)$/.exec(before);
+    const fileMatch = /(?:^|[^\w.@$/])([@$][\p{L}\p{N}_.\/-]*)$/u.exec(before);
     const match = skillMatch ?? fileMatch;
 
     if (!match || !match[1]) {

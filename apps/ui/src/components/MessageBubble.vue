@@ -150,9 +150,9 @@ const userText = computed(() =>
 /**
  * @文件引用分段：composer 里 @ 选中文件会以 `$相对路径` 写入正文，
  * 气泡里渲染成文件 chip 而不是裸路径。要求 token 以字母/下划线开头
- * （排除 "$100" 这类纯数字），目录引用含 / 或带扩展名的文件名均命中。
+ * （排除 "$100" 这类纯数字），目录引用、中文路径、无扩展名文件均命中。
  */
-const FILE_REF_RE = /\$([A-Za-z_][\w.-]*(?:\/[\w.-]+)*)/g;
+const FILE_REF_RE = /\$([\p{L}_][\p{L}\p{N}_.\/-]*)/gu;
 
 const userSegments = computed<Array<{ type: "text" | "file"; text: string; path?: string }>>(() => {
   const source = userText.value;
