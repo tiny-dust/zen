@@ -388,6 +388,8 @@ export interface ZenApi {
     /** 发起飞书登录（lark-cli device flow）；各阶段经 onLoginEvent 推送 */
     login(): Promise<void>;
     cancelLogin(): Promise<void>;
+    /** 设置页发送测试问询卡片（验证卡片按钮回调链路） */
+    testAskCard(): Promise<{ ok: boolean; error?: string }>;
     onLoginEvent(handler: (event: LarkLoginEvent) => void): () => void;
   };
 }

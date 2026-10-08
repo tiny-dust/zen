@@ -46,6 +46,8 @@ export interface LarkIpcDeps {
   sessionState?: (sessionId: string) => SessionRunState | null;
   /** 飞书「对话」命令：按项目路径找到/新建工作区，新建会话并异步运行 agent；路径为 null 时在公共区建会话 */
   startChat?: (workspacePath: string | null, message: string) => LarkChatStartResult;
+  /** 飞书「继续」/续聊：向已有会话追加消息（历史从 workspace-db 读取） */
+  continueChat?: (sessionId: string, message: string) => LarkChatStartResult;
 }
 
 function toLarkState(sessionId: string): LarkSessionState {
@@ -117,6 +119,16 @@ export function registerLarkIpc(
       }
       return result;
     },
+    continueChat: async (sessionId, message) => {
+      if (!deps.continueChat) {
+        return { ok: false, error: "未装配会话续聊能力" };
+      }
+      const result = await deps.continueChat(sessionId, message);
+      if (result.ok && result.sessionId) {
+        gateway?.trackSession(result.sessionId, result.title ?? "Zen 会话");
+      }
+      return result;
+    },
     finalAssistantReply: lastAssistantReply,
   });
 
@@ -170,6 +182,11 @@ export function registerLarkIpc(
   });
   ipcMain.handle("lark:login-cancel", () => {
     cancelLarkLogin(emitLoginEvent);
+  });
+
+  // 设置页「发送测试问询卡片」：验证卡片按钮回调链路（假 askId，写回回「该问询已失效」为预期）
+  ipcMain.handle("lark:test-ask-card", async (): Promise<{ ok: boolean; error?: string }> => {
+    return gateway?.sendTestAskCard() ?? { ok: false, error: "飞书网关未初始化" };
   });
 }
 
