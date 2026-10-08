@@ -17,6 +17,11 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+/** 带超时的 fetch：上游不可达时中止请求，避免 IPC 永远 pending 导致刷新按钮一直转圈 */
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 10_000): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}
+
 function expandHome(path: string): string {
   if (path.startsWith("~/") || path === "~") {
     return join(homedir(), path.slice(1).replace(/^\//, "") || "");
@@ -27,7 +32,7 @@ function expandHome(path: string): string {
 async function searchMarketplace(query: string): Promise<SkillMarketHit[]> {
   const q = encodeURIComponent(query.trim() || "skills");
   const url = `https://skills.sh/api/search?q=${q}`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: { Accept: "application/json", "User-Agent": "Zen-Desktop/0.1" },
   });
   if (!response.ok) {
@@ -319,7 +324,7 @@ async function fetchRemoteSkillMd(
     for (const path of paths) {
       const url = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/${path}`;
       try {
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
           headers: { "User-Agent": "Zen-Desktop/0.1" },
         });
         if (response.ok) {
@@ -420,11 +425,35 @@ async function marketCheckUpdates(skills: SkillSummary[]): Promise<SkillUpdateCh
   if (!list.length) {
     return { ok: true, items: [] };
   }
-  try {
-    const items: SkillUpdateInfo[] = [];
-    for (const skill of list) {
-      items.push(await checkOneSkillUpdate(skill));
+  // 有限并发检测（每个技能含 git fetch / 上游请求，串行在技能多时可达数分钟）
+  const CONCURRENCY = 6;
+  const items: SkillUpdateInfo[] = new Array(list.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < list.length) {
+      const index = cursor;
+      cursor += 1;
+      const skill = list[index];
+      if (!skill) {
+        continue;
+      }
+      try {
+        items[index] = await checkOneSkillUpdate(skill);
+      } catch (error) {
+        // 单技能检测失败不阻断整体，IPC 仍需 resolve
+        items[index] = {
+          id: skill.id,
+          name: skill.name,
+          dir: skill.dir,
+          hasUpdate: false,
+          via: "none",
+          note: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker));
     return { ok: true, items };
   } catch (error) {
     return {

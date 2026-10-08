@@ -91,21 +91,31 @@ watch(open, (value) => {
   void agentStore.refreshMcp();
 });
 
+/** 刷新序号：打开弹窗与手动刷新可能并发触发，仅最新一轮的结果生效 */
+let refreshSeq = 0;
+
 /** 刷新：本地重扫 + 查询上游是否可更新 */
 async function refreshAll() {
+  const seq = ++refreshSeq;
   refreshing.value = true;
   statusMsg.value = "正在刷新并检查上游更新…";
   try {
     await agentStore.refreshSkills();
     const zen = window.zen;
     if (!zen?.skills?.marketCheckUpdates) {
-      updateMap.value = {};
-      statusMsg.value = "已刷新本地技能";
+      if (seq === refreshSeq) {
+        updateMap.value = {};
+        statusMsg.value = "已刷新本地技能";
+      }
       return;
     }
     // skills 是响应式代理，IPC 结构化克隆不支持 Proxy，必须传纯对象
     const plain = skills.value.map((skill) => ({ ...skill }));
     const result = await zen.skills.marketCheckUpdates(plain);
+    // 已有更新的刷新在跑，丢弃过期结果
+    if (seq !== refreshSeq) {
+      return;
+    }
     const map: Record<string, SkillUpdateInfo> = {};
     for (const item of result.items ?? []) {
       map[item.id] = item;
@@ -120,10 +130,15 @@ async function refreshAll() {
       statusMsg.value = "已是最新";
     }
   } catch (error) {
+    if (seq !== refreshSeq) {
+      return;
+    }
     updateMap.value = {};
     statusMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
-    refreshing.value = false;
+    if (seq === refreshSeq) {
+      refreshing.value = false;
+    }
   }
 }
 
