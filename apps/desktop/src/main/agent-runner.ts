@@ -26,7 +26,7 @@ import {
 } from "./workspace-db";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
-import type { AgentRunRequest, AgentStreamEvent, ChatMessage } from "@zen/shared";
+import type { AgentRunRequest, AgentStreamEvent, ChatMessage, ChatTurn } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
 /**
@@ -251,6 +251,8 @@ export interface LarkChatStartResult {
   sessionId?: string;
   title?: string;
   error?: string;
+  /** 失败原因分类：missing=会话不存在/已归档（可回退新建）；busy=会话正在运行 */
+  reason?: "missing" | "busy";
 }
 
 /**
@@ -296,6 +298,64 @@ export function startLarkChat(
       console.warn("[lark] 飞书会话运行失败:", error);
     });
     return { ok: true, sessionId: session.id, title: message.slice(0, 24) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** 续聊历史取最近条数（含新消息走 runAgentRequest 的 userMessage） */
+const LARK_CONTINUE_HISTORY_LIMIT = 40;
+
+/**
+ * 飞书「继续」/续聊入口：向已有会话追加消息。历史从 workspace-db 读最近约 40 条
+ * user/assistant 轮次；会话不存在或已归档 → reason="missing"（网关回退新建）；
+ * 会话正在运行 → reason="busy"（不并发跑同一会话）。复用 startLarkChat 的异步启动模式。
+ */
+export function continueLarkChat(
+  sessionId: string,
+  message: string,
+  sessions: Map<string, AgentSession>,
+): LarkChatStartResult {
+  try {
+    if (!message?.trim()) {
+      return { ok: false, error: "invalid lark chat request" };
+    }
+    const record = loadSessionRecord(sessionId);
+    if (!record || record.session.archived) {
+      return { ok: false, error: "会话不存在或已归档", reason: "missing" };
+    }
+    const runState = sessions.get(sessionId)?.getRunState();
+    if (
+      runState &&
+      (runState.runActive ||
+        runState.waitingApproval ||
+        runState.waitingAskCount > 0 ||
+        runState.inserting)
+    ) {
+      return {
+        ok: false,
+        error: "会话正在运行，请等待完成或先回答问询",
+        reason: "busy",
+      };
+    }
+    const history: ChatTurn[] = record.messages
+      .filter(
+        (item): item is ChatMessage & { role: "user" | "assistant" } =>
+          (item.role === "user" || item.role === "assistant") && item.content.trim().length > 0,
+      )
+      .slice(-LARK_CONTINUE_HISTORY_LIMIT)
+      .map((item) => ({ role: item.role, content: item.content }));
+    const request: AgentRunRequest = {
+      sessionId,
+      workspaceId: record.session.workspaceId ?? "common",
+      workspaceRoot: "",
+      userMessage: message,
+      history,
+    };
+    void runAgentRequest(request, { sessions }).catch((error) => {
+      console.warn("[lark] 飞书续聊运行失败:", error);
+    });
+    return { ok: true, sessionId, title: record.session.title };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

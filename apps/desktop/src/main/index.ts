@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { registerMcpRuntime } from "@zen/agent-core";
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
-import { runAgentRequest, startLarkChat } from "./agent-runner";
+import { runAgentRequest, continueLarkChat, startLarkChat } from "./agent-runner";
 import { getAgentServicesRegistry, initAgentServices, shutdownAgentServices } from "./agent-services";
 import { registerAgentServicesIpc } from "./agent-services-ipc";
 import { registerAgentIpc } from "./agent-ipc";
@@ -273,6 +273,8 @@ function registerIpc(): void {
     sessionState: (sessionId) => sessions.get(sessionId)?.getRunState() ?? null,
     // 「对话」命令：按项目路径找到/新建工作区 + 新建会话并异步运行 agent
     startChat: (workspacePath, message) => startLarkChat(workspacePath, message, sessions),
+    // 「继续」/续聊：向已有会话追加消息
+    continueChat: (sessionId, message) => continueLarkChat(sessionId, message, sessions),
   });
 }
 

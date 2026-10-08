@@ -27,6 +27,10 @@ export const larkApi = {
     cancelLogin(): Promise<void> {
       return ipcRenderer.invoke("lark:login-cancel");
     },
+    /** 设置页发送测试问询卡片（验证卡片按钮回调链路） */
+    testAskCard(): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("lark:test-ask-card");
+    },
     onLoginEvent(handler: (event: LarkLoginEvent) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, login: LarkLoginEvent) => {
         handler(login);
