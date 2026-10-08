@@ -61,8 +61,8 @@ export const useChatStore = defineStore("chat", () => {
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   const pendingToolArgs = new Map<string, { toolName: string; args: unknown }>();
   /**
-   * 会话级压缩模式：点「压缩上下文」后置位，之后每次发送都折叠更早对话；
-   * 自动超限折叠成功也会保持。切换会话时复位。
+   * 会话级压缩模式：自动压缩生效后置位，之后每次发送都折叠更早对话；
+   * 上下文用量超阈值的折叠成功也会保持。切换会话时复位。
    */
   const forceCompress = ref(false);
   const pendingApproval = ref<PendingApproval | null>(null);
@@ -212,7 +212,7 @@ export const useChatStore = defineStore("chat", () => {
     return last ?? estimated;
   });
 
-  // ---------- 历史压缩域：手动压缩 / 发送前折叠 / 摘要卡 ----------
+  // ---------- 历史压缩域：发送前折叠 / 摘要卡 ----------
   const compressionDomain = createCompressionDomain({
     messages,
     sessionId,
@@ -549,7 +549,7 @@ export const useChatStore = defineStore("chat", () => {
     phase.value = "thinking";
     statusText.value = "Agent 思考中…";
 
-    // 滚动摘要 + 超限双保险：手动压缩或上下文用量超阈值时折叠旧轮次
+    // 滚动摘要 + 超限双保险：上下文用量达到阈值（或已开启压缩）时折叠旧轮次
     const { compression } = compressionDomain.prepareCompression();
 
     const result = await zen.agent.run({
@@ -881,7 +881,6 @@ export const useChatStore = defineStore("chat", () => {
     approve,
     submitAsk,
     dismissApproval,
-    compressNow: compressionDomain.compressNow,
     newTask,
     loadSession,
     setSessionWorkspace,

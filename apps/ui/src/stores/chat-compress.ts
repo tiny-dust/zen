@@ -12,16 +12,16 @@ export interface CompressionDomainOptions {
   sessionId: Ref<string>;
   statusText: Ref<string>;
   /**
-   * 会话级压缩模式：点「压缩上下文」后置位，之后每次发送都折叠更早对话。
-   * 与自动超限互补；本会话保持，切换会话时由 chat store 复位。
+   * 会话级压缩模式：自动压缩生效后置位，之后每次发送都折叠更早对话。
+   * 与超限判定互补；本会话保持，切换会话时由 chat store 复位。
    */
   forceCompress: Ref<boolean>;
   /** 上下文用量（%），发送时求值 */
   contextUsage: () => number | null;
 }
 
-/** 自动触发压缩的用量阈值（%） */
-export const COMPRESS_THRESHOLD = 70;
+/** 自动触发压缩的用量阈值（%）：接近模型上下文窗口 80% 时，下次发送自动压缩 */
+export const COMPRESS_THRESHOLD = 80;
 
 /**
  * 历史压缩域：滚动摘要 + 超限双保险 + 压缩摘要卡落库。
@@ -29,18 +29,6 @@ export const COMPRESS_THRESHOLD = 70;
  */
 export function createCompressionDomain(options: CompressionDomainOptions) {
   const { messages, sessionId, statusText, forceCompress, contextUsage } = options;
-
-  /**
-   * 手动压缩：开启会话级压缩模式，下一次发送起把更早对话折叠为摘要。
-   * 已有消息才生效；摘要卡插入后可在时间线展开查看。
-   */
-  function compressNow() {
-    if (!messages.value.length) {
-      return;
-    }
-    forceCompress.value = true;
-    statusText.value = "已开启压缩：之后发送会把更早对话折叠为摘要";
-  }
 
   function findCompactCard(): ChatMessage | undefined {
     // tsconfig lib 低于 es2023，不用 Array.prototype.findLast
@@ -135,6 +123,6 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
     return { historyTurns, compression };
   }
 
-  return { compressNow, prepareCompression };
+  return { prepareCompression };
 }
 
