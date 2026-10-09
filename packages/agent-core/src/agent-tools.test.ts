@@ -255,7 +255,7 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
         ok: true,
         status: 200,
         text: async () =>
-          '<a class="result__a" href="https://ref.test/1">Ref One</a>',
+          '<li class="b_algo"><h2><a target="_blank" href="https://ref.test/1">Ref One</a></h2></li>',
       })),
     );
     const tools = build();

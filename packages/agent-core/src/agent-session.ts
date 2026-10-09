@@ -794,6 +794,7 @@ export class AgentSession {
       lastStepHadToolCalls: false,
       approvalRequested: false,
       streamError: null,
+      hasText: false,
     };
 
     try {
@@ -852,10 +853,19 @@ export class AgentSession {
       return;
     }
 
-    // 错误终态：不得再发 done(stop) 覆盖
+    // 错误终态：不得再发 done(stop) 覆盖。
+    // 例外：部分新模型（如 gpt-6 系列）流结束时不带 finish_reason，但正文已完整产出，
+    // openai-compatible 会把它当成错误；此处只要已有正文就按正常完成处理。
     if (state.streamError) {
-      this.finishRun("error");
-      return;
+      if (
+        state.hasText &&
+        /without a finish reason/i.test(state.streamError)
+      ) {
+        state.streamError = null;
+      } else {
+        this.finishRun("error");
+        return;
+      }
     }
 
     // 完整 step 才落 checkpoint，避免把半截 step 写入后续上下文。

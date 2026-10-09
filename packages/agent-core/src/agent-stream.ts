@@ -33,6 +33,8 @@ export interface StreamPartState {
   approvalRequested: boolean;
   /** 流内 error part 的消息（终态判断用，与 catch 到的异常同样处理） */
   streamError: string | null;
+  /** 本次 stream 是否已产出正文文本（流结束缺 finish_reason 时据此判定为正常结束） */
+  hasText: boolean;
 }
 
 export interface StreamPartContext {
@@ -75,6 +77,7 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
     case "text-delta": {
       const text = partText(part);
       if (text) {
+        state.hasText = true;
         emit({
           type: "status",
           sessionId,

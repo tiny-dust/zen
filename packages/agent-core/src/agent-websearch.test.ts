@@ -3,13 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runWebSearch } from "./agent-websearch";
 
 /**
- * DuckDuckGo HTML 搜索解析：
- * - result__a 链接抽取、标题去标签、uddg 重定向还原
+ * Bing HTML 搜索解析：
+ * - b_algo 结果块抽取、标题去标签、ck/a 重定向解码
  * - 跳过空标题 / 非 http(s) / 重复链接；最多 8 条
  * - HTTP 非 2xx 抛错
  */
 
-function ddgResponse(html: string, init: { ok?: boolean; status?: number } = {}): Response {
+function bingResponse(html: string, init: { ok?: boolean; status?: number } = {}): Response {
   return {
     ok: init.ok ?? true,
     status: init.status ?? 200,
@@ -17,8 +17,17 @@ function ddgResponse(html: string, init: { ok?: boolean; status?: number } = {})
   } as unknown as Response;
 }
 
-function resultLink(href: string, title: string): string {
-  return `<a class="result__a" href="${href}">${title}</a>`;
+function redirectHref(target: string): string {
+  const encoded = Buffer.from(target, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `https://www.bing.com/ck/a?!&amp;p=x&amp;u=${encoded}&amp;ntb=1`;
+}
+
+function resultBlock(href: string, title: string): string {
+  return `<li class="b_algo"><h2><a target="_blank" href="${href}">${title}</a></h2></li>`;
 }
 
 afterEach(() => {
@@ -26,12 +35,12 @@ afterEach(() => {
 });
 
 describe("runWebSearch", () => {
-  it("解析 result__a 链接与标题，还原 uddg 重定向", async () => {
+  it("解析 b_algo 链接与标题，还原 ck/a 重定向", async () => {
     const html = [
-      resultLink("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage", "Example <b>Page</b>"),
-      resultLink("https://direct.test/a", "Direct"),
+      resultBlock(redirectHref("https://example.com/page"), "Example <b>Page</b>"),
+      resultBlock("https://direct.test/a", "Direct"),
     ].join("\n");
-    vi.stubGlobal("fetch", vi.fn(async () => ddgResponse(html)));
+    vi.stubGlobal("fetch", vi.fn(async () => bingResponse(html)));
 
     const results = await runWebSearch("hello world");
 
@@ -43,16 +52,16 @@ describe("runWebSearch", () => {
 
   it("跳过空标题、非 http(s) 与重复链接，最多 8 条", async () => {
     const parts = [
-      resultLink("https://dup.test/x", "Dup"),
-      resultLink("https://dup.test/x", "Dup again"),
-      resultLink("ftp://bad.test/f", "Bad scheme"),
-      resultLink("https://ok.test/1", ""),
-      resultLink("https://ok.test/2", "   "),
+      resultBlock("https://dup.test/x", "Dup"),
+      resultBlock("https://dup.test/x", "Dup again"),
+      resultBlock("ftp://bad.test/f", "Bad scheme"),
+      resultBlock("https://ok.test/1", ""),
+      resultBlock("https://ok.test/2", "   "),
     ];
     for (let i = 0; i < 12; i += 1) {
-      parts.push(resultLink(`https://many.test/${i}`, `Title ${i}`));
+      parts.push(resultBlock(`https://many.test/${i}`, `Title ${i}`));
     }
-    vi.stubGlobal("fetch", vi.fn(async () => ddgResponse(parts.join("\n"))));
+    vi.stubGlobal("fetch", vi.fn(async () => bingResponse(parts.join("\n"))));
 
     const results = await runWebSearch("query");
 
@@ -63,13 +72,13 @@ describe("runWebSearch", () => {
   });
 
   it("无结果时返回空数组", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ddgResponse("<html>no results</html>")));
+    vi.stubGlobal("fetch", vi.fn(async () => bingResponse("<html>no results</html>")));
 
     await expect(runWebSearch("nothing")).resolves.toEqual([]);
   });
 
   it("HTTP 非 2xx 抛出 websearch HTTP 错误", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ddgResponse("", { ok: false, status: 503 })));
+    vi.stubGlobal("fetch", vi.fn(async () => bingResponse("", { ok: false, status: 503 })));
 
     await expect(runWebSearch("boom")).rejects.toThrow("websearch HTTP 503");
   });
