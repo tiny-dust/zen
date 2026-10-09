@@ -15,7 +15,7 @@ import { isModernSecret } from "./secret";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UI_THEME, DEFAULT_UPDATE_FEED_URL, isUiTheme } from "@zen/shared";
 import { showOpenDialogSafe } from "./dialog-safe";
 import { setCurrentUserId } from "./workspace-db";
 
@@ -39,6 +39,7 @@ const defaultSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
+  uiTheme: DEFAULT_UI_THEME,
   displayAccount: "auto",
 };
 
@@ -93,6 +94,8 @@ async function loadSettings(): Promise<AppSettings> {
   cachedSettings = {
     ...defaultSettings,
     ...stored,
+    // 旧文件无 uiTheme / 手改非法值时回落默认，防脏数据进渲染层
+    uiTheme: isUiTheme(stored.uiTheme) ? stored.uiTheme : DEFAULT_UI_THEME,
     shortcuts: stored.shortcuts?.length
       ? stored.shortcuts
       : defaultSettings.shortcuts.map((item) => ({ ...item })),

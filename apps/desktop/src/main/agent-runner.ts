@@ -54,6 +54,8 @@ function persistAssistant(sessionId: string, message: ChatMessage): void {
   }
   const run = getMessageRun(message);
   const parts = message.parts ?? [];
+  // createdAt 用落库时刻（run 结束），而非 accMessage 创建时刻：
+  // 否则助手消息与用户消息同毫秒（创建即落库），读取排序时顺序不稳定
   appendMessage(sessionId, {
     id: message.id,
     role: "assistant",
@@ -62,7 +64,7 @@ function persistAssistant(sessionId: string, message: ChatMessage): void {
     reasoningMs: message.reasoningMs,
     parts,
     meta: run ? { ...message.meta, run } : message.meta,
-    createdAt: message.createdAt,
+    createdAt: Date.now(),
   });
 }
 

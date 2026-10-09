@@ -254,8 +254,10 @@ export function getSession(id: string):
   if (!row) {
     return undefined;
   }
+  // created_at 毫秒级同值常见（用户消息与助手消息同毫秒落库），必须用 rowid 兜底
+  // 保证读取顺序稳定 = 插入顺序，否则切换会话时消息顺序错乱、看起来像内容丢失
   const messages = db
-    .prepare("SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC")
+    .prepare("SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC")
     .all(id) as MessageRow[];
   return {
     session: toSession(row),
