@@ -167,6 +167,13 @@ export async function runAgentRequest(
       return { ok: true };
     }
 
+    const capabilities = inspectModelCapabilities(modelId);
+    // 模型级对话端点覆盖优先（如 Responses-only 的 gpt-6 系列），否则沿用供应商协议
+    const protocol =
+      capabilities.chatEndpoint && capabilities.chatEndpoint !== "auto"
+        ? capabilities.chatEndpoint
+        : provider.protocol;
+
     // 附件图片路由：视觉模型 → 原生多模态 part；非视觉模型 → 视觉兜底预分析
     let runUserMessage = request.userMessage;
     let sessionImages: AgentImageAttachment[] | undefined;
@@ -174,7 +181,7 @@ export async function runAgentRequest(
       isImagePath(att.path || att.name),
     );
     if (imageRefs.length) {
-      if (inspectModelCapabilities(modelId).vision === true) {
+      if (capabilities.vision === true) {
         sessionImages = await loadImageAttachments(imageRefs);
       } else {
         runUserMessage = await withImageAnalysisText(request.userMessage, imageRefs, {
@@ -213,11 +220,12 @@ export async function runAgentRequest(
     const session = new AgentSession({
       sessionId: request.sessionId,
       workspaceRoot,
-      protocol: provider.protocol,
+      protocol,
       baseUrl: provider.baseUrl,
       apiKey,
       model: modelId,
       reasoningEffort: request.reasoningEffort,
+      reasoning: capabilities.reasoning === true,
       permissionMode: agentSettings.permissionMode,
       systemPrompt: resolvePromptText(agentSettings),
       // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
