@@ -37,12 +37,24 @@ export function createLanguageModel(config: AgentSessionConfig): LanguageModel {
 
 export function buildProviderOptions(config: AgentSessionConfig): Record<string, unknown> {
   const effort = config.reasoningEffort;
-  if (!effort || effort === "off") {
+
+  if (config.protocol === "anthropic-messages") {
+    // 最新 Claude 模型只接受 adaptive 思考（enabled/budget_tokens 已废弃）。
+    // 推理模型显式传 adaptive + effort，避免 AI SDK 对目录未收录模型回退到 enabled 形态报错。
+    if (config.reasoning) {
+      const raw = effort && effort !== "off" ? effort : "medium";
+      // anthropic 不接受 "minimal"，映射到 "low"
+      const mapped = raw === "minimal" ? "low" : raw;
+      return { anthropic: { thinking: { type: "adaptive" }, effort: mapped } };
+    }
+    if (effort && effort !== "off") {
+      return { anthropic: { thinking: { type: "adaptive" }, effort: effort === "minimal" ? "low" : effort } };
+    }
     return {};
   }
 
-  if (config.protocol === "anthropic-messages") {
-    return { anthropic: { thinking: { type: "adaptive" }, effort } };
+  if (!effort || effort === "off") {
+    return {};
   }
   if (config.protocol === "openai-responses") {
     return { openai: { reasoningEffort: effort } };

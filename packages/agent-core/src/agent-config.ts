@@ -47,6 +47,8 @@ export interface AgentSessionConfig {
   apiKey: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
+  /** 模型是否具备推理能力（用于 Anthropic adaptive 思考与推理档位映射） */
+  reasoning?: boolean;
   /** 权限模式（ADR-004）：default / smart / full */
   permissionMode: PermissionMode;
   /** 系统提示词全文（设置页选择的预设或自定义） */
