@@ -1,36 +1,67 @@
 # Zen UI 设计规范（定型版）
 
-> 状态：已定型 · 2026-09-14
+> 状态：已定型 · 2026-10-09（主题系统 v2 重构）
 > 适用范围：apps/ui 全部界面。新界面/新组件一律遵循本规范；存量代码按此逐步收敛。
 
 ## 1. 风格基调
 
-Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 少量暖橙点缀。
+Zen 采用**可切换三主题**设计系统，默认 **苹果液态玻璃（Liquid Glass）**：
 
-- **中性优先**：界面 95% 由灰阶表面与文字构成，颜色只用于状态与强调。
-- **唯一强调色**：`--color-accent`（暖橙 #ff6a2b）只用于「强调点」，不做大面积铺色；发送主按钮用强调色圆形（`--color-accent` + `--color-accent-fg`，与 MiMo 截图同构；空输入禁用态为灰圆），`--color-send` 中性反色保留给其它主按钮。
-- **深色为默认主题**：`main.ts` 挂 `.dark`；浅色主题通过同一组 token 支持，不做单独设计。
-- **精致细节**：12px 全局圆角、低饱和发丝线（`--color-line`）、克制的双层阴影（composer/menu/pop 三档）。
+| 主题 | data-theme | 明暗 | 气质 |
+| --- | --- | --- | --- |
+| 液态玻璃 | `liquid-glass`（默认） | 深色玻璃（浅色钩子已备） | 半透明磨砂面 + backdrop-blur + 顶部高光内描边 + 弥散极光背景；主 CTA 为亮玻璃白 |
+| VS Code 极客黑 | `dark-tech` | 深色 | `#1e1e1e/#252526/#181818` 高对比色阶、硬朗 1px `#3c3c3c` 边界、IDE 聚焦蓝 `#007acc`、等宽字体前置、左侧 2px 活动指示条 |
+| 全新拟态 | `neumorphism` | 浅色 | `#e0e5ec` 同色系纯净底、双向软阴影（凸出 `8px 8px 16px #a3b1c6, -8px -8px 16px #ffffff` / 内凹 `inset`），按压机械沉降 |
+
+- **中性优先**：界面 95% 由表面与文字构成，颜色只用于状态与强调；强调色 `--color-accent` 只做强调点，不大面积铺色。
+- **视觉一致性**：三主题共享同一套 token 名与布局骨架，切换主题只换 token 值与材质复合值，不改结构与信息层级。
+- **动效克制**：所有微交互（hover 上浮 2px、按压 scale 0.975、入场 fade+scale、拖拽高亮）遵循「短促、有弹性、可关闭」（`prefers-reduced-motion` 全量降级）。
 
 ## 2. Token（唯一样式真源）
 
-所有颜色/圆角/动效/阴影只允许引用 `apps/ui/src/styles.css` 的 CSS 变量，**禁止在组件里写死十六进制色值**（品牌 Logo 预览 `AppIcon.vue` 除外）。
+所有颜色/圆角/动效/阴影只允许引用 `apps/ui/src/styles.css` 的 CSS 变量，**禁止在组件里写死十六进制色值**（品牌 Logo 预览 `AppIcon.vue` 与设置页主题预览卡 `PREVIEW_PALETTES` 除外——后者描绘的是其它主题的样子）。
 
 | 类别 | 变量 | 用途 |
 | --- | --- | --- |
-| 表面 | `--color-bg / -panel / -side / -sunken / -set-card` | 窗口、主区、侧栏、下陷区、设置卡片 |
-| 线条 | `--color-line / -line-soft / -line-strong` | 分隔线、卡片描边（1px） |
-| 文字 | `--color-txt / -txt-strong / -mut / -dim` | 正文、标题、次要、弱化 |
-| 交互 | `--color-menu-hover / -menu-active / -side-sel` | 悬停、选中态背景 |
+| 应用背板 | `--app-backdrop` | body 背景（玻璃=深空渐变，极客黑/拟态=纯色） |
+| 表面 | `--color-bg / -panel / -main-bg / -side / -sunken / -set-card / -raise` | 窗口、面板、主区、侧栏、下陷区、设置卡、悬浮卡 |
+| 线条 | `--color-line / -line-soft / -line-strong / -line-warm` | 分隔线、卡片描边（1px） |
+| 文字 | `--color-txt / -txt-strong / -mut / -dim / -txt-dim` | 正文、标题、次要、弱化（dim 的别名，供 hover 边框） |
+| 交互 | `--color-menu-hover / -menu-active / -side-sel / -side-hover / -side-active` | 悬停、选中态背景 |
 | 状态 | `--color-ok / -err / -add / -del / -danger-*` | 成功/错误/删除等 |
-| 圆角 | `--radius(-sm/-lg/-shell)` | 8 / 12 / 16px，全局只用这四档 |
-| 动效 | `--motion-fast/-base/-slow` + `--ease-*` | 0.12s/0.18s/0.2s，只动颜色与位移 |
-| 阴影 | `--shadow-composer / -menu / -pop / -tip` | 输入卡、浮层、弹窗、tooltip 四档 |
-| 壳体尺寸 | `--titlebar-h / -pad / -lead`、`--panel-head-h`、`--control-h` | 标题栏 38px、上下内边距 5px、窗口按钮预留 72px、栏头行 38px、控件高 28px |
-| 图标 | `--icon-stroke` | 图标线宽 1.5（lucide 默认 2 偏粗，全局收细，见第 3 节第 4 条） |
+| 圆角 | `--radius`（派生 `-sm/-md/-lg/-xl`）+ `--radius-shell` | 只调 `--radius`/`--radius-shell`，其余派生跟随主题（玻璃 14px / 极客黑 8px / 拟态 14px） |
+| 动效 | `--motion-fast/-base/-slow` + `--ease-enter/-exit/-emph/-spring` | 时长三档 + 弹簧曲线 `--ease-spring`（按压回弹/入场用） |
+| 阴影 | `--shadow-composer / -menu / -pop / -tip / -raised / -edge-*` | 输入卡、浮层、弹窗、tooltip、浮起卡、四向边缘 |
+| **材质** | `--material-blur / -surface-shadow / -indicator` | 复合材质：表面模糊、高光内描边+投影、活动项左强调条；**每主题必须给全集** |
+| **氛围** | `--ambient-1/2/3` + `--ambient-opacity` | AmbientCanvas 极光光斑颜色与整体浓度（极客黑/拟态 opacity=0） |
+| 壳体尺寸 | `--titlebar-h / -pad / -lead / -trail`、`--panel-head-h`、`--control-h` | 标题栏 38px、上下内边距 5px、窗口按钮预留 72px、栏头行 38px、控件高 28px |
+| 图标 | `--icon-stroke` | 图标线宽 1.5（lucide 默认 2 偏粗，全局收细） |
 | 层级 | `--z-overlay / -popup / -modal / -toast` | 40 / 50 / 70 / 90；**遮罩必须低于浮层**，reka 浮层由 `[data-reka-popper-content-wrapper]` 统一锁到 `--z-popup` |
 
-字号体系：正文 13–14px，辅助 11–12px，标题 14–18px；等宽场景（模型 ID、路径、设备码）用 `--font-mono`。
+字号体系：正文 13–14px，辅助 11–12px，标题 14–18px；等宽场景（模型 ID、路径、设备码）用 `--font-mono`（极客黑主题前置 JetBrains Mono / Fira Code，跨平台回退系统等宽栈）。
+
+### 2.1 主题引擎（composables/useTheme.ts）
+
+- **单一代码路径**：`initTheme()` 在 `main.ts` 挂载前同步执行——读 `localStorage("zen:ui-theme")` → 落 `html[data-theme]` + `.dark`（液态玻璃/极客黑挂 `.dark`，拟态不挂），保证首帧无闪烁。
+- **切换**：`setTheme(id)` 即时改 DOM；优先 `document.startViewTransition` 整体交叉淡入，降级挂 `html.theme-switching` 420ms（base 层有全局颜色/阴影过渡规则），`prefers-reduced-motion` 时直接切。
+- **持久化双写**：localStorage（下次启动首帧用）+ 主进程 `AppSettings.uiTheme`（跨窗口同步；`settings:changed` 广播经 `syncFromSettings` 回流，非法值两端都回落 `DEFAULT_UI_THEME`）。
+- **不要绕过引擎**：任何组件都不得手改 `data-theme` / `.dark` / `color-scheme`。
+
+### 2.2 材质层与微交互工具类（styles.css @layer components）
+
+| 类 | 作用 | 挂点 |
+| --- | --- | --- |
+| `.zen-surface` | 表面材质（`--material-blur` + `--material-surface-shadow`） | 窗口级壳体根：侧栏、标题栏、右栏、终端面板、composer 浮层、InfoPopup、SessionInfoPanel |
+| `.zen-indicator` | 活动项左 2px 强调条（`--material-indicator`） | 选中态行/tab（SessionRow 激活行、RightPanel 激活 tab） |
+| `.pressable` | 按压回弹 scale(0.975)，spring 曲线 | 可点击卡/行（适量，不滥用到每个按钮） |
+| `.lift` | hover 上浮 translateY(-2px) | Bento 卡等悬浮面 |
+
+主题化原语（不进组件）：`[data-theme="liquid-glass"]` 下 Card/DialogContent/settings-card 获得磨砂材质，reka 浮层同材质，按钮带顶部高光；`[data-theme="neumorphism"]` 下同组凸出、输入类内凹、按钮按压沉降；`[data-theme="dark-tech"]` 按钮过渡收紧到 80ms。
+
+### 2.3 氛围层与 Bento
+
+- `AmbientCanvas.vue`：固定 `-z-10` 的缓动光斑层，颜色/浓度全部来自 `--ambient-*`；用径向渐变衰减模拟柔光（不用 `filter: blur`，避免大面积实时模糊 GPU 开销）；仅液态玻璃可见。
+- `components/ui/bento/`：`BentoGrid`（grid-cols-12）+ `BentoCard`（cva col-span 变体 12/6/4/8 + pressable/lift），Bento/Dashboard 排布用；设置页「界面主题」选择器是首个用例。
 
 ## 3. 组件分层（硬性规则）
 
@@ -46,7 +77,7 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
    - 点击后一律先过 `ConfirmDialog`：标题写动作（`删除供应商？`），描述写清「删谁 + 删掉什么 + 不可撤销」，确认按钮写具体动作（`删除供应商`）而不是「确定」；取消在左、默认聚焦，取消文案可写 `继续当前会话` 这类明确语义；
    - 只对**会落库**的删除加确认；尚未保存的本地行（如新增供应商表单里的待添加模型）用危险色图标直接移除，不打扰；
    - 清空类动作同样算破坏性：标题栏「新对话」在有消息时才拦一道。
-7. **聚焦/选中态只做颜色反馈，禁止粗圈**：`focus-visible` / `aria-invalid` 一律不加 `ring-*` / `outline-*` 描边，只允许边框或底色变化一档（边框走 `focus-visible:border-ring`，`--ring` 即聚焦线色，light `#8a8a85` / dark `#6a6a6a`）；shadcn-vue 原语的 `focus-visible:ring-3` 已全局移除，新增/升级原语时照此收敛。ChatComposer 壳面使用 `--color-composer-surface`（#202020）+ `--shadow-composer`，无边框（拖拽文件悬停时才亮边）。
+7. **聚焦/选中态只做颜色反馈，禁止粗圈**：`focus-visible` / `aria-invalid` 一律不加 `ring-*` / `outline-*` 描边，只允许边框或底色变化一档（边框走 `focus-visible:border-ring`，`--ring` 即聚焦线色，随主题给中间灰/IDE 蓝）；shadcn-vue 原语的 `focus-visible:ring-3` 已全局移除，新增/升级原语时照此收敛。ChatComposer 壳面使用 `--color-composer-surface` + `--shadow-composer`，无边框（拖拽文件悬停时才亮边）。
 
 8. **消息区无气泡（assistant）**：assistant 内容为裸 markdown 直接铺在背板上（无卡片壳、无头像、无角色标签）；user 消息右对齐弱气泡（`--color-side-sel`）。离底 >80px 时 composer 上方出现圆形「回到底部」浮动按钮。composer 底部为居中的「内容由 AI 生成，请注意核实」免责声明行；仓库/分支/上下文用量移入会话信息卡的「环境信息」节。
 
@@ -177,3 +208,10 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - **技能 / MCP 合并为单行两列**（原两行常驻占一倍纵向空间）。
   - **UserBlock 登录卡片原生化**：登录方式选择的两个裸 `<button>` 迁移到 `Button variant="outline"`（外观不变），对齐第 3 节第 3 条。
   - 验证：`vue-tsc` 0 错、vitest 211 过（`MessageBubble.test.ts` 5 例为存量失败，与本批改动无关，HEAD 上同样失败）、dev 实例 DOM 复查（标题栏新对话=1、悬浮 FAB=0、组级 +=4、无控制台报错）。
+- 2026-10-09（主题系统 v2 · 三主题重构）：
+  - **删除 MiMo 设计系统，重建为三主题 token 体系**：`styles.css` 全量重写——token 名保持为组件层 API（约 50 个组件零改动换装），值按主题重定义；新增材质复合 token（`--material-*`）与氛围 token（`--ambient-*`）；补上组件曾引用但未定义的 `--color-txt-dim`（= dim 别名）。
+  - **主题引擎**：新增 `composables/useTheme.ts`（`initTheme/setTheme/syncFromSettings`），`main.ts` 挂载前落 `data-theme` + `.dark`（替换原硬编码 `.dark`）；View Transition 优先、`html.theme-switching` 全局过渡类降级、reduced-motion 直切；持久化双写 localStorage + `AppSettings.uiTheme`（shared 新增 `UiThemeId/UI_THEME_IDS/DEFAULT_UI_THEME/isUiTheme`，`user-ipc.ts` 读取时校验回落）。
+  - **设置页主题选择器**：新增 `ui/bento/`（BentoGrid/BentoCard，cva col-span 变体）；SettingsGeneral 顶部「界面主题」三张预览卡（纯 CSS 迷你 mock + `PREVIEW_PALETTES` 硬编码允许），radio 语义 + v-motion 弹簧入场（@vueuse/motion 局部指令 `MotionDirective()`，无需注册全局插件）。
+  - **材质与氛围**：`.zen-surface/.zen-indicator/.pressable/.lift` 工具类；壳体（侧栏/标题栏/右栏/终端/composer 浮层/InfoPopup/SessionInfoPanel）挂 `.zen-surface`，激活行/tab 挂 `.zen-indicator`；`AmbientCanvas.vue` 极光层（径向渐变柔光，不用 filter:blur，仅液态玻璃可见）；主题化原语作用域规则（玻璃磨砂卡/浮层/按钮高光，拟态凸起/内凹/按压沉降，极客黑 80ms 过渡）。
+  - **微交互**：按压 scale(0.975)+spring、hover 上浮 2px、ResizeHandle 拖拽加宽强调条；全部受 `prefers-reduced-motion` 降级。
+  - 三主题默认值：液态玻璃（深色玻璃，`data-theme="liquid-glass"` + `.dark`，浅色外观钩子 `[data-theme="liquid-glass"]:not(.dark)` 已备）、极客黑（`dark-tech` + `.dark`）、拟态（`neumorphism` 无 `.dark`）。
