@@ -7,6 +7,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
+import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 
 const props = defineProps<{
@@ -14,8 +15,11 @@ const props = defineProps<{
   compact?: boolean;
 }>();
 
+const chatStore = useChatStore();
 const modelsStore = useModelsStore();
-const { providers, selection, selectedLabel } = storeToRefs(modelsStore);
+const { providers } = storeToRefs(modelsStore);
+// 会话级模型覆盖优先：切换模型只影响当前会话
+const { effectiveSelection, effectiveModel } = storeToRefs(chatStore);
 
 const open = ref(false);
 const query = ref("");
@@ -71,10 +75,10 @@ const filtered = computed(() => {
 });
 
 const selectedKey = computed(() => {
-  if (!selection.value.providerId || !selection.value.modelId) {
+  if (!effectiveSelection.value.providerId || !effectiveSelection.value.modelId) {
     return "";
   }
-  return `${selection.value.providerId}:${selection.value.modelId}`;
+  return `${effectiveSelection.value.providerId}:${effectiveSelection.value.modelId}`;
 });
 
 function itemKey(providerId: string, modelId: string) {
@@ -93,7 +97,8 @@ function railClass(id: string | "recent") {
 }
 
 async function pick(providerId: string, modelId: string) {
-  await modelsStore.select(providerId, modelId);
+  // 会话级覆盖：只改当前会话，不影响其它会话的模型选择
+  await chatStore.setSessionModel(providerId, modelId);
   const key = itemKey(providerId, modelId);
   recentKeys.value = [key, ...recentKeys.value.filter((k) => k !== key)].slice(0, 8);
   open.value = false;
@@ -108,8 +113,8 @@ function toggleOpen() {
   open.value = !open.value;
   if (open.value) {
     void modelsStore.refresh();
-    if (!activeProviderId.value && selection.value.providerId) {
-      activeProviderId.value = selection.value.providerId;
+    if (!activeProviderId.value && effectiveSelection.value.providerId) {
+      activeProviderId.value = effectiveSelection.value.providerId;
     }
     void nextTick(() => searchEl.value?.focus());
   }
@@ -152,15 +157,15 @@ watch(providers, () => {
       class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
-      :title="selection.model?.name || selectedLabel"
-      :aria-label="`模型：${selection.model?.name || selectedLabel}`"
+      :title="effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型'"
+      :aria-label="`模型：${effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型'}`"
       @click="toggleOpen"
     >
       <VendorLogo
-        :vendor="selection.provider?.name || selection.model?.id"
+        :vendor="effectiveModel?.provider.name || effectiveModel?.model.id"
         :size="compact ? 16 : 16"
       />
-      <span v-if="!compact" class="truncate font-medium">{{ selection.model?.name || selectedLabel }}</span>
+      <span v-if="!compact" class="truncate font-medium">{{ effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型' }}</span>
       <svg
         v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"

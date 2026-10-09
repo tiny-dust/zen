@@ -146,7 +146,7 @@ onMounted(() => {
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
-      class="flex w-[min(520px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
+      class="flex w-[min(600px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
     >
       <DialogHeader class="sr-only absolute h-px w-px overflow-hidden p-0 m-[-1px]">
         <DialogTitle>选择模型模板</DialogTitle>

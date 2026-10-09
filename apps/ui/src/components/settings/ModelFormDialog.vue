@@ -204,7 +204,7 @@ function protocolOptions() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex w-[min(560px,calc(100vw-32px))] flex-col gap-3">
+    <DialogContent class="flex w-[min(640px,calc(100vw-32px))] flex-col gap-3">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <span>{{ initial ? "编辑模型" : "添加模型" }}</span>

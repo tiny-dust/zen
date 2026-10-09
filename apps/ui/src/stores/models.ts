@@ -41,6 +41,18 @@ export const useModelsStore = defineStore("models", () => {
     ),
   );
 
+  /** 按 provider/model 查找已启用模型（会话级覆盖与能力读取共用） */
+  function findEnabledModel(providerId: string | null, modelId: string | null) {
+    if (!providerId || !modelId) {
+      return null;
+    }
+    return (
+      enabledModels.value.find(
+        (item) => item.provider.id === providerId && item.model.id === modelId,
+      ) ?? null
+    );
+  }
+
   const selectedLabel = computed(() => {
     const provider = selection.value.provider;
     const model = selection.value.model;
@@ -311,6 +323,7 @@ export const useModelsStore = defineStore("models", () => {
     catalogModels,
     activeProvider,
     enabledModels,
+    findEnabledModel,
     selectedLabel,
     selectedModel,
     selectedSupportsReasoning,
