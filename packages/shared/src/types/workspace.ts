@@ -21,6 +21,9 @@ export interface SessionRecord {
   archived: boolean;
   createdAt: number;
   updatedAt: number;
+  /** 会话级模型覆盖；null/空表示跟随全局默认模型 */
+  modelProviderId?: string | null;
+  modelId?: string | null;
 }
 
 /** 侧栏按工作区分组消费：工作区行 + 其下会话列表 */
