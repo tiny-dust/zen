@@ -1,22 +1,81 @@
 <script setup lang="ts">
+import { Check } from "@lucide/vue";
+import { MotionDirective } from "@vueuse/motion";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import AppIcon from "@/components/base/AppIcon.vue";
 import { Response } from "@/components/ai-elements/response";
 import { CODE_THEMES } from "@/components/ai-elements/response/extensions";
+import { BentoCard, BentoGrid } from "@/components/ui/bento";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
+import { useTheme } from "@/composables/useTheme";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
 
-import type { UpdateStatusInfo } from "@zen/shared";
+import type { UiThemeId, UpdateStatusInfo } from "@zen/shared";
 
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
+
+/** 界面主题：切换即时生效/持久化由 useTheme 负责，本组件不做 DOM watch */
+const { theme, themes, setTheme } = useTheme();
+
+/** v-motion 局部指令：与 MotionPlugin 注册的全局 v-motion 同源，避免动 main.ts */
+const vMotion = MotionDirective();
+
+/** 主题迷你预览取色板：描绘的是各主题自己的外观，允许硬编码；页面其余 UI 一律走 CSS 变量 token */
+const PREVIEW_PALETTES: Record<
+  UiThemeId,
+  {
+    windowBg: string;
+    sidebar: string;
+    line: string;
+    bubble: string;
+    text: string;
+    accent: string;
+    windowShadow: string;
+    bubbleShadow: string;
+  }
+> = {
+  "liquid-glass": {
+    windowBg: "rgba(18,18,24,0.9)",
+    sidebar: "rgba(255,255,255,0.10)",
+    line: "rgba(255,255,255,0.16)",
+    bubble: "rgba(255,255,255,0.14)",
+    text: "#FFFFFF",
+    accent: "#0A84FF",
+    windowShadow: "0 8px 20px rgba(0,0,0,0.45)",
+    bubbleShadow: "none",
+  },
+  "dark-tech": {
+    windowBg: "#1e1e1e",
+    sidebar: "#252526",
+    line: "#3c3c3c",
+    bubble: "#252526",
+    text: "#CCCCCC",
+    accent: "#007acc",
+    windowShadow: "0 8px 20px rgba(0,0,0,0.5)",
+    bubbleShadow: "none",
+  },
+  neumorphism: {
+    windowBg: "#e0e5ec",
+    sidebar: "#e0e5ec",
+    line: "#FFFFFF",
+    bubble: "#e0e5ec",
+    text: "#5B6472",
+    accent: "#6C7EE1",
+    windowShadow: "4px 4px 10px #BEC3CA, -4px -4px 10px #FFFFFF",
+    bubbleShadow: "2px 2px 5px #BEC3CA, -2px -2px 5px #FFFFFF",
+  },
+};
+
+/** 预览卡渲染数据：主题元数据 + 对应取色板 */
+const THEME_CARDS = themes.map((item) => ({ ...item, palette: PREVIEW_PALETTES[item.id] }));
 
 /** 代码主题预览片段：同一份代码左浅右深各渲染一份（取色规则见 styles.css 预览节） */
 const PREVIEW_SNIPPET = `function greet() {
@@ -113,6 +172,74 @@ async function downloadUpdate() {
 </script>
 
 <template>
+  <section class="flex flex-col">
+    <!-- 界面主题：三张预览卡，span=4 → lg 下三列；点击经 useTheme 即时切换 -->
+    <h3 class="settings-section-title">界面主题</h3>
+    <BentoGrid role="radiogroup" aria-label="界面主题">
+      <BentoCard
+        v-for="(item, index) in THEME_CARDS"
+        :key="item.id"
+        v-motion
+        :initial="{ opacity: 0, y: 14, scale: 0.98 }"
+        :visible-once="{ opacity: 1, y: 0, scale: 1, transition: { type: 'spring', stiffness: 260, damping: 24, delay: index * 70 } }"
+        as="button"
+        type="button"
+        span="4"
+        class="relative cursor-pointer"
+        role="radio"
+        :aria-checked="theme === item.id"
+        :class="theme === item.id ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
+        @click="setTheme(item.id)"
+      >
+        <!-- 纯 CSS 迷你预览：圆角小窗口 mock（窗口条 + 侧栏条 + 聊天气泡 + accent 圆点按钮），颜色取自取色板 -->
+        <div
+          aria-hidden="true"
+          class="pointer-events-none relative flex h-[72px] w-full flex-col overflow-hidden rounded-[8px] border"
+          :style="{ backgroundColor: item.palette.windowBg, borderColor: item.palette.line, boxShadow: item.palette.windowShadow }"
+        >
+          <div
+            class="flex h-[16px] shrink-0 items-center gap-[3px] border-b px-[6px]"
+            :style="{ backgroundColor: item.palette.sidebar, borderColor: item.palette.line }"
+          >
+            <span class="size-[4px] rounded-full" :style="{ backgroundColor: item.palette.accent }" />
+            <span class="h-[3px] w-[16px] rounded-full" :style="{ backgroundColor: item.palette.text, opacity: 0.55 }" />
+          </div>
+          <div class="flex min-h-0 flex-1">
+            <div
+              class="w-[20px] shrink-0 border-r"
+              :style="{ backgroundColor: item.palette.sidebar, borderColor: item.palette.line }"
+            />
+            <div class="flex min-w-0 flex-1 flex-col justify-center gap-[4px] px-[8px]">
+              <div
+                class="h-[7px] w-3/5 rounded-full"
+                :style="{ backgroundColor: item.palette.bubble, boxShadow: item.palette.bubbleShadow }"
+              />
+              <div
+                class="h-[7px] w-2/5 self-end rounded-full"
+                :style="{ backgroundColor: item.palette.accent, opacity: 0.85 }"
+              />
+            </div>
+          </div>
+          <span
+            class="absolute right-[6px] bottom-[6px] size-[10px] rounded-full"
+            :style="{ backgroundColor: item.palette.accent }"
+          />
+        </div>
+        <div class="mt-2 flex flex-col gap-0.5">
+          <span class="text-[13px] leading-tight text-[var(--color-txt-strong)]">{{ item.label }}</span>
+          <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ item.description }}</span>
+        </div>
+        <!-- 选中徽标：accent 底白点 -->
+        <span
+          v-if="theme === item.id"
+          class="absolute right-2 top-2 flex size-[18px] items-center justify-center rounded-full bg-[var(--color-accent)]"
+        >
+          <Check class="size-[11px] text-[var(--color-accent-fg)]" :stroke-width="3" />
+        </span>
+      </BentoCard>
+    </BentoGrid>
+  </section>
+
   <section class="flex flex-col">
     <!-- 软件更新（临时开放）：generic 更新源，局域网/本机静态目录即可 -->
     <h3 class="settings-section-title">软件更新</h3>

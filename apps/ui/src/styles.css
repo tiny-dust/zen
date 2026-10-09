@@ -1,4 +1,17 @@
-/* Zen design tokens — aligned with Xiaomi MiMo Desktop */
+/* ============================================================
+   Zen 主题系统 v2 —— Liquid Glass / Dark Tech / Neumorphism
+   ------------------------------------------------------------
+   架构约定：
+   1. 组件只允许消费 CSS 变量 token（--color-* / --shadow-* / --radius-*），
+      禁止在组件内写死色值；token 名是设计系统的 API，改名即破坏所有组件。
+   2. 主题由 html[data-theme] 承载：liquid-glass（默认）| dark-tech | neumorphism；
+      明暗由 .dark 类承载（liquid-glass / dark-tech 深色，neumorphism 浅色），
+      二者由 composables/useTheme.ts 统一驱动，勿在别处手动改。
+   3. 材质复合 token（--material-* / --ambient-*）每个主题必须给全集，
+      消费方（.zen-surface 等）不做主题判断。
+   4. 平滑切换：useTheme 优先走 View Transition，降级挂 html.theme-switching
+      （见 @layer base 的全局过渡规则）。
+   ============================================================ */
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "shadcn-vue/tailwind.css";
@@ -37,6 +50,7 @@
   color: var(--color-link);
 }
 
+/* ============ 结构性 token（主题无关） ============ */
 :root {
   --motion-fast: 0.12s;
   --motion-base: 0.18s;
@@ -44,6 +58,8 @@
   --ease-enter: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ease-emph: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 弹簧感回弹曲线：按压回弹 / 入场 scale 用 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   --font-sans:
     "MiSans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
@@ -54,10 +70,13 @@
     "Noto Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC",
     monospace;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-lg: 12px;
-  --radius-shell: 16px;
+  /* 圆角体系：只调 --radius / --radius-shell，其余派生（跟随主题切换） */
+  --radius: 14px;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-shell: 18px;
 
   /* 壳体尺寸：标题栏与各栏头行同高，窗口按钮与图标按钮垂直居中 */
   --titlebar-h: 38px;
@@ -93,240 +112,134 @@
 
   /* 层级刻度：弹窗遮罩 40 < reka 浮层 50 < 提示 90（后两档预留）；
      壳体（标题栏/侧栏/面板）走正常文档流，不占层级。
-     铁律：遮罩必须低于浮层，否则弹窗里的下拉会被遮住。
-     注意：对话框内容与 reka 浮层同处 50 层（DOM 顺序保证弹窗内下拉/菜单在上），
-     --z-modal 为预留档，勿直接套在对话框内容上，否则弹窗内的下拉会被盖住。 */
+     铁律：遮罩必须低于浮层，否则弹窗里的下拉会被遮住。 */
   --z-overlay: 40;
   --z-popup: 50;
   --z-modal: 70;
   --z-toast: 90;
+}
 
-  /* MiMo Desktop — light */
-  --color-bg: #fffefd;
-  --color-panel: #fff;
-  --color-main-bg: #fff;
-  --color-side: #fff;
-  --color-side-glass: #f8f7f5;
-  --color-side-hover: #f1f0ec;
-  --color-side-active: #f1f0ec;
-  --color-side-sel: #eeedec;
-  --color-side-item: #4a4a4a;
+/* ============ 主题 1：苹果液态玻璃（默认，深色玻璃） ============
+   :root 同时作为无 data-theme 时的兜底（首帧 JS 未执行也能落到默认主题）。
+   材质：半透明磨砂面 + backdrop-blur + 顶部 1px 高光内描边 + 弥散极光背景。 */
+:root,
+[data-theme="liquid-glass"] {
+  /* 应用背板：深空基底 + 三团弥散色（AmbientCanvas 的光斑叠在其上） */
+  --app-backdrop:
+    radial-gradient(1200px 800px at 12% -8%, #1d2a4d 0%, transparent 55%),
+    radial-gradient(1000px 700px at 88% 10%, #2c1e4d 0%, transparent 55%),
+    radial-gradient(900px 900px at 55% 115%, #123249 0%, transparent 60%),
+    linear-gradient(180deg, #0e1016 0%, #0c0d13 100%);
+
+  /* 表面色：全部带透明度，玻璃感来自「透出背板 + zen-surface 的 blur」 */
+  --color-bg: rgba(16, 17, 24, 0.42);
+  --color-panel: rgba(255, 255, 255, 0.055);
+  --color-main-bg: rgba(16, 17, 24, 0.3);
+  --color-side: rgba(13, 15, 21, 0.55);
+  --color-side-glass: rgba(255, 255, 255, 0.04);
+  --color-side-hover: rgba(255, 255, 255, 0.07);
+  --color-side-active: rgba(255, 255, 255, 0.1);
+  --color-side-sel: rgba(255, 255, 255, 0.09);
+  --color-side-item: #ccd2e2;
   /* 会话行行尾悬浮操作簇底色：不透明（盖住跑马灯滚过的标题文字），随行状态变化 */
-  --color-side-chip: #f1f0ec;
-  --color-side-chip-active: #eeedec;
-  --color-raise: var(--color-panel); /* 悬浮信息卡（会话信息卡） */
-  --color-sunken: var(--color-side-glass);
-  --color-set-card: #fff;
-  --color-settings-nav: #f8f7f5;
-  --color-settings-content: var(--color-panel);
-  --color-settings-card: var(--color-set-card);
-  --color-settings-line: color-mix(in srgb, #f1f1f1 78%, transparent);
-  --color-popover: #fff;
+  --color-side-chip: rgba(32, 35, 48, 0.92);
+  --color-side-chip-active: rgba(43, 47, 64, 0.94);
+  --color-raise: rgba(30, 33, 46, 0.92); /* 悬浮信息卡（会话信息卡） */
+  --color-sunken: rgba(0, 0, 0, 0.22);
+  --color-set-card: rgba(255, 255, 255, 0.05);
+  --color-settings-nav: rgba(11, 12, 18, 0.45);
+  --color-settings-content: rgba(17, 18, 27, 0.82);
+  --color-settings-card: rgba(255, 255, 255, 0.055);
+  --color-settings-line: rgba(255, 255, 255, 0.08);
+  --color-popover: rgba(24, 26, 37, 0.92);
 
-  --color-line: #f1f1f1;
-  --color-line-soft: #0000000d;
-  --color-line-warm: #f0ebe5;
-  --color-line-strong: #dcdcd8;
+  --color-line: rgba(255, 255, 255, 0.09);
+  --color-line-soft: rgba(255, 255, 255, 0.055);
+  --color-line-warm: rgba(255, 255, 255, 0.07);
+  --color-line-strong: rgba(255, 255, 255, 0.17);
 
-  --color-input-bg: #fff;
-  --color-input-border: #151c130f;
-  --color-btn-border: #e3e3e0;
-  /* 次级按钮底色：对齐 MiMo .np-btn */
-  --color-np-btn-bg: var(--color-bg);
-  --color-composer-surface: #fff;
-  --color-composer-fg: #151c13;
-  --color-composer-placeholder: #151c1399;
-  --color-composer-tray-bg: var(--color-sunken);
+  --color-input-bg: rgba(255, 255, 255, 0.06);
+  --color-input-border: rgba(255, 255, 255, 0.14);
+  --color-btn-border: rgba(255, 255, 255, 0.12);
+  --color-np-btn-bg: rgba(255, 255, 255, 0.07);
+  --color-composer-surface: rgba(21, 23, 33, 0.66);
+  --color-composer-fg: #dfe3f0;
+  --color-composer-placeholder: rgba(158, 165, 188, 0.75);
+  --color-composer-tray-bg: rgba(0, 0, 0, 0.18);
 
-  --color-txt: #151c13cc;
-  --color-txt-strong: #151c13;
-  /* mut/dim 保持 dim < mut < txt 的层级，同时全部满足 WCAG AA（≥4.5:1） */
-  --color-mut: #151c13b3;
-  --color-dim: #151c13a6;
-  --color-icon: #5c5c57;
-  --color-topbar-icon: #151c1399;
+  --color-txt: rgba(228, 232, 246, 0.82);
+  --color-txt-strong: #f4f6fd;
+  /* mut/dim 保持 dim < mut < txt 的层级，同时满足 WCAG AA（≥4.5:1） */
+  --color-mut: rgba(210, 216, 236, 0.64);
+  --color-dim: rgba(198, 205, 230, 0.46);
+  --color-txt-dim: var(--color-dim);
+  --color-icon: rgba(222, 227, 244, 0.75);
+  --color-topbar-icon: rgba(228, 232, 246, 0.72);
 
-  --color-send: #151c13;
-  --color-send-fg: #fff;
-  --color-send-empty: #bbbbb6;
-  --color-accent: #ff6a2b;
-  --color-accent-fg: #fff;
-  --color-accent-2: #ffb02e;
-  --color-link: #3295fb;
-  --color-blue: #2f6fed;
+  /* 主 CTA：亮玻璃白底深字，iOS 式按钮 */
+  --color-send: rgba(255, 255, 255, 0.92);
+  --color-send-fg: #0d0f17;
+  --color-send-empty: rgba(255, 255, 255, 0.28);
+  --color-accent: #0a84ff;
+  --color-accent-fg: #ffffff;
+  --color-accent-2: #64d2ff;
+  --color-link: #6cb2ff;
+  --color-blue: #409cff;
 
   /* 图谱泳道色板（GitGraph 按序循环） */
   --color-graph-1: var(--color-accent);
-  --color-graph-2: var(--color-blue);
-  --color-graph-3: #8250df;
-  --color-graph-4: #0f7f73;
-  --color-graph-5: #bf3989;
-  --color-graph-6: #57606a;
+  --color-graph-2: #64d2ff;
+  --color-graph-3: #bf5af2;
+  --color-graph-4: #30d158;
+  --color-graph-5: #ff375f;
+  --color-graph-6: #98989f;
 
-  --color-ok: #1a9e5f;
-  --color-err: #d23f3f;
-  --color-add: #1a7f37;
-  --color-del: #e5484d;
-  --color-danger-bg: #fdecea;
-  --color-danger-fg: #d93025;
+  --color-ok: #30d158;
+  --color-err: #ff453a;
+  --color-add: #32d74b;
+  --color-del: #ff6961;
+  --color-danger-bg: rgba(255, 69, 58, 0.14);
+  --color-danger-fg: #ff8a80;
 
-  --color-code-bg: #f0f0f2;
-  --color-code-fg: #3a3a38;
-  --color-menu-hover: #f1f0ec;
-  --color-menu-active: #f1f0ec;
-  --color-chip-bg: #0000000d;
-  --color-chip-text: #137a3f;
-  --color-scrollbar-thumb: #0000002e;
-  --color-scrollbar-thumb-hover: #0000004d;
-  --color-selection: #b3d7ff;
-  --color-scrim: #00000061;
-  --color-notice-bg: #fff;
-  --color-notice-border: #ececec;
-  --color-notice-danger-bg: #ffd9d9;
-  --color-notice-danger-border: #ffbdbd;
+  --color-code-bg: rgba(255, 255, 255, 0.06);
+  --color-code-fg: #e2e6f5;
+  --color-menu-hover: rgba(255, 255, 255, 0.07);
+  --color-menu-active: rgba(255, 255, 255, 0.1);
+  --color-chip-bg: rgba(255, 255, 255, 0.08);
+  --color-chip-text: #7ee2a8;
+  --color-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+  --color-selection: rgba(10, 132, 255, 0.35);
+  --color-scrim: rgba(4, 5, 10, 0.55);
+  --color-notice-bg: rgba(31, 34, 47, 0.94);
+  --color-notice-border: rgba(255, 255, 255, 0.1);
+  --color-notice-danger-bg: rgba(112, 28, 26, 0.55);
+  --color-notice-danger-border: rgba(255, 105, 97, 0.4);
 
-  --shadow-composer: 0 1px 2px #0000000d, 0 6px 18px #0000001b;
-  --shadow-menu: 0 8px 30px #0000002e, 0 1px 3px #0000001a;
-  --shadow-pop: 0 12px 40px #00000024;
-  --shadow-tip: 0 2px 8px #0000000d, 0 1px 2px #0000000a;
-  --shadow-edge-top: 0 -1px 2px #0000000a, 0 -6px 16px #00000007;
-  --shadow-edge-bottom: 0 1px 2px #0000000a, 0 6px 16px #00000007;
-  --shadow-edge-left: -1px 0 2px #0000000a, -6px 0 16px #00000007;
-  --shadow-edge-right: 1px 0 2px #0000000a, 6px 0 16px #00000007;
-  --shadow-raised: 0 1px 2px #0000000a, 0 3px 10px #0000000f;
+  --shadow-composer: 0 2px 8px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.38);
+  --shadow-menu: 0 2px 8px rgba(0, 0, 0, 0.3), 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --shadow-tip: 0 1px 4px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-edge-top: 0 -1px 2px rgba(0, 0, 0, 0.25), 0 -8px 24px rgba(0, 0, 0, 0.18);
+  --shadow-edge-bottom: 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.18);
+  --shadow-edge-left: -1px 0 2px rgba(0, 0, 0, 0.25), -8px 0 24px rgba(0, 0, 0, 0.18);
+  --shadow-edge-right: 1px 0 2px rgba(0, 0, 0, 0.25), 8px 0 24px rgba(0, 0, 0, 0.18);
+  --shadow-raised: 0 2px 6px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.22);
 
-  /* shadcn — light (mapped from MiMo) */
-  --background: var(--color-bg);
-  --foreground: var(--color-txt);
-  --card: var(--color-bg);
-  --card-foreground: var(--color-txt);
-  --popover: var(--color-popover);
-  --popover-foreground: var(--color-txt);
-  --primary: var(--color-send);
-  --primary-foreground: var(--color-send-fg);
-  --secondary: #f1f1f1;
-  --secondary-foreground: #151c13;
-  --muted: var(--color-side);
-  --muted-foreground: var(--color-mut);
-  --accent: var(--color-side-sel);
-  --accent-foreground: var(--color-txt-strong);
-  --destructive: var(--color-del);
-  --destructive-foreground: #fff;
-  --border: var(--color-line);
-  --input: var(--color-btn-border);
-  --ring: #8a8a85;
-  --chart-1: #dcdcd8;
-  --chart-2: #8a8a82;
-  --chart-3: #5c5c57;
-  --chart-4: #3a3a38;
-  --chart-5: #151c13;
-  --sidebar: var(--color-side);
-  --sidebar-foreground: var(--color-txt);
-  --sidebar-primary: var(--color-send);
-  --sidebar-primary-foreground: var(--color-send-fg);
-  --sidebar-accent: var(--color-side-sel);
-  --sidebar-accent-foreground: var(--color-txt-strong);
-  --sidebar-border: var(--color-line);
-  --sidebar-ring: #8a8a85;
+  /* 材质复合 token：表面模糊 + 玻璃高光内描边 + 活动项左侧强调条 */
+  --material-blur: blur(28px) saturate(1.6);
+  --material-surface-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 12px 40px rgba(0, 0, 0, 0.3);
+  --material-indicator: inset 2px 0 0 rgba(10, 132, 255, 0.55);
 
-  color-scheme: light;
-}
+  /* 氛围层（AmbientCanvas）：极光三原色与整体浓度 */
+  --ambient-1: rgba(64, 96, 255, 0.3);
+  --ambient-2: rgba(191, 90, 242, 0.18);
+  --ambient-3: rgba(100, 210, 255, 0.16);
+  --ambient-opacity: 1;
 
-/* MiMo Desktop — dark (project default) */
-.dark,
-[data-theme="dark"] {
-  color-scheme: dark;
-
-  --color-bg: #181818;
-  --color-panel: #181818;
-  --color-main-bg: #181818;
-  --color-side: #141414;
-  --color-side-glass: var(--color-side);
-  --color-side-hover: #ffffff14;
-  --color-side-active: #ffffff1f;
-  --color-side-sel: #ffffff1f;
-  --color-side-item: #e0e0e0;
-  /* 会话行行尾悬浮操作簇底色：white 8% / 12% 叠在 --color-side 上的不透明等价值 */
-  --color-side-chip: #262626;
-  --color-side-chip-active: #313131;
-  --color-raise: #191919; /* 悬浮信息卡（会话信息卡） */
-  --color-sunken: #2e2e2e;
-  --color-set-card: #1a1a1a;
-  --color-settings-nav: var(--color-side);
-  --color-settings-content: #1f1f1f;
-  --color-settings-card: #282828;
-  --color-settings-line: #3d3d3d;
-  --color-popover: #1a1a1a;
-
-  --color-line: #2e2e2e;
-  --color-line-soft: #ffffff12;
-  --color-line-warm: #2e2e2e;
-  --color-line-strong: var(--color-line);
-
-  --color-input-bg: #181818;
-  --color-input-border: #2e2e2e;
-  --color-btn-border: #3a3a3a;
-  --color-np-btn-bg: #1a1a1a;
-  --color-composer-surface: #202020;
-  --color-composer-fg: #a0a0a0;
-  --color-composer-placeholder: #a0a0a099;
-  --color-composer-tray-bg: #151515;
-
-  --color-txt: #f4f4f5;
-  --color-txt-strong: #fff;
-  --color-mut: #b8b8b8;
-  /* 8a8a8a 在 #181818 上 ≈5.1:1，满足 AA；仍明显弱于 mut */
-  --color-dim: #8a8a8a;
-  --color-icon: #d0d0d0;
-  --color-topbar-icon: #f4f4f5;
-
-  --color-send: #ececec;
-  --color-send-fg: #151c13;
-  /* 置灰发送图标属非文本元素，≥3:1 即可 */
-  --color-send-empty: #6e6e6e;
-  --color-link: #3295fb;
-  --color-blue: #5a9cff;
-
-  /* 图谱泳道色板（暗色提亮一档保证对比） */
-  --color-graph-1: var(--color-accent);
-  --color-graph-2: var(--color-blue);
-  --color-graph-3: #c297ff;
-  --color-graph-4: #33b3a6;
-  --color-graph-5: #e56aae;
-  --color-graph-6: #9ea7b3;
-
-  --color-ok: #1a9e5f;
-  --color-add: #3fb950;
-  --color-del: #e5484d;
-  --color-danger-bg: #3a2320;
-  --color-danger-fg: #ff9b7f;
-
-  --color-code-bg: #2e2e2e;
-  --color-code-fg: #e6e6e6;
-  --color-menu-hover: #ffffff0f;
-  --color-menu-active: #ffffff1a;
-  --color-chip-bg: #ffffff14;
-  --color-chip-text: #4ade80;
-  --color-scrollbar-thumb: #ffffff2e;
-  --color-scrollbar-thumb-hover: #ffffff4d;
-  --color-selection: #33518a;
-  --color-scrim: #00000099;
-  --color-notice-bg: #2e2e2e;
-  --color-notice-border: #3a3a3a;
-  --color-notice-danger-bg: #4d100e;
-  --color-notice-danger-border: #711a16;
-
-  --shadow-composer: 0 1px 3px #0006;
-  --shadow-menu: 0 8px 30px #0009, 0 1px 3px #0006;
-  --shadow-pop: 0 12px 40px #00000080;
-  --shadow-tip: 0 2px 8px #0000004d, 0 1px 2px #00000040;
-  --shadow-edge-top: 0 -1px 2px #0006, 0 -6px 16px #0005;
-  --shadow-edge-bottom: 0 1px 2px #0006, 0 6px 16px #0005;
-  --shadow-edge-left: -1px 0 2px #0006, -6px 0 16px #0005;
-  --shadow-edge-right: 1px 0 2px #0006, 6px 0 16px #0005;
-  --shadow-raised: 0 1px 2px #0006, 0 3px 10px #0008;
-
-  /* shadcn — dark */
+  /* shadcn — 映射到 Zen token */
   --background: var(--color-bg);
   --foreground: var(--color-txt);
   --card: var(--color-settings-card);
@@ -335,7 +248,7 @@
   --popover-foreground: var(--color-txt);
   --primary: var(--color-send);
   --primary-foreground: var(--color-send-fg);
-  --secondary: #2e2e2e;
+  --secondary: rgba(255, 255, 255, 0.08);
   --secondary-foreground: var(--color-txt-strong);
   --muted: var(--color-sunken);
   --muted-foreground: var(--color-mut);
@@ -345,12 +258,12 @@
   --destructive-foreground: #fff;
   --border: var(--color-line);
   --input: var(--color-btn-border);
-  --ring: #6a6a6a;
-  --chart-1: #3a3a3a;
-  --chart-2: #5a5a5a;
-  --chart-3: #777;
-  --chart-4: #b8b8b8;
-  --chart-5: #f4f4f5;
+  --ring: rgba(146, 156, 186, 0.55);
+  --chart-1: var(--color-graph-1);
+  --chart-2: var(--color-graph-2);
+  --chart-3: var(--color-graph-3);
+  --chart-4: var(--color-graph-4);
+  --chart-5: var(--color-graph-5);
   --sidebar: var(--color-side);
   --sidebar-foreground: var(--color-txt);
   --sidebar-primary: var(--color-send);
@@ -358,7 +271,413 @@
   --sidebar-accent: var(--color-side-sel);
   --sidebar-accent-foreground: var(--color-txt-strong);
   --sidebar-border: var(--color-line);
-  --sidebar-ring: #6a6a6a;
+  --sidebar-ring: var(--ring);
+
+  color-scheme: dark;
+}
+
+/* ---- 液态玻璃 · 浅色外观钩子 ----
+   .dark 摘掉时启用（外观切换 UI 预留；当前默认深色玻璃）。 */
+[data-theme="liquid-glass"]:not(.dark) {
+  --app-backdrop:
+    radial-gradient(1100px 760px at 14% -6%, #cfe0ff 0%, transparent 55%),
+    radial-gradient(950px 700px at 86% 8%, #e6d9ff 0%, transparent 55%),
+    radial-gradient(900px 860px at 52% 112%, #c9ecff 0%, transparent 60%),
+    linear-gradient(180deg, #eef2f9 0%, #e8edf6 100%);
+
+  --color-bg: rgba(246, 248, 253, 0.42);
+  --color-panel: rgba(255, 255, 255, 0.45);
+  --color-main-bg: rgba(246, 248, 253, 0.3);
+  --color-side: rgba(255, 255, 255, 0.55);
+  --color-side-glass: rgba(255, 255, 255, 0.35);
+  --color-side-hover: rgba(12, 18, 40, 0.05);
+  --color-side-active: rgba(12, 18, 40, 0.08);
+  --color-side-sel: rgba(12, 18, 40, 0.07);
+  --color-side-item: #2c3350;
+  --color-side-chip: rgba(255, 255, 255, 0.92);
+  --color-side-chip-active: #f2f5fb;
+  --color-raise: rgba(255, 255, 255, 0.88);
+  --color-sunken: rgba(12, 18, 40, 0.06);
+  --color-set-card: rgba(255, 255, 255, 0.55);
+  --color-settings-nav: rgba(244, 247, 253, 0.6);
+  --color-settings-content: rgba(250, 251, 255, 0.85);
+  --color-settings-card: rgba(255, 255, 255, 0.6);
+  --color-settings-line: rgba(15, 23, 52, 0.08);
+  --color-popover: rgba(255, 255, 255, 0.88);
+
+  --color-line: rgba(15, 23, 52, 0.1);
+  --color-line-soft: rgba(15, 23, 52, 0.06);
+  --color-line-warm: rgba(15, 23, 52, 0.07);
+  --color-line-strong: rgba(15, 23, 52, 0.18);
+
+  --color-input-bg: rgba(255, 255, 255, 0.6);
+  --color-input-border: rgba(15, 23, 52, 0.12);
+  --color-btn-border: rgba(15, 23, 52, 0.1);
+  --color-np-btn-bg: rgba(255, 255, 255, 0.5);
+  --color-composer-surface: rgba(255, 255, 255, 0.62);
+  --color-composer-fg: #1c2440;
+  --color-composer-placeholder: rgba(28, 36, 64, 0.55);
+  --color-composer-tray-bg: rgba(12, 18, 40, 0.05);
+
+  --color-txt: rgba(24, 32, 60, 0.82);
+  --color-txt-strong: #0e1530;
+  --color-mut: rgba(30, 39, 72, 0.64);
+  --color-dim: rgba(30, 39, 72, 0.46);
+  --color-txt-dim: var(--color-dim);
+  --color-icon: rgba(30, 39, 72, 0.72);
+  --color-topbar-icon: rgba(24, 32, 60, 0.72);
+
+  --color-send: #0a84ff;
+  --color-send-fg: #ffffff;
+  --color-send-empty: rgba(10, 132, 255, 0.35);
+  --color-link: #0a84ff;
+
+  --color-graph-4: #1db954;
+  --color-graph-5: #e5484d;
+  --color-graph-6: #6b7394;
+
+  --color-ok: #1a9e5f;
+  --color-err: #e5484d;
+  --color-add: #1a7f37;
+  --color-del: #e5484d;
+  --color-danger-bg: rgba(229, 72, 77, 0.1);
+  --color-danger-fg: #c62a30;
+
+  --color-code-bg: rgba(15, 23, 52, 0.05);
+  --color-code-fg: #27304e;
+  --color-menu-hover: rgba(12, 18, 40, 0.05);
+  --color-menu-active: rgba(12, 18, 40, 0.08);
+  --color-chip-bg: rgba(12, 18, 40, 0.06);
+  --color-chip-text: #137a3f;
+  --color-scrollbar-thumb: rgba(15, 23, 52, 0.2);
+  --color-scrollbar-thumb-hover: rgba(15, 23, 52, 0.32);
+  --color-selection: rgba(10, 132, 255, 0.25);
+  --color-scrim: rgba(15, 23, 52, 0.35);
+  --color-notice-bg: rgba(255, 255, 255, 0.92);
+  --color-notice-border: rgba(15, 23, 52, 0.09);
+  --color-notice-danger-bg: #fdeaea;
+  --color-notice-danger-border: #f5c2c2;
+
+  --shadow-composer: 0 1px 2px rgba(31, 41, 72, 0.08), 0 12px 36px rgba(31, 41, 72, 0.14);
+  --shadow-menu: 0 1px 3px rgba(31, 41, 72, 0.1), 0 16px 44px rgba(31, 41, 72, 0.18);
+  --shadow-pop: 0 20px 56px rgba(31, 41, 72, 0.2);
+  --shadow-tip: 0 1px 2px rgba(31, 41, 72, 0.08), 0 4px 14px rgba(31, 41, 72, 0.12);
+  --shadow-edge-top: 0 -1px 2px rgba(31, 41, 72, 0.06), 0 -8px 22px rgba(31, 41, 72, 0.08);
+  --shadow-edge-bottom: 0 1px 2px rgba(31, 41, 72, 0.06), 0 8px 22px rgba(31, 41, 72, 0.08);
+  --shadow-edge-left: -1px 0 2px rgba(31, 41, 72, 0.06), -8px 0 22px rgba(31, 41, 72, 0.08);
+  --shadow-edge-right: 1px 0 2px rgba(31, 41, 72, 0.06), 8px 0 22px rgba(31, 41, 72, 0.08);
+  --shadow-raised: 0 1px 2px rgba(31, 41, 72, 0.08), 0 6px 20px rgba(31, 41, 72, 0.12);
+
+  --material-blur: blur(28px) saturate(1.5);
+  --material-surface-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.25),
+    0 12px 36px rgba(31, 41, 72, 0.14);
+  --material-indicator: inset 2px 0 0 rgba(10, 132, 255, 0.6);
+
+  --ambient-1: rgba(120, 160, 255, 0.35);
+  --ambient-2: rgba(190, 150, 255, 0.25);
+  --ambient-3: rgba(120, 210, 255, 0.22);
+  --ambient-opacity: 1;
+
+  --secondary: rgba(12, 18, 40, 0.06);
+  --muted: rgba(12, 18, 40, 0.05);
+  --ring: rgba(120, 132, 168, 0.5);
+
+  color-scheme: light;
+}
+
+/* ============ 主题 2：VS Code 极客黑 ============
+   高对比深色阶、硬朗 1px 边界、IDE 聚焦蓝、等宽字体前置、左侧 2px 活动指示条。 */
+[data-theme="dark-tech"] {
+  --app-backdrop: #181818;
+
+  --color-bg: #1e1e1e;
+  --color-panel: #252526;
+  --color-main-bg: #1e1e1e;
+  --color-side: #181818;
+  --color-side-glass: #181818;
+  --color-side-hover: #2a2d2e;
+  --color-side-active: #094771;
+  --color-side-sel: #094771;
+  --color-side-item: #cccccc;
+  --color-side-chip: #252526;
+  --color-side-chip-active: #37373d;
+  --color-raise: #252526;
+  --color-sunken: #161616;
+  --color-set-card: #252526;
+  --color-settings-nav: #181818;
+  --color-settings-content: #1e1e1e;
+  --color-settings-card: #252526;
+  --color-settings-line: #3c3c3c;
+  --color-popover: #252526;
+
+  --color-line: #3c3c3c;
+  --color-line-soft: rgba(255, 255, 255, 0.05);
+  --color-line-warm: #3c3c3c;
+  --color-line-strong: #505050;
+
+  --color-input-bg: #2b2b2b;
+  --color-input-border: #3c3c3c;
+  --color-btn-border: #3c3c3c;
+  --color-np-btn-bg: #2a2a2b;
+  --color-composer-surface: #232324;
+  --color-composer-fg: #cccccc;
+  --color-composer-placeholder: #6e6e6e;
+  --color-composer-tray-bg: #181818;
+
+  --color-txt: #d4d4d4;
+  --color-txt-strong: #f0f0f0;
+  --color-mut: #a0a0a0;
+  --color-dim: #8b8b8b;
+  --color-txt-dim: var(--color-dim);
+  --color-icon: #cccccc;
+  --color-topbar-icon: #cccccc;
+
+  /* 主 CTA：VS Code primary button 蓝 */
+  --color-send: #0e639c;
+  --color-send-fg: #ffffff;
+  --color-send-empty: #5a5a5a;
+  --color-accent: #007acc;
+  --color-accent-fg: #ffffff;
+  --color-accent-2: #3794ff;
+  --color-link: #3794ff;
+  --color-blue: #3794ff;
+
+  --color-graph-1: var(--color-accent);
+  --color-graph-2: #3794ff;
+  --color-graph-3: #c586c0;
+  --color-graph-4: #29b8a5;
+  --color-graph-5: #e06c9f;
+  --color-graph-6: #8a8a8a;
+
+  --color-ok: #3fb950;
+  --color-err: #f14c4c;
+  --color-add: #3fb950;
+  --color-del: #f14c4c;
+  --color-danger-bg: #4d1f1f;
+  --color-danger-fg: #f48771;
+
+  --color-code-bg: #1b1b1b;
+  --color-code-fg: #d4d4d4;
+  --color-menu-hover: #2a2d2e;
+  --color-menu-active: #094771;
+  --color-chip-bg: rgba(255, 255, 255, 0.06);
+  --color-chip-text: #89d185;
+  --color-scrollbar-thumb: rgba(121, 121, 121, 0.4);
+  --color-scrollbar-thumb-hover: rgba(100, 100, 100, 0.7);
+  --color-selection: #264f78;
+  --color-scrim: rgba(0, 0, 0, 0.62);
+  --color-notice-bg: #252526;
+  --color-notice-border: #3c3c3c;
+  --color-notice-danger-bg: #4d1f1f;
+  --color-notice-danger-border: #6f2b2b;
+
+  --shadow-composer: 0 1px 4px rgba(0, 0, 0, 0.5);
+  --shadow-menu: 0 2px 14px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.7);
+  --shadow-tip: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --shadow-edge-top: 0 -1px 0 rgba(0, 0, 0, 0.6);
+  --shadow-edge-bottom: 0 1px 0 rgba(0, 0, 0, 0.6);
+  --shadow-edge-left: -1px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-edge-right: 1px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-raised: 0 1px 4px rgba(0, 0, 0, 0.55);
+
+  --material-blur: none;
+  --material-surface-shadow: none;
+  --material-indicator: inset 2px 0 0 var(--color-accent);
+
+  --ambient-1: transparent;
+  --ambient-2: transparent;
+  --ambient-3: transparent;
+  --ambient-opacity: 0;
+
+  /* IDE 气质：小圆角（sm/md 由 --radius 派生，保持最小 2px） */
+  --radius: 8px;
+  --radius-shell: 10px;
+
+  /* IDE 气质：等宽字体前置（跨平台回退到系统等宽栈） */
+  --font-mono:
+    "JetBrains Mono", "Fira Code", "Cascadia Code", "Maple Mono", "SF Mono", ui-monospace, Menlo,
+    Consolas, "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
+
+  --background: var(--color-bg);
+  --foreground: var(--color-txt);
+  --card: var(--color-settings-card);
+  --card-foreground: var(--color-txt);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-txt);
+  --primary: var(--color-send);
+  --primary-foreground: var(--color-send-fg);
+  --secondary: #2a2d2e;
+  --secondary-foreground: var(--color-txt-strong);
+  --muted: var(--color-sunken);
+  --muted-foreground: var(--color-mut);
+  --accent: var(--color-side-sel);
+  --accent-foreground: #ffffff;
+  --destructive: var(--color-del);
+  --destructive-foreground: #fff;
+  --border: var(--color-line);
+  --input: var(--color-btn-border);
+  --ring: rgba(55, 148, 255, 0.45);
+  --chart-1: var(--color-graph-1);
+  --chart-2: var(--color-graph-2);
+  --chart-3: var(--color-graph-3);
+  --chart-4: var(--color-graph-4);
+  --chart-5: var(--color-graph-5);
+  --sidebar: var(--color-side);
+  --sidebar-foreground: var(--color-txt);
+  --sidebar-primary: var(--color-send);
+  --sidebar-primary-foreground: var(--color-send-fg);
+  --sidebar-accent: var(--color-side-sel);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--color-line);
+  --sidebar-ring: var(--ring);
+
+  color-scheme: dark;
+}
+
+/* ============ 主题 3：全新拟态（Neumorphism / Soft UI） ============
+   同色系 #e0e5ec 纯净底、双向软阴影（凸出/内凹）、按压机械沉降感。 */
+[data-theme="neumorphism"] {
+  --app-backdrop: #e0e5ec;
+
+  --color-bg: #e0e5ec;
+  --color-panel: #e0e5ec;
+  --color-main-bg: #e0e5ec;
+  --color-side: #dde2ea;
+  --color-side-glass: #e4e9f0;
+  --color-side-hover: #e6ebf2;
+  --color-side-active: #d5dbe5;
+  --color-side-sel: #d8dee8;
+  --color-side-item: #4a5568;
+  --color-side-chip: #e2e7ee;
+  --color-side-chip-active: #d9dfe8;
+  --color-raise: #e6ebf2;
+  --color-sunken: #d4dae3;
+  --color-set-card: #e4e9f1;
+  --color-settings-nav: #dce1e9;
+  --color-settings-content: #e0e5ec;
+  --color-settings-card: #e4e9f1;
+  --color-settings-line: #cdd3dd;
+  --color-popover: #e6ebf2;
+
+  --color-line: #c8cfda;
+  --color-line-soft: rgba(90, 105, 135, 0.1);
+  --color-line-warm: #ccd3de;
+  --color-line-strong: #b7c0cf;
+
+  --color-input-bg: #dfe4ec;
+  --color-input-border: #ccd3dd;
+  --color-btn-border: #cdd4df;
+  --color-np-btn-bg: #e2e7ee;
+  --color-composer-surface: #e2e7ee;
+  --color-composer-fg: #55607a;
+  --color-composer-placeholder: #9aa4b8;
+  --color-composer-tray-bg: #d8dee7;
+
+  --color-txt: #3f4a63;
+  --color-txt-strong: #2c3550;
+  --color-mut: #5f6b85;
+  --color-dim: #8791a8;
+  --color-txt-dim: var(--color-dim);
+  --color-icon: #5f6b85;
+  --color-topbar-icon: #4a5568;
+
+  --color-send: #6c7ee1;
+  --color-send-fg: #ffffff;
+  --color-send-empty: #b4bccd;
+  --color-accent: #6c7ee1;
+  --color-accent-fg: #ffffff;
+  --color-accent-2: #9a8cf0;
+  --color-link: #4a5fc9;
+  --color-blue: #6c7ee1;
+
+  --color-graph-1: var(--color-accent);
+  --color-graph-2: #5aa9d6;
+  --color-graph-3: #b07fd8;
+  --color-graph-4: #56b385;
+  --color-graph-5: #d67fa8;
+  --color-graph-6: #97a2b8;
+
+  --color-ok: #3d9a63;
+  --color-err: #d64545;
+  --color-add: #3d9a63;
+  --color-del: #d64545;
+  --color-danger-bg: #f2d7d7;
+  --color-danger-fg: #b03a3a;
+
+  --color-code-bg: #d6dce6;
+  --color-code-fg: #3f4a63;
+  --color-menu-hover: #e8edf4;
+  --color-menu-active: #dde3ec;
+  --color-chip-bg: rgba(90, 105, 135, 0.1);
+  --color-chip-text: #2e7d4f;
+  --color-scrollbar-thumb: rgba(90, 105, 135, 0.28);
+  --color-scrollbar-thumb-hover: rgba(90, 105, 135, 0.42);
+  --color-selection: #c3d4f4;
+  --color-scrim: rgba(60, 72, 100, 0.35);
+  --color-notice-bg: #e6ebf2;
+  --color-notice-border: #cdd3dd;
+  --color-notice-danger-bg: #f0d4d4;
+  --color-notice-danger-border: #ddb3b3;
+
+  /* 双向软阴影：右下暗 + 左上亮 */
+  --shadow-composer: 8px 8px 18px #a8b4c8, -8px -8px 18px #ffffff;
+  --shadow-menu: 10px 10px 24px #a3b1c6, -10px -10px 24px #ffffff;
+  --shadow-pop: 14px 14px 36px #a3b1c6, -14px -14px 36px #ffffff;
+  --shadow-tip: 4px 4px 10px #a8b4c8, -4px -4px 10px #ffffff;
+  --shadow-edge-top: 0 6px 14px #a8b4c8, 0 -6px 14px #ffffff;
+  --shadow-edge-bottom: 0 6px 14px #a8b4c8, 0 -6px 14px #ffffff;
+  --shadow-edge-left: 6px 0 14px #a8b4c8, -6px 0 14px #ffffff;
+  --shadow-edge-right: 6px 0 14px #a8b4c8, -6px 0 14px #ffffff;
+  --shadow-raised: 5px 5px 12px #a8b4c8, -5px -5px 12px #ffffff;
+
+  --material-blur: none;
+  --material-surface-shadow: 6px 6px 14px #a8b4c6, -6px -6px 14px #ffffff;
+  --material-indicator: none;
+
+  --ambient-1: transparent;
+  --ambient-2: transparent;
+  --ambient-3: transparent;
+  --ambient-opacity: 0;
+
+  --radius: 14px;
+  --radius-shell: 18px;
+
+  --background: var(--color-bg);
+  --foreground: var(--color-txt);
+  --card: var(--color-settings-card);
+  --card-foreground: var(--color-txt);
+  --popover: var(--color-popover);
+  --popover-foreground: var(--color-txt);
+  --primary: var(--color-send);
+  --primary-foreground: var(--color-send-fg);
+  --secondary: #dfe5ed;
+  --secondary-foreground: #2c3550;
+  --muted: #d9dfe8;
+  --muted-foreground: var(--color-mut);
+  --accent: var(--color-side-sel);
+  --accent-foreground: var(--color-txt-strong);
+  --destructive: var(--color-del);
+  --destructive-foreground: #fff;
+  --border: var(--color-line);
+  --input: var(--color-btn-border);
+  --ring: #9aa4b8;
+  --chart-1: var(--color-graph-1);
+  --chart-2: var(--color-graph-2);
+  --chart-3: var(--color-graph-3);
+  --chart-4: var(--color-graph-4);
+  --chart-5: var(--color-graph-5);
+  --sidebar: var(--color-side);
+  --sidebar-foreground: var(--color-txt);
+  --sidebar-primary: var(--color-send);
+  --sidebar-primary-foreground: var(--color-send-fg);
+  --sidebar-accent: var(--color-side-sel);
+  --sidebar-accent-foreground: var(--color-txt-strong);
+  --sidebar-border: var(--color-line);
+  --sidebar-ring: var(--ring);
+
+  color-scheme: light;
 }
 
 @theme inline {
@@ -393,10 +712,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: var(--radius-xl);
 }
 
 @layer base {
@@ -429,7 +748,8 @@
 
   body {
     overflow: hidden;
-    background: var(--color-bg);
+    /* 应用背板由主题 token 提供：液态玻璃是深空渐变，极客黑/拟态是纯色 */
+    background: var(--app-backdrop);
     color: var(--color-txt);
     font-family: var(--font-sans);
     font-size: 14px;
@@ -546,15 +866,146 @@
     user-select: text;
   }
 
-  /* shadcn Card closer to MiMo hairline surfaces */
+  /* shadcn Card：贴各主题的 token 表面 */
   [data-slot="card"] {
     box-shadow: none;
     border: 1px solid var(--color-line);
     background: var(--color-set-card);
   }
+
+  /* ---- 主题平滑切换（useTheme 的降级通道） ----
+     切换瞬间挂 html.theme-switching，让所有表面颜色/边框/阴影渐变过渡，
+     结束后由 JS 摘掉，避免常驻 !important 干扰交互动效。 */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition:
+      background-color 0.32s ease,
+      border-color 0.32s ease,
+      box-shadow 0.32s ease,
+      color 0.24s ease,
+      fill 0.24s ease,
+      stroke 0.24s ease !important;
+    transition-delay: 0s !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html.theme-switching,
+    html.theme-switching *,
+    html.theme-switching *::before,
+    html.theme-switching *::after {
+      transition: none !important;
+    }
+  }
 }
 
 @layer components {
+  /* ---- 主题材质工具类（壳体表面挂点，由 Agent 接入的组件引用） ---- */
+
+  /* 玻璃/拟态的面材质：模糊、高光内描边与投影全部来自主题复合 token；
+     极客黑下两者均为 none，即回到纯色平面。 */
+  .zen-surface {
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+    box-shadow: var(--material-surface-shadow);
+  }
+
+  /* 当前项左侧 2px 强调条：极客黑的 IDE 活动指示，玻璃下为淡蓝条，拟态下无 */
+  .zen-indicator {
+    box-shadow: var(--material-indicator);
+  }
+
+  /* 按压回弹：自然弹簧压感（scale 0.975 + spring 曲线） */
+  .pressable {
+    transition: transform 0.16s var(--ease-spring);
+  }
+
+  .pressable:active:not(:disabled) {
+    transform: scale(0.975);
+  }
+
+  /* hover 轻上浮 */
+  .lift {
+    transition:
+      transform 0.22s var(--ease-enter),
+      box-shadow 0.22s var(--ease-enter);
+  }
+
+  .lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* 两者并存时合并过渡：transform 用弹簧曲线 */
+  .lift.pressable {
+    transition:
+      transform 0.18s var(--ease-spring),
+      box-shadow 0.22s var(--ease-enter);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pressable,
+    .pressable:active:not(:disabled),
+    .lift,
+    .lift:hover,
+    .lift.pressable {
+      transition: none;
+      transform: none;
+    }
+  }
+
+  /* ---- 主题化原语（不进组件，靠 data-theme 作用域统一换装） ---- */
+
+  /* 液态玻璃：卡片 / 弹窗 / 设置卡获得磨砂材质与高光 */
+  [data-theme="liquid-glass"] :is([data-slot="card"], [data-slot="dialog-content"], .settings-card) {
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+    box-shadow: var(--material-surface-shadow);
+  }
+
+  /* 液态玻璃：reka 浮层菜单同材质（内容层持有底色 token） */
+  [data-theme="liquid-glass"] [data-reka-popper-content-wrapper] > * {
+    backdrop-filter: var(--material-blur);
+    -webkit-backdrop-filter: var(--material-blur);
+  }
+
+  /* 液态玻璃：按钮顶部 1px 高光，增强玻璃厚度感 */
+  [data-theme="liquid-glass"] [data-slot="button"] {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  }
+
+  /* 全新手拟态：凸面卡 / 内凹输入 / 机械按压沉降 */
+  [data-theme="neumorphism"] :is([data-slot="card"], [data-slot="dialog-content"], .settings-card) {
+    box-shadow: var(--material-surface-shadow);
+    border-color: transparent;
+  }
+
+  [data-theme="neumorphism"]
+    :is(input, textarea, [data-slot="select-trigger"], [data-slot="input"]) {
+    box-shadow:
+      inset 3px 3px 6px rgba(148, 160, 180, 0.45),
+      inset -3px -3px 6px #ffffff;
+  }
+
+  [data-theme="neumorphism"] [data-slot="button"] {
+    box-shadow:
+      3px 3px 8px rgba(148, 160, 180, 0.5),
+      -3px -3px 8px #ffffff;
+  }
+
+  /* 按下：外凸阴影平滑过渡为内凹，产生物理按键沉降感（transform 交给 .pressable/cva） */
+  [data-theme="neumorphism"] [data-slot="button"]:not(:disabled):active {
+    box-shadow:
+      inset 3px 3px 6px rgba(148, 160, 180, 0.5),
+      inset -3px -3px 6px #ffffff;
+  }
+
+  /* 极客黑：极简无余震——过渡收紧到 IDE 节奏 */
+  [data-theme="dark-tech"] [data-slot="button"] {
+    transition-duration: 80ms;
+  }
+
+  /* ---- 设置页通用结构（保留） ---- */
   .settings-card {
     background: var(--color-settings-card);
     border-color: var(--color-line);
@@ -668,6 +1119,8 @@
   }
 }
 
+/* ---- 以下为未分层规则（与旧版保持同权重，顺序敏感的放在最后） ---- */
+
 /* 思考内容独立弱色：vue-stream-markdown 根节点自带前景色重置，需同权重命中 */
 .reasoning-dim .stream-markdown {
   color: var(--color-mut);
@@ -728,7 +1181,7 @@
 }
 
 /* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点）
-   P0 密度：正文 14px/1.8；h2 18px、h3 15px；标题用中性强调，不被单一绿色统治 */
+   P0 密度：正文 14px/1.8；h2 18px、h3 15px；标题用中性强调，不被单一色相统治 */
 .md-content {
   font-size: 14px;
   line-height: 1.8;

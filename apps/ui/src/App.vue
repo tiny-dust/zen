@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted } from "vue";
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
 import TerminalPanel from "@/components/bottom/TerminalPanel.vue";
+import AmbientCanvas from "@/components/layout/AmbientCanvas.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import RightPanel from "@/components/right/RightPanel.vue";
@@ -118,6 +119,8 @@ const sideRail =
 
 <template>
   <div class="flex h-full flex-col bg-[var(--color-bg)] text-[var(--color-txt)]">
+    <!-- 氛围层：液态玻璃下的缓动光斑，压在所有表面之下（dark-tech/拟态下自动隐去） -->
+    <AmbientCanvas />
     <div class="flex min-h-0 flex-1">
       <div v-if="!leftCollapsed" :class="sideRail" :style="{ width: `${leftWidth}px` }">
         <AppSidebar />

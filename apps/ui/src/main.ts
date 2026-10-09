@@ -5,9 +5,11 @@ import App from "./App.vue";
 import "./assets/fonts/misans/MiSans.css";
 import "./assets/fonts/fonts.css";
 import "./styles.css";
+import { initTheme } from "./composables/useTheme";
 import { installAppLinkInterceptor } from "./lib/open-link";
 
-document.documentElement.classList.add("dark");
+// 首帧前落主题：data-theme + .dark 同步就位，避免挂载后闪变
+initTheme();
 
 const pinia = createPinia();
 createApp(App).use(pinia).mount("#app");
