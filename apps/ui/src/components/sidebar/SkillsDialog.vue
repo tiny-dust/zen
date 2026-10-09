@@ -30,7 +30,7 @@ const { skills, settings } = storeToRefs(agentStore);
 
 type Tab = "installed" | "market";
 const tab = ref<Tab>("installed");
-const marketQuery = ref("coder");
+const marketQuery = ref("");
 const marketItems = ref<SkillMarketHit[]>([]);
 const marketLoading = ref(false);
 const marketError = ref("");
