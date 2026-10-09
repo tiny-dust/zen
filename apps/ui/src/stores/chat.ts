@@ -207,7 +207,17 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = "插入执行中…";
     sessionStatusStore.set(sessionId.value, "running");
 
-    const result = await zen.agent.insert(sessionId.value, item.text);
+    // IPC 抛错与 {ok:false} 同路处理：insertActive 必须复位，否则 isRunning 永久为 true，
+    // 之后所有发送被队列守卫拦住、侧栏一直「进行中」
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await zen.agent.insert(sessionId.value, item.text);
+    } catch (error) {
+      result = {
+        ok: false,
+        error: error instanceof Error ? error.message : "插入执行失败",
+      };
+    }
     if (!result.ok) {
       // 插入失败（如正在等审批/提问）：消息退回队首不丢，气泡撤下，错误走 lastError
       insertActive.value = false;
@@ -608,22 +618,34 @@ export const useChatStore = defineStore("chat", () => {
     // 滚动摘要 + 超限双保险：上下文用量达到阈值（或已开启压缩）时折叠旧轮次
     const { compression } = compressionDomain.prepareCompression();
 
-    const result = await zen.agent.run({
-      sessionId: sessionId.value,
-      userMessage: agentText,
-      workspaceRoot: workspaceRoot.value,
-      workspaceId: sessionWorkspaceId.value,
-      providerId: modelsStore.selection.providerId ?? undefined,
-      model: modelsStore.selection.modelId ?? undefined,
-      reasoningEffort: effort.value,
-      attachments: attachmentRefs.length ? attachmentRefs : undefined,
-      history: compression.turns,
-    });
+    // IPC 抛错与 {ok:false} 同路处理：不复位的话 status 会卡在 thinking，
+    // 之后发送全被 isRunning 守卫拦进队列（无反馈），侧栏也一直「进行中」
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await zen.agent.run({
+        sessionId: sessionId.value,
+        userMessage: agentText,
+        workspaceRoot: workspaceRoot.value,
+        workspaceId: sessionWorkspaceId.value,
+        providerId: modelsStore.selection.providerId ?? undefined,
+        model: modelsStore.selection.modelId ?? undefined,
+        reasoningEffort: effort.value,
+        attachments: attachmentRefs.length ? attachmentRefs : undefined,
+        history: compression.turns,
+      });
+    } catch (error) {
+      result = {
+        ok: false,
+        error: error instanceof Error ? error.message : "运行失败",
+      };
+    }
 
     if (!result.ok) {
       status.value = "error";
       lastError.value = result.error ?? "运行失败";
       statusText.value = lastError.value;
+      // run 未启动就没有 done 事件兜底，侧栏运行态必须在此落终态
+      sessionStatusStore.set(sessionId.value, "error");
     }
   }
 
