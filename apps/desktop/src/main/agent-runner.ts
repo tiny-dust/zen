@@ -74,23 +74,29 @@ export async function runAgentRequest(
   if (!request?.sessionId || !request.userMessage) {
     return { ok: false, error: "invalid agent run request" };
   }
-  // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
-  if (!loadSessionRecord(request.sessionId)) {
-    return { ok: false, error: "session not found" };
+  // 前置（查会话/落库/清旧 run）失败同样只走 {ok:false}：
+  // 这里抛出会让 agent:run IPC reject，渲染层 send() 无兜底，运行态卡死
+  try {
+    // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
+    if (!loadSessionRecord(request.sessionId)) {
+      return { ok: false, error: "session not found" };
+    }
+
+    // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
+    ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
+    appendMessage(request.sessionId, {
+      id: randomUUID(),
+      role: "user",
+      content: request.userMessage,
+      createdAt: Date.now(),
+      meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
+    });
+
+    await sessions.get(request.sessionId)?.cancel();
+    sessions.delete(request.sessionId);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "agent run failed" };
   }
-
-  // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
-  ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
-  appendMessage(request.sessionId, {
-    id: randomUUID(),
-    role: "user",
-    content: request.userMessage,
-    createdAt: Date.now(),
-    meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
-  });
-
-  await sessions.get(request.sessionId)?.cancel();
-  sessions.delete(request.sessionId);
 
   // 流式累积助手回复：与 UI 共用 applyStreamToMessage；仅 done/明确错误终态落库。
   // 插入执行会打断 run 一次（原 run → 插入 run → 原 run 续跑），
