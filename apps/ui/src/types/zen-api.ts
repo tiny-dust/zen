@@ -299,6 +299,8 @@ export interface ZenApi {
     create(workspaceId: string | null, id?: string): Promise<SessionRecord>;
     /** 会话迁移到其它工作区/公共区（composer 底栏选择器） */
     setWorkspace(id: string, workspaceId: string | null): Promise<void>;
+    /** 会话级模型覆盖；null 表示跟随全局默认模型 */
+    setModel(id: string, providerId: string | null, modelId: string | null): Promise<void>;
     open(id: string): Promise<{
       session: SessionRecord;
       messages: ChatMessage[];

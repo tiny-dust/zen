@@ -32,14 +32,12 @@ import { useComposerFiles } from "@/composables/useComposerFiles";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useChatStore } from "@/stores/chat";
-import { useModelsStore } from "@/stores/models";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { ReasoningEffort } from "@zen/shared";
 
 const chatStore = useChatStore();
-const modelsStore = useModelsStore();
 const {
   input,
   isRunning,
@@ -52,7 +50,21 @@ const {
   queuedMessages,
   editAnchorId,
 } = storeToRefs(chatStore);
-const { selectedSupportsReasoning, selectedReasoningEfforts } = storeToRefs(modelsStore);
+const { effectiveModel } = storeToRefs(chatStore);
+// 推理档位跟随当前会话生效模型（会话级覆盖优先）
+const selectedSupportsReasoning = computed(() =>
+  Boolean(effectiveModel.value?.model.capabilities?.reasoning),
+);
+const selectedReasoningEfforts = computed<ReasoningEffort[]>(() => {
+  const efforts = effectiveModel.value?.model.capabilities?.reasoningEfforts;
+  if (efforts?.length) {
+    return [...efforts];
+  }
+  if (effectiveModel.value?.model.capabilities?.reasoning) {
+    return ["low", "medium", "high"];
+  }
+  return [];
+});
 const viewportCompact = useMediaQuery("(max-width: 1024px)");
 /** 底栏实际宽度：比视口更准——侧栏/右栏占用后 composer 变窄也要收成 icon */
 const bottomBarEl = ref<HTMLElement | null>(null);

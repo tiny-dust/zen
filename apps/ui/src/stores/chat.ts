@@ -56,6 +56,8 @@ export const useChatStore = defineStore("chat", () => {
   const sessionWorkspaceId = ref<string>(useWorkspaceStore().activeId || "common");
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
+  /** 会话级模型覆盖；null = 跟随全局默认模型 */
+  const sessionModel = ref<{ providerId: string; modelId: string } | null>(null);
   const attachments = ref<ComposerAttachment[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
@@ -246,8 +248,27 @@ export const useChatStore = defineStore("chat", () => {
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
+  /** 当前会话生效的模型选择：会话覆盖优先，否则全局默认 */
+  const effectiveSelection = computed(() => {
+    const override = sessionModel.value;
+    if (override?.providerId && override.modelId) {
+      return override;
+    }
+    const modelsStore = useModelsStore();
+    return {
+      providerId: modelsStore.selection.providerId ?? "",
+      modelId: modelsStore.selection.modelId ?? "",
+    };
+  });
+
+  /** 当前会话生效的模型对象（含能力），供上下文窗口 / 推理档位读取 */
+  const effectiveModel = computed(() => {
+    const sel = effectiveSelection.value;
+    return useModelsStore().findEnabledModel(sel.providerId, sel.modelId) ?? null;
+  });
+
   const contextWindowTokens = computed(
-    () => useModelsStore().selectedModel?.capabilities?.contextWindow ?? 0,
+    () => effectiveModel.value?.model.capabilities?.contextWindow ?? 0,
   );
   /** 本地估算当前输入 token（消息文本 + 系统/工具固定开销）；API 未回 usage 时兜底 */
   const estimatedInputTokens = computed(() => estimateHistoryTokens(buildHistory(messages.value)));
@@ -627,8 +648,8 @@ export const useChatStore = defineStore("chat", () => {
         userMessage: agentText,
         workspaceRoot: workspaceRoot.value,
         workspaceId: sessionWorkspaceId.value,
-        providerId: modelsStore.selection.providerId ?? undefined,
-        model: modelsStore.selection.modelId ?? undefined,
+        providerId: effectiveSelection.value.providerId || undefined,
+        model: effectiveSelection.value.modelId || undefined,
         reasoningEffort: effort.value,
         attachments: attachmentRefs.length ? attachmentRefs : undefined,
         history: compression.turns,
@@ -730,6 +751,14 @@ export const useChatStore = defineStore("chat", () => {
       const record = await zen.session.create(sessionWorkspaceId.value, sessionId.value);
       sessionPersisted.value = true;
       useWorkspaceStore().appendSessionLocal(sessionWorkspaceId.value, record);
+      // 首发补建时，把此前仅在内存里的会话模型覆盖一并落库
+      if (sessionModel.value) {
+        await zen.session.setModel(
+          sessionId.value,
+          sessionModel.value.providerId,
+          sessionModel.value.modelId,
+        );
+      }
     } catch (error) {
       lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
       statusText.value = lastError.value;
@@ -775,6 +804,7 @@ export const useChatStore = defineStore("chat", () => {
     elementMarks.value = [];
     resetRunState();
     sessionName.value = "新会话";
+    sessionModel.value = null;
     useSessionInfoStore().clear();
     useAgentsStore().clear();
     useAgentProcessesStore().clear();
@@ -828,6 +858,11 @@ export const useChatStore = defineStore("chat", () => {
     sessionStatusStore.markSeen(record.id);
     sessionName.value = found.session.title;
     sessionWorkspaceId.value = found.session.workspaceId ?? "common";
+    // 恢复该会话的模型覆盖；无覆盖时跟随全局默认
+    sessionModel.value =
+      found.session.modelProviderId && found.session.modelId
+        ? { providerId: found.session.modelProviderId, modelId: found.session.modelId }
+        : null;
     // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容）；
     // 否则用数据库恢复，并清掉过期缓冲
     const bgStatus = sessionStatusStore.get(record.id);
@@ -873,6 +908,16 @@ export const useChatStore = defineStore("chat", () => {
     void useGitStore().refreshStatus();
   }
 
+  /** 设置当前会话的模型覆盖并持久化；modelId 为空表示清空（回落到全局默认） */
+  async function setSessionModel(providerId: string | null, modelId: string | null) {
+    sessionModel.value =
+      providerId && modelId ? { providerId, modelId } : null;
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setModel(sessionId.value, providerId, modelId);
+    }
+  }
+
   /** composer 底栏：把当前会话切到工作区目录或公共区（决定 agent 工作目录与侧栏分组） */
   async function setSessionWorkspace(workspaceId: string) {
     if (workspaceId === sessionWorkspaceId.value) {
@@ -912,6 +957,10 @@ export const useChatStore = defineStore("chat", () => {
     sessionWorkspaceId,
     appInfo,
     effort,
+    sessionModel,
+    effectiveSelection,
+    effectiveModel,
+    setSessionModel,
     attachments,
     elementMarks,
     insertBrowserElement,
