@@ -2,9 +2,17 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 import { setCodeThemeId } from "@/components/ai-elements/response/extensions";
+import { useTheme } from "@/composables/useTheme";
 
 import type { AppIconId, AppSettings, DisplayAccount, ShortcutBinding } from "@zen/shared";
-import { DEFAULT_CODE_THEME, DEFAULT_SHORTCUTS, DEFAULT_UPDATE_FEED_URL, normalizeShortcutKey } from "@zen/shared";
+import {
+  DEFAULT_CODE_THEME,
+  DEFAULT_SHORTCUTS,
+  DEFAULT_UI_THEME,
+  DEFAULT_UPDATE_FEED_URL,
+  isUiTheme,
+  normalizeShortcutKey,
+} from "@zen/shared";
 
 const fallbackSettings: AppSettings = {
   iconId: "zen-ink",
@@ -12,6 +20,7 @@ const fallbackSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
+  uiTheme: DEFAULT_UI_THEME,
   displayAccount: "auto",
 };
 
@@ -65,6 +74,8 @@ export const useSettingsStore = defineStore("settings", () => {
     return {
       ...value,
       codeTheme: value.codeTheme || DEFAULT_CODE_THEME,
+      // 旧版 settings.json 无 uiTheme 或被手改成非法值时回落默认
+      uiTheme: isUiTheme(value.uiTheme) ? value.uiTheme : DEFAULT_UI_THEME,
       shortcuts: value.shortcuts.map((item) => ({
         ...item,
         key: normalizeShortcutKey(item.key),
@@ -76,6 +87,8 @@ export const useSettingsStore = defineStore("settings", () => {
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
 
+    const { syncFromSettings } = useTheme();
+
     const zen = window.zen;
     if (!zen) {
       return () => {
@@ -86,11 +99,13 @@ export const useSettingsStore = defineStore("settings", () => {
     void zen.settings.get().then((value) => {
       settings.value = normalizeSettings(value);
       setCodeThemeId(settings.value.codeTheme);
+      syncFromSettings(settings.value.uiTheme);
     });
 
     const offChanged = zen.settings.onChanged((value) => {
       settings.value = normalizeSettings(value);
       setCodeThemeId(settings.value.codeTheme);
+      syncFromSettings(settings.value.uiTheme);
     });
 
     return () => {

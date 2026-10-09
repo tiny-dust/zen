@@ -142,7 +142,7 @@ async function openExternal() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
+  <div class="zen-surface flex h-full min-h-0 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
     <!-- 主区：终端分屏，只保留功能画面 -->
     <div class="relative min-h-0 min-w-0 flex-1 px-1 py-1">
       <div

@@ -177,7 +177,7 @@ const sectionAddCls =
 
 <template>
   <aside
-    class="relative flex h-full min-w-0 flex-col overflow-hidden bg-[var(--color-side)]"
+    class="zen-surface relative flex h-full min-w-0 flex-col overflow-hidden bg-[var(--color-side)]"
     aria-label="侧边栏"
   >
     <header

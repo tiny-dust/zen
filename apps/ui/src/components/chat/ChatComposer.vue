@@ -279,7 +279,7 @@ function removeAttachment(id: string) {
       </Attachments>
 
       <div
-        class="rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
+        class="zen-surface rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
         :class="
           dragging
             ? 'border border-[color-mix(in_srgb,var(--color-accent)_50%,var(--color-line))]'
