@@ -29,31 +29,65 @@ function expandHome(path: string): string {
   return path;
 }
 
-async function searchMarketplace(query: string): Promise<SkillMarketHit[]> {
+/** skills.sh 搜索结果短 TTL 缓存：刷新/批量检测重复查询直接复用，减少上游请求 */
+const SEARCH_CACHE_TTL_MS = 5 * 60_000;
+const searchCache = new Map<string, { at: number; items: SkillMarketHit[] }>();
+
+/** skills.sh 搜索串行闸：批量检测并发查询时逐个放行，避免同时打 API 触发限流 */
+let searchQueue: Promise<unknown> = Promise.resolve();
+
+/** 拉取一次 skills.sh 搜索结果：429 限流时按 Retry-After / 指数退避重试 */
+async function fetchMarketplaceItems(query: string): Promise<SkillMarketHit[]> {
   const q = encodeURIComponent(query.trim() || "skills");
   const url = `https://skills.sh/api/search?q=${q}`;
-  const response = await fetchWithTimeout(url, {
-    headers: { Accept: "application/json", "User-Agent": "Zen-Desktop/0.1" },
-  });
-  if (!response.ok) {
-    throw new Error(`skills.sh 搜索失败 HTTP ${response.status}`);
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetchWithTimeout(url, {
+      headers: { Accept: "application/json", "User-Agent": "Zen-Desktop/0.1" },
+    });
+    if (response.status === 429 && attempt < maxAttempts) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 1000 * 2 ** (attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(`skills.sh 搜索失败 HTTP ${response.status}`);
+    }
+    const data = (await response.json()) as {
+      skills?: Array<{
+        id: string;
+        skillId: string;
+        name: string;
+        installs?: number;
+        source: string;
+      }>;
+    };
+    return (data.skills ?? []).slice(0, 40).map((item) => ({
+      id: item.id,
+      skillId: item.skillId,
+      name: item.name,
+      source: item.source,
+      installs: item.installs ?? 0,
+    }));
   }
-  const data = (await response.json()) as {
-    skills?: Array<{
-      id: string;
-      skillId: string;
-      name: string;
-      installs?: number;
-      source: string;
-    }>;
-  };
-  return (data.skills ?? []).slice(0, 40).map((item) => ({
-    id: item.id,
-    skillId: item.skillId,
-    name: item.name,
-    source: item.source,
-    installs: item.installs ?? 0,
-  }));
+}
+
+/** skills.sh 搜索：结果走短 TTL 缓存，网络请求经串行闸逐个放行 */
+async function searchMarketplace(query: string): Promise<SkillMarketHit[]> {
+  const key = query.trim() || "skills";
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) {
+    return cached.items;
+  }
+  const run = searchQueue.then(() => fetchMarketplaceItems(key));
+  searchQueue = run.catch(() => {});
+  const items = await run;
+  searchCache.set(key, { at: Date.now(), items });
+  return items;
 }
 
 /**
@@ -364,24 +398,24 @@ async function checkMarketUpdate(skill: SkillSummary): Promise<SkillUpdateInfo> 
     note: "已是最新",
   };
   const origin = await readSkillOrigin(skill.dir);
-  let hit: SkillMarketHit | null = null;
-  try {
-    const query = origin?.skillId || skill.name;
-    const items = await searchMarketplace(query);
-    hit =
-      items.find((item) => item.skillId === (origin?.skillId || skill.name)) ??
-      items.find((item) => item.name === skill.name) ??
-      null;
-  } catch {
-    return { ...base, via: "none", note: "无法访问 skills.sh 上游" };
-  }
-  if (!hit && !origin) {
-    return { ...base, via: "none", note: "未在 skills.sh 找到同名上游" };
-  }
-  const source = origin?.source || hit?.source || "";
-  const skillId = origin?.skillId || hit?.skillId || skill.name;
+  // 已有安装来源时直接比对上游 SKILL.md，跳过 skills.sh 搜索（批量检测时极易触发限流）
+  let source = origin?.source ?? "";
+  let skillId = origin?.skillId || skill.name;
   if (!source) {
-    return { ...base, via: "none", note: "缺少上游来源信息" };
+    try {
+      const items = await searchMarketplace(skill.name);
+      const hit =
+        items.find((item) => item.skillId === skill.name) ??
+        items.find((item) => item.name === skill.name) ??
+        null;
+      source = hit?.source ?? "";
+      skillId = hit?.skillId ?? skillId;
+    } catch {
+      return { ...base, via: "none", note: "无法访问 skills.sh 上游" };
+    }
+  }
+  if (!source) {
+    return { ...base, via: "none", note: "未在 skills.sh 找到同名上游" };
   }
   const remote = await fetchRemoteSkillMd(source, skillId);
   if (remote == null) {
