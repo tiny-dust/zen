@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { ipcMain } from "electron";
@@ -288,6 +288,41 @@ async function readSkillOrigin(
   return null;
 }
 
+/** skills CLI 全局锁文件条目：记录安装来源与仓库内 SKILL.md 的精确路径 */
+interface SkillLockEntry {
+  source: string;
+  sourceType?: string;
+  skillPath?: string;
+}
+
+/**
+ * 读取 skills CLI 的全局锁文件（~/.agents/.skill-lock.json）。
+ * 锁里有每个 CLI 安装技能的 source（owner/repo）与 skillPath（仓库内精确路径），
+ * 是定位上游的权威来源：仓库布局千差万别（根目录 / skills/<id> / skills/<分类>/<id> / 隐藏目录），
+ * 依赖猜路径必然漏。本地/手工拷贝的技能不在锁里，回退 origin 与跳过。
+ */
+async function readSkillLockMap(): Promise<Map<string, SkillLockEntry>> {
+  const map = new Map<string, SkillLockEntry>();
+  try {
+    const raw = await readFile(join(homedir(), ".agents", ".skill-lock.json"), "utf8");
+    const data = JSON.parse(raw) as {
+      skills?: Record<string, { source?: string; sourceType?: string; skillPath?: string }>;
+    };
+    for (const [name, entry] of Object.entries(data.skills ?? {})) {
+      if (entry?.source) {
+        map.set(name, {
+          source: entry.source,
+          sourceType: entry.sourceType,
+          skillPath: entry.skillPath,
+        });
+      }
+    }
+  } catch {
+    // 无锁文件（技能非 skills CLI 安装）
+  }
+  return map;
+}
+
 async function isGitWorkTree(dir: string): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"], {
@@ -337,10 +372,16 @@ async function checkGitUpdate(dir: string): Promise<SkillUpdateInfo | null> {
   }
 }
 
-/** 从 skills.sh source（owner/repo）+ skillId 试拉上游 SKILL.md，用于内容哈希比对 */
+/**
+ * 拉取上游 SKILL.md（用于内容哈希比对）。
+ * skillPath 来自 skills CLI 锁文件，是仓库内精确路径——仓库布局千差万别
+ * （根目录 / skills/<id> / skills/<分类>/<id> / .claude/skills/<id> 等），猜路径必漏。
+ * 无 skillPath 时按常见布局逐个试探；ref 优先 HEAD（raw 支持，默认分支），回退 main/master。
+ */
 async function fetchRemoteSkillMd(
   source: string,
   skillId: string,
+  skillPath?: string,
 ): Promise<string | null> {
   const repo = source.replace(/^github\//, "");
   const parts = repo.split("/").filter(Boolean);
@@ -348,15 +389,20 @@ async function fetchRemoteSkillMd(
     return null;
   }
   const [owner, repoName] = parts;
-  const branches = ["main", "master"];
-  const paths = [
-    `${skillId}/SKILL.md`,
-    `skills/${skillId}/SKILL.md`,
-    `${skillId}/skill.md`,
-  ];
-  for (const branch of branches) {
+  const refs = ["HEAD", "main", "master"];
+  const paths = skillPath
+    ? [skillPath]
+    : [
+        "SKILL.md",
+        `${skillId}/SKILL.md`,
+        `skills/${skillId}/SKILL.md`,
+        `.claude/skills/${skillId}/SKILL.md`,
+        `.agents/skills/${skillId}/SKILL.md`,
+        `${skillId}/skill.md`,
+      ];
+  for (const ref of refs) {
     for (const path of paths) {
-      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/${path}`;
+      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/${ref}/${path}`;
       try {
         const response = await fetchWithTimeout(url, {
           headers: { "User-Agent": "Zen-Desktop/0.1" },
@@ -384,11 +430,43 @@ function hashText(text: string): string {
   return String(h);
 }
 
+/** 上游定位结果：source（owner/repo）+ 仓库内 SKILL.md 精确路径 */
+interface UpstreamRef {
+  source: string;
+  skillPath?: string;
+}
+
 /**
- * skills.sh 市场技能：按安装来源（.zen-origin.json）或 skillId 定位上游，
- * 拉取上游 SKILL.md 与本地内容哈希比对。比不到内容时不报「可更新」。
+ * 定位技能的上游来源，优先级：skills CLI 锁文件（含精确 skillPath）> .zen-origin.json。
+ * 锁文件是 skills CLI 安装时写入的权威记录，能覆盖任意仓库布局；
+ * origin 是 Zen 市场安装的兜底记录（无 skillPath，靠候选路径探测）。
+ * 无锁条目时若 skills.sh 搜索也不可用，则认为无上游。
  */
-async function checkMarketUpdate(skill: SkillSummary): Promise<SkillUpdateInfo> {
+async function resolveUpstream(
+  skill: SkillSummary,
+  lock: Map<string, SkillLockEntry>,
+): Promise<UpstreamRef | null> {
+  const entry = lock.get(skill.name);
+  if (entry?.source) {
+    return { source: entry.source, skillPath: entry.skillPath };
+  }
+  const origin = await readSkillOrigin(skill.dir);
+  if (origin?.source) {
+    return { source: origin.source };
+  }
+  return null;
+}
+
+/**
+ * 更新检测：git 仓库比对提交落后；其余按上游 SKILL.md 内容哈希比对。
+ * 上游定位走 resolveUpstream（锁文件/origin），不再依赖 skills.sh 搜索兜底——
+ * 搜索既触发限流（HTTP 429），又可能把同名技能匹配到错误仓库。
+ * 比不到内容时报「跳过」而非「可更新」，避免误报。
+ */
+async function checkMarketUpdate(
+  skill: SkillSummary,
+  lock: Map<string, SkillLockEntry>,
+): Promise<SkillUpdateInfo> {
   const base: SkillUpdateInfo = {
     id: skill.id,
     name: skill.name,
@@ -397,29 +475,17 @@ async function checkMarketUpdate(skill: SkillSummary): Promise<SkillUpdateInfo> 
     via: "market",
     note: "已是最新",
   };
-  const origin = await readSkillOrigin(skill.dir);
-  // 已有安装来源时直接比对上游 SKILL.md，跳过 skills.sh 搜索（批量检测时极易触发限流）
-  let source = origin?.source ?? "";
-  let skillId = origin?.skillId || skill.name;
-  if (!source) {
-    try {
-      const items = await searchMarketplace(skill.name);
-      const hit =
-        items.find((item) => item.skillId === skill.name) ??
-        items.find((item) => item.name === skill.name) ??
-        null;
-      source = hit?.source ?? "";
-      skillId = hit?.skillId ?? skillId;
-    } catch {
-      return { ...base, via: "none", note: "无法访问 skills.sh 上游" };
-    }
+  const upstream = await resolveUpstream(skill, lock);
+  if (!upstream) {
+    return { ...base, via: "none", note: "无上游来源记录（本地技能），跳过比对" };
   }
-  if (!source) {
-    return { ...base, via: "none", note: "未在 skills.sh 找到同名上游" };
-  }
-  const remote = await fetchRemoteSkillMd(source, skillId);
+  const remote = await fetchRemoteSkillMd(upstream.source, skill.name, upstream.skillPath);
   if (remote == null) {
-    return { ...base, via: "none", note: "无法获取上游 SKILL.md，跳过比对" };
+    return {
+      ...base,
+      via: "none",
+      note: `无法获取上游 SKILL.md（${upstream.source}），跳过比对`,
+    };
   }
   const remoteHash = hashText(remote);
   const localHash = await readSkillBodyHash(skill.dir);
@@ -436,7 +502,10 @@ async function checkMarketUpdate(skill: SkillSummary): Promise<SkillUpdateInfo> 
   return { ...base, note: "已是最新" };
 }
 
-async function checkOneSkillUpdate(skill: SkillSummary): Promise<SkillUpdateInfo> {
+async function checkOneSkillUpdate(
+  skill: SkillSummary,
+  lock: Map<string, SkillLockEntry>,
+): Promise<SkillUpdateInfo> {
   if (!skill.removable) {
     return {
       id: skill.id,
@@ -451,7 +520,7 @@ async function checkOneSkillUpdate(skill: SkillSummary): Promise<SkillUpdateInfo
   if (gitInfo) {
     return { ...gitInfo, id: skill.id, name: skill.name };
   }
-  return checkMarketUpdate(skill);
+  return checkMarketUpdate(skill, lock);
 }
 
 async function marketCheckUpdates(skills: SkillSummary[]): Promise<SkillUpdateCheckResult> {
@@ -459,6 +528,7 @@ async function marketCheckUpdates(skills: SkillSummary[]): Promise<SkillUpdateCh
   if (!list.length) {
     return { ok: true, items: [] };
   }
+  const lock = await readSkillLockMap();
   // 有限并发检测（每个技能含 git fetch / 上游请求，串行在技能多时可达数分钟）
   const CONCURRENCY = 6;
   const items: SkillUpdateInfo[] = new Array(list.length);
@@ -472,7 +542,7 @@ async function marketCheckUpdates(skills: SkillSummary[]): Promise<SkillUpdateCh
         continue;
       }
       try {
-        items[index] = await checkOneSkillUpdate(skill);
+        items[index] = await checkOneSkillUpdate(skill, lock);
       } catch (error) {
         // 单技能检测失败不阻断整体，IPC 仍需 resolve
         items[index] = {
@@ -498,7 +568,49 @@ async function marketCheckUpdates(skills: SkillSummary[]): Promise<SkillUpdateCh
   }
 }
 
-/** 更新：git 仓库走 pull --ff-only；市场技能走覆盖安装 */
+/**
+ * 覆盖安装到技能实际所在目录。
+ * skills CLI `add --global` 固定装到 ~/.claude/skills，但技能可能位于 ~/.agents/skills
+ * 或用户自定义路径——直接覆盖原目录才能真正生效（否则更新只落到别处，界面上毫无变化）。
+ */
+async function installToSkillDir(
+  hit: SkillMarketHit,
+  skillDir: string,
+): Promise<{ ok: boolean; dir?: string; error?: string }> {
+  const result = await installMarketSkill(hit);
+  if (!result.ok || !result.dir) {
+    return result;
+  }
+  const installedDir = result.dir;
+  if (resolve(installedDir) === resolve(skillDir)) {
+    return result;
+  }
+  // 安装落点与技能实际目录不同：整体替换原目录（cp 是合并语义，上游已删的残留文件不会清掉）
+  const staging = `${skillDir}.zen-update`;
+  try {
+    await rm(staging, { recursive: true, force: true });
+    await cp(installedDir, staging, { recursive: true, force: true });
+    await writeSkillOrigin(staging, hit);
+    await rm(skillDir, { recursive: true, force: true });
+    await rename(staging, skillDir);
+    await rm(installedDir, { recursive: true, force: true });
+    return { ok: true, dir: skillDir };
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
+    return {
+      ok: true,
+      dir: installedDir,
+      error: `已更新 ${installedDir}，但同步回 ${skillDir} 失败：${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
+
+/**
+ * 更新：git 仓库走 pull --ff-only；市场技能走覆盖安装。
+ * 上游定位与检测同源（锁文件/origin），安装后同步回技能实际目录。
+ */
 async function marketUpdateSkill(
   skill: SkillSummary,
 ): Promise<{ ok: boolean; dir?: string; error?: string }> {
@@ -514,24 +626,19 @@ async function marketUpdateSkill(
       return { ok: false, error: installErrorMessage(error) };
     }
   }
-  const origin = await readSkillOrigin(dir);
-  const skillId = origin?.skillId || skill.name;
-  const source = origin?.source;
-  let hit: SkillMarketHit | null = null;
-  if (source) {
-    hit = { id: `${source}/${skillId}`, skillId, name: skill.name, source, installs: 0 };
-  } else {
-    try {
-      const items = await searchMarketplace(skillId);
-      hit = items.find((item) => item.skillId === skillId) ?? null;
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
+  const lock = await readSkillLockMap();
+  const upstream = await resolveUpstream(skill, lock);
+  if (!upstream) {
+    return { ok: false, error: "无上游来源记录，无法更新（本地技能请手动维护）" };
   }
-  if (!hit) {
-    return { ok: false, error: "未找到可覆盖安装的市场条目" };
-  }
-  return installMarketSkill(hit);
+  const hit: SkillMarketHit = {
+    id: `${upstream.source}/${skill.name}`,
+    skillId: skill.name,
+    name: skill.name,
+    source: upstream.source,
+    installs: 0,
+  };
+  return installToSkillDir(hit, dir);
 }
 
 async function uninstallSkill(skill: SkillSummary): Promise<{ ok: boolean; error?: string }> {

@@ -139,12 +139,18 @@ export interface RemoteCatalogFetchResult {
 }
 
 /** 拉取并映射 models.dev 实时目录；网络失败/超时抛错，由调用方决定是否保留旧目录 */
-export async function fetchRemoteCatalogModels(timeoutMs = 20_000): Promise<RemoteCatalogFetchResult> {
+export async function fetchRemoteCatalogModels(timeoutMs = 30_000): Promise<RemoteCatalogFetchResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
-    response = await fetch(MODELS_DEV_API, { signal: controller.signal });
+    response = await fetch(MODELS_DEV_API, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "zen-desktop",
+        Accept: "application/json",
+      },
+    });
   } catch (error) {
     clearTimeout(timer);
     const message = error instanceof Error && error.name === "AbortError" ? "请求超时" : "网络异常";

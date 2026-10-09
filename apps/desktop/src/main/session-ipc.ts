@@ -16,6 +16,7 @@ import {
   renameWorkspace,
   setSessionArchived,
   setSessionDraft,
+  setSessionModel,
   setSessionPinned,
   setSessionWorkspace,
   setWorkspaceArchived,
@@ -140,6 +141,15 @@ export function registerSessionIpc(): void {
       setSessionWorkspace(id, workspaceId);
     }
   });
+
+  ipcMain.handle(
+    "session:set-model",
+    (_event, id: string, providerId: string | null, modelId: string | null) => {
+      if (typeof id === "string" && id.trim()) {
+        setSessionModel(id, providerId, modelId);
+      }
+    },
+  );
 
   ipcMain.handle("session:open", (_event, id: string) => getSession(id) ?? null);
 

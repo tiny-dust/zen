@@ -10,6 +10,10 @@ export const sessionApi = {
     setWorkspace(id: string, workspaceId: string | null): Promise<void> {
       return ipcRenderer.invoke("session:set-workspace", id, workspaceId);
     },
+    /** 会话级模型覆盖；null 表示跟随全局默认模型 */
+    setModel(id: string, providerId: string | null, modelId: string | null): Promise<void> {
+      return ipcRenderer.invoke("session:set-model", id, providerId, modelId);
+    },
     open(
       id: string,
     ): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {

@@ -192,6 +192,13 @@ function migrate(conn: Database.Database) {
     if (!sessionCols.some((col) => col.name === "user_id")) {
       conn.exec(`ALTER TABLE chat_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`);
     }
+    // 会话级模型覆盖：独立于全局 model_selection，切会话时各自恢复
+    if (!sessionCols.some((col) => col.name === "model_provider_id")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN model_provider_id TEXT`);
+    }
+    if (!sessionCols.some((col) => col.name === "model_id")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN model_id TEXT`);
+    }
   }
 }
 

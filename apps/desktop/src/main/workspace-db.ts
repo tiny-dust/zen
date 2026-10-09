@@ -25,6 +25,8 @@ interface SessionRow {
   pinned: number;
   archived: number;
   user_id: string | null;
+  model_provider_id: string | null;
+  model_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -82,6 +84,8 @@ function toSession(row: SessionRow): SessionRecord {
     archived: row.archived === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    modelProviderId: row.model_provider_id,
+    modelId: row.model_id,
   };
 }
 
@@ -197,6 +201,8 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     pinned: 0,
     archived: 0,
     user_id: currentUserId ?? "",
+    model_provider_id: null,
+    model_id: null,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -218,6 +224,19 @@ export function setSessionWorkspace(id: string, workspaceId: string | null): voi
       `UPDATE chat_sessions SET workspace_id = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`,
     )
     .run(effective === COMMON_ID ? null : effective, Date.now(), id, ...ownerParams());
+}
+
+/** 会话级模型覆盖：为 null 时表示跟随全局默认模型（区别于 model_selection） */
+export function setSessionModel(
+  id: string,
+  providerId: string | null,
+  modelId: string | null,
+): void {
+  getDb()
+    .prepare(
+      `UPDATE chat_sessions SET model_provider_id = ?, model_id = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`,
+    )
+    .run(providerId || null, modelId || null, Date.now(), id, ...ownerParams());
 }
 
 export function getSession(id: string):
