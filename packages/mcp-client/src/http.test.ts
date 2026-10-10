@@ -74,6 +74,36 @@ afterEach(() => {
 });
 
 describe("McpHttpClient streamable", () => {
+  it("202 + JSON null 的通知响应不杀伤在途请求（mobbin 实测竞态）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: FetchInit) => {
+        const method = (JSON.parse(String(init.body)) as { method?: string }).method;
+        if (method === "initialize") {
+          return jsonRes({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { protocolVersion: "2025-03-26", capabilities: {}, serverInfo: { name: "mobbin" } },
+          });
+        }
+        if (method === "notifications/initialized") {
+          // mobbin 实测：202 + application/json + body "null"；慢于 tools/list 到达
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return textRes("null", { "content-type": "application/json" }, 202);
+        }
+        // tools/list 更晚返回，期间通知的 202 null 已经派发
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        return jsonRes({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "search_screens" }] } });
+      }),
+    );
+
+    const client = new McpHttpClient(config());
+    await client.connect();
+    const tools = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual(["search_screens"]);
+    expect(client.error).toBeNull();
+  });
+
   it("initialize 记录会话 id，后续请求带 MCP-Session-Id", async () => {
     const calls: Array<{ url: string; init: FetchInit }> = [];
     vi.stubGlobal(

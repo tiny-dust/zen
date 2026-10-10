@@ -62,6 +62,10 @@ export abstract class McpBaseClient implements McpClient {
 
   /** 入站 JSON-RPC 消息（响应按 id 分发；服务端通知当前忽略） */
   protected handleResponse(message: JsonRpcMessage): void {
+    // 服务器可能回 202 + JSON 体 "null"（mobbin 实测），JSON.parse 得到 null；非对象直接忽略
+    if (!message || typeof message !== "object") {
+      return;
+    }
     if (typeof message.id === "number") {
       const resolver = this.pending.get(message.id);
       if (resolver) {
