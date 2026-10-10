@@ -266,6 +266,8 @@ export interface ZenApi {
     list(): Promise<McpServerStatus[]>;
     scan(workspaceRoot?: string): Promise<McpDiscoveredServer[]>;
     setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]>;
+    /** 发起浏览器 OAuth 授权；成功返回最新状态列表，失败 reject 中文错误 */
+    authorize(serverId: string): Promise<McpServerStatus[]>;
   };
   memory: {
     get(): Promise<MemorySnapshot>;

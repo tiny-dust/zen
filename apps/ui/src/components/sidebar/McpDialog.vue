@@ -3,6 +3,8 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Loader2,
+  LogIn,
   Pencil,
   Plus,
   RefreshCw,
@@ -84,14 +86,25 @@ watch(open, (value) => {
 /** 各服务工具清单的展开状态 */
 const expandedIds = ref<Set<string>>(new Set());
 
-function toggleTools(id: string) {
-  const next = new Set(expandedIds.value);
-  if (next.has(id)) {
-    next.delete(id);
+/** 工具明细的展开状态（key: serverId:toolName） */
+const expandedToolIds = ref<Set<string>>(new Set());
+
+function toggleInSet(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) {
+    next.delete(key);
   } else {
-    next.add(id);
+    next.add(key);
   }
-  expandedIds.value = next;
+  return next;
+}
+
+function toggleTools(id: string) {
+  expandedIds.value = toggleInSet(expandedIds.value, id);
+}
+
+function toggleTool(serverId: string, toolName: string) {
+  expandedToolIds.value = toggleInSet(expandedToolIds.value, `${serverId}:${toolName}`);
 }
 
 /** inputSchema 参数摘要：参数名/类型/是否必填，不渲染整段 JSON */
@@ -285,8 +298,34 @@ async function importDiscovered(items: McpDiscoveredServer[]) {
 function stateLabel(state: string) {
   if (state === "running") return "运行中";
   if (state === "starting") return "启动中";
+  if (state === "needs-auth") return "需要授权";
   if (state === "error") return "错误";
   return "已停止";
+}
+
+/** needs-auth 行的 OAuth 授权进行中（按服务 id 置忙，防重复点击） */
+const authorizingIds = ref<Set<string>>(new Set());
+
+/** 授权失败的按行错误（key: serverId），成功后清除 */
+const authorizeErrors = ref<Record<string, string>>({});
+
+async function authorizeServer(id: string) {
+  if (authorizingIds.value.has(id)) {
+    return;
+  }
+  const busy = new Set(authorizingIds.value);
+  busy.add(id);
+  authorizingIds.value = busy;
+  try {
+    await agentStore.authorizeMcp(id);
+    delete authorizeErrors.value[id];
+  } catch (error) {
+    authorizeErrors.value[id] = error instanceof Error ? error.message : String(error);
+  } finally {
+    const rest = new Set(authorizingIds.value);
+    rest.delete(id);
+    authorizingIds.value = rest;
+  }
 }
 </script>
 
@@ -299,7 +338,7 @@ function stateLabel(state: string) {
       <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
         <DialogTitle class="text-[15px]">MCP 服务</DialogTitle>
         <DialogDescription class="text-[12px]">
-          配置本地 stdio 或远程 MCP；工具以 <code class="font-[family-name:var(--font-mono)]">mcp.服务.工具</code> 接入 Agent。配置写入 ~/.zen/mcp.json。
+          配置本地 stdio 或远程 MCP；工具以 <code class="font-[family-name:var(--font-mono)]">mcp.服务.工具</code> 接入 Agent。配置写入 ~/.zen/mcp.json。远程服务要求 OAuth 时，点服务行的「授权登录」在系统浏览器完成认证。
         </DialogDescription>
       </DialogHeader>
 
@@ -436,6 +475,19 @@ function stateLabel(state: string) {
                   </span>
                   <Badge variant="secondary" class="text-[10px]">{{ stateLabel(item.state) }}</Badge>
                   <Button
+                    v-if="item.state === 'needs-auth'"
+                    variant="secondary"
+                    size="sm"
+                    class="h-5 gap-0.5 px-1.5 text-[10px]"
+                    :disabled="authorizingIds.has(item.config.id)"
+                    :aria-label="`授权登录 ${item.config.name}`"
+                    @click="authorizeServer(item.config.id)"
+                  >
+                    <Loader2 v-if="authorizingIds.has(item.config.id)" class="size-3 animate-spin" />
+                    <LogIn v-else class="size-3" />
+                    {{ authorizingIds.has(item.config.id) ? "授权中…" : "授权登录" }}
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     class="h-5 gap-0.5 px-1 text-[10px] text-[var(--color-dim)] hover:bg-transparent!"
@@ -455,6 +507,12 @@ function stateLabel(state: string) {
                 <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
                   {{ item.error }}
                 </p>
+                <p
+                  v-if="authorizeErrors[item.config.id]"
+                  class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]"
+                >
+                  {{ authorizeErrors[item.config.id] }}
+                </p>
                 <div
                   v-if="expandedIds.has(item.config.id)"
                   class="mt-1.5 flex flex-col gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2.5 py-1.5"
@@ -465,20 +523,37 @@ function stateLabel(state: string) {
                   >
                     无工具
                   </p>
-                  <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col gap-0.5">
-                    <span class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
-                      {{ tool.name }}
-                    </span>
-                    <p class="m-0 text-[11px] text-[var(--color-mut)]">
-                      {{ tool.description || "无描述" }}
-                    </p>
-                    <p
-                      v-if="schemaSummary(tool.inputSchema)"
-                      class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
-                      :title="schemaSummary(tool.inputSchema)"
+                  <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col">
+                    <button
+                      type="button"
+                      class="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-[var(--color-menu-hover)]"
+                      :aria-expanded="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                      @click="toggleTool(item.config.id, tool.name)"
                     >
-                      参数：{{ schemaSummary(tool.inputSchema) }}
-                    </p>
+                      <ChevronDown
+                        v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                        class="size-3 flex-none text-[var(--color-dim)]"
+                      />
+                      <ChevronRight v-else class="size-3 flex-none text-[var(--color-dim)]" />
+                      <span class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
+                        {{ tool.name }}
+                      </span>
+                    </button>
+                    <div
+                      v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                      class="flex flex-col gap-0.5 pb-0.5 pl-5 pr-1"
+                    >
+                      <p class="m-0 text-[11px] leading-4 text-[var(--color-mut)]">
+                        {{ tool.description || "无描述" }}
+                      </p>
+                      <p
+                        v-if="schemaSummary(tool.inputSchema)"
+                        class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
+                        :title="schemaSummary(tool.inputSchema)"
+                      >
+                        参数：{{ schemaSummary(tool.inputSchema) }}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

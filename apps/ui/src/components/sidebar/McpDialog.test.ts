@@ -11,6 +11,7 @@ let pinia: ReturnType<typeof createPinia>;
 
 const setServers = vi.fn();
 const scan = vi.fn();
+const authorize = vi.fn();
 
 function statusOf(
   config: McpServerConfig,
@@ -46,6 +47,7 @@ async function mountWith(
       list: vi.fn().mockImplementation(async () => current),
       setServers,
       scan,
+      authorize,
     },
     workspace: { list: vi.fn().mockResolvedValue([]) },
     session: { create: vi.fn() },
@@ -266,6 +268,27 @@ describe("McpDialog 编辑表单", () => {
     wrapper.unmount();
   });
 
+  it("保存传给 IPC 的载荷是可结构化克隆的纯对象（含既有服务的响应式条目）", async () => {
+    const wrapper = await mountWith([statusOf(stdioConfig)]);
+
+    await buttonByText(wrapper, "切 http").trigger("click");
+    await inputByPlaceholder(wrapper, "名称").setValue("mobbin");
+    await inputByPlaceholder(wrapper, "https://").setValue("https://api.mobbin.com/mcp");
+    await buttonByText(wrapper, "添加").trigger("click");
+    await flushPromises();
+
+    expect(setServers).toHaveBeenCalledTimes(1);
+    const saved = setServers.mock.calls[0]?.[0] as McpServerConfig[];
+    // Vue 响应式 Proxy 无法穿过 contextBridge（structured clone 会抛错），载荷必须是纯对象
+    expect(() => structuredClone(saved)).not.toThrow();
+    expect(saved).toHaveLength(2);
+    expect(saved[0]).toMatchObject({ id: "srv-1", name: "filesystem" });
+    expect(saved[1]).toMatchObject({ name: "mobbin", transport: "http", url: "https://api.mobbin.com/mcp" });
+    // 保存后表单复位
+    expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
+    wrapper.unmount();
+  });
+
   it("保存编辑时目标已不在列表则直接复位表单", async () => {
     const wrapper = await mountWith([statusOf(stdioConfig)]);
 
@@ -328,20 +351,32 @@ describe("McpDialog 工具列表与参数摘要", () => {
     },
   );
 
-  it("运行中的服务默认展开工具清单，参数摘要区分必填与可选", async () => {
+  it("工具明细默认收起，点击工具行展开描述与参数摘要", async () => {
     const wrapper = await mountWith([withTools]);
 
-    // 运行中默认展开
-    expect(wrapper.text()).toContain("运行中");
+    // 默认只显示工具名，描述与参数收起
     expect(wrapper.text()).toContain("read_file");
+    expect(wrapper.text()).not.toContain("读取文件");
+    expect(wrapper.text()).not.toContain("参数：path: string，offset: number?");
+
+    // 点击工具行展开
+    const toolButton = wrapper.findAll("button").find((item) => item.text().includes("read_file"));
+    expect(toolButton).toBeTruthy();
+    await toolButton!.trigger("click");
     expect(wrapper.text()).toContain("读取文件");
     // 必填无问号，可选带问号
     expect(wrapper.text()).toContain("参数：path: string，offset: number?");
-    // 无描述回退
+
+    // 无描述回退，schema 无 properties 时不渲染参数行
+    const noDescButton = wrapper.findAll("button").find((item) => item.text().includes("no_desc"));
+    expect(noDescButton).toBeTruthy();
+    await noDescButton!.trigger("click");
     expect(wrapper.text()).toContain("无描述");
-    // schema 无 properties 时不渲染参数行
-    const noDescBlock = wrapper.text();
-    expect(noDescBlock).not.toContain("参数：…");
+    expect(wrapper.text()).not.toContain("参数：…");
+
+    // 再次点击收起
+    await toolButton!.trigger("click");
+    expect(wrapper.text()).not.toContain("读取文件");
     wrapper.unmount();
   });
 
@@ -358,6 +393,11 @@ describe("McpDialog 工具列表与参数摘要", () => {
       },
     );
     const wrapper = await mountWith([many]);
+
+    // 展开工具明细后再断言参数摘要
+    const toolButton = wrapper.findAll("button").find((item) => item.text().includes("many_args"));
+    expect(toolButton).toBeTruthy();
+    await toolButton!.trigger("click");
 
     const summary = wrapper.text().match(/参数：[^\n]+/)?.[0] ?? "";
     expect(summary).toContain("f: string");
@@ -518,6 +558,65 @@ describe("McpDialog 状态、扫描与说明", () => {
     };
     const wrapper = await mountWith([statusOf(config)]);
     expect(wrapper.text()).toContain("已配置 1 个服务");
+    wrapper.unmount();
+  });
+});
+
+describe("McpDialog needs-auth OAuth 授权", () => {
+  const oauthConfig: McpServerConfig = {
+    id: "srv-oauth",
+    name: "remote-oauth",
+    transport: "http",
+    url: "https://mcp.example.com/mcp",
+    enabled: true,
+  };
+
+  it("needs-auth 状态显示需要授权徽标与授权登录按钮", async () => {
+    const wrapper = await mountWith([statusOf(oauthConfig, { state: "needs-auth" })]);
+
+    expect(wrapper.text()).toContain("需要授权");
+    const button = buttonByText(wrapper, "授权登录");
+    expect(button.attributes("disabled")).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("点击授权登录调用 authorize(serverId)，resolve 后状态变为运行中", async () => {
+    authorize.mockImplementation(async () => [
+      statusOf(oauthConfig, {
+        state: "running",
+        tools: [{ name: "search", description: "搜索", inputSchema: { type: "object" } }],
+      }),
+    ]);
+    const wrapper = await mountWith([statusOf(oauthConfig, { state: "needs-auth" })]);
+
+    await buttonByText(wrapper, "授权登录").trigger("click");
+    await flushPromises();
+
+    expect(authorize).toHaveBeenCalledTimes(1);
+    expect(authorize).toHaveBeenCalledWith("srv-oauth");
+    expect(wrapper.text()).toContain("运行中");
+    expect(wrapper.findAll("button").some((item) => item.text().trim() === "授权登录")).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("授权 reject 时按行展示错误且按钮恢复可点，重试成功后清除错误", async () => {
+    authorize.mockRejectedValueOnce(new Error("授权超时/已取消"));
+    const wrapper = await mountWith([statusOf(oauthConfig, { state: "needs-auth" })]);
+
+    await buttonByText(wrapper, "授权登录").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("授权超时/已取消");
+    expect(wrapper.text()).toContain("需要授权");
+    const restored = buttonByText(wrapper, "授权登录");
+    expect(restored.attributes("disabled")).toBeUndefined();
+
+    authorize.mockResolvedValueOnce([statusOf(oauthConfig, { state: "running", tools: [] })]);
+    await restored.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("运行中");
+    expect(wrapper.text()).not.toContain("授权超时/已取消");
     wrapper.unmount();
   });
 });

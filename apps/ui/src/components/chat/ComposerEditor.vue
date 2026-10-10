@@ -340,6 +340,11 @@ defineExpose({
   color: var(--color-accent);
 }
 
+/* MCP 工具引用 token：强调色，与技能 token 同构强调 */
+.composer-token-mcp {
+  color: var(--color-accent);
+}
+
 /* 页面元素 tag：与技能同构（chip + icon + 名称），仅地球图标区分 */
 .composer-token-element {
   color: var(--color-accent);

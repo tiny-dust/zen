@@ -8,13 +8,15 @@ export interface TriggerItem {
   insert: string;
   label: string;
   desc: string;
-  icon: "skill" | "file" | "dir";
+  icon: "skill" | "file" | "dir" | "mcp";
   /** 技能条目附加信息（文件类无） */
   id?: string;
   dir?: string;
   source?: "builtin" | "user";
   /** 会话内已上传文件条目：置顶 + 「已上传」标识，apply 时先登记为 composer 附件 */
   uploaded?: UploadedFileRef;
+  /** MCP 工具条目：所属服务名 */
+  serverName?: string;
 }
 
 /** 本会话上传过的文件（当前 composer 附件 + 已发送消息附件），path 唯一 */
@@ -25,7 +27,7 @@ export interface UploadedFileRef {
   isImage?: boolean;
 }
 
-export type TriggerKind = "skill" | "file";
+export type TriggerKind = "skill" | "mcp" | "file";
 
 /**
  * 模糊匹配打分：query 以子序列命中 haystack（大小写不敏感）；
@@ -133,6 +135,27 @@ export function useComposerTriggers(options: {
     ).slice(0, 30);
   });
 
+  /** 运行中 MCP 服务的工具清单（# 触发）：无运行中服务时为空 */
+  const mcpItems = computed<TriggerItem[]>(() =>
+    rankByQuery(
+      agentStore.mcpStatuses
+        .filter((server) => server.state === "running")
+        .flatMap((server) =>
+          server.tools.map((tool) => ({
+            haystack: `${server.config.name} ${tool.name} ${tool.description || server.config.name}`,
+            value: {
+              insert: `#mcp:${server.config.name}.${tool.name} `,
+              label: tool.name,
+              desc: tool.description || server.config.name,
+              icon: "mcp" as const,
+              serverName: server.config.name,
+            },
+          })),
+        ),
+      query.value,
+    ).slice(0, 30),
+  );
+
   const fileItems = computed<TriggerItem[]>(() => {
     // 本会话上传过的文件（当前附件 + 历史消息附件）置顶；同 path 只保留已上传条目
     const uploaded = options.uploadedFiles?.() ?? [];
@@ -167,9 +190,15 @@ export function useComposerTriggers(options: {
     ].slice(0, 30);
   });
 
-  const items = computed<TriggerItem[]>(() =>
-    kind.value === "skill" ? skillItems.value : fileItems.value,
-  );
+  const items = computed<TriggerItem[]>(() => {
+    if (kind.value === "skill") {
+      return skillItems.value;
+    }
+    if (kind.value === "mcp") {
+      return mcpItems.value;
+    }
+    return fileItems.value;
+  });
 
   const activeItem = computed(() => items.value[active.value] ?? null);
 
@@ -189,15 +218,16 @@ export function useComposerTriggers(options: {
     }
   }
 
-  /** 输入变化后检测光标前的触发 token（/ 技能；@ 或 $ 文件引用） */
+  /** 输入变化后检测光标前的触发 token（/ 技能；# MCP 工具；@ 或 $ 文件引用） */
   function evaluate(): void {
     const value = options.value();
     const cursor = Math.min(Math.max(options.caret(), 0), value.length);
     const before = value.slice(0, cursor);
-    // / 唤起技能；@/$ 唤起文件引用（@ 前不能是字母数字等，避免邮箱误触）
+    // / 唤起技能；# 唤起 MCP 工具；@/$ 唤起文件引用（@ 前不能是字母数字等，避免邮箱误触）
     const skillMatch = /(?:^|\s)(\/[\w-]*)$/.exec(before);
+    const mcpMatch = /(?:^|\s)(#[\p{L}\p{N}_.:-]*)$/u.exec(before);
     const fileMatch = /(?:^|[^\w.@$/])([@$][\p{L}\p{N}_.\/-]*)$/u.exec(before);
-    const match = skillMatch ?? fileMatch;
+    const match = skillMatch ?? mcpMatch ?? fileMatch;
 
     if (!match || !match[1]) {
       close();
@@ -210,8 +240,13 @@ export function useComposerTriggers(options: {
       close();
       return;
     }
+    // 已应用的完整 MCP token（#mcp:服务.工具）同理不再唤起
+    if (token.toLowerCase().startsWith("#mcp:")) {
+      close();
+      return;
+    }
     tokenStart.value = cursor - token.length;
-    kind.value = token.startsWith("/") ? "skill" : "file";
+    kind.value = token.startsWith("/") ? "skill" : token.startsWith("#") ? "mcp" : "file";
     query.value = token.slice(1);
     active.value = 0;
 
