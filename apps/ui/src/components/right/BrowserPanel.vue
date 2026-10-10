@@ -19,6 +19,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { elementLabel, formatElementDetail } from "@/lib/browser-element";
+import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useBrowserStore } from "@/stores/browser";
 import { useLayoutStore } from "@/stores/layout";
 import { useRightPanelStore } from "@/stores/right-panel";
@@ -59,6 +60,8 @@ let ro: ResizeObserver | null = null;
 const settingsOpen = ref(false);
 const uaDraft = ref("");
 const zoomDraft = ref(100);
+// 弹层覆盖在页面视图区上方：打开期间压制原生 WebContentsView，否则被其盖住（表现为点了没反应）
+useBrowserOverlayGuard(settingsOpen);
 
 function openSettings() {
   settingsOpen.value = !settingsOpen.value;
@@ -410,51 +413,53 @@ watch(
           <History />
         </Button>
       </div>
-    </div>
 
-    <!-- 浏览器设置弹层：UA + 视口缩放，保存后主进程持久化（~/.zen/config.json） -->
-    <div
-      v-if="settingsOpen"
-      class="absolute top-full right-0 z-[var(--z-popup)] mt-1 w-72 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] p-2.5 shadow-[var(--shadow-menu)]"
-    >
-      <div class="mb-1 text-[12px] font-medium text-[var(--color-txt-strong)]">浏览器设置</div>
-      <label class="mb-2 block">
-        <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">User-Agent（留空用默认）</span>
-        <Input
-          v-model="uaDraft"
-          variant="ghost"
-          class="h-7 w-full border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2 font-[family-name:var(--font-mono)] text-[11px] md:text-[11px] text-[var(--color-txt)]"
-          placeholder="Mozilla/5.0 …"
-          spellcheck="false"
-          autocomplete="off"
-          @keydown.enter.prevent="saveSettings()"
-        />
-      </label>
-      <label class="mb-2 block">
-        <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">页面尺寸（缩放，作用于内容渲染）</span>
-        <select
-          v-model.number="zoomDraft"
-          class="h-7 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
-        >
-          <option :value="50">50%</option>
-          <option :value="67">67%</option>
-          <option :value="80">80%</option>
-          <option :value="90">90%</option>
-          <option :value="100">100%（默认）</option>
-          <option :value="110">110%</option>
-          <option :value="125">125%</option>
-          <option :value="150">150%</option>
-          <option :value="200">200%</option>
-          <option :value="300">300%</option>
-        </select>
-      </label>
-      <div class="flex items-center justify-end gap-1">
-        <Button variant="ghost" size="xs" class="font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]" @click="settingsOpen = false">
-          取消
-        </Button>
-        <Button size="xs" class="font-normal text-[11px] md:text-[11px]" @click="saveSettings()">
-          保存
-        </Button>
+      <!-- 浏览器设置弹层：UA + 视口缩放，保存后主进程持久化（~/.zen/config.json）。
+           必须在地址栏壳（relative）内部：原先放在壳外，absolute 会锚到更外层容器（top-full = 整个面板高度），
+           弹层落到面板底部之外且被 overflow-hidden 裁剪，表现为「点击设置没反应」 -->
+      <div
+        v-if="settingsOpen"
+        class="absolute top-full right-0 z-[var(--z-popup)] mt-1 w-72 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] p-2.5 shadow-[var(--shadow-menu)]"
+      >
+        <div class="mb-1 text-[12px] font-medium text-[var(--color-txt-strong)]">浏览器设置</div>
+        <label class="mb-2 block">
+          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">User-Agent（留空用默认）</span>
+          <Input
+            v-model="uaDraft"
+            variant="ghost"
+            class="h-7 w-full border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2 font-[family-name:var(--font-mono)] text-[11px] md:text-[11px] text-[var(--color-txt)]"
+            placeholder="Mozilla/5.0 …"
+            spellcheck="false"
+            autocomplete="off"
+            @keydown.enter.prevent="saveSettings()"
+          />
+        </label>
+        <label class="mb-2 block">
+          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">页面尺寸（缩放，作用于内容渲染）</span>
+          <select
+            v-model.number="zoomDraft"
+            class="h-7 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
+          >
+            <option :value="50">50%</option>
+            <option :value="67">67%</option>
+            <option :value="80">80%</option>
+            <option :value="90">90%</option>
+            <option :value="100">100%（默认）</option>
+            <option :value="110">110%</option>
+            <option :value="125">125%</option>
+            <option :value="150">150%</option>
+            <option :value="200">200%</option>
+            <option :value="300">300%</option>
+          </select>
+        </label>
+        <div class="flex items-center justify-end gap-1">
+          <Button variant="ghost" size="xs" class="font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]" @click="settingsOpen = false">
+            取消
+          </Button>
+          <Button size="xs" class="font-normal text-[11px] md:text-[11px]" @click="saveSettings()">
+            保存
+          </Button>
+        </div>
       </div>
     </div>
 
