@@ -174,13 +174,14 @@ export class BrowserPipApi extends BrowserContentApi {
   }
 }
 
-/** 顶栏 UI：左侧「返回面板」、右侧「关闭」，整条为拖动区（-webkit-app-region 三平台通用）。
+/** 顶栏 UI：左侧「返回面板」、右侧「关闭」，整条为拖动区（-webkit-app-region 三平台通用）；
+ * 按钮必须显式 no-drag——drag 区域内的子元素收不到 click 事件（同 AppTitlebar 的处理）。
  * 颜色与主窗口暗色主题（--color-bg/--color-line）保持一致的硬编码值：data URL 页面拿不到 UI token。 */
 const PIP_TOPBAR_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;height:100%;background:#181818;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 #bar{height:32px;display:flex;align-items:center;padding:0 4px;box-sizing:border-box;-webkit-app-region:drag;background:#181818;border-bottom:1px solid #2a2a2a}
 #spacer{flex:1;height:100%}
-button{all:unset;cursor:pointer;padding:0 8px;height:22px;line-height:22px;border-radius:4px;font-size:11px;color:#d4d4d8}
+button{all:unset;cursor:pointer;padding:0 8px;height:22px;line-height:22px;border-radius:4px;font-size:11px;color:#d4d4d8;-webkit-app-region:no-drag}
 button:hover{background:#2e2e2e;color:#fff}
 </style></head><body><div id="bar">
 <button id="back" title="返回浏览器面板">返回面板</button>
