@@ -1,0 +1,12 @@
+{
+  "hook": {
+    "enabled": true,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
+  },
+  "detector": {
+    "ignoreFiles": ["**/*.test.ts"]
+  }
+}

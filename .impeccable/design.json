@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-09T18:40:00+08:00",
+  "title": "Design System: Zen",
+  "extensions": {
+    "colorMeta": {
+      "ember-orange": { "role": "primary", "displayName": "Ember Orange", "canonical": "#ff6a2b", "tonalRamp": ["#ff6a2b", "#ff8a52", "#ffb08a"] },
+      "ink-bg": { "role": "neutral", "displayName": "Ink Background", "canonical": "#181818" },
+      "ink-side": { "role": "neutral", "displayName": "Ink Side", "canonical": "#141414" },
+      "ink-sunken": { "role": "neutral", "displayName": "Ink Sunken", "canonical": "#2e2e2e" },
+      "ink-raise": { "role": "neutral", "displayName": "Ink Raise", "canonical": "#191919" },
+      "ink-popover": { "role": "neutral", "displayName": "Ink Popover", "canonical": "#1a1a1a" },
+      "ink-card": { "role": "neutral", "displayName": "Ink Card", "canonical": "#282828" },
+      "ink-line": { "role": "neutral", "displayName": "Ink Line", "canonical": "#2e2e2e" },
+      "ink-text": { "role": "neutral", "displayName": "Ink Text", "canonical": "#f4f4f5" },
+      "ink-text-strong": { "role": "neutral", "displayName": "Ink Text Strong", "canonical": "#ffffff" },
+      "ink-muted": { "role": "neutral", "displayName": "Ink Muted", "canonical": "#b8b8b8" },
+      "ink-dim": { "role": "neutral", "displayName": "Ink Dim", "canonical": "#8a8a8a" },
+      "composer-surface": { "role": "neutral", "displayName": "Composer Surface", "canonical": "#202020" },
+      "send-ink": { "role": "neutral", "displayName": "Send Ink", "canonical": "#ececec" },
+      "ok-green": { "role": "semantic", "displayName": "Ok Green", "canonical": "#1a9e5f" },
+      "del-red": { "role": "semantic", "displayName": "Del Red", "canonical": "#e5484d" },
+      "danger-fg": { "role": "semantic", "displayName": "Danger Foreground", "canonical": "#ff9b7f" },
+      "link-blue": { "role": "semantic", "displayName": "Link Blue", "canonical": "#3295fb" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "页面级主标题（评审页/原型主标题）" },
+      "h1": { "displayName": "Heading 1", "purpose": "markdown h1" },
+      "h2": { "displayName": "Heading 2", "purpose": "markdown h2" },
+      "section": { "displayName": "Section", "purpose": "markdown h3、卡片/格式标题" },
+      "subtitle": { "displayName": "Subtitle", "purpose": "弹窗标题、设置节标题、设备码" },
+      "title": { "displayName": "Title", "purpose": "栏头、节标题、会话名" },
+      "body": { "displayName": "Body", "purpose": "正文与聊天内容" },
+      "caption": { "displayName": "Caption", "purpose": "辅助说明、字段标签、工具步骤、行内代码" },
+      "label": { "displayName": "Label", "purpose": "辅助说明、徽标、时间戳" },
+      "micro": { "displayName": "Micro", "purpose": "微型徽标、键盘快捷键提示" },
+      "mono": { "displayName": "Mono", "purpose": "代码、模型 ID、路径、设备码" }
+    },
+    "shadows": [
+      { "name": "composer", "value": "0 1px 3px #0006", "purpose": "输入框壳面，抬起但贴地" },
+      { "name": "menu", "value": "0 8px 30px #0009, 0 1px 3px #0006", "purpose": "下拉菜单" },
+      { "name": "pop", "value": "0 12px 40px #00000080", "purpose": "弹窗" },
+      { "name": "tip", "value": "0 2px 8px #0000004d, 0 1px 2px #00000040", "purpose": "tooltip" },
+      { "name": "raised", "value": "0 1px 2px #0006, 0 3px 10px #0008", "purpose": "一般抬起态" }
+    ],
+    "motion": [
+      { "name": "ease-enter", "value": "cubic-bezier(0.2, 0.7, 0.2, 1)", "purpose": "进入过渡" },
+      { "name": "ease-exit", "value": "cubic-bezier(0.4, 0, 1, 1)", "purpose": "退出过渡" },
+      { "name": "ease-emph", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "强调过渡" }
+    ],
+    "breakpoints": [
+      { "name": "info-card", "value": "1100px", "purpose": "中央区 ≥1100px 时出现会话信息卡列" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "中性反色主按钮，发送以外的其它主操作。",
+      "html": "<button class=\"ds-btn-primary\">保存更改</button>",
+      "css": ".ds-btn-primary{background:#ececec;color:#151c13;height:32px;padding:0 10px;border-radius:12px;border:none;font-size:13px;font-weight:500;font-family:MiSans,system-ui,sans-serif;cursor:pointer;transition:background .18s cubic-bezier(.2,.7,.2,1)}.ds-btn-primary:hover{background:#d6d6d6}"
+    },
+    {
+      "name": "Send Button",
+      "kind": "button",
+      "refersTo": "button-send",
+      "description": "暖橙圆形发送主按钮，空输入禁用态为灰圆。",
+      "html": "<button class=\"ds-btn-send\" aria-label=\"发送\"></button>",
+      "css": ".ds-btn-send{background:#ff6a2b;color:#fff;width:32px;height:32px;border-radius:50%;border:none;cursor:pointer}.ds-btn-send[disabled]{background:#6e6e6e;cursor:default}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "透明底，hover 微底色。图标按钮 hover 只高亮图标。",
+      "html": "<button class=\"ds-btn-ghost\">取消</button>",
+      "css": ".ds-btn-ghost{background:transparent;color:#f4f4f5;height:32px;padding:0 10px;border-radius:12px;border:none;font-size:13px;font-family:MiSans,system-ui,sans-serif;cursor:pointer;transition:background .18s cubic-bezier(.2,.7,.2,1)}.ds-btn-ghost:hover{background:#2e2e2e}"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "危险色按钮，用于不可撤销的删除。",
+      "html": "<button class=\"ds-btn-destructive\">删除供应商</button>",
+      "css": ".ds-btn-destructive{background:rgba(229,72,77,.2);color:#e5484d;height:32px;padding:0 10px;border-radius:12px;border:none;font-size:13px;font-weight:500;font-family:MiSans,system-ui,sans-serif;cursor:pointer;transition:background .18s cubic-bezier(.2,.7,.2,1)}.ds-btn-destructive:hover{background:rgba(229,72,77,.3)}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "发丝描边输入框，聚焦仅边框色变化一档。",
+      "html": "<input class=\"ds-input\" placeholder=\"输入…\" />",
+      "css": ".ds-input{background:#181818;border:1px solid #3a3a3a;border-radius:12px;height:28px;padding:0 10px;color:#f4f4f5;font-size:13px;font-family:MiSans,system-ui,sans-serif;outline:none;transition:border-color .18s cubic-bezier(.2,.7,.2,1)}.ds-input:focus{border-color:#6a6a6a}.ds-input::placeholder{color:#8a8a8a}"
+    }
+  ],
+  "narrative": {
+    "northStar": "静默而有序的工作台 (The Quietly Ordered Workbench)",
+    "overview": "Zen 的界面是一张熟悉、克制的工作台面：深色中性灰阶承载一切，唯一的暖橙强调色只出现在「发送」按钮和真正需要引起注意的强调点。它不表演智能、不装饰过程，把全部注意力让给代码、结果和下一步动作。层级靠表面明度递进和发丝线分隔来建立，不靠大块颜色。密度按开发者习惯收紧：正文 13px、列表行高 30px、控件高 28px。",
+    "keyCharacteristics": [
+      "深色为默认主题；浅色主题通过同一组 token 支持。",
+      "唯一强调色暖橙 #ff6a2b，任一屏占比 ≤10%。",
+      "12px 全局圆角、1.5 图标线宽、克制的双层阴影三档。",
+      "消息区无气泡：assistant 内容裸 markdown 铺在背板上。",
+      "聚焦/选中只做颜色反馈，禁止粗圈描边。"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "暖橙 #ff6a2b 在任何一屏占比 ≤10%。它只标记「当前可执行的主动作」与状态强调点。", "section": "colors" },
+      { "name": "The State-by-Light Rule", "body": "灰阶表面之间的层级靠明度递进 + 发丝线建立，不靠颜色块。", "section": "colors" },
+      { "name": "The One Family Rule", "body": "一个无衬线家族承担全部 UI 文字，等宽仅限代码/标识数据。层级靠字重与字号，不靠换字体。", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "表面静止时是平的。阴影是对状态的响应，不是默认装饰。", "section": "elevation" }
+    ],
+    "dos": [
+      "用灰阶表面明度递进 + 发丝线建立层级，颜色只用于状态与强调。",
+      "保持 12px 圆角、1.5 图标线宽、32px 行高按钮的全局一致性。",
+      "用文字 + 图标 + 结构共同表达状态，不只靠红绿颜色。",
+      "聚焦态只用边框/底色变化一档，禁用粗圈描边。"
+    ],
+    "donts": [
+      "用营销落地页式的英雄区、装饰性渐变、重复卡片网格、无意义动画。",
+      "把工具调用渲染成命令/参数/说明的调试面板，隐藏真实命令结果或 diff。",
+      "用 border-left/right > 1px 做彩色侧边条强调。",
+      "用 background-clip: text 渐变文字。",
+      "给卡片同时加 1px 描边和 ≥16px 模糊宽阴影。",
+      "在组件里写死十六进制色值，一律引用 styles.css 的 CSS 变量。",
+      "引入第二个 sans 字体家族。"
+    ]
+  }
+}
