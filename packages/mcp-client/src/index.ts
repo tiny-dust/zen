@@ -14,6 +14,13 @@ import type { McpServerConfig } from "@zen/shared";
 export { McpStdioClient } from "./stdio";
 export { McpHttpClient } from "./http";
 export type { McpClient, McpCallResult, JsonRpcMessage } from "./base";
+export { runBrowserAuthorization, refreshAccessToken } from "./oauth";
+export type {
+  McpOAuthTokens,
+  McpOAuthRegistration,
+  McpOAuthResult,
+  BrowserAuthOptions,
+} from "./oauth";
 
 /** 按配置的传输方式创建客户端 */
 export function createMcpClient(config: McpServerConfig): McpClient {

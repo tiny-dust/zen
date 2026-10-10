@@ -22,6 +22,10 @@ export interface McpClient {
   readonly name: string;
   readonly isConnected: boolean;
   readonly error: string | null;
+  /** 最近一次 401 的 WWW-Authenticate 挑战（stdio 恒为 null） */
+  readonly authChallenge: string | null;
+  /** 远程服务返回 401，需要 OAuth 浏览器授权 */
+  readonly requiresAuth: boolean;
   connect(): Promise<void>;
   listTools(): Promise<McpToolInfo[]>;
   callTool(toolName: string, args: unknown): Promise<McpCallResult>;
@@ -49,6 +53,8 @@ export abstract class McpBaseClient implements McpClient {
 
   abstract get isConnected(): boolean;
   abstract get error(): string | null;
+  abstract get authChallenge(): string | null;
+  abstract get requiresAuth(): boolean;
   abstract connect(): Promise<void>;
   abstract shutdown(): void;
 
