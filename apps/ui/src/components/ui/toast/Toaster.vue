@@ -22,7 +22,7 @@ const { toasts, dismiss } = useToasts();
 
 <template>
   <div
-    class="pointer-events-none fixed inset-x-0 bottom-6 z-[var(--z-toast)] flex flex-col items-center gap-2"
+    class="pointer-events-none fixed inset-x-0 top-[calc(var(--titlebar-h)+8px)] z-[var(--z-toast)] flex flex-col items-center gap-2"
     aria-live="polite"
   >
     <TransitionGroup name="toast">
@@ -53,6 +53,6 @@ const { toasts, dismiss } = useToasts();
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(-8px);
 }
 </style>

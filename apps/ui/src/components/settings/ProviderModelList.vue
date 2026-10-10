@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Pencil, Plus, RefreshCw, Search } from "@lucide/vue";
+import { Pencil, Plus, RefreshCw, Search, Trash2 } from "@lucide/vue";
 import { classes } from "rattail";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
@@ -23,6 +23,7 @@ const emit = defineEmits<{
   select: [modelId: string];
   toggleEnabled: [model: ProviderModel, enabled: boolean];
   edit: [model: ProviderModel];
+  remove: [model: ProviderModel];
   refresh: [];
   add: [];
 }>();
@@ -136,6 +137,18 @@ function onSelect(model: ProviderModel) {
           @click="emit('edit', model)"
         >
           <Pencil class="size-3.5" />
+        </Button>
+        <!-- 仅手动添加的模型可删除；供应商拉取的模型用开关控制启用 -->
+        <Button
+          v-if="model.custom"
+          variant="ghost"
+          size="icon-sm"
+          class="shrink-0 text-[var(--color-mut)] hover:text-[var(--color-err)]"
+          aria-label="删除模型"
+          title="删除模型"
+          @click="emit('remove', model)"
+        >
+          <Trash2 class="size-3.5" />
         </Button>
       </li>
     </ul>

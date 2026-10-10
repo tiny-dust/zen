@@ -290,6 +290,20 @@ export interface ZenApi {
       relPath: string,
       content: string,
     ): Promise<{ ok: boolean; error?: string }>;
+    /** 重命名文件/目录（同目录改名；目标已存在报错）。区别于工作区分组的 rename。 */
+    renameEntry(
+      cwd: string | undefined,
+      relPath: string,
+      newName: string,
+    ): Promise<{ ok: boolean; error?: string }>;
+    /** 删除到系统废纸篓（跨平台 shell.trashItem） */
+    trash(cwd: string | undefined, relPath: string): Promise<{ ok: boolean; error?: string }>;
+    /** 递归复制到目标目录；同目录粘贴自动生成「name 副本」 */
+    copy(
+      cwd: string | undefined,
+      srcRel: string,
+      destDirRel: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     list(): Promise<WorkspaceGroup[]>;
     create(): Promise<Workspace | null>;
     pin(id: string, pinned: boolean): Promise<WorkspaceGroup[]>;
