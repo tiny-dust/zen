@@ -105,8 +105,8 @@ export interface SkillSummary {
 /** 设置页展示的 MCP 服务器状态 */
 export interface McpServerStatus {
   config: import("./mcp").McpServerConfig;
-  /** 进程状态 */
-  state: "stopped" | "starting" | "running" | "error";
+  /** 进程状态；needs-auth 表示远程服务要求 OAuth，需用户浏览器授权 */
+  state: "stopped" | "starting" | "running" | "error" | "needs-auth";
   error?: string;
   tools: import("./mcp").McpToolInfo[];
 }
