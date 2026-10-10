@@ -47,6 +47,9 @@ describe("buildInstructions", () => {
     expect(text).toContain("优先调用对应的 mcp.<server>.<tool> 完成");
     expect(text).toContain("不要静默吞掉");
     expect(text).toContain("「MCP 服务」弹窗");
+    // 输入框 # 菜单插入的引用 token：Agent 要把 #mcp: 引用当成用户指名调用
+    expect(text).toContain("#mcp:<server>.<tool>");
+    expect(text).toContain("明确指名该工具");
   });
 
   it("无 MCP 工具时不注入主动调用规则", () => {
