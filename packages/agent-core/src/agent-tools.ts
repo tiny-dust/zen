@@ -172,6 +172,9 @@ export function buildToolSet(
             let stderrText = "";
             let lastEmitAt = 0;
             const appendChunk = (chunk: string, isStderr: boolean) => {
+              if (settled) {
+                return; // 已结算后不再刷进度：close 前的残留数据只入缓存，不发无效 tool_progress
+              }
               tail = (tail + chunk).slice(-TAIL_LIMIT);
               if (isStderr) {
                 stderrText = (stderrText + chunk).slice(-OUTPUT_LIMIT);
@@ -199,6 +202,8 @@ export function buildToolSet(
             let settled = false;
             let childPid = 0;
             let timedOut = false;
+            let exitCode: number | null = null;
+            let drainTimer: ReturnType<typeof setTimeout> | null = null;
             const settle = (value: { ok: boolean; exitCode: number; output: string }) => {
               if (settled) {
                 return;
@@ -226,12 +231,39 @@ export function buildToolSet(
             if (childPid > 0) {
               config.servicesBridge?.track({ sessionId, command, cwd: workspaceRoot, pid: childPid });
             }
+            const combinedSoFar = () =>
+              `${stdoutText}${stderrText ? `\n[stderr]\n${stderrText}` : ""}`.trim();
             const timer = setTimeout(() => {
               timedOut = true;
               child.kill();
+              // 超时即结算：孙进程（dev server 等）会继续持有 stdio 管道令 close 永不
+              // 触发，干等只会把 exclusive 锁一起挂死；存活进程组交给 settle 里的
+              // servicesBridge 收集为长驻服务
+              settle({
+                ok: false,
+                exitCode: exitCode ?? -1,
+                output: truncateOutput(combinedSoFar() || "(no output)"),
+              });
             }, Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000));
+            child.on("exit", (code) => {
+              exitCode = code;
+              // shell 退出 ≠ close：孙进程可能仍持有管道。给一个短暂收尾窗口把已产出
+              // 的输出收完，窗口过后仍未 close 则按已收输出结算——否则 close 永不触发，
+              // 工具与 exclusive 锁一起挂死（「运行中」无下文的根因）
+              drainTimer = setTimeout(() => {
+                settle({
+                  ok: !timedOut && code === 0,
+                  exitCode: code ?? 1,
+                  output: truncateOutput(combinedSoFar() || "(no output)"),
+                });
+              }, 1000);
+            });
             child.on("close", (code) => {
               clearTimeout(timer);
+              if (drainTimer) {
+                clearTimeout(drainTimer);
+                drainTimer = null;
+              }
               // 与原 exec 契约一致：stdout 在前，stderr 以 [stderr] 标记拼接
               const combined = `${stdoutText}${stderrText ? `\n[stderr]\n${stderrText}` : ""}`.trim();
               settle({
