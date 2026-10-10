@@ -23,6 +23,14 @@ export class McpStdioClient extends McpBaseClient {
     return this.lastError;
   }
 
+  get requiresAuth(): boolean {
+    return false;
+  }
+
+  get authChallenge(): string | null {
+    return null;
+  }
+
   async connect(): Promise<void> {
     if (this.connected) {
       return;

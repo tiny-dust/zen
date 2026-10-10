@@ -20,6 +20,9 @@ export class McpHttpClient extends McpBaseClient {
   private endpointReady: (() => void) | null = null;
   /** streamable：服务器下发的会话 id */
   private sessionId: string | null = null;
+  /** 401 授权挑战（needs-auth 判定 + OAuth 发现入口） */
+  private authRequired = false;
+  private challenge: string | null = null;
 
   constructor(config: McpServerConfig) {
     super(config);
@@ -33,6 +36,23 @@ export class McpHttpClient extends McpBaseClient {
     return this.lastError;
   }
 
+  get requiresAuth(): boolean {
+    return this.authRequired;
+  }
+
+  get authChallenge(): string | null {
+    return this.challenge;
+  }
+
+  /** 任何 401 都记为需要授权；WWW-Authenticate 是 OAuth 发现的入口 */
+  private markAuthRequired(response: Response): void {
+    if (response.status !== 401) {
+      return;
+    }
+    this.authRequired = true;
+    this.challenge = response.headers.get("www-authenticate");
+  }
+
   async connect(): Promise<void> {
     if (this.connected) {
       return;
@@ -40,6 +60,8 @@ export class McpHttpClient extends McpBaseClient {
     if (!this.config.url) {
       throw new Error("远程 server 缺少 url");
     }
+    this.authRequired = false;
+    this.challenge = null;
     if (this.config.transport === "sse") {
       await this.openSseStream();
       await this.request("initialize", {
@@ -91,6 +113,7 @@ export class McpHttpClient extends McpBaseClient {
       throw new Error(`MCP SSE 连接失败：${error instanceof Error ? error.message : String(error)}`);
     }
     if (!response.ok || !response.body) {
+      this.markAuthRequired(response);
       throw new Error(`MCP SSE 连接失败（HTTP ${response.status}）`);
     }
     const ready = new Promise<void>((resolve, reject) => {
@@ -173,6 +196,7 @@ export class McpHttpClient extends McpBaseClient {
       body: payload,
     });
     if (!response.ok) {
+      this.markAuthRequired(response);
       throw new Error(`MCP HTTP ${response.status}`);
     }
     // 个别实现直接在 POST 响应里回 JSON，做兼容分发；其余响应体（202 等）直接丢弃
@@ -197,6 +221,7 @@ export class McpHttpClient extends McpBaseClient {
     }
     const response = await fetch(this.config.url!, { method: "POST", headers, body: payload });
     if (!response.ok) {
+      this.markAuthRequired(response);
       const text = await response.text().catch(() => "");
       throw new Error(`MCP HTTP ${response.status}${text ? `: ${text.slice(0, 200)}` : ""}`);
     }
