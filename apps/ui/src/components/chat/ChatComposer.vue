@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowUp,
+  Gauge,
   Play,
   Plus,
   Sparkles,
@@ -26,6 +27,7 @@ import ModelPicker from "@/components/chat/ModelPicker.vue";
 import PermissionPicker from "@/components/chat/PermissionPicker.vue";
 import PromptPicker from "@/components/chat/PromptPicker.vue";
 import WorkspacePicker from "@/components/chat/WorkspacePicker.vue";
+import ComposerBranchPicker from "@/components/chat/ComposerBranchPicker.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
@@ -349,9 +351,26 @@ function removeAttachment(id: string) {
             </Button>
             <WorkspacePicker :compact="isCompactBar" />
             <PromptPicker :compact="isCompactBar" />
+            <ComposerBranchPicker :compact="isCompactBar" />
           </div>
 
           <div class="flex flex-none items-center gap-1">
+            <!-- 上下文用量：真实 usage 优先、本地估算兜底；悬浮看两种口径明细 -->
+            <div
+              v-if="chatStore.contextUsage != null"
+              class="flex flex-none items-center gap-1 px-1 font-[family-name:var(--font-mono)] text-[11px]"
+              :class="
+                (chatStore.contextUsage ?? 0) >= 80
+                  ? 'text-[var(--color-err)]'
+                  : 'text-[var(--color-mut)]'
+              "
+              :title="chatStore.contextUsageTitle"
+              role="status"
+              aria-label="上下文用量"
+            >
+              <Gauge class="size-3.5" aria-hidden="true" />
+              <span>{{ chatStore.contextUsage }}%</span>
+            </div>
             <EffortSlider
               v-if="selectedSupportsReasoning && !isCompactBar"
               v-model="effort"

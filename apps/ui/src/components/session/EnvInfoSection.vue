@@ -35,21 +35,8 @@ const branch = computed(() => gitStore.branch || chatStore.branch);
 const contextUsage = computed(() => chatStore.contextUsage);
 const lastRequestUsage = computed(() => chatStore.lastRequestUsage);
 const estimatedUsage = computed(() => chatStore.estimatedUsage);
-const lastInputTokens = computed(() => chatStore.lastInputTokens);
-const estimatedInputTokens = computed(() => chatStore.estimatedInputTokens);
-
-/** 悬浮说明：区分「上次请求输入」与「估算当前」 */
-const contextTitle = computed(() => {
-  const parts: string[] = [];
-  if (lastRequestUsage.value != null && lastInputTokens.value != null) {
-    parts.push(`上次请求输入 ${lastInputTokens.value} tokens · ${lastRequestUsage.value}%`);
-  } else {
-    parts.push("上次请求输入：API 未返回 usage");
-  }
-  parts.push(`估算当前 ${estimatedInputTokens.value} tokens · ${estimatedUsage.value ?? 0}%`);
-  parts.push("百分比 = 输入占用 / 模型上下文窗口；接近 80% 时下次发送自动压缩");
-  return parts.join("\n");
-});
+/** 悬浮说明：区分「上次请求输入」与「估算当前」（chat store 共用逻辑） */
+const contextTitle = computed(() => chatStore.contextUsageTitle);
 
 const prLabel = computed(() => {
   const pr = gitStore.pullRequest;
