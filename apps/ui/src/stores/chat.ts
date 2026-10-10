@@ -299,6 +299,19 @@ export const useChatStore = defineStore("chat", () => {
     return last ?? estimated;
   });
 
+  /** 上下文用量悬浮说明：区分「上次请求输入」与「估算当前」（EnvInfoSection / 输入框底栏共用） */
+  const contextUsageTitle = computed(() => {
+    const parts: string[] = [];
+    if (lastRequestUsage.value != null && lastInputTokens.value != null) {
+      parts.push(`上次请求输入 ${lastInputTokens.value} tokens · ${lastRequestUsage.value}%`);
+    } else {
+      parts.push("上次请求输入：API 未返回 usage");
+    }
+    parts.push(`估算当前 ${estimatedInputTokens.value} tokens · ${estimatedUsage.value ?? 0}%`);
+    parts.push("百分比 = 输入占用 / 模型上下文窗口；接近 80% 时下次发送自动压缩");
+    return parts.join("\n");
+  });
+
   // ---------- 历史压缩域：发送前折叠 / 摘要卡 ----------
   const compressionDomain = createCompressionDomain({
     messages,
@@ -985,6 +998,7 @@ export const useChatStore = defineStore("chat", () => {
     branch,
     repo,
     contextUsage,
+    contextUsageTitle,
     lastRequestUsage,
     estimatedUsage,
     estimatedInputTokens,
