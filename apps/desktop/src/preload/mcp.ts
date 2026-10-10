@@ -13,5 +13,9 @@ export const mcpApi = {
     setServers(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
       return ipcRenderer.invoke("mcp:set-servers", servers);
     },
+    /** 远程服务需要 OAuth 时触发浏览器授权；成功返回刷新后的状态列表 */
+    authorize(serverId: string): Promise<McpServerStatus[]> {
+      return ipcRenderer.invoke("mcp:authorize", serverId);
+    },
   },
 };

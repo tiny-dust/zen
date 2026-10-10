@@ -1,9 +1,10 @@
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 
-import { createMcpClient } from "@zen/mcp-client";
+import { createMcpClient, runBrowserAuthorization } from "@zen/mcp-client";
 
 import type { McpDiscoveredServer, McpServerConfig, McpServerStatus, McpToolInfo } from "@zen/shared";
 import type { McpClient } from "@zen/mcp-client";
+import { clearMcpAuthExcept, getValidAccessToken, saveMcpAuthEntry } from "./mcp-auth-store";
 import { scanMcpSources } from "./mcp-scan";
 import { readMcpConfig, writeMcpConfig } from "./zen-dir";
 
@@ -52,18 +53,37 @@ function clientFor(config: McpServerConfig): McpClient {
   return client;
 }
 
+/** 远程服务注入已存 OAuth token；本地 stdio 或无凭据时原样返回。token 变化会体现在签名里，从而触发重连 */
+async function configWithAuth(config: McpServerConfig): Promise<McpServerConfig> {
+  if (config.transport !== "http" && config.transport !== "sse") {
+    return config;
+  }
+  const token = await getValidAccessToken(config.id);
+  if (!token) {
+    return config;
+  }
+  return {
+    ...config,
+    headers: { ...(config.headers ?? {}), Authorization: `Bearer ${token}` },
+  };
+}
+
 async function collectStatuses(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
   return Promise.all(
     servers.map(async (config) => {
       if (!config.enabled) {
         return { config, state: "stopped" as const, tools: [] };
       }
-      const client = clientFor(config);
+      const client = clientFor(await configWithAuth(config));
       if (!client.isConnected) {
         try {
           await client.connect();
           toolsCache.set(config.id, await client.listTools());
         } catch (error) {
+          // 401 挑战单独标 needs-auth，UI 据此展示「去授权」入口而不是普通报错
+          if (client.requiresAuth) {
+            return { config, state: "needs-auth" as const, error: "需要浏览器授权", tools: [] };
+          }
           return {
             config,
             state: "error" as const,
@@ -75,6 +95,45 @@ async function collectStatuses(servers: McpServerConfig[]): Promise<McpServerSta
       return { config, state: "running" as const, tools: toolsCache.get(config.id) ?? [] };
     }),
   );
+}
+
+/** 同一 serverId 的浏览器授权防重入：往返可能持续数十秒，重复点击复用进行中的 Promise */
+const inFlightAuthorizations = new Map<string, Promise<McpServerStatus[]>>();
+
+async function runAuthorization(serverId: string): Promise<McpServerStatus[]> {
+  const { servers } = await readMcpConfig();
+  const config = servers.find((item) => item.id === serverId);
+  if (!config) {
+    throw new Error(`MCP 服务不存在: ${serverId}`);
+  }
+  if (config.transport !== "http" && config.transport !== "sse") {
+    throw new Error("本地 stdio 服务无需 OAuth 授权");
+  }
+  // 401 时 client 里留着 WWW-Authenticate 挑战，传给授权流程可精确匹配 scope/resource
+  const challenge = clients.get(serverId)?.authChallenge ?? null;
+  const result = await runBrowserAuthorization(config, {
+    challenge,
+    openExternal: (url) => {
+      void shell.openExternal(url);
+    },
+  });
+  await saveMcpAuthEntry(serverId, result.tokens, result.registration);
+  // 旧 client 是 401 未授权连接，丢弃后下方 collectStatuses 会带上新 token 惰性重建
+  dropClient(serverId);
+  const { servers: next } = await readMcpConfig();
+  return collectStatuses(next);
+}
+
+function authorizeServer(serverId: string): Promise<McpServerStatus[]> {
+  const inFlight = inFlightAuthorizations.get(serverId);
+  if (inFlight) {
+    return inFlight;
+  }
+  const promise = runAuthorization(serverId).finally(() => {
+    inFlightAuthorizations.delete(serverId);
+  });
+  inFlightAuthorizations.set(serverId, promise);
+  return promise;
 }
 
 export function registerMcpIpc(): void {
@@ -106,7 +165,13 @@ export function registerMcpIpc(): void {
       }
     }
     await writeMcpConfig(servers);
+    // 已移除服务的 OAuth 凭据一并清掉，避免 ~/.zen/mcp-auth.json 残留孤儿密文
+    await clearMcpAuthExcept(servers.map((item) => item.id));
     return collectStatuses(servers);
+  });
+
+  ipcMain.handle("mcp:authorize", (_event, serverId: string): Promise<McpServerStatus[]> => {
+    return authorizeServer(serverId);
   });
 }
 
@@ -132,7 +197,7 @@ export async function enabledMcpTools(): Promise<
     if (!config.enabled) {
       continue;
     }
-    const client = clientFor(config);
+    const client = clientFor(await configWithAuth(config));
     try {
       if (!client.isConnected) {
         await client.connect();
@@ -163,7 +228,7 @@ export async function callMcpTool(
   if (!config) {
     return { ok: false, text: "", error: `MCP server 不存在或未启用: ${serverName}` };
   }
-  const client = clientFor(config);
+  const client = clientFor(await configWithAuth(config));
   if (!client.isConnected) {
     await client.connect();
   }
