@@ -111,7 +111,7 @@ const countText = computed(() => {
   padding: 10px 12px;
   color: var(--color-mut);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

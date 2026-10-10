@@ -298,14 +298,14 @@ function stateLabel(state: string) {
     >
       <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
         <DialogTitle class="text-[15px]">MCP 服务</DialogTitle>
-        <DialogDescription class="text-[12.5px]">
+        <DialogDescription class="text-[12px]">
           配置本地 stdio 或远程 MCP；工具以 <code class="font-[family-name:var(--font-mono)]">mcp.服务.工具</code> 接入 Agent。配置写入 ~/.zen/mcp.json。
         </DialogDescription>
       </DialogHeader>
 
       <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ editingId ? "编辑服务" : "添加服务" }}
           </div>
           <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
@@ -359,7 +359,7 @@ function stateLabel(state: string) {
             <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
               <RefreshCw class="size-3.5" />刷新状态
             </Button>
-            <span v-if="formError" class="text-[11.5px] text-[var(--color-danger-fg)]">{{ formError }}</span>
+            <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
           </div>
         </div>
 
@@ -382,7 +382,7 @@ function stateLabel(state: string) {
               </Button>
             </div>
           </div>
-          <p v-if="scanNote" class="m-0 mb-1.5 text-[11.5px] text-[var(--color-dim)]">{{ scanNote }}</p>
+          <p v-if="scanNote" class="m-0 mb-1.5 text-[11px] text-[var(--color-dim)]">{{ scanNote }}</p>
           <div v-if="discovered.length" class="mb-3 flex flex-col gap-1.5">
             <div
               v-for="item in discovered"
@@ -398,7 +398,7 @@ function stateLabel(state: string) {
                   <Badge variant="secondary" class="text-[10px]">{{ item.config.transport }}</Badge>
                 </div>
                 <p
-                  class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+                  class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
                   :title="item.sourcePath"
                 >
                   {{ item.config.transport === "stdio"
@@ -431,14 +431,14 @@ function stateLabel(state: string) {
             >
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
                     {{ item.config.name }}
                   </span>
                   <Badge variant="secondary" class="text-[10px]">{{ stateLabel(item.state) }}</Badge>
                   <Button
                     variant="ghost"
                     size="sm"
-                    class="h-5 gap-0.5 px-1 text-[10.5px] text-[var(--color-dim)] hover:bg-transparent!"
+                    class="h-5 gap-0.5 px-1 text-[10px] text-[var(--color-dim)] hover:bg-transparent!"
                     :aria-expanded="expandedIds.has(item.config.id)"
                     @click="toggleTools(item.config.id)"
                   >
@@ -447,7 +447,7 @@ function stateLabel(state: string) {
                     {{ item.tools.length }} 个工具
                   </Button>
                 </div>
-                <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]">
+                <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
                   {{ item.config.transport === "stdio"
                     ? [item.config.command, ...(item.config.args || [])].join(" ")
                     : item.config.url }}
@@ -474,7 +474,7 @@ function stateLabel(state: string) {
                     </p>
                     <p
                       v-if="schemaSummary(tool.inputSchema)"
-                      class="m-0 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+                      class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
                       :title="schemaSummary(tool.inputSchema)"
                     >
                       参数：{{ schemaSummary(tool.inputSchema) }}

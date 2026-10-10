@@ -356,7 +356,7 @@ function editContent() {
       <!-- 插入执行徽标：打断原任务、以最高权重先执行 -->
       <div v-if="insertedBadge" class="mb-1.5 flex justify-end">
         <span
-          class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-accent)]"
+          class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]"
           title="该消息通过「插入执行」打断原任务优先执行，原任务已在完成后自动恢复"
         >
           <Zap class="size-3" aria-hidden="true" />
@@ -456,7 +456,7 @@ function editContent() {
 
   <div v-else-if="message.role === 'system'" class="w-fit min-w-0 max-w-[min(100%,72ch)]">
     <div
-      class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12.5px]"
+      class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
       :class="
         systemTone === 'danger'
           ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'

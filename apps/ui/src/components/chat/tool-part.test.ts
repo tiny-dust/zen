@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
+import { toolDisplay, toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
+
+describe("toolDisplay", () => {
+  it("浏览器工具映射为中文 label", () => {
+    expect(toolDisplay("browserStatus", {})).toMatchObject({ label: "查看浏览器状态" });
+    expect(toolDisplay("browserSnapshot", {})).toMatchObject({ label: "截取页面结构" });
+    expect(toolDisplay("browserExtract", {})).toMatchObject({ label: "提取页面元素" });
+    expect(toolDisplay("browserConsole", {})).toMatchObject({ label: "读取控制台" });
+    expect(toolDisplay("browserPerformance", {})).toMatchObject({ label: "性能分析" });
+    expect(toolDisplay("browserScreenshot", {})).toMatchObject({ label: "页面截图" });
+  });
+
+  it("浏览器工具带目标文本", () => {
+    expect(toolDisplay("browserOpen", { url: "http://127.0.0.1:5173" })).toMatchObject({
+      label: "打开页面",
+      target: { kind: "text", text: "http://127.0.0.1:5173" },
+    });
+    expect(toolDisplay("browserClick", { selector: "#submit" })).toMatchObject({
+      label: "点击元素",
+      target: { kind: "text", text: "#submit" },
+    });
+    expect(toolDisplay("browserType", { selector: "input[name=q]", text: "hi" })).toMatchObject({
+      label: "输入文本",
+      target: { kind: "text", text: "input[name=q]" },
+    });
+    expect(toolDisplay("browserEvaluate", { expression: "1 + 1" })).toMatchObject({
+      label: "执行脚本",
+      target: { kind: "text", text: "1 + 1" },
+    });
+  });
+});
 
 describe("toolStateLabel", () => {
   it("覆盖全部 ToolCallState 中文状态词", () => {

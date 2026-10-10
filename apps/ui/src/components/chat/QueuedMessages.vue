@@ -36,7 +36,7 @@ defineEmits<{
       <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
         {{ index + 1 }}
       </span>
-      <span class="min-w-0 flex-1 truncate text-[11.5px] text-[var(--color-txt)]" :title="item.text">
+      <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-txt)]" :title="item.text">
         {{ item.text }}
       </span>
       <Button

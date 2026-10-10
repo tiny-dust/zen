@@ -97,7 +97,7 @@ function openPromptSettings() {
             class="mt-0.5 flex-none"
           />
           <div class="flex min-w-0 flex-col gap-0.5">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ preset.name }}
             </span>
             <span class="text-[11px] leading-snug text-[var(--color-mut)]">
@@ -112,7 +112,7 @@ function openPromptSettings() {
             class="mt-0.5 flex-none"
           />
           <div class="flex min-w-0 flex-col gap-0.5">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               自定义
             </span>
             <span class="text-[11px] text-[var(--color-mut)]">

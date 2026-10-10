@@ -309,7 +309,7 @@ function endpointText(config: McpServerConfig): string {
           <RefreshCw :size="13" data-icon="inline-start" />重新连接
         </Button>
       </div>
-      <p class="m-0 text-[11.5px] text-[var(--color-dim)]">
+      <p class="m-0 text-[11px] text-[var(--color-dim)]">
         点击即预填表单；带 {path}/{token} 占位或需 OAuth 的服务，补全后添加。
       </p>
       <div class="flex flex-wrap gap-1.5">
@@ -317,7 +317,7 @@ function endpointText(config: McpServerConfig): string {
           v-for="preset in MCP_SERVER_PRESETS"
           :key="preset.id"
           variant="ghost"
-          class="group h-auto flex items-center gap-1.5 rounded-full border border-[var(--color-line)] px-2.5 py-1 text-left text-[11.5px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-txt-dim)] hover:text-[var(--color-txt)] hover:bg-transparent dark:hover:bg-transparent"
+          class="group h-auto flex items-center gap-1.5 rounded-full border border-[var(--color-line)] px-2.5 py-1 text-left text-[11px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-txt-dim)] hover:text-[var(--color-txt)] hover:bg-transparent dark:hover:bg-transparent"
           :title="`${preset.description}${preset.requires?.length ? `（${preset.requires.join('；')}）` : ''}`"
           @click="applyPreset(preset)"
         >
@@ -341,11 +341,11 @@ function endpointText(config: McpServerConfig): string {
           {{ scanBusy ? "扫描中…" : "扫描当前仓库与系统" }}
         </Button>
       </div>
-      <p class="m-0 text-[11.5px] text-[var(--color-dim)]">
+      <p class="m-0 text-[11px] text-[var(--color-dim)]">
         检查当前仓库的 .mcp.json / .vscode/mcp.json，以及 Claude Code、Claude Desktop、Cursor、
         Windsurf、VS Code 的用户级配置，发现后可一键导入。
       </p>
-      <p v-if="scannedNote" class="m-0 text-[11.5px] text-[var(--color-mut)]">
+      <p v-if="scannedNote" class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ scannedNote }}
       </p>
       <div v-if="scanned.length" class="flex flex-col gap-1">
@@ -357,7 +357,7 @@ function endpointText(config: McpServerConfig): string {
           <span class="text-[12px] font-medium text-[var(--color-txt)]">{{ item.config.name }}</span>
           <Badge variant="outline" class="flex-none text-[10px]">{{ item.source }}</Badge>
           <span
-            class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+            class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
             :title="item.sourcePath"
           >
             {{ endpointText(item.config) }}
@@ -386,7 +386,7 @@ function endpointText(config: McpServerConfig): string {
           预设：{{ appliedPreset.name }}
         </Badge>
       </div>
-      <p v-if="appliedPreset" class="m-0 text-[11.5px] text-[var(--color-mut)]">
+      <p v-if="appliedPreset" class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ appliedPreset.description }}
         <template v-if="presetRequires.length">（{{ presetRequires.join("；") }}）</template>
       </p>
@@ -453,7 +453,7 @@ function endpointText(config: McpServerConfig): string {
           <X :size="13" data-icon="inline-start" />取消
         </Button>
       </div>
-      <p v-if="formError" class="m-0 text-[11.5px] text-[var(--color-err)]">{{ formError }}</p>
+      <p v-if="formError" class="m-0 text-[11px] text-[var(--color-err)]">{{ formError }}</p>
     </section>
 
     <!-- 服务列表 -->
@@ -464,7 +464,7 @@ function endpointText(config: McpServerConfig): string {
         class="rounded-xl border border-[var(--color-line)] px-3 py-2"
       >
         <div class="flex items-center gap-2">
-          <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ item.config.name }}
           </span>
           <Badge variant="outline" class="text-[10px]">
@@ -495,7 +495,7 @@ function endpointText(config: McpServerConfig): string {
           </Button>
         </div>
         <p
-          class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+          class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
         >
           {{ endpointText(item.config) }}
         </p>

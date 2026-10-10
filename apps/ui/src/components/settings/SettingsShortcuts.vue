@@ -53,7 +53,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
             :key="item.id"
             class="grid grid-cols-[1.2fr_1.4fr_140px] items-center gap-3 border-b border-[var(--color-line-soft)] px-3 py-1.5 last:border-b-0"
           >
-            <span class="text-[12.5px] text-[var(--color-txt-strong)]">{{ item.label }}</span>
+            <span class="text-[12px] text-[var(--color-txt-strong)]">{{ item.label }}</span>
             <span
               class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
             >

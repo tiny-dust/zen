@@ -74,7 +74,7 @@ async function openWith(id: string) {
         />
         <span
           v-else
-          class="flex size-4 flex-none items-center justify-center rounded-[3px] bg-[var(--color-chip-bg)] text-[9px] text-[var(--color-dim)]"
+          class="flex size-4 flex-none items-center justify-center rounded-[3px] bg-[var(--color-chip-bg)] text-[10px] text-[var(--color-dim)]"
           aria-hidden="true"
         >
           {{ item.label.slice(0, 1) }}

@@ -66,6 +66,21 @@ function dedupeByName<T extends { name: string }>(items: T[]): T[] {
 const installedSkills = computed(() => dedupeByName(skills.value));
 const displayMarketItems = computed(() => dedupeByName(marketItems.value));
 
+/** 已安装列表本地过滤：按名称 / 描述 / 目录匹配 */
+const installedQuery = ref("");
+const filteredSkills = computed(() => {
+  const query = installedQuery.value.trim().toLowerCase();
+  if (!query) {
+    return installedSkills.value;
+  }
+  return installedSkills.value.filter(
+    (skill) =>
+      skill.name.toLowerCase().includes(query) ||
+      (skill.description ?? "").toLowerCase().includes(query) ||
+      skill.dir.toLowerCase().includes(query),
+  );
+});
+
 /** 市场 hit 是否已安装：hit.skillId / hit.name 与本地技能 id/name（含目录尾段）比对 */
 function isInstalledHit(hit: SkillMarketHit): boolean {
   const skillId = hit.skillId.trim().toLowerCase();
@@ -130,6 +145,7 @@ watch(open, (value) => {
   }
   statusMsg.value = "";
   resultMap.value = {};
+  installedQuery.value = "";
   void refreshAll();
   void agentStore.refreshMcp();
 });
@@ -368,7 +384,7 @@ const tabCls = (id: Tab) =>
     >
       <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
         <DialogTitle class="text-[15px]">技能</DialogTitle>
-        <DialogDescription class="text-[12.5px]">
+        <DialogDescription class="text-[12px]">
           管理本地技能、从 skills.sh 安装流行技能，或用一键分析审计技能冲突。
         </DialogDescription>
       </DialogHeader>
@@ -423,16 +439,28 @@ const tabCls = (id: Tab) =>
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <template v-if="tab === 'installed'">
           <div class="flex flex-col gap-3">
-            <div v-if="installedSkills.length" class="flex flex-col gap-1.5">
+            <div v-if="installedSkills.length" class="relative">
+              <Search
+                class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-dim)]"
+                aria-hidden="true"
+              />
+              <Input
+                v-model="installedQuery"
+                class="h-8 pl-7 text-[12px]"
+                placeholder="搜索已安装技能，如 git 或 review"
+                aria-label="搜索已安装技能"
+              />
+            </div>
+            <div v-if="filteredSkills.length" class="flex flex-col gap-1.5">
               <div
-                v-for="skill in installedSkills"
+                v-for="skill in filteredSkills"
                 :key="skill.id"
                 class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
                 :class="updateOf(skill)?.hasUpdate ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))]' : ''"
               >
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
+                    <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
                     <Badge variant="secondary" class="text-[10px]">
                       {{ skillSourceLabel(skill) }}
                     </Badge>
@@ -443,15 +471,15 @@ const tabCls = (id: Tab) =>
                       可更新
                     </Badge>
                   </div>
-                  <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-[var(--color-mut)]">
+                  <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]">
                     {{ skill.description }}
                   </p>
-                  <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]">
+                  <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
                     {{ skill.dir }}
                   </p>
                   <p
                     v-if="resultOf(skill)"
-                    class="m-0 mt-0.5 truncate text-[10.5px]"
+                    class="m-0 mt-0.5 truncate text-[10px]"
                     :class="resultCls(skill)"
                     :title="resultOf(skill)?.state === 'error' ? resultOf(skill)?.message : undefined"
                   >
@@ -459,7 +487,7 @@ const tabCls = (id: Tab) =>
                   </p>
                   <p
                     v-else-if="updateOf(skill)?.note"
-                    class="m-0 mt-0.5 text-[10.5px] text-[var(--color-dim)]"
+                    class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]"
                   >
                     {{ updateOf(skill)?.note }}
                   </p>
@@ -493,6 +521,12 @@ const tabCls = (id: Tab) =>
                 </div>
               </div>
             </div>
+            <p
+              v-else-if="installedQuery.trim()"
+              class="m-0 text-[12px] text-[var(--color-dim)]"
+            >
+              没有匹配「{{ installedQuery.trim() }}」的技能。
+            </p>
             <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">未发现技能。可从市场安装，或添加扫描目录。</p>
 
             <div class="flex flex-col gap-1.5">
@@ -565,8 +599,8 @@ const tabCls = (id: Tab) =>
               >
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <span class="truncate text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ hit.name }}</span>
-                    <span class="truncate text-[10.5px] text-[var(--color-dim)]">{{ hit.source }}</span>
+                    <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">{{ hit.name }}</span>
+                    <span class="truncate text-[10px] text-[var(--color-dim)]">{{ hit.source }}</span>
                   </div>
                   <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
                     安装量 {{ hit.installs.toLocaleString() }}
@@ -602,7 +636,7 @@ const tabCls = (id: Tab) =>
               </div>
             </div>
             <div class="flex items-start gap-3 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] px-3.5 py-3">
-              <div class="flex-none text-[12.5px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
+              <div class="flex-none text-[12px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
               <p class="m-0 min-w-0 flex-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
                 检索开放技能生态中的流行技能，安装到 ~/.claude/skills 并自动出现在「已安装」。安装依赖本机 Node.js（npx）与网络。
               </p>
@@ -615,7 +649,7 @@ const tabCls = (id: Tab) =>
       </div>
 
       <div
-        class="flex min-h-10 flex-none items-center gap-2 border-t border-[var(--color-line-soft)] px-5 py-2.5 text-[11.5px] text-[var(--color-mut)]"
+        class="flex min-h-10 flex-none items-center gap-2 border-t border-[var(--color-line-soft)] px-5 py-2.5 text-[11px] text-[var(--color-mut)]"
       >
         <span class="min-w-0 flex-1 truncate">{{ statusMsg || "技能目录：含 SKILL.md 的文件夹" }}</span>
       </div>

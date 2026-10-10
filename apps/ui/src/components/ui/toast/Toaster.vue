@@ -33,7 +33,7 @@ const { toasts, dismiss } = useToasts();
         role="status"
       >
         <component :is="kindIcon[item.kind]" class="size-4 shrink-0" :class="cn(kindClass[item.kind])" aria-hidden="true" />
-        <span class="max-w-[420px] text-[12.5px] text-[var(--color-txt)]">{{ item.message }}</span>
+        <span class="max-w-[420px] text-[12px] text-[var(--color-txt)]">{{ item.message }}</span>
         <Button variant="ghost" size="icon-xs" aria-label="关闭提示" class="shrink-0" @click="dismiss(item.id)">
           <X />
         </Button>

@@ -35,8 +35,7 @@ function active() {
       variant="ghost"
       :class="
         cn(
-          'flex h-auto w-full items-center justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-normal text-[11.5px] md:text-[11.5px]',
-          node.isDir && 'pressable',
+          'flex h-auto w-full items-center justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-normal text-[11px] md:text-[11px]',
           active()
             ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]'
             : 'text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]',

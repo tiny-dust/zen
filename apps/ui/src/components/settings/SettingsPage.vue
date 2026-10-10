@@ -200,7 +200,7 @@ watch(
             <SettingsPrompts v-else-if="activeTab === 'prompts'" />
             <div
               v-else-if="activeTab === 'skills' || activeTab === 'mcp'"
-              class="text-[12.5px] text-[var(--color-mut)]"
+              class="text-[12px] text-[var(--color-mut)]"
             >
               技能与 MCP 已移至左侧栏独立弹窗，请点击侧栏「技能」或「MCP」打开。
             </div>

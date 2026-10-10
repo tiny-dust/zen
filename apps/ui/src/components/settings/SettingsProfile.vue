@@ -294,7 +294,7 @@ function resetLark() {
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3">
           <div class="flex items-center justify-between gap-2">
             <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">配置云同步</div>
-            <label class="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-[var(--color-mut)]">
+            <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-mut)]">
               <Checkbox
                 :model-value="agentSettings.syncEnabled"
                 aria-label="允许同步"
@@ -303,7 +303,7 @@ function resetLark() {
               允许同步
             </label>
           </div>
-          <p class="m-0 text-[11.5px] leading-snug text-[var(--color-mut)]">
+          <p class="m-0 text-[11px] leading-snug text-[var(--color-mut)]">
             将模型供应、Agent 设置与 MCP 配置同步到你的 GitHub 私密仓库（默认
             {{ agentSettings.syncRepo || "zen-config" }}）。API Key 属于敏感凭据，永远不会上传；登录授权需包含
             repo 权限（见 docs/auth/github-oauth-setup.md）。
@@ -318,7 +318,7 @@ function resetLark() {
           </div>
           <p
             v-if="lastSync"
-            class="m-0 text-[11.5px]"
+            class="m-0 text-[11px]"
             :class="lastSync.ok ? 'text-[var(--color-mut)]' : 'text-[var(--color-danger-fg)]'"
           >
             {{ lastSync.ok ? `已同步 ${lastSync.repo ?? ""}${lastSync.summary ? `：${lastSync.summary}` : ""}` : lastSync.error }}
@@ -412,7 +412,7 @@ function resetLark() {
                 <FeishuLogo class="size-4" />
                 飞书
               </span>
-              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+              <span class="text-[11px] leading-snug text-[var(--color-mut)]">
                 浏览器授权 · 连接飞书桥接
               </span>
             </button>
@@ -425,7 +425,7 @@ function resetLark() {
                 <GithubMark class="size-4" />
                 GitHub
               </span>
-              <span class="text-[11.5px] leading-snug text-[var(--color-mut)]">
+              <span class="text-[11px] leading-snug text-[var(--color-mut)]">
                 设备码授权 · 同步个人资料与配置
               </span>
             </button>

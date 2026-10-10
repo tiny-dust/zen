@@ -57,7 +57,7 @@ defineProps<{
       <Input
         id="provider-base"
         v-model="baseUrl"
-        class="h-8 font-[family-name:var(--font-mono)] text-[12.5px]"
+        class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
         placeholder="https://api.openai.com/v1"
         required
       />
@@ -68,7 +68,7 @@ defineProps<{
         id="provider-key"
         v-model="apiKey"
         type="password"
-        class="h-8 font-[family-name:var(--font-mono)] text-[12.5px]"
+        class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
         :placeholder="editMode ? `${apiKeyMask || '••••'}（留空保持不变）` : 'sk-...'"
         :required="!editMode"
       />
@@ -78,7 +78,7 @@ defineProps<{
       <Input
         id="provider-ua"
         v-model="userAgent"
-        class="h-8 font-[family-name:var(--font-mono)] text-[12.5px]"
+        class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
         placeholder="留空则使用 zen-desktop"
       />
     </div>

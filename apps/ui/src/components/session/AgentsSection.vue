@@ -96,7 +96,7 @@ function extraLine(node: AgentNode): string {
         <span v-if="extraLine(node)" class="flex-none text-[10px] text-[var(--color-dim)]">
           {{ extraLine(node) }}
         </span>
-        <span class="flex-none text-[10.5px] text-[var(--color-mut)]">
+        <span class="flex-none text-[10px] text-[var(--color-mut)]">
           {{ meta(node.status).label }}
         </span>
         <SquareTerminal

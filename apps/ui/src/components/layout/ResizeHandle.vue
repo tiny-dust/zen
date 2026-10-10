@@ -69,7 +69,6 @@ const rootClass = computed(() =>
         ? 'w-[5px] -mx-0.5 cursor-col-resize'
         : 'h-[5px] -my-0.5 cursor-row-resize',
       dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]!' : '',
-      dragging ? 'after:w-[3px]!' : '',
     ]"
     role="separator"
     :aria-orientation="orientation"

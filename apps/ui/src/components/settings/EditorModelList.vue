@@ -27,7 +27,7 @@ const emit = defineEmits<{
         class="flex items-center gap-0.5 rounded-[var(--radius-sm)] hover:bg-[var(--color-menu-hover)]"
       >
         <div class="flex min-h-[var(--control-h)] min-w-0 flex-1 items-center gap-2 px-2">
-          <span class="max-w-[40%] shrink-0 truncate text-[12.5px] text-[var(--color-txt-strong)]">{{ model.name }}</span>
+          <span class="max-w-[40%] shrink-0 truncate text-[12px] text-[var(--color-txt-strong)]">{{ model.name }}</span>
           <span
             v-if="model.custom"
             class="shrink-0 rounded-full border border-[color-mix(in_srgb,var(--color-accent)_45%,transparent)] px-1.5 text-[10px] text-[var(--color-accent)]"

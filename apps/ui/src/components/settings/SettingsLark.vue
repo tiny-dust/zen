@@ -173,8 +173,8 @@ function removeQuickCommand(id: string) {
       class="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-line)] px-3 py-2.5"
     >
       <div class="flex flex-col gap-0.5">
-        <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">启用飞书桥接</span>
-        <span class="text-[11.5px] text-[var(--color-mut)]">
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">启用飞书桥接</span>
+        <span class="text-[11px] text-[var(--color-mut)]">
           开启后主进程自动拉起 lark-cli 网关并解析允许的用户
         </span>
       </div>
@@ -207,7 +207,7 @@ function removeQuickCommand(id: string) {
       </div>
     </div>
     <div v-if="larkStatus" class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
-      <div class="grid gap-1.5 text-[11.5px] sm:grid-cols-2">
+      <div class="grid gap-1.5 text-[11px] sm:grid-cols-2">
         <div class="flex items-center gap-1.5">
           <Check v-if="larkStatus.auth.cliInstalled" :size="13" class="text-[var(--color-ok)]" />
           <CircleAlert v-else :size="13" class="text-[var(--color-err)]" />
@@ -237,10 +237,10 @@ function removeQuickCommand(id: string) {
           安全绑定：{{ larkStatus.settings.allowedOpenId }}
         </span>
       </div>
-      <p v-if="larkStatus.auth.error" class="m-0 text-[11.5px] text-[var(--color-err)]">
+      <p v-if="larkStatus.auth.error" class="m-0 text-[11px] text-[var(--color-err)]">
         {{ larkStatus.auth.error }}
       </p>
-      <p v-if="larkStatus.gatewayError" class="m-0 text-[11.5px] text-[var(--color-err)]">
+      <p v-if="larkStatus.gatewayError" class="m-0 text-[11px] text-[var(--color-err)]">
         {{ larkStatus.gatewayError }}
       </p>
     </div>
@@ -258,7 +258,7 @@ function removeQuickCommand(id: string) {
         class="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-line-soft)] px-2.5 py-1.5"
       >
         <div class="flex min-w-0 flex-col">
-          <span class="truncate text-[11.5px] text-[var(--color-txt-strong)]">
+          <span class="truncate text-[11px] text-[var(--color-txt-strong)]">
             /{{ item.alias }}
             <span v-if="item.label && item.label !== item.alias" class="text-[var(--color-mut)]">· {{ item.label }}</span>
           </span>
@@ -275,9 +275,9 @@ function removeQuickCommand(id: string) {
       </div>
       <div class="flex flex-col gap-1.5">
         <div class="grid gap-1.5 sm:grid-cols-3">
-          <Input v-model="quickForm.alias" placeholder="别名，如 review" class="h-7 text-[11.5px]" />
-          <Input v-model="quickForm.label" placeholder="按钮名（可选）" class="h-7 text-[11.5px]" />
-          <Input v-model="quickForm.prompt" placeholder="预设内容，如 审查当前分支改动" class="h-7 text-[11.5px]" />
+          <Input v-model="quickForm.alias" placeholder="别名，如 review" class="h-7 text-[11px]" />
+          <Input v-model="quickForm.label" placeholder="按钮名（可选）" class="h-7 text-[11px]" />
+          <Input v-model="quickForm.prompt" placeholder="预设内容，如 审查当前分支改动" class="h-7 text-[11px]" />
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
           <Button size="xs" @click="submitQuickCommand">
@@ -289,7 +289,7 @@ function removeQuickCommand(id: string) {
         </div>
       </div>
     </div>
-    <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11.5px] leading-relaxed text-[var(--color-mut)]">
+    <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11px] leading-relaxed text-[var(--color-mut)]">
       <div class="font-medium text-[var(--color-txt-strong)]">卡片按钮回调</div>
       <div>
         问询卡片按钮依赖飞书开放平台「应用 → 事件与回调 → 回调配置」开启卡片回调（<code>card.action.trigger</code>）；未开启时按钮点击无反应（不会报错），可直接回复选项编号兑底。
@@ -303,7 +303,7 @@ function removeQuickCommand(id: string) {
         </span>
       </div>
     </div>
-    <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11.5px] leading-relaxed text-[var(--color-mut)]">
+    <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11px] leading-relaxed text-[var(--color-mut)]">
       <div class="font-medium text-[var(--color-txt-strong)]">使用说明</div>
       <div>1. 点击“一键安装 lark-cli”，或在终端执行 <code>npm install -g @larksuite/cli</code>。</div>
       <div>2. 在设置的“个人资料”页点击“登录”并选择飞书完成授权；启用桥接后，Zen 会自动绑定当前账号的 open_id。</div>
@@ -311,6 +311,6 @@ function removeQuickCommand(id: string) {
       <div>4. 在飞书私聊机器人发送“帮助”查看指令；发送“列表”“状态”查看会话，普通文本会继续当前会话，无绑定会话时新建 Agent 会话。</div>
       <div>5. 只有安全绑定的账号可以操控 Zen；API Key 与登录 token 不会展示在此页。</div>
     </div>
-    <p v-if="actionError" class="m-0 text-[11.5px] text-[var(--color-err)]">{{ actionError }}</p>
+    <p v-if="actionError" class="m-0 text-[11px] text-[var(--color-err)]">{{ actionError }}</p>
   </section>
 </template>

@@ -210,7 +210,7 @@ function protocolOptions() {
           <span>{{ initial ? "编辑模型" : "添加模型" }}</span>
           <VendorLogo :vendor="template?.vendor || form.id || providerName" :size="18" />
         </DialogTitle>
-        <DialogDescription class="mt-0.5 font-[family-name:var(--font-mono)] text-[11.5px]">
+        <DialogDescription class="mt-0.5 font-[family-name:var(--font-mono)] text-[11px]">
           {{ subtitle }}
         </DialogDescription>
       </DialogHeader>
@@ -221,7 +221,7 @@ function protocolOptions() {
           <Input
             id="mf-id"
             v-model="form.id"
-            class="h-8 font-[family-name:var(--font-mono)] text-[12.5px]"
+            class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
             placeholder="deepseek-v4-flash"
           />
         </div>

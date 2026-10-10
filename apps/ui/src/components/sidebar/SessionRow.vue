@@ -50,7 +50,7 @@ const resultDotLabel = computed(() =>
  */
 const rowCls = computed(() =>
   classes(
-    "group/session pressable relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1.5 pl-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
+    "group/session relative flex h-8 w-full items-center rounded-[var(--radius-sm)] pr-1.5 pl-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)]",
     "text-[var(--color-side-item)]",
     [
       !props.active,
@@ -58,7 +58,7 @@ const rowCls = computed(() =>
     ],
     [
       props.active,
-      "zen-indicator bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
+      "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
     ],
     [needsAction.value, "text-[var(--color-txt-strong)]"],
   ),

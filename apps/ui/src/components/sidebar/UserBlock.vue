@@ -349,17 +349,17 @@ const accountRowCls =
             <FeishuLogo v-if="row.kind === 'lark'" class="size-4 flex-none" />
             <GithubMark v-else class="size-4 flex-none text-[var(--color-txt)]" />
             <span class="flex min-w-0 flex-1 flex-col items-start">
-              <span class="block w-full truncate text-[12.5px] leading-tight">
+              <span class="block w-full truncate text-[12px] leading-tight">
                 {{ row.connected ? row.name : `登录${row.label}` }}
               </span>
-              <span class="block w-full truncate text-[10.5px] leading-tight text-[var(--color-mut)]">
+              <span class="block w-full truncate text-[10px] leading-tight text-[var(--color-mut)]">
                 {{ row.connected ? row.label : row.action === "绑定" ? "绑定后与另一账户并存" : `${row.label} 授权` }}
               </span>
             </span>
             <Check v-if="row.connected && row.displayed" class="size-3.5 flex-none text-[var(--color-ok)]" />
             <span
               v-else-if="row.connected"
-              class="flex-none text-[10.5px] text-[var(--color-mut)]"
+              class="flex-none text-[10px] text-[var(--color-mut)]"
             >
               {{ row.action }}
             </span>
@@ -420,7 +420,7 @@ const accountRowCls =
           <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
             选择登录方式
           </DialogTitle>
-          <DialogDescription class="text-[12.5px] leading-normal text-[var(--color-mut)]">
+          <DialogDescription class="text-[12px] leading-normal text-[var(--color-mut)]">
             两个账户可并存绑定：登录其一后，在账户菜单点击另一个即可绑定。飞书连接桥接；GitHub 同步个人资料与配置。
           </DialogDescription>
           <div class="mt-1 grid w-full grid-cols-2 gap-2">
@@ -433,7 +433,7 @@ const accountRowCls =
                 <FeishuLogo class="size-4" />
                 飞书
               </span>
-              <span class="text-[11.5px] leading-snug font-normal text-[var(--color-mut)]">
+              <span class="text-[11px] leading-snug font-normal text-[var(--color-mut)]">
                 浏览器授权 · 连接飞书桥接
               </span>
             </Button>
@@ -446,7 +446,7 @@ const accountRowCls =
                 <GithubMark class="size-4" />
                 GitHub
               </span>
-              <span class="text-[11.5px] leading-snug font-normal text-[var(--color-mut)]">
+              <span class="text-[11px] leading-snug font-normal text-[var(--color-mut)]">
                 设备码授权 · 同步资料与配置
               </span>
             </Button>
@@ -460,11 +460,11 @@ const accountRowCls =
           <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
             飞书登录
           </DialogTitle>
-          <p v-if="larkLoginPhase === 'starting'" class="m-0 text-[12.5px] text-[var(--color-mut)]">
+          <p v-if="larkLoginPhase === 'starting'" class="m-0 text-[12px] text-[var(--color-mut)]">
             正在发起飞书授权…
           </p>
           <template v-else-if="larkLoginPhase === 'waiting'">
-            <DialogDescription class="text-[12.5px] leading-normal text-[var(--color-mut)]">
+            <DialogDescription class="text-[12px] leading-normal text-[var(--color-mut)]">
               请在浏览器中完成飞书授权（链接 10 分钟内有效），完成后此处会自动关闭。
             </DialogDescription>
             <Button v-if="larkLoginUrl" variant="outline" size="sm" class="w-fit" @click="openLarkLoginUrl">
@@ -472,7 +472,7 @@ const accountRowCls =
               <ExternalLink data-icon="inline-end" />
             </Button>
           </template>
-          <p v-else class="m-0 text-[12.5px] text-[var(--color-danger-fg)]">{{ larkLoginError }}</p>
+          <p v-else class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ larkLoginError }}</p>
           <div class="flex justify-end">
             <Button variant="ghost" size="sm" @click="larkLoginPhase = 'choice'">返回</Button>
           </div>

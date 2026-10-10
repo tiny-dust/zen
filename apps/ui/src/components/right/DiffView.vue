@@ -68,7 +68,7 @@ function gutter(value: number | null): string {
 
 <template>
   <div
-    class="min-h-0 flex-1 overflow-auto rounded-md border border-[var(--color-line-soft)] bg-[var(--color-code-bg)] px-1 py-1.5 font-[family-name:var(--font-mono)] text-[10.5px] leading-[1.6] text-[var(--color-code-fg)]"
+    class="min-h-0 flex-1 overflow-auto rounded-md border border-[var(--color-line-soft)] bg-[var(--color-code-bg)] px-1 py-1.5 font-[family-name:var(--font-mono)] text-[10px] leading-[1.6] text-[var(--color-code-fg)]"
     role="figure"
     aria-label="文件 diff"
   >

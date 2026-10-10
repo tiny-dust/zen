@@ -77,7 +77,7 @@ async function onCreateWorkspace() {
         @select="pick(workspaceStore.COMMON_ID)"
       >
         <Globe class="size-3.5 flex-none text-[var(--color-mut)]" />
-        <span class="min-w-0 flex-1 truncate text-[12.5px]">公共区</span>
+        <span class="min-w-0 flex-1 truncate text-[12px]">公共区</span>
         <Check
           v-if="sessionWorkspaceId === workspaceStore.COMMON_ID"
           class="size-3.5 flex-none text-[var(--color-accent)]"
@@ -91,11 +91,11 @@ async function onCreateWorkspace() {
       >
         <FolderOpen class="size-3.5 flex-none text-[var(--color-mut)]" />
         <span class="flex min-w-0 flex-1 flex-col items-start">
-          <span class="w-full truncate text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+          <span class="w-full truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ group.name }}
           </span>
           <span
-            class="w-full truncate font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+            class="w-full truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
           >
             {{ group.path }}
           </span>

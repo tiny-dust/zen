@@ -63,7 +63,7 @@ function onSelect(model: ProviderModel) {
 <template>
   <section class="flex min-w-0 flex-col gap-2 pt-2.5 pb-1">
     <div class="flex items-center justify-between gap-2">
-      <span class="text-[12.5px] text-[var(--color-txt-strong)]">
+      <span class="text-[12px] text-[var(--color-txt-strong)]">
         模型 · {{ enabledCount }}/{{ models.length }}
       </span>
       <div class="flex items-center gap-1">
@@ -90,7 +90,7 @@ function onSelect(model: ProviderModel) {
       />
       <Input
         v-model="query"
-        class="h-8 pl-7 text-[12.5px]"
+        class="h-8 pl-7 text-[12px]"
         placeholder="搜索模型名称或 ID"
       />
     </div>
@@ -104,7 +104,7 @@ function onSelect(model: ProviderModel) {
           @click="onSelect(model)"
         >
           <VendorLogo :vendor="model.id" :size="16" />
-          <span class="truncate text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+          <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ model.name }}
           </span>
           <span

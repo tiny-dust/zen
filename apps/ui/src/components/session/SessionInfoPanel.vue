@@ -54,8 +54,11 @@ async function openCommitPanel() {
 <template>
   <aside
     ref="rootEl"
-    class="flex min-w-0 flex-col bg-transparent"
-    :class="embedded ? '' : 'zen-surface h-full overflow-hidden p-2'"
+    :class="
+      embedded
+        ? 'flex min-w-0 flex-col bg-transparent'
+        : 'flex h-full min-w-0 flex-col overflow-hidden bg-transparent p-2'
+    "
     aria-label="会话信息"
     data-select-text
   >

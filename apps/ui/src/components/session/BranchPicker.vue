@@ -195,14 +195,14 @@ onMounted(() => {
     </p>
 
     <div class="min-h-0 flex-1 overflow-auto">
-      <p class="m-0 px-1.5 py-1 text-[10.5px] font-medium text-[var(--color-dim)]">本地分支</p>
+      <p class="m-0 px-1.5 py-1 text-[10px] font-medium text-[var(--color-dim)]">本地分支</p>
       <Button
         v-for="item in localBranches"
         :key="`local-${item.name}`"
         variant="ghost"
         :class="
           cn(
-            'h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px] font-normal',
+            'h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11px] font-normal',
             item.name === gitStore.branch
               ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
               : 'text-[var(--color-txt)]',
@@ -226,12 +226,12 @@ onMounted(() => {
         {{ gitStore.branch ? "无匹配分支" : "未绑定仓库，暂无本地分支" }}
       </p>
 
-      <p class="m-0 px-1.5 py-1 pt-2 text-[10.5px] font-medium text-[var(--color-dim)]">远程分支</p>
+      <p class="m-0 px-1.5 py-1 pt-2 text-[10px] font-medium text-[var(--color-dim)]">远程分支</p>
       <Button
         v-for="item in remoteBranches"
         :key="`remote-${item.name}`"
         variant="ghost"
-        class="h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11.5px] font-normal text-[var(--color-txt)]"
+        class="h-auto w-full justify-start gap-1.5 rounded-md px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11px] font-normal text-[var(--color-txt)]"
         @click="select(item.name)"
       >
         <span class="size-3.5 flex-none" aria-hidden="true" />

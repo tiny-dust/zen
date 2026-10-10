@@ -142,7 +142,7 @@ async function openExternal() {
 </script>
 
 <template>
-  <div class="zen-surface flex h-full min-h-0 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
+  <div class="flex h-full min-h-0 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
     <!-- 主区：终端分屏，只保留功能画面 -->
     <div class="relative min-h-0 min-w-0 flex-1 px-1 py-1">
       <div
@@ -232,7 +232,7 @@ async function openExternal() {
       </div>
 
       <div
-        class="flex-none px-2.5 pb-1 text-[10.5px] tracking-wide text-[var(--color-dim)]"
+        class="flex-none px-2.5 pb-1 text-[10px] tracking-wide text-[var(--color-dim)]"
       >
         终端 {{ sessions.length }}<span v-if="isSplit"> · {{ splitMode === "columns" ? "左右" : "上下" }}</span>
       </div>

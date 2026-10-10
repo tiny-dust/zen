@@ -72,17 +72,17 @@ async function removeSkillPath(path: string) {
           class="rounded-xl border border-[var(--color-line)] px-3 py-2"
         >
           <div class="flex items-center gap-2">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ skill.name }}
             </span>
             <Badge variant="secondary" class="text-[10px]">
               {{ skillSourceLabel(skill) }}
             </Badge>
           </div>
-          <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-[var(--color-mut)]">
+          <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]">
             {{ skill.description }}
           </p>
-          <p class="m-0 mt-0.5 truncate text-[10.5px] text-[var(--color-dim)]">{{ skill.dir }}</p>
+          <p class="m-0 mt-0.5 truncate text-[10px] text-[var(--color-dim)]">{{ skill.dir }}</p>
         </div>
       </div>
       <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">

@@ -38,7 +38,7 @@ function toggleButtonClass(active: boolean) {
 
 <template>
   <header
-    class="zen-surface grid flex-none h-[var(--titlebar-h)] grid-cols-[1fr_auto] items-center px-1.5 select-none [-webkit-app-region:drag] [&_[data-slot=button]]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
+    class="grid flex-none h-[var(--titlebar-h)] grid-cols-[1fr_auto] items-center px-1.5 select-none [-webkit-app-region:drag] [&_[data-slot=button]]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]"
   >
     <div class="flex h-full min-w-0 items-center gap-0.5">
       <template v-if="leftCollapsed">
