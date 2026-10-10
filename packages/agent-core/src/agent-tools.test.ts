@@ -197,6 +197,44 @@ describe("runTerminal", () => {
   });
 });
 
+describe("runTerminal 卡死回归（孙进程持有 stdio 管道）", () => {
+  // close 事件要等 stdio 管道的所有持有者（含孙进程）关闭；孙进程存活时工具必须仍能结算，
+  // 否则 exclusive 锁不释放，整个会话停在「运行中」（用户报障：执行终端一直运行中、没有下文）
+  const raceWith = async (promise: Promise<unknown>, ms: number, label: string) => {
+    let timer: NodeJS.Timeout | undefined;
+    const guard = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label}：工具未在时限内结算（疑似挂死）`)), ms);
+    });
+    try {
+      return await Promise.race([promise, guard]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  it("shell 退出但后台孙进程持有管道：收尾窗口后结算，不再无限等待", async () => {
+    const tools = build();
+    const result = (await raceWith(
+      execTool(tools.runTerminal, { command: "echo hello; sleep 120 &", timeoutMs: 120_000 }),
+      8000,
+      "daemon-shell-exit",
+    )) as { ok: boolean; output: string };
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("hello");
+  });
+
+  it("超时杀 shell 后孙进程仍持管道：超时即结算，不再挂死", async () => {
+    const tools = build();
+    const result = (await raceWith(
+      execTool(tools.runTerminal, { command: "echo start && sleep 120", timeoutMs: 1200 }),
+      6000,
+      "timeout-orphan",
+    )) as { ok: boolean; output: string };
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("start");
+  });
+});
+
 describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
   it("askUser 挂起等待并回发 ask_resolved", async () => {
     const asked: string[] = [];
