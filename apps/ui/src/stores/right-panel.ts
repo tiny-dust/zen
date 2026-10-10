@@ -17,7 +17,8 @@ export interface RightPanelTab {
   title: string;
 }
 
-const TITLE: Record<RightPanelKind, string> = {
+/** 面板类型 → 标题：tab 与右栏「打开面板」菜单共用，同一文案只写一次 */
+export const PANEL_TITLES: Record<RightPanelKind, string> = {
   files: "文件",
   browser: "浏览器",
   changes: "变更",
@@ -30,7 +31,7 @@ const TITLE: Record<RightPanelKind, string> = {
  * 右侧工具栏 Tab：每种面板至多一个实例（新建后不能再建，只能关闭后再开）。
  */
 export const useRightPanelStore = defineStore("rightPanel", () => {
-  const tabs = ref<RightPanelTab[]>([{ id: "files", kind: "files", title: TITLE.files }]);
+  const tabs = ref<RightPanelTab[]>([{ id: "files", kind: "files", title: PANEL_TITLES.files }]);
   const activeId = ref("files");
   /** 待定位文件路径：消息流点击文件名时设置，FilePanel 消费后清空 */
   const pendingReveal = ref("");
@@ -59,7 +60,7 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
       activeId.value = existing.id;
       return existing;
     }
-    const tab: RightPanelTab = { id: kind, kind, title: TITLE[kind] };
+    const tab: RightPanelTab = { id: kind, kind, title: PANEL_TITLES[kind] };
     tabs.value.push(tab);
     activeId.value = tab.id;
     return tab;
