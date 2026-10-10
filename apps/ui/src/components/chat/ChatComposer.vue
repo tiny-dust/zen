@@ -5,6 +5,7 @@ import {
   Plus,
   Sparkles,
   Square,
+  Wrench,
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -106,7 +107,7 @@ const isCompactBar = computed(() => {
 const composerPlaceholder = computed(() =>
   isRunning.value
     ? "Agent 运行中：输入内容按 Enter 插入队列，当前任务结束后自动执行"
-    : "描述任务，/ 调用技能；标注页面元素会以 tag 插入，悬浮可看明细",
+    : "描述任务，/ 调用技能，# 引用 MCP 工具；标注页面元素会以 tag 插入，悬浮可看明细",
 );
 
 const allowedEfforts = computed(() => {
@@ -418,11 +419,18 @@ function removeAttachment(id: string) {
           @click="triggers.apply(item)"
         >
           <FileLabel
-            v-if="item.icon !== 'skill'"
+            v-if="item.icon === 'file' || item.icon === 'dir'"
             :path="item.desc"
             :kind="item.icon === 'dir' ? 'directory' : 'file'"
             class="flex-1 text-[12px]"
           />
+          <template v-else-if="item.icon === 'mcp'">
+            <Wrench class="size-3.5 shrink-0 text-[var(--color-mut)]" />
+            <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
+            <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
+              {{ item.desc }}
+            </span>
+          </template>
           <template v-else>
             <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
             <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
@@ -438,7 +446,7 @@ function removeAttachment(id: string) {
           </span>
         </Button>
         <div v-if="!triggers.items.value.length" class="px-2.5 py-2 text-[12px] text-[var(--color-mut)]">
-          无匹配项
+          {{ triggers.kind.value === "mcp" ? "没有运行中的 MCP 服务（侧栏 MCP 弹窗可配置）" : "无匹配项" }}
         </div>
       </div>
     </div>

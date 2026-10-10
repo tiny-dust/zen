@@ -3,7 +3,7 @@
 import type { ComposerAttachment } from "@/stores/chat-types";
 import type { ComposerElementMark } from "@/lib/browser-element";
 
-export type SegmentKind = "text" | "bold" | "link" | "marker" | "token" | "skill";
+export type SegmentKind = "text" | "bold" | "link" | "marker" | "token" | "skill" | "mcp";
 
 export interface Segment {
   kind: SegmentKind;
@@ -71,6 +71,22 @@ export function parseSegments(
         start: match.index,
         end: match.index + match[0].length,
         segment: { kind: "skill", text: match[0] },
+      });
+    }
+  }
+
+  // MCP 工具引用 token：`#mcp:服务.工具`（从 # 弹窗选中后内联在正文里，Agent 依据该文本感知）
+  const mcpRe = /#mcp:[^\s#]+/g;
+  for (;;) {
+    const match = mcpRe.exec(source);
+    if (!match || !match[0]) {
+      break;
+    }
+    if (!overlaps(marked, match.index, match.index + match[0].length)) {
+      marked.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        segment: { kind: "mcp", text: match[0] },
       });
     }
   }
@@ -171,7 +187,7 @@ function scanMarkdown(source: string, marked: MarkedRange[]): void {
   }
 }
 
-/** 把落在 token/skill 分段内部的偏移吸附到该分段边缘（edge 决定贴起点还是终点） */
+/** 把落在 token/skill/mcp 分段内部的偏移吸附到该分段边缘（edge 决定贴起点还是终点） */
 export function snapToToken(
   segments: Segment[],
   offset: number,
@@ -180,7 +196,11 @@ export function snapToToken(
   let start = 0;
   for (const segment of segments) {
     const end = start + segment.text.length;
-    if ((segment.kind === "token" || segment.kind === "skill") && offset > start && offset < end) {
+    if (
+      (segment.kind === "token" || segment.kind === "skill" || segment.kind === "mcp") &&
+      offset > start &&
+      offset < end
+    ) {
       return edge === "start" || (edge === "nearest" && offset - start <= end - offset) ? start : end;
     }
     start = end;

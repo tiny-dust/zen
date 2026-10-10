@@ -83,6 +83,15 @@ export const useAgentStore = defineStore("agent", () => {
     mcpStatuses.value = await zen.mcp.list();
   }
 
+  /** needs-auth 服务走 OAuth：主进程跳系统浏览器认证，完成后返回最新状态列表 */
+  async function authorizeMcp(serverId: string): Promise<void> {
+    const zen = window.zen;
+    if (!zen?.mcp) {
+      return;
+    }
+    mcpStatuses.value = await zen.mcp.authorize(serverId);
+  }
+
   /** 飞书桥接状态（lark:status 快照；旧 preload 无 lark 段时保持 null） */
   async function refreshLark(): Promise<void> {
     const zen = window.zen;
@@ -106,7 +115,10 @@ export const useAgentStore = defineStore("agent", () => {
     if (!zen?.mcp) {
       return;
     }
-    mcpStatuses.value = await zen.mcp.setServers(servers);
+    // 条目来自 ref 深层响应式，是 Proxy；contextBridge 只收 structured-clone 可克隆的纯对象
+    mcpStatuses.value = await zen.mcp.setServers(
+      JSON.parse(JSON.stringify(servers)) as McpServerConfig[],
+    );
   }
 
   async function pickDirectory(): Promise<string | null> {
@@ -171,6 +183,7 @@ export const useAgentStore = defineStore("agent", () => {
     updateSettings,
     refreshSkills,
     refreshMcp,
+    authorizeMcp,
     refreshLark,
     scanMcp,
     saveMcpServers,

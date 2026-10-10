@@ -3,7 +3,7 @@
 // （已挂载的 Vue 子视图容器、悬浮明细 tooltip），随实例销毁。
 
 import { h, render as renderVue } from "vue";
-import { Globe, Sparkles } from "@lucide/vue";
+import { Globe, Sparkles, Wrench } from "@lucide/vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { formatElementDetail } from "@/lib/browser-element";
@@ -225,6 +225,23 @@ export function createTokenView(host: TokenViewHost): TokenView {
     return token;
   }
 
+  /** MCP 工具引用：与技能同构 —— 扳手 icon + 名称；源文本保留 `#mcp:服务.工具` 供 Agent 感知 */
+  function renderMcpToken(text: string): HTMLElement {
+    const name = text.slice("#mcp:".length);
+    const token = el("span", "composer-token composer-token-mcp");
+    token.contentEditable = "false";
+    token.title = `MCP 工具：${name}`;
+    const icon = el("span", "composer-token-icon");
+    renderVue(h(Wrench, { size: 12, "aria-hidden": "true" }), icon);
+    vueContainers.push(icon);
+    token.append(
+      el("span", "composer-token-prefix", "#mcp:"),
+      icon,
+      el("span", "composer-token-name", name),
+    );
+    return token;
+  }
+
   function renderSegments(segments: Segment[]): Node[] {
     return segments.map((segment) => {
       switch (segment.kind) {
@@ -238,6 +255,8 @@ export function createTokenView(host: TokenViewHost): TokenView {
           return renderToken(segment);
         case "skill":
           return renderSkillToken(segment.text);
+        case "mcp":
+          return renderMcpToken(segment.text);
         default:
           return document.createTextNode(segment.text);
       }

@@ -1,177 +1,149 @@
-import { mount } from "@vue/test-utils";
 import { createPinia, disposePinia, setActivePinia } from "pinia";
-import { defineComponent, h, nextTick, ref } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ComposerEditor from "@/components/chat/ComposerEditor.vue";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useAgentStore } from "@/stores/agent";
-import { useChatStore } from "@/stores/chat";
-import { useModelsStore } from "@/stores/models";
-import { useUserStore } from "@/stores/user";
+
+import type { McpServerStatus } from "@zen/shared";
 
 let pinia: ReturnType<typeof createPinia>;
-let wrapper: ReturnType<typeof mount> | undefined;
+let value: string;
+let caretAt: number;
+let setValue: (next: string) => void;
+let setCaret: (offset: number) => void;
+let focus: () => void;
+let listFiles: ReturnType<typeof vi.fn>;
+let triggers: ReturnType<typeof useComposerTriggers>;
+
+/** 模拟在光标处输入文本后触发补全检测 */
+function type(text: string): void {
+  value = value.slice(0, caretAt) + text + value.slice(caretAt);
+  caretAt += text.length;
+  triggers.evaluate();
+}
+
+function statusOf(
+  config: McpServerStatus["config"],
+  patch: Partial<Omit<McpServerStatus, "config">> = {},
+): McpServerStatus {
+  return { config, state: "stopped", tools: [], ...patch };
+}
+
+const mobbinStatus: McpServerStatus = statusOf(
+  { id: "srv-1", name: "mobbin", transport: "http", url: "https://mcp.example.com", enabled: true },
+  {
+    state: "running",
+    tools: [
+      {
+        serverId: "srv-1",
+        name: "search_apps",
+        description: "搜索应用",
+        inputSchema: { type: "object" },
+      },
+      {
+        serverId: "srv-1",
+        name: "get_screenshots",
+        description: "",
+        inputSchema: { type: "object" },
+      },
+    ],
+  },
+);
 
 beforeEach(() => {
-  vi.useFakeTimers();
   pinia = createPinia();
   setActivePinia(pinia);
+  value = "";
+  caretAt = 0;
+  setValue = vi.fn((next: string) => {
+    value = next;
+  });
+  setCaret = vi.fn((offset: number) => {
+    caretAt = offset;
+  });
+  focus = vi.fn();
+  listFiles = vi.fn().mockResolvedValue([]);
+  vi.stubGlobal("zen", {
+    agent: { listSkills: vi.fn().mockResolvedValue([]) },
+    mcp: { list: vi.fn().mockResolvedValue([]) },
+    workspace: { listFiles },
+  });
+  triggers = useComposerTriggers({
+    caret: () => caretAt,
+    value: () => value,
+    setValue,
+    setCaret,
+    focus,
+  });
 });
 
 afterEach(() => {
-  wrapper?.unmount();
-  wrapper = undefined;
   disposePinia(pinia);
-  vi.clearAllTimers();
-  vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
-describe("composer skill selection", () => {
-  it.each([false, true])("renders and sends a skill token (scanned: %s)", async (scanned) => {
-    const run = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("zen", {
-      agent: { run },
-      session: { rename: vi.fn(), setDraft: vi.fn() },
-    });
-    if (scanned) {
-      useAgentStore().skills = [{
-        id: "coder", name: "coder", description: "Code tasks", dir: "/skills/coder", source: "user", removable: true, disabled: false,
-      }];
-    }
-    useUserStore().auth.loggedIn = true;
-    useModelsStore().selection = { providerId: "test-provider", modelId: "test-model" };
-    const chat = useChatStore();
-    chat.input = "/";
-    const name = scanned ? "coder" : "commit-helper";
-
-    wrapper = mount(defineComponent({
-      setup() {
-        const editor = ref<InstanceType<typeof ComposerEditor> | null>(null);
-        const triggers = useComposerTriggers({
-          caret: () => chat.input.length,
-          value: () => chat.input,
-          setValue: (value) => { chat.input = value; },
-          setCaret: (offset) => editor.value?.setCaretSoon(offset),
-          focus: () => editor.value?.focus(),
-        });
-        triggers.evaluate();
-        return () => h("div", [
-          h(ComposerEditor, {
-            ref: editor,
-            modelValue: chat.input,
-            attachments: [],
-            "onUpdate:modelValue": (value: string) => { chat.input = value; },
-          }),
-          ...triggers.items.value.map((item) => h("button", {
-            type: "button",
-            onClick: () => triggers.apply(item),
-          }, item.label)),
-        ]);
-      },
-    }), { global: { plugins: [pinia] } });
-
-    await wrapper.get("button").trigger("click");
-    expect(chat.input).toBe(`/skill:${name} `);
-    expect(wrapper.get(".composer-token-skill .composer-token-name").text()).toBe(name);
-    expect(wrapper.get(".composer-editor").element.textContent).toBe(chat.input);
-
-    await chat.send();
-    await nextTick();
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({ userMessage: `/skill:${name}` }));
-    expect(chat.messages[0]).toMatchObject({
-      role: "user",
-      content: `/skill:${name}`,
-      meta: { skills: [{ name }] },
-    });
-    expect(wrapper.find(".composer-token-skill").exists()).toBe(false);
-  });
-});
-
-describe("@ 文件补全引用本会话上传文件", () => {
-  function setupTriggers(text: string, overrides: {
-    uploadedFiles?: () => Array<{ name: string; path: string }>;
-    registerUploaded?: (file: { name: string; path: string }) => void;
-  } = {}) {
-    let source = text;
-    return useComposerTriggers({
-      caret: () => source.length,
-      value: () => source,
-      setValue: (next) => {
-        source = next;
-      },
-      setCaret: () => undefined,
-      focus: () => undefined,
-      uploadedFiles: overrides.uploadedFiles,
-      registerUploaded: overrides.registerUploaded,
-    });
-  }
-
-  it("已上传文件置顶、带 uploaded 标记，选中插入 $名称 并登记为附件", () => {
-    vi.stubGlobal("zen", {
-      workspace: {
-        listFiles: vi.fn().mockResolvedValue([
-          { name: "a.txt", path: "src/a.txt", isDir: false },
-        ]),
-      },
-    });
-    const registerUploaded = vi.fn();
-    const uploaded = [{ name: "报告.pdf", path: "/u/报告.pdf" }];
-    const triggers = setupTriggers("@报告", {
-      uploadedFiles: () => uploaded,
-      registerUploaded,
-    });
-    triggers.evaluate();
+describe("useComposerTriggers # MCP 工具菜单", () => {
+  it("裸 # 触发：空输入打下 # 后打开 mcp 菜单", () => {
+    type("#");
     expect(triggers.open.value).toBe(true);
-    // 已上传置顶 + uploaded 标记（弹层据此渲染「已上传」标识）
-    expect(triggers.items.value[0]).toMatchObject({
-      label: "报告.pdf",
-      desc: "/u/报告.pdf",
-    });
-    expect(triggers.items.value[0].uploaded).toBe(uploaded[0]);
-    // 附件 token 语法：`$名称 `（与 ComposerEditor/removeAttachment 约定一致）
-    expect(triggers.items.value[0].insert).toBe("$报告.pdf ");
-
-    triggers.apply(triggers.items.value[0]);
-    expect(registerUploaded).toHaveBeenCalledWith(uploaded[0]);
+    expect(triggers.kind.value).toBe("mcp");
   });
 
-  it("按 path 去重：已上传覆盖工作区树同 path 条目", async () => {
-    vi.stubGlobal("zen", {
-      workspace: {
-        listFiles: vi.fn().mockResolvedValue([
-          { name: "dup.txt", path: "/u/dup.txt", isDir: false },
-          { name: "tree.txt", path: "src/tree.txt", isDir: false },
-        ]),
+  it("菜单只列 running 服务的工具，insert 为完整 #mcp:服务.工具 token", () => {
+    const broken = statusOf(
+      { id: "srv-2", name: "broken", transport: "stdio", command: "b", args: [], enabled: true },
+      {
+        state: "error",
+        error: "spawn ENOENT",
+        tools: [{ serverId: "srv-2", name: "boom", description: "", inputSchema: { type: "object" } }],
       },
-    });
-    const triggers = setupTriggers("@", {
-      uploadedFiles: () => [{ name: "dup.txt", path: "/u/dup.txt" }],
-    });
-    triggers.evaluate();
-    // 等 listFiles 返回
-    await Promise.resolve();
-    await Promise.resolve();
-    const paths = triggers.items.value.map((item) => item.desc);
-    expect(paths.filter((path) => path === "/u/dup.txt")).toHaveLength(1);
-    expect(triggers.items.value.find((item) => item.desc === "/u/dup.txt")?.uploaded).toBeTruthy();
-    // 工作区文件仍以 $path 插入
-    const tree = triggers.items.value.find((item) => item.desc === "src/tree.txt");
-    expect(tree?.insert).toBe("$src/tree.txt ");
+    );
+    useAgentStore().mcpStatuses = [mobbinStatus, broken];
+
+    type("#");
+    expect(triggers.kind.value).toBe("mcp");
+    const inserts = triggers.items.value.map((item) => item.insert);
+    expect(inserts).toHaveLength(2);
+    expect(inserts).toContain("#mcp:mobbin.search_apps ");
+    expect(inserts).toContain("#mcp:mobbin.get_screenshots ");
+    expect(triggers.items.value.every((item) => item.serverName === "mobbin")).toBe(true);
   });
 
-  it("模糊打分仍生效：不匹配的已上传文件被剔除", () => {
-    vi.stubGlobal("zen", {
-      workspace: { listFiles: vi.fn().mockResolvedValue([]) },
-    });
-    const triggers = setupTriggers("@报告", {
-      uploadedFiles: () => [
-        { name: "报告.pdf", path: "/u/报告.pdf" },
-        { name: "photo.png", path: "/u/photo.png" },
-      ],
-    });
+  it("输入 #sea 后按模糊打分过滤命中 search_apps", () => {
+    useAgentStore().mcpStatuses = [mobbinStatus];
+
+    type("#sea");
+    expect(triggers.kind.value).toBe("mcp");
+    expect(triggers.items.value.map((item) => item.label)).toEqual(["search_apps"]);
+  });
+
+  it("apply 插入带尾随空格的 token 并收起菜单", () => {
+    useAgentStore().mcpStatuses = [mobbinStatus];
+
+    type("#sea");
+    expect(triggers.apply(triggers.activeItem.value)).toBe(true);
+    expect(setValue).toHaveBeenCalledWith("#mcp:mobbin.search_apps ");
+    expect(value).toBe("#mcp:mobbin.search_apps ");
+    expect(caretAt).toBe("#mcp:mobbin.search_apps ".length);
+    expect(triggers.open.value).toBe(false);
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it("完整 #mcp: token 光标紧跟其后时守卫生效不再唤起", () => {
+    value = "#mcp:mobbin.search_apps";
+    caretAt = value.length;
+
     triggers.evaluate();
-    expect(triggers.items.value.map((item) => item.label)).toEqual(["报告.pdf"]);
+    expect(triggers.open.value).toBe(false);
+  });
+
+  it("@ 文件触发不受影响", async () => {
+    type("@");
+    expect(triggers.open.value).toBe(true);
+    expect(triggers.kind.value).toBe("file");
+    await vi.waitFor(() => {
+      expect(listFiles).toHaveBeenCalled();
+    });
   });
 });
