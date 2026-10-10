@@ -17,18 +17,6 @@ export interface GitHubUser {
 
 export type AppIconId = "zen-ink" | "zen-mint" | "zen-ember" | "zen-mono" | "custom";
 
-/** 界面主题（data-theme）：liquid-glass 苹果液态玻璃（默认）/ dark-tech VS Code 极客黑 / neumorphism 全新拟态 */
-export type UiThemeId = "liquid-glass" | "dark-tech" | "neumorphism";
-
-export const UI_THEME_IDS: UiThemeId[] = ["liquid-glass", "dark-tech", "neumorphism"];
-
-export const DEFAULT_UI_THEME: UiThemeId = "liquid-glass";
-
-/** 校验持久化/外部输入的主题 id，非法值回落默认 */
-export function isUiTheme(value: unknown): value is UiThemeId {
-  return typeof value === "string" && (UI_THEME_IDS as string[]).includes(value);
-}
-
 /** 左下角/资料页展示哪个账户的身份：auto = GitHub 优先、无 GitHub 用飞书 */
 export type DisplayAccount = "auto" | "github" | "lark";
 
@@ -48,8 +36,6 @@ export interface AppSettings {
   updateFeedUrl: string | null;
   /** 代码高亮主题（对话消息列表与预览），对应 UI 侧 CODE_THEMES 目录里的 id */
   codeTheme: string;
-  /** 界面主题（data-theme）：液态玻璃 / 极客黑 / 新拟态 */
-  uiTheme: UiThemeId;
   /** 左下角/资料页展示哪个账户的身份 */
   displayAccount: DisplayAccount;
 }
