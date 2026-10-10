@@ -183,7 +183,7 @@ async function confirmRemoveModel() {
     <header class="flex items-center justify-between gap-2.5 border-b border-[var(--color-line)] py-2 pl-3.5 pr-2.5">
       <div class="flex min-w-0 items-baseline gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">新增供应商</h3>
-        <span class="truncate text-[11.5px] text-[var(--color-mut)]">
+        <span class="truncate text-[11px] text-[var(--color-mut)]">
           协议 · 名称 · Base URL · API Key · User-Agent
         </span>
       </div>
@@ -217,7 +217,7 @@ async function confirmRemoveModel() {
         <Plus data-icon="inline-start" />
         手动添加
       </Button>
-      <span v-if="!canLoadModels" class="text-[11.5px] text-[var(--color-dim)]">
+      <span v-if="!canLoadModels" class="text-[11px] text-[var(--color-dim)]">
         需先填写 Base URL 与 API Key
       </span>
     </div>
@@ -227,19 +227,19 @@ async function confirmRemoveModel() {
       class="mx-3.5 mb-2.5 flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-2"
       @submit.prevent="onManualAdd"
     >
-      <label class="shrink-0 text-[11.5px] text-[var(--color-mut)]" for="manual-id">ID</label>
+      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-id">ID</label>
       <Input
         id="manual-id"
         v-model="manualForm.id"
-        class="h-7 flex-1 border-0 bg-transparent text-[12.5px]"
+        class="h-7 flex-1 border-0 bg-transparent text-[12px]"
         placeholder="gpt-4o / VW2TTQCH/deepseek-v4-flash"
         required
       />
-      <label class="shrink-0 text-[11.5px] text-[var(--color-mut)]" for="manual-name">名称</label>
+      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-name">名称</label>
       <Input
         id="manual-name"
         v-model="manualForm.name"
-        class="h-7 flex-1 border-0 bg-transparent text-[12.5px]"
+        class="h-7 flex-1 border-0 bg-transparent text-[12px]"
         placeholder="留空则自动推断"
       />
       <Button type="submit" size="sm">添加</Button>

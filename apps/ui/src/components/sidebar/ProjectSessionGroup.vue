@@ -1,58 +1,63 @@
 <script setup lang="ts">
-import { Copy, ExternalLink, Folder, Globe, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
-import { computed } from "vue";
+  import { ChevronDown, Copy, ExternalLink, Folder, Globe, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
+  import { computed } from "vue";
 
-import SessionRow from "@/components/sidebar/SessionRow.vue";
-import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import { useWorkspaceStore } from "@/stores/workspace";
+  import SessionRow from "@/components/sidebar/SessionRow.vue";
+  import { Button } from "@/components/ui/button";
+  import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuTrigger,
+  } from "@/components/ui/context-menu";
+  import { useWorkspaceStore } from "@/stores/workspace";
 
-import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
+  import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
+  import { defineEmits, defineProps, } from 'vue';
 
-const props = defineProps<{
-  group: WorkspaceGroup;
-  /** 已过滤并排序的全量会话 */
-  sessions: SessionRecord[];
-  /** 组折叠开关（false = 只显示组头行） */
-  open: boolean;
-  /** 展开显示全部会话（false = 截断 + 渐隐） */
-  expanded: boolean;
-  activeSessionId: string | null;
-  /** 「在文件管理器中显示」按平台文案 */
-  showInFolderLabel: string;
-}>();
+  const props = defineProps<{
+    group: WorkspaceGroup;
+    /** 已过滤并排序的全量会话 */
+    sessions: SessionRecord[];
+    /** 组折叠开关（false = 只显示组头行） */
+    open: boolean;
+    /** 展开显示全部会话（false = 截断 + 渐隐） */
+    expanded: boolean;
+    activeSessionId: string | null;
+    /** 「在文件管理器中显示」按平台文案 */
+    showInFolderLabel: string;
+    /** 头部形态：zone = 区块头（图标盒 + 加粗标题，如公共区）；group = 工作区目录行（折叠箭头 + 目录名） */
+    variant?: "zone" | "group";
+  }>();
 
-const emit = defineEmits<{
-  toggle: [];
-  "toggle-expand": [];
-  "new-session": [];
-  open: [session: SessionRecord];
-  pin: [session: SessionRecord];
-  archive: [session: SessionRecord, archived: boolean];
-  remove: [session: SessionRecord];
-  "pin-workspace": [];
-  rename: [];
-  "copy-path": [];
-  "show-in-folder": [];
-  "delete-workspace": [];
-}>();
+  const emit = defineEmits<{
+    toggle: [];
+    "toggle-expand": [];
+    "new-session": [];
+    open: [session: SessionRecord];
+    pin: [session: SessionRecord];
+    archive: [session: SessionRecord, archived: boolean];
+    remove: [session: SessionRecord];
+    "pin-workspace": [];
+    rename: [];
+    "copy-path": [];
+    "show-in-folder": [];
+    "delete-workspace": [];
+  }>();
 
-const workspaceStore = useWorkspaceStore();
+  const workspaceStore = useWorkspaceStore();
 
-const isCommon = computed(() => props.group.kind === "common");
-const previewCount = workspaceStore.PREVIEW_COUNT;
-/** 未展开时多渲染 1 条露头，配合渐隐遮罩提示还有更多 */
-const shownSessions = computed(() =>
-  props.expanded ? props.sessions : props.sessions.slice(0, previewCount + 1),
-);
-const truncated = computed(() => !props.expanded && props.sessions.length > previewCount);
-const showExpandToggle = computed(() => props.sessions.length > previewCount);
+  const isCommon = computed(() => props.group.kind === "common");
+  /** 区块头形态（公共区组头即区块头，视觉更重） */
+  const isZone = computed(() => props.variant === "zone");
+  const previewCount = workspaceStore.PREVIEW_COUNT;
+  /** 未展开时多渲染 1 条露头，配合渐隐遮罩提示还有更多 */
+  const shownSessions = computed(() =>
+    props.expanded ? props.sessions : props.sessions.slice(0, previewCount + 1),
+  );
+  const truncated = computed(() => !props.expanded && props.sessions.length > previewCount);
+  const showExpandToggle = computed(() => props.sessions.length > previewCount);
 </script>
 
 <template>
@@ -61,72 +66,62 @@ const showExpandToggle = computed(() => props.sessions.length > previewCount);
       <ContextMenuTrigger as-child>
         <div
           class="group/row flex h-8 items-center rounded-[var(--radius-sm)] pr-1 text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)] hover:text-[var(--color-txt-strong)]"
-        >
-          <Button
-            variant="ghost"
-            class="h-full flex min-w-0 flex-1 items-center gap-1.5 px-1 text-left text-[12.5px] font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-inherit"
-            :aria-expanded="open"
-            :aria-label="group.name"
-            @click="emit('toggle')"
-          >
-            <Globe
-              v-if="isCommon"
-              class="size-3.5 flex-none text-[var(--color-dim)]"
-              aria-hidden="true"
-            />
-            <Folder
-              v-else
-              class="size-3.5 flex-none text-[var(--color-dim)]"
-              aria-hidden="true"
-            />
-            <span class="min-w-0 flex-1 truncate font-medium">{{ group.name }}</span>
-            <Pin
-              v-if="group.pinned"
-              class="size-3 flex-none -rotate-45 text-[var(--color-accent)]"
-              aria-hidden="true"
-            />
+          :class="isZone ? 'gap-2' : ''">
+          <Button variant="ghost"
+            class="h-full flex min-w-0 flex-1 items-center gap-1.5 px-1 text-left text-[12px] font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent aria-expanded:text-inherit"
+            :class="isZone ? 'gap-2 px-1.5' : ''" :aria-expanded="open" :aria-label="group.name"
+            @click="emit('toggle')">
+            <!-- 区块头形态：图标盒 + 加粗标题（公共区组头即区块头） -->
+            <template v-if="isZone">
+              <span class="flex size-5 flex-none items-center justify-center rounded-md bg-[var(--color-side-hover)]"
+                aria-hidden="true">
+                <Globe class="size-4 text-[var(--color-mut)]" />
+              </span>
+              <span class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]">
+                {{ group.name }}
+              </span>
+            </template>
+            <!-- 分组形态：折叠箭头 + 目录名 -->
+            <template v-else>
+              <ChevronDown
+                class="size-3 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+                :class="open ? '' : '-rotate-90'" aria-hidden="true" />
+              <Folder class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+              <span class="min-w-0 flex-1 truncate text-[12px] font-medium">{{ group.name }}</span>
+            </template>
+            <Pin v-if="group.pinned" class="size-3 flex-none -rotate-45 text-[var(--color-accent)]"
+              aria-hidden="true" />
           </Button>
           <!-- 悬浮快捷操作：图标按钮 hover 只提亮图标不出底色，键盘聚焦时保持可见 -->
           <div
-            class="flex flex-none items-center gap-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] focus-within:opacity-100 group-hover/row:opacity-100"
-          >
-            <Button
-              variant="ghost"
-              size="icon-sm"
+            class="flex flex-none items-center gap-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] focus-within:opacity-100 group-hover/row:opacity-100">
+            <Button variant="ghost" size="icon-sm"
               class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
-              aria-label="新建会话"
-              title="新建会话"
-              @click.stop="emit('new-session')"
-            >
+              aria-label="新建会话" title="新建会话" @click.stop="emit('new-session')">
               <Plus class="size-3.5" aria-hidden="true" />
             </Button>
             <template v-if="!isCommon">
-              <Button
-                variant="ghost"
-                size="icon-sm"
+              <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
-                :aria-label="group.pinned ? '取消置顶' : '置顶'"
-                :title="group.pinned ? '取消置顶' : '置顶'"
-                @click.stop="emit('pin-workspace')"
-              >
+                :aria-label="group.pinned ? '取消置顶' : '置顶'" :title="group.pinned ? '取消置顶' : '置顶'"
+                @click.stop="emit('pin-workspace')">
                 <PinOff v-if="group.pinned" class="size-3.5" aria-hidden="true" />
                 <Pin v-else class="size-3.5" aria-hidden="true" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
+              <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-del)] hover:text-[var(--color-danger-fg)] dark:hover:text-[var(--color-danger-fg)]"
-                aria-label="删除工作区"
-                title="删除工作区"
-                @click.stop="emit('delete-workspace')"
-              >
+                aria-label="删除工作区" title="删除工作区" @click.stop="emit('delete-workspace')">
                 <Trash2 class="size-3.5" aria-hidden="true" />
               </Button>
             </template>
           </div>
+          <!-- 区块头形态：尾部折叠箭头（可折叠的可见提示） -->
+          <ChevronDown v-if="isZone"
+            class="mr-1 size-3 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="open ? '' : '-rotate-90'" aria-hidden="true" />
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent class="text-[12.5px]">
+      <ContextMenuContent class="text-[12px]">
         <ContextMenuItem @select="emit('new-session')">
           <Plus class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
           新建会话
@@ -161,24 +156,15 @@ const showExpandToggle = computed(() => props.sessions.length > previewCount);
     </ContextMenu>
 
     <div v-if="open && sessions.length" class="mt-0.5">
-      <div class="flex flex-col gap-0.5 pl-6" :class="truncated && 'session-list-fade'">
-        <SessionRow
-          v-for="session in shownSessions"
-          :key="session.id"
-          :session="session"
-          :active="activeSessionId === session.id"
-          @open="emit('open', session)"
-          @pin="emit('pin', session)"
-          @archive="(archived) => emit('archive', session, archived)"
-          @remove="emit('remove', session)"
-        />
+      <div class="flex flex-col gap-0.5" :class="[isZone ? 'pl-3' : 'pl-5', truncated && 'session-list-fade']">
+        <SessionRow v-for="session in shownSessions" :key="session.id" :session="session"
+          :active="activeSessionId === session.id" @open="emit('open', session)" @pin="emit('pin', session)"
+          @archive="(archived) => emit('archive', session, archived)" @remove="emit('remove', session)" />
       </div>
       <div v-if="showExpandToggle" class="flex justify-center pr-10 pt-0.5">
-        <Button
-          variant="ghost"
-          class="h-7 px-2 text-[11.5px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-mut)] dark:hover:bg-transparent"
-          @click="emit('toggle-expand')"
-        >
+        <Button variant="ghost"
+          class="h-7 px-2 text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-mut)] dark:hover:bg-transparent"
+          @click="emit('toggle-expand')">
           {{ expanded ? "收起" : "展开显示" }}
         </Button>
       </div>
@@ -187,11 +173,12 @@ const showExpandToggle = computed(() => props.sessions.length > previewCount);
 </template>
 
 <style scoped>
-/* 截断态：5 行 + 第 6 行露头 12px，底部渐隐提示还有更多 */
-.session-list-fade {
-  max-height: calc(32px * 5 + 2px * 5 + 12px);
-  overflow: hidden;
-  mask-image: linear-gradient(to bottom, var(--color-side) calc(100% - 26px), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, var(--color-side) calc(100% - 26px), transparent);
-}
+
+  /* 截断态：5 行 + 第 6 行露头 12px，底部渐隐提示还有更多 */
+  .session-list-fade {
+    max-height: calc(32px * 5 + 2px * 5 + 12px);
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, var(--color-side) calc(100% - 26px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, var(--color-side) calc(100% - 26px), transparent);
+  }
 </style>

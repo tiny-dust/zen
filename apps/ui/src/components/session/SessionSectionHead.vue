@@ -29,7 +29,7 @@ const emit = defineEmits<{
     <span class="min-w-0 flex-1">{{ title }}</span>
     <span
       v-if="count"
-      class="inline-flex h-5 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10.5px] font-normal text-[var(--color-mut)]"
+      class="inline-flex h-5 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] font-normal text-[var(--color-mut)]"
     >
       {{ count }}
     </span>

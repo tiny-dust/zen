@@ -46,7 +46,7 @@ onMounted(() => {
         <span class="h-3.5 w-0.5 flex-none rounded-full bg-[var(--color-accent)]" aria-hidden="true" />
         <Server class="size-3.5 flex-none" aria-hidden="true" />
         <span
-          class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11.5px]"
+          class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]"
           :title="`${item.command}\n${item.cwd}`"
         >
           {{ item.command }}

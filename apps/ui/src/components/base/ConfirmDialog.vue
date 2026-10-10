@@ -45,7 +45,7 @@ const emit = defineEmits<{
       </DialogTitle>
       <DialogDescription
         v-if="description"
-        class="text-[12.5px] leading-normal text-[var(--color-mut)]"
+        class="text-[12px] leading-normal text-[var(--color-mut)]"
       >
         {{ description }}
       </DialogDescription>

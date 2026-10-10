@@ -192,7 +192,7 @@ watch(providers, () => {
           ]"
           :key="tab.id"
           variant="ghost"
-          class="relative h-auto rounded-none px-0 pb-2 text-[12.5px] font-normal hover:bg-transparent"
+          class="relative h-auto rounded-none px-0 pb-2 text-[12px] font-normal hover:bg-transparent"
           :class="
             activeTab === tab.id
               ? 'font-semibold text-[var(--color-txt-strong)] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t after:bg-[var(--color-accent)] after:content-\'\']'
@@ -211,7 +211,7 @@ watch(providers, () => {
             ref="searchEl"
             v-model="query"
             variant="ghost"
-            class="h-6 min-w-0 flex-1 text-[12.5px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
+            class="h-6 min-w-0 flex-1 text-[12px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             type="search"
             placeholder="搜索模型..."
           />

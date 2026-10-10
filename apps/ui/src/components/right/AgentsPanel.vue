@@ -295,7 +295,7 @@ async function onRetry() {
           <div v-else class="w-fit min-w-0 max-w-[min(100%,72ch)]">
             <div
               v-if="seg.kind === 'result' || seg.kind === 'error'"
-              class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12.5px]"
+              class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
               :class="
                 seg.kind === 'error'
                   ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'
@@ -308,7 +308,7 @@ async function onRetry() {
             </div>
             <p
               v-else
-              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-dim)]"
+              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
               :title="seg.text"
             >
               {{ seg.text }}

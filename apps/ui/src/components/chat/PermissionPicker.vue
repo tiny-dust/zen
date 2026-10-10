@@ -61,7 +61,7 @@ async function setPermissionMode(mode: unknown) {
             class="mt-0.5 size-4 flex-none"
           />
           <div class="flex min-w-0 flex-col gap-0.5">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ mode.label }}
             </span>
             <span class="text-[11px] leading-relaxed text-[var(--color-mut)]">

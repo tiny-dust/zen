@@ -139,7 +139,6 @@ const currentMessage = computed<ChatMessage>(() => {
 .step-state svg { width: 13px; height: 13px; }
 .step-state svg:first-child { color: var(--color-add); }
 .step-error .step-state, .step-error .step-state svg:first-child, .failure-text { color: var(--color-danger-fg); }
-.step-error { border-left: 2px solid var(--color-del); margin-left: -19px; padding-left: 17px; }
 .step-error-text { margin: 0 0 4px 25px; font-size: 12px; line-height: 1.7; color: var(--color-danger-fg); }
 .step-details { margin: 0 0 8px 25px; padding: 8px 12px; background: var(--color-side); border-radius: var(--radius-sm); font-size: 12px; }
 .step-details p { margin: 0 0 6px; color: var(--color-mut); }

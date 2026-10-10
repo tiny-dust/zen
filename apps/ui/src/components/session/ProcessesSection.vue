@@ -59,10 +59,10 @@ function ordered() {
           @click="processes.toggle(item.id)"
         >
           <SquareTerminal class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-          <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-txt)]">
+          <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
             {{ item.command || "(空命令)" }}
           </span>
-          <span class="flex-none text-[10.5px]" :class="meta(item.status).cls">
+          <span class="flex-none text-[10px]" :class="meta(item.status).cls">
             {{ meta(item.status).label }}
           </span>
           <component
@@ -77,7 +77,7 @@ function ordered() {
           <p v-if="item.error" class="m-0 text-[11px] text-[var(--color-err,#c45c5c)]">{{ item.error }}</p>
           <pre
             v-if="item.output"
-            class="m-0 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--color-np-btn-bg)] p-2 font-[family-name:var(--font-mono)] text-[10.5px] text-[var(--color-txt)]"
+            class="m-0 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--color-np-btn-bg)] p-2 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-txt)]"
           >{{ item.output }}</pre>
         </div>
       </div>

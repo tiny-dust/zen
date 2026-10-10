@@ -234,7 +234,7 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
             placeholder="Mozilla/5.0 ..."
             @input="markDirty"
           />
-          <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-dim)]">留空则使用运行时默认值。仅应用于此供应商的模型获取和模型请求。</p>
+          <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-dim)]">留空则使用运行时默认值。仅应用于此供应商的模型获取和模型请求。</p>
         </div>
       </div>
     </div>

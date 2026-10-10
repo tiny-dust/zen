@@ -186,7 +186,7 @@ async function confirmRemoveProvider() {
           @click="selectProvider(provider)"
         >
           <VendorLogo :vendor="provider.name" :size="16" />
-          <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ provider.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-[12px]">{{ provider.name }}</span>
           <span class="shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
             {{ provider.models.filter((m) => m.enabled).length }}/{{ provider.models.length }}
           </span>

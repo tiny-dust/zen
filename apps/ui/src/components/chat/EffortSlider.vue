@@ -120,8 +120,8 @@ onBeforeUnmount(() => {
       aria-label="思考强度"
     >
       <div class="mb-2.5 flex items-center justify-between">
-        <span class="text-[12.5px] font-semibold text-[var(--color-txt-strong)]">思考强度</span>
-        <span class="text-[12.5px] font-semibold text-[var(--color-accent)]">{{ label }}</span>
+        <span class="text-[12px] font-semibold text-[var(--color-txt-strong)]">思考强度</span>
+        <span class="text-[12px] font-semibold text-[var(--color-accent)]">{{ label }}</span>
       </div>
       <SliderRange
         :model-value="index"

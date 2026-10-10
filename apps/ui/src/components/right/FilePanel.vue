@@ -261,7 +261,7 @@ watch(
         >
           工作区文件
         </span>
-        <span class="flex-none text-[10.5px] text-[var(--color-dim)]">{{ fileCount }}</span>
+        <span class="flex-none text-[10px] text-[var(--color-dim)]">{{ fileCount }}</span>
         <Button variant="ghost" size="icon-xs" aria-label="刷新文件列表" title="刷新" @click="load">
           <RefreshCw :class="loading ? 'animate-spin' : ''" />
         </Button>

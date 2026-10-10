@@ -1,18 +1,27 @@
 import {
+  AppWindow,
   Bot,
+  Camera,
   FilePen,
   FileSearch,
   FileText,
   FoldVertical,
   FolderOpen,
+  Gauge,
   Globe,
   HelpCircle,
   Hourglass,
   Inbox,
   ListTodo,
+  MousePointerClick,
   Plug,
+  ScanSearch,
+  ScanText,
   Sparkles,
+  SquareCode,
   SquareTerminal,
+  Terminal,
+  TextCursorInput,
   Wrench,
 } from "@lucide/vue";
 import type { Component } from "vue";
@@ -91,6 +100,43 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
         icon: Globe,
         label: "网络搜索",
         target: { kind: "text", text: argText(args, ["query", "search"]) },
+      };
+    // 内置浏览器工具（impeccable live 走查等会话）
+    case "browserStatus":
+      return { icon: AppWindow, label: "查看浏览器状态" };
+    case "browserOpen":
+      return {
+        icon: Globe,
+        label: "打开页面",
+        target: { kind: "text", text: argText(args, ["url"]) },
+      };
+    case "browserSnapshot":
+      return { icon: ScanText, label: "截取页面结构" };
+    case "browserExtract":
+      return { icon: ScanSearch, label: "提取页面元素" };
+    case "browserClick":
+      return {
+        icon: MousePointerClick,
+        label: "点击元素",
+        target: { kind: "text", text: argText(args, ["selector"]) },
+      };
+    case "browserType":
+      return {
+        icon: TextCursorInput,
+        label: "输入文本",
+        target: { kind: "text", text: argText(args, ["selector"]) },
+      };
+    case "browserConsole":
+      return { icon: Terminal, label: "读取控制台" };
+    case "browserPerformance":
+      return { icon: Gauge, label: "性能分析" };
+    case "browserScreenshot":
+      return { icon: Camera, label: "页面截图" };
+    case "browserEvaluate":
+      return {
+        icon: SquareCode,
+        label: "执行脚本",
+        target: { kind: "text", text: argText(args, ["expression"]) },
       };
     case "loadSkill":
       return {

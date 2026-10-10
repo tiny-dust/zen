@@ -271,7 +271,7 @@ function removeAttachment(id: string) {
         >
           <AttachmentPreview />
           <AttachmentInfo />
-          <span class="shrink-0 text-[10.5px] text-[var(--color-dim)]">
+          <span class="shrink-0 text-[10px] text-[var(--color-dim)]">
             {{ formatSize(att.size) }}
           </span>
           <AttachmentRemove label="移除附件" class="hover:bg-transparent!" />
@@ -279,7 +279,7 @@ function removeAttachment(id: string) {
       </Attachments>
 
       <div
-        class="zen-surface rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
+        class="rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"
         :class="
           dragging
             ? 'border border-[color-mix(in_srgb,var(--color-accent)_50%,var(--color-line))]'
@@ -295,7 +295,7 @@ function removeAttachment(id: string) {
         <!-- 编辑插入（分叉）提示：发送后从被编辑消息处替换其后旧分支 -->
         <div
           v-if="editAnchorId"
-          class="mb-1.5 flex items-center gap-2 rounded-lg bg-[var(--color-menu-active)] px-2 py-1 text-[11.5px] text-[var(--color-txt)]"
+          class="mb-1.5 flex items-center gap-2 rounded-lg bg-[var(--color-menu-active)] px-2 py-1 text-[11px] text-[var(--color-txt)]"
         >
           <span class="min-w-0 flex-1 truncate">插入对话：发送后将从该消息处分叉，其后旧内容被替换</span>
           <Button

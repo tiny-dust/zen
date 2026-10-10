@@ -179,7 +179,7 @@ onMounted(() => {
         <div class="flex items-center justify-between px-2.5 pb-1 pt-2">
           <div>
             <div class="text-[12px] text-[var(--color-txt-strong)]">使用模板创建</div>
-            <p class="m-0 mt-0.5 text-[11.5px] text-[var(--color-mut)]">
+            <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
               数据源 models.dev{{ updatedAtLabel ? ` · 更新于 ${updatedAtLabel}` : "" }}；已下架模型自动移除。
             </p>
           </div>
@@ -198,7 +198,7 @@ onMounted(() => {
         </div>
         <p
           v-if="refreshMessage"
-          class="m-0 px-2.5 pb-1 text-[11.5px]"
+          class="m-0 px-2.5 pb-1 text-[11px]"
           :class="refreshFailed ? 'text-[var(--color-danger-fg)]' : 'text-[var(--color-mut)]'"
         >
           {{ refreshMessage }}
@@ -239,7 +239,7 @@ onMounted(() => {
                 {{ model.name }}
                 <span v-if="isKnown(model)" class="text-[11px] text-[var(--color-mut)]">已添加</span>
               </div>
-              <div class="font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--color-mut)]">
+              <div class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
                 {{ model.id }}
               </div>
               <CapabilityLine :capabilities="model.capabilities" />

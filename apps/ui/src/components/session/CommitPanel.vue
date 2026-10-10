@@ -197,7 +197,7 @@ const rowCls = cn(
             @mouseenter="ensureBranches"
           >
             <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-            <span class="max-w-[110px] truncate font-[family-name:var(--font-mono)] text-[12.5px]">
+            <span class="max-w-[110px] truncate font-[family-name:var(--font-mono)] text-[12px]">
               {{ branchLabel }}
             </span>
             <span

@@ -133,7 +133,7 @@ const branchFilter = computed({
       >
         提交历史
       </span>
-      <span class="flex-none text-[10.5px] text-[var(--color-dim)]">{{ graphRows.length }}</span>
+      <span class="flex-none text-[10px] text-[var(--color-dim)]">{{ graphRows.length }}</span>
       <Button
         variant="ghost"
         size="icon-xs"
@@ -149,7 +149,7 @@ const branchFilter = computed({
     <Select v-model="branchFilter">
       <SelectTrigger
         size="sm"
-        class="h-7 w-full flex-none rounded-md text-[11.5px]"
+        class="h-7 w-full flex-none rounded-md text-[11px]"
         aria-label="筛选分支"
       >
         <SelectValue placeholder="筛选分支" />
@@ -281,7 +281,7 @@ const branchFilter = computed({
               +{{ refBadges(row.entry.refs).length - MAX_BADGES }}
             </span>
           </div>
-          <p class="m-0 truncate text-[10.5px] text-[var(--color-dim)]">
+          <p class="m-0 truncate text-[10px] text-[var(--color-dim)]">
             {{ row.entry.hash.slice(0, 7) }} · {{ row.entry.author }} ·
             {{ fmtTime(row.entry.time) }}
           </p>
@@ -341,7 +341,7 @@ const branchFilter = computed({
             <p :class="detailRowCls">Date: {{ fmtTime(details.get(row.entry.hash)!.authorTime) }}</p>
             <p
               v-if="details.get(row.entry.hash)!.files.length"
-              class="m-0 mt-1.5 text-[10.5px] text-[var(--color-dim)]"
+              class="m-0 mt-1.5 text-[10px] text-[var(--color-dim)]"
             >
               变更文件（{{ details.get(row.entry.hash)!.files.length }}）
             </p>

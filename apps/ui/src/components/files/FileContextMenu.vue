@@ -176,7 +176,7 @@ function revealInFolder() {
   padding: 0 8px;
   border-radius: 6px;
   color: var(--color-txt);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
 }

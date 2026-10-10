@@ -176,7 +176,7 @@ watch(
           @click="selectPreset(preset.id)"
         >
           <div class="flex items-center gap-1.5">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ preset.name }}
             </span>
             <Badge
@@ -187,10 +187,10 @@ watch(
               含完整原文
             </Badge>
           </div>
-          <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-mut)]">
+          <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-mut)]">
             {{ preset.description }}
           </p>
-          <p class="m-0 mt-1 truncate text-[10.5px] text-[var(--color-dim)]">
+          <p class="m-0 mt-1 truncate text-[10px] text-[var(--color-dim)]">
             来源：{{ preset.origin }}
           </p>
         </Button>
@@ -205,8 +205,8 @@ watch(
           :aria-pressed="settings.prompt.presetId === 'custom'"
           @click="selectPreset('custom')"
         >
-          <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">自定义</span>
-          <p class="m-0 mt-1 text-[11.5px] text-[var(--color-mut)]">
+          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">自定义</span>
+          <p class="m-0 mt-1 text-[11px] text-[var(--color-mut)]">
             完全按你的规则约束 Agent 的行为与输出。
           </p>
         </Button>
@@ -248,19 +248,19 @@ watch(
           </Button>
         </div>
       </div>
-      <p class="m-0 text-[11.5px] text-[var(--color-mut)]">
+      <p class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ versionNote }}。Zen 另会自动附加工作目录、平台、日期、可用技能与 MCP 清单。
       </p>
       <Textarea
         v-if="settings.prompt.presetId === 'custom'"
         :model-value="settings.prompt.customText"
-        class="min-h-[260px] rounded-xl border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[12.5px] leading-relaxed"
+        class="min-h-[260px] rounded-xl border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[12px] leading-relaxed"
         placeholder="你是…（描述身份、代码修改规范、工具使用规则、输出风格等）"
         @input="onCustomInput"
       />
       <pre
         v-else
-        class="m-0 max-h-[320px] overflow-auto rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3 font-[family-name:var(--font-mono)] text-[11.5px] leading-relaxed whitespace-pre-wrap text-[var(--color-mut)]"
+        class="m-0 max-h-[320px] overflow-auto rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] p-3 font-[family-name:var(--font-mono)] text-[11px] leading-relaxed whitespace-pre-wrap text-[var(--color-mut)]"
       >{{ previewText }}</pre>
     </section>
   </div>

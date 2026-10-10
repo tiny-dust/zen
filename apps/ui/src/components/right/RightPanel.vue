@@ -45,7 +45,7 @@ function tabCls(id: string) {
   return cn(
     "flex h-7 max-w-[120px] flex-none items-center gap-1 rounded-[6px] px-2 text-left text-[12px]",
     id === activeId.value
-      ? "zen-indicator bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
+      ? "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
       : "text-[var(--color-mut)] hover:text-[var(--color-txt)]",
   );
 }
@@ -53,7 +53,7 @@ function tabCls(id: string) {
 
 <template>
   <aside
-    class="zen-surface flex h-full min-w-0 flex-col border-l border-[var(--color-line-soft)] bg-transparent"
+    class="flex h-full min-w-0 flex-col border-l border-[var(--color-line-soft)] bg-transparent"
     aria-label="工具面板"
   >
     <!-- 头行：Tab 与折叠开关同级 -->

@@ -189,7 +189,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
             variant="ghost"
             role="option"
             :aria-selected="draftOf(current.askId).picked.includes(option)"
-            class="h-auto w-full justify-start gap-2 whitespace-normal rounded-lg border px-2.5 py-1.5 text-left font-normal text-[12.5px] md:text-[12.5px] transition-colors duration-[var(--motion-fast)]"
+            class="h-auto w-full justify-start gap-2 whitespace-normal rounded-lg border px-2.5 py-1.5 text-left font-normal text-[12px] md:text-[12px] transition-colors duration-[var(--motion-fast)]"
             :class="
               draftOf(current.askId).picked.includes(option)
                 ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-[var(--color-txt-strong)]'
@@ -225,7 +225,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
             :model-value="draftOf(current.askId).freeText"
             variant="ghost"
             type="text"
-            class="h-7 min-w-0 flex-1 text-[12.5px] md:text-[12.5px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
+            class="h-7 min-w-0 flex-1 text-[12px] md:text-[12px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             :placeholder="isMulti(current) ? '可补充说明后一并发送…' : '或输入你的回答…'"
             aria-label="自由回答"
             @update:model-value="draftOf(current.askId).freeText = String($event)"

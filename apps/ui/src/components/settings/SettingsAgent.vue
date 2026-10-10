@@ -145,19 +145,19 @@ function formatTime(ms: number): string {
           @click="pickMode(item.id)"
         >
           <div class="flex items-center gap-1.5">
-            <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ item.label }}
             </span>
             <Badge v-if="item.id === 'full'" variant="secondary" class="text-[10px]">高危</Badge>
           </div>
-          <p class="m-0 mt-1 text-[11.5px] leading-snug text-[var(--color-mut)]">
+          <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-mut)]">
             {{ item.description }}
           </p>
         </Button>
       </div>
       <div
         v-if="settings.permissionMode === 'full'"
-        class="flex items-start gap-2 rounded-lg bg-[color-mix(in_srgb,var(--color-warn,#d97709)_10%,transparent)] px-3 py-2 text-[11.5px] text-[var(--color-mut)]"
+        class="flex items-start gap-2 rounded-lg bg-[color-mix(in_srgb,var(--color-warn,#d97709)_10%,transparent)] px-3 py-2 text-[11px] text-[var(--color-mut)]"
       >
         <TriangleAlert :size="14" class="mt-0.5 flex-none text-[var(--color-warn,#d97709)]" />
         完全访问权限下，Agent 可以不经确认执行任何命令与写操作。请仅在完全信任的项目中使用。
@@ -189,8 +189,8 @@ function formatTime(ms: number): string {
           :aria-pressed="settings.sandboxMode === item.id"
           @click="pickSandbox(item.id)"
         >
-          <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">{{ item.label }}</span>
-          <p class="m-0 mt-1 text-[11.5px] text-[var(--color-mut)]">{{ item.desc }}</p>
+          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ item.label }}</span>
+          <p class="m-0 mt-1 text-[11px] text-[var(--color-mut)]">{{ item.desc }}</p>
         </Button>
       </div>
       <div
@@ -204,7 +204,7 @@ function formatTime(ms: number): string {
           <RefreshCw :size="13" data-icon="inline-start" />重建隔离区
         </Button>
       </div>
-      <p v-if="rebuildMessage" class="m-0 text-[11.5px] text-[var(--color-mut)]">
+      <p v-if="rebuildMessage" class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ rebuildMessage }}
       </p>
       <p v-if="chatStore.appInfo" class="m-0 text-[11px] text-[var(--color-dim)]">
@@ -228,7 +228,7 @@ function formatTime(ms: number): string {
         class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3"
       >
         <div class="flex items-center gap-2">
-          <span class="min-w-0 flex-1 text-[12.5px] font-medium text-[var(--color-txt-strong)]">
+          <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
             设备环境快照
           </span>
           <span class="text-[11px] text-[var(--color-dim)]">
@@ -238,7 +238,7 @@ function formatTime(ms: number): string {
             <RefreshCw :size="13" data-icon="inline-start" />重新采集
           </Button>
         </div>
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-[var(--color-mut)]">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[var(--color-mut)]">
           <span>系统：{{ memory.device.platform }} {{ memory.device.arch }}</span>
           <span class="min-w-0 truncate">Shell：{{ memory.device.shell }}</span>
           <span v-if="memory.device.timezone">
@@ -250,7 +250,7 @@ function formatTime(ms: number): string {
           <span
             v-for="[name, path] in deviceTools"
             :key="name"
-            class="inline-flex max-w-full items-baseline gap-1 rounded-md bg-[var(--color-chip-bg)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-mut)]"
+            class="inline-flex max-w-full items-baseline gap-1 rounded-md bg-[var(--color-chip-bg)] px-1.5 py-0.5 text-[10px] text-[var(--color-mut)]"
             :title="`${name} = ${path}`"
           >
             <span class="font-[family-name:var(--font-mono)] text-[var(--color-txt)]">{{ name }}</span>
@@ -260,14 +260,14 @@ function formatTime(ms: number): string {
 
         <!-- 设备备注 -->
         <div class="flex flex-col gap-1.5 border-t border-[var(--color-line-soft)] pt-2">
-          <span class="text-[11.5px] text-[var(--color-mut)]">设备备注</span>
+          <span class="text-[11px] text-[var(--color-mut)]">设备备注</span>
           <p v-if="!deviceNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
             暂无备注；可记录「这个机器上全局依赖用 pnpm」之类的长期事实。
           </p>
           <div
             v-for="note in deviceNoteList"
             :key="note.id"
-            class="group flex items-start gap-2 text-[11.5px] text-[var(--color-txt)]"
+            class="group flex items-start gap-2 text-[11px] text-[var(--color-txt)]"
           >
             <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
             <DangerIconButton
@@ -302,14 +302,14 @@ function formatTime(ms: number): string {
 
       <!-- 用户习惯备注 -->
       <div class="flex flex-col gap-1.5">
-        <span class="text-[12.5px] font-medium text-[var(--color-txt-strong)]">用户习惯</span>
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">用户习惯</span>
         <p v-if="!userNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
           暂无记录；Agent 会在你明确要求记住，或你表达稳定偏好时写入。
         </p>
         <div
           v-for="note in userNoteList"
           :key="note.id"
-          class="group flex items-start gap-2 text-[11.5px] text-[var(--color-txt)]"
+          class="group flex items-start gap-2 text-[11px] text-[var(--color-txt)]"
         >
           <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
           <DangerIconButton
