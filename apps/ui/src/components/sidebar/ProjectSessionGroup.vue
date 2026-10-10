@@ -14,7 +14,6 @@
   import { useWorkspaceStore } from "@/stores/workspace";
 
   import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
-  import { defineEmits, defineProps, } from 'vue';
 
   const props = defineProps<{
     group: WorkspaceGroup;
