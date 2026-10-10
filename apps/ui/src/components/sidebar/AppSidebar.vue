@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { Cable, ChevronDown, ChevronRight, FolderClosed, Plus, Sparkles } from "@lucide/vue";
+  import { Cable, ChevronDown, FolderClosed, Plus, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onMounted, ref } from "vue";
 
@@ -173,10 +173,6 @@
   function toggleWorkspacesZone() {
     workspaceStore.toggleCollapsed(WORKSPACES_ZONE_KEY);
   }
-
-  /** 顶部常驻入口（技能 / MCP）大卡片：与列表行区隔明显的独立入口 */
-  const topCardCls =
-    "group flex h-10 w-full items-center gap-2.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-side-hover)] px-3 text-[13px] font-medium text-[var(--color-side-item)] transition-all duration-150 hover:bg-[var(--color-side-active)] hover:text-[var(--color-txt-strong)] active:scale-[0.98]";
 </script>
 
 <template>
@@ -187,35 +183,23 @@
       <span class="w-[var(--titlebar-lead)] flex-none" aria-hidden="true" />
       <div class="flex min-w-0 flex-1 items-center gap-2 px-1">
         <span class="text-[14px] font-semibold tracking-tight text-[var(--color-txt-strong)]">Zen</span>
+        <!-- 常驻入口收进头行图标位（Cursor 式）：点击打开弹窗 -->
+        <div class="ml-auto flex items-center gap-0.5">
+          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+            aria-label="技能" title="技能" @click="skillsOpen = true">
+            <Sparkles class="size-4" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+            aria-label="MCP" title="MCP" @click="mcpOpen = true">
+            <Cable class="size-4" aria-hidden="true" />
+          </Button>
+        </div>
       </div>
     </header>
 
-    <div class="flex flex-col flex-1 overflow-y-auto  my-2">
-      <!-- 顶部常驻入口：技能 / MCP（大卡片，与下方会话分区拉开层次） -->
-      <div class="flex flex-none flex-col gap-1.5 px-2 pt-1.5">
-        <Button type="button" :class="topCardCls" @click="skillsOpen = true">
-          <Sparkles
-            class="size-4 flex-none text-[var(--color-mut)] transition-colors duration-150 group-hover:text-[var(--color-accent)]"
-            aria-hidden="true" />
-          <span>技能</span>
-          <ChevronRight
-            class="ml-auto size-3 text-[var(--color-dim)] opacity-0 transition-opacity group-hover:opacity-100"
-            aria-hidden="true" />
-        </Button>
-        <Button type="button" :class="topCardCls" @click="mcpOpen = true">
-          <Cable
-            class="size-4 flex-none text-[var(--color-mut)] transition-colors duration-150 group-hover:text-[var(--color-accent)]"
-            aria-hidden="true" />
-          <span>MCP</span>
-          <ChevronRight
-            class="ml-auto size-3 text-[var(--color-dim)] opacity-0 transition-opacity group-hover:opacity-100"
-            aria-hidden="true" />
-        </Button>
-      </div>
-
-      <!-- 会话分区：公共区 / 工作区（区块头可折叠，pt-3 与顶部入口卡拉开间距） -->
-      <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pb-2 pt-3 mt-10">
-        <!-- 公共区：组头即区块头（variant=zone），点击折叠/展开其下会话 -->
+    <!-- 会话分区：公共区 / 工作区（单层滚动容器，区块头可折叠） -->
+    <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0 pb-2 pt-2 my-2">
+      <!-- 公共区：组头即区块头（variant=zone），点击折叠/展开其下会话 -->
         <ProjectSessionGroup v-if="commonGroup" variant="zone" :group="commonGroup" :sessions="sessionsOf(commonGroup)"
           :open="groupOpen(commonGroup.id)" :expanded="workspaceStore.expanded.has(commonGroup.id)"
           :active-session-id="sessionId" :show-in-folder-label="showInFolderLabel"
@@ -271,7 +255,6 @@
               @show-in-folder="onShowWorkspaceInFolder(group)" @delete-workspace="pendingWorkspaceDelete = group" />
           </div>
         </section>
-      </div>
     </div>
 
     <div class="flex-none border-t border-[var(--color-line-soft)] p-2">
