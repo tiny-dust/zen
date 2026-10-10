@@ -32,32 +32,83 @@ function pngDataUrl(image: Electron.NativeImage): string {
   return `data:image/png;base64,${image.toPNG().toString("base64")}`;
 }
 
-/** 优先 Electron getFileIcon，失败则从 .app 的 Info.plist / Resources 读 icns */
-async function iconDataUrl(appPath: string): Promise<string> {
-  try {
-    const image = await app.getFileIcon(appPath, { size: "normal" });
-    const url = pngDataUrl(image);
-    if (url) {
-      return url;
-    }
-  } catch {
-    // fall through
-  }
+/**
+ * ICNS atom 按图标尺寸的偏好顺序（降序），ic11/ic12 为小尺寸 retina 不参与。
+ * ic10=1024、ic14=512@2x(1024)、ic09=512、ic13=256@2x(512)、ic08=256、ic07=128。
+ */
+const ICNS_PNG_ATOM_PREFERENCE = ["ic10", "ic14", "ic09", "ic13", "ic08", "ic07"];
 
-  if (!appPath.endsWith(".app")) {
+/**
+ * 纯 JS 解析 ICNS 容器，按偏好提取最大尺寸的 PNG atom。
+ * 结构：8 字节头（"icns" + UInt32BE 总长度），之后每个 atom 为 4 字节 ASCII type
+ * + UInt32BE 长度（含 atom 头 8 字节）。老格式 icns（无 PNG atom）返回 undefined。
+ * nativeImage.createFromPath/createFromBuffer 均不支持 .icns，必须手动解容器。
+ */
+export function extractIcnsPng(buffer: Buffer): Buffer | undefined {
+  if (buffer.length < 8 || buffer.toString("ascii", 0, 4) !== "icns") {
+    return undefined;
+  }
+  const atoms = new Map<string, Buffer>();
+  let offset = 8;
+  while (offset + 8 <= buffer.length) {
+    const type = buffer.toString("ascii", offset, offset + 4);
+    const length = buffer.readUInt32BE(offset + 4);
+    if (length < 8 || offset + length > buffer.length) {
+      // 长度非法，停止解析，用已收集的 atom 兜底
+      break;
+    }
+    const data = buffer.subarray(offset + 8, offset + length);
+    if (
+      data.length >= 4 &&
+      data[0] === 0x89 &&
+      data[1] === 0x50 &&
+      data[2] === 0x4e &&
+      data[3] === 0x47
+    ) {
+      // 拷贝出 PNG 数据，避免持有整个 icns buffer
+      atoms.set(type, Buffer.from(data));
+    }
+    offset += length;
+  }
+  for (const type of ICNS_PNG_ATOM_PREFERENCE) {
+    const png = atoms.get(type);
+    if (png) {
+      return png;
+    }
+  }
+  return undefined;
+}
+
+/** icns 文件内容 → 64px PNG data-url（菜单显示 16px，64px 覆盖 retina）；无 PNG atom 返回空 */
+function icnsPngDataUrl(icns: Buffer): string {
+  const png = extractIcnsPng(icns);
+  if (!png) {
     return "";
   }
+  const image = nativeImage.createFromBuffer(png);
+  if (image.isEmpty()) {
+    return "";
+  }
+  return pngDataUrl(image.resize({ width: 64, quality: "good" }));
+}
 
+/**
+ * macOS .app 专用图标提取（getFileIcon 对 .app 返回同一张占位图标，不可用）：
+ * ① Info.plist 的 CFBundleIconFile 定位 icns（图标名可含空格；缺 .icns 后缀时补）
+ * ② ①失败扫 Contents/Resources 下任意 .icns
+ * ③ 都失败由调用方落到 getFileIcon 兜底
+ */
+async function macAppIconDataUrl(appPath: string): Promise<string> {
   try {
     const plist = await readFile(join(appPath, "Contents/Info.plist"), "utf8");
     const match = plist.match(
       /<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/i,
     );
-    if (match?.[1]) {
-      const raw = match[1].trim();
+    const raw = match?.[1]?.trim();
+    if (raw) {
       const iconName = raw.endsWith(".icns") ? raw : `${raw}.icns`;
-      const icnsPath = join(appPath, "Contents/Resources", iconName);
-      const url = pngDataUrl(nativeImage.createFromPath(icnsPath));
+      const icns = await readFile(join(appPath, "Contents/Resources", iconName));
+      const url = icnsPngDataUrl(icns);
       if (url) {
         return url;
       }
@@ -69,15 +120,37 @@ async function iconDataUrl(appPath: string): Promise<string> {
   try {
     const resources = join(appPath, "Contents/Resources");
     const entries = await readdir(resources);
-    const icns = entries.find((name) => name.endsWith(".icns"));
+    const icns = entries.find((name) => name.toLowerCase().endsWith(".icns"));
     if (icns) {
-      const url = pngDataUrl(nativeImage.createFromPath(join(resources, icns)));
+      const url = icnsPngDataUrl(await readFile(join(resources, icns)));
       if (url) {
         return url;
       }
     }
   } catch {
     // ignore
+  }
+
+  return "";
+}
+
+/** macOS .app 优先 ICNS 提取，其余路径（exe 等）与兜底走 Electron getFileIcon */
+async function iconDataUrl(appPath: string): Promise<string> {
+  if (appPath.endsWith(".app")) {
+    const url = await macAppIconDataUrl(appPath);
+    if (url) {
+      return url;
+    }
+  }
+
+  try {
+    const image = await app.getFileIcon(appPath, { size: "normal" });
+    const url = pngDataUrl(image);
+    if (url) {
+      return url;
+    }
+  } catch {
+    // fall through
   }
 
   return "";

@@ -1,7 +1,9 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { cp, readdir, readFile, rename as renameFile, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
+
+import { duplicateName } from "./workspace-copy-name";
 
 import type { DirEntry, FilePreview, ReadFileResult, WorkspaceFile } from "@zen/shared";
 
@@ -208,4 +210,129 @@ export function registerWorkspaceIpc(): void {
       }
     },
   );
+
+  // 重命名文件/目录：目标名不允许路径分隔符；目标已存在时报错（不覆盖）。
+  // 通道名不能叫 workspace:rename——已被工作区分组重命名占用（session-ipc.ts）。
+  ipcMain.handle(
+    "workspace:rename-entry",
+    async (
+      _event,
+      cwd?: string,
+      relPath?: string,
+      newName?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!relPath || typeof newName !== "string" || !newName.trim()) {
+        return { ok: false, error: "path and newName are required" };
+      }
+      const name = newName.trim();
+      if (name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+        return { ok: false, error: "newName must be a plain file name" };
+      }
+      const root = cwd || process.cwd();
+      const src = resolveInsideRoot(root, relPath);
+      if (!src) {
+        return { ok: false, error: "path escapes workspace" };
+      }
+      try {
+        const dest = join(dirname(src), name);
+        if (await stat(dest).catch(() => null)) {
+          return { ok: false, error: "target already exists" };
+        }
+        await renameFile(src, dest);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "rename failed" };
+      }
+    },
+  );
+
+  // 删除到系统废纸篓（shell.trashItem：macOS Finder / Windows 回收站 / Linux XDG trash）
+  ipcMain.handle(
+    "workspace:trash",
+    async (_event, cwd?: string, relPath?: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!relPath) {
+        return { ok: false, error: "path is required" };
+      }
+      const root = cwd || process.cwd();
+      const target = resolveInsideRoot(root, relPath);
+      if (!target) {
+        return { ok: false, error: "path escapes workspace" };
+      }
+      try {
+        await shell.trashItem(target);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "trash failed" };
+      }
+    },
+  );
+
+  // 递归复制到目标目录：同目录粘贴自动生成「name 副本」避免覆盖；
+  // 跨目录目标已存在时报错；禁止把目录复制进自身子目录（会无限递归）。
+  ipcMain.handle(
+    "workspace:copy",
+    async (
+      _event,
+      cwd?: string,
+      srcRel?: string,
+      destDirRel?: string,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!srcRel) {
+        return { ok: false, error: "src is required" };
+      }
+      const root = cwd || process.cwd();
+      const src = resolveInsideRoot(root, srcRel);
+      const destDir = resolveInsideRoot(root, destDirRel ?? "");
+      if (!src || !destDir) {
+        return { ok: false, error: "path escapes workspace" };
+      }
+      try {
+        const info = await stat(src);
+        if (!info.isDirectory() && !info.isFile()) {
+          return { ok: false, error: "unsupported source" };
+        }
+        if (!(await stat(destDir)).isDirectory()) {
+          return { ok: false, error: "destination is not a directory" };
+        }
+        if (info.isDirectory() && (destDir === src || destDir.startsWith(src + sep))) {
+          return { ok: false, error: "cannot copy a directory into itself" };
+        }
+        const original = basename(src);
+        let destName = original;
+        const destExists = async (name: string) =>
+          !!(await stat(join(destDir, name)).catch(() => null));
+        if (await destExists(destName)) {
+          if (dirname(src) !== destDir) {
+            return { ok: false, error: "target already exists" };
+          }
+          for (let i = 1; i <= 99; i += 1) {
+            const candidate = duplicateName(original, i);
+            if (!(await destExists(candidate))) {
+              destName = candidate;
+              break;
+            }
+          }
+          if (destName === original) {
+            return { ok: false, error: "too many duplicates" };
+          }
+        }
+        await cp(src, join(destDir, destName), { recursive: true });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "copy failed" };
+      }
+    },
+  );
+}
+
+/** 相对路径解析到工作区内；越界（..、绝对路径）返回 null。relPath 为空串时解析为根。 */
+function resolveInsideRoot(root: string, relPath: string | undefined): string | null {
+  if (relPath === undefined) {
+    return null;
+  }
+  const target = resolve(root, relPath);
+  if (target !== root && !target.startsWith(root + sep)) {
+    return null;
+  }
+  return target;
 }
