@@ -88,8 +88,6 @@
               <Folder class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-[12px] font-medium">{{ group.name }}</span>
             </template>
-            <Pin v-if="group.pinned" class="size-3 flex-none -rotate-45 text-[var(--color-accent)]"
-              aria-hidden="true" />
           </Button>
           <!-- 悬浮快捷操作：图标按钮 hover 只提亮图标不出底色，键盘聚焦时保持可见 -->
           <div
@@ -101,19 +99,20 @@
             </Button>
             <template v-if="!isCommon">
               <Button variant="ghost" size="icon-sm"
-                class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
-                :aria-label="group.pinned ? '取消置顶' : '置顶'" :title="group.pinned ? '取消置顶' : '置顶'"
-                @click.stop="emit('pin-workspace')">
-                <PinOff v-if="group.pinned" class="size-3.5" aria-hidden="true" />
-                <Pin v-else class="size-3.5" aria-hidden="true" />
-              </Button>
-              <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-del)] hover:text-[var(--color-danger-fg)] dark:hover:text-[var(--color-danger-fg)]"
                 aria-label="删除工作区" title="删除工作区" @click.stop="emit('delete-workspace')">
                 <Trash2 class="size-3.5" aria-hidden="true" />
               </Button>
             </template>
           </div>
+          <!-- 行尾置顶开关：置顶时常显（accent 斜钉），可直接点击取消；未置顶时 hover 才浮现 -->
+          <button v-if="!isCommon" type="button"
+            class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-dim)] transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/row:opacity-100"
+            :class="group.pinned ? 'opacity-100' : 'opacity-0'"
+            :aria-label="group.pinned ? '取消置顶' : '置顶'" :title="group.pinned ? '取消置顶' : '置顶'"
+            @click.stop="emit('pin-workspace')">
+            <Pin class="size-3.5" :class="group.pinned ? '-rotate-45 text-[var(--color-accent)]' : ''" aria-hidden="true" />
+          </button>
           <!-- 区块头形态：尾部折叠箭头（可折叠的可见提示） -->
           <ChevronDown v-if="isZone"
             class="mr-1 size-3 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"

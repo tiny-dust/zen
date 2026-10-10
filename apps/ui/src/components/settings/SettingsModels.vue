@@ -28,6 +28,8 @@ const { providers, activeProvider, activeProviderId, selection, error, fetching 
 const mode = ref<Mode>("view");
 const providerToRemove = ref(false);
 const removing = ref(false);
+const modelToRemove = ref<ProviderModel | null>(null);
+const removingModel = ref(false);
 
 const providerRemoveDesc = computed(() => {
   const provider = activeProvider.value;
@@ -165,6 +167,19 @@ async function confirmRemoveProvider() {
   providerToRemove.value = false;
   mode.value = "view";
 }
+
+/** 删除模型（仅手动添加的自定义模型入口可触达），落库不可撤销，需二次确认 */
+async function confirmRemoveModel() {
+  const providerId = activeProviderId.value;
+  const model = modelToRemove.value;
+  if (!providerId || !model) {
+    return;
+  }
+  removingModel.value = true;
+  await modelsStore.removeModel(providerId, model.id);
+  removingModel.value = false;
+  modelToRemove.value = null;
+}
 </script>
 
 <template>
@@ -218,6 +233,7 @@ async function confirmRemoveProvider() {
           @toggle-model-enabled="onToggleModelEnabled"
           @add-model="onAddModel"
           @update-model="onUpdateModel"
+          @remove-model="modelToRemove = $event"
         />
       </div>
 
@@ -236,6 +252,16 @@ async function confirmRemoveProvider() {
       :pending="removing"
       @update:open="providerToRemove = $event"
       @confirm="confirmRemoveProvider"
+    />
+
+    <ConfirmDialog
+      :open="!!modelToRemove"
+      :title="`删除模型「${modelToRemove?.name ?? ''}」？`"
+      description="将从该供应商移除此自定义模型，操作不可撤销。"
+      confirm-label="删除模型"
+      :pending="removingModel"
+      @update:open="(value) => { if (!value) modelToRemove = null; }"
+      @confirm="confirmRemoveModel"
     />
   </section>
 </template>

@@ -253,8 +253,9 @@ function removeAttachment(id: string) {
 </script>
 
 <template>
-  <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条 -->
-  <div class="flex-none bg-[var(--color-main-bg)] px-4 pb-4 pt-2">
+  <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条。
+       左侧与消息区共用 --chat-gutter 引导线槽，保持两列对齐（见 styles.css） -->
+  <div class="flex-none bg-[var(--color-main-bg)] pl-[var(--chat-gutter)] pr-4 pb-4 pt-2">
     <div class="relative mx-auto max-w-[860px]">
       <!-- Agent 提问卡：贴在输入框上方，回答动作紧邻输入位置 -->
       <AskUserCard v-if="chatStore.pendingAsk" class="mb-2" />

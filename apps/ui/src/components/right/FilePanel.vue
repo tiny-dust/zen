@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FileCode, FolderOpen, RefreshCw, Save } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import {
@@ -13,10 +13,19 @@ import {
   toWorkspaceRelativePath,
 } from "@/components/files/file-ref";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
+import FileRenameDialog from "@/components/right/FileRenameDialog.vue";
 import FileTreeNode from "@/components/right/FileTreeNode.vue";
 import FileViewer from "@/components/right/FileViewer.vue";
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
 import { classifyPathRef } from "@/lib/path-ref";
 import { useBrowserStore } from "@/stores/browser";
 import { useChatStore } from "@/stores/chat";
@@ -24,8 +33,17 @@ import { useGitStore } from "@/stores/git";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
 
+import {
+  isPathUnder,
+  joinRelPath,
+  parentDirPath,
+  pasteTargetDir,
+  remapSetAfterRename,
+} from "./file-tree-ops";
+
 import type { WorkspaceFile } from "@zen/shared";
 import type { FileTreeNode as FileNode } from "@/components/right/panel-nodes";
+import type { FileTreeAction } from "./file-tree-ops";
 
 const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
@@ -247,6 +265,168 @@ watch(
   },
   { immediate: true },
 );
+
+// ---- 右键菜单：FileTreeNode 上报动作，这里统一处理 ----
+
+/** 内部剪贴板缓冲：右键「复制」后供「粘贴」使用 */
+const copyBuffer = ref<{ path: string; isDir: boolean } | null>(null);
+/** 「在 Finder/资源管理器中显示」文案（platformInfo 按平台给出） */
+const showInFolderLabel = ref("在文件管理器中显示");
+const renameTarget = ref<{ path: string; name: string } | null>(null);
+const renamePending = ref(false);
+const deleteTarget = ref<{ path: string; name: string; isDir: boolean } | null>(null);
+const deletePending = ref(false);
+
+onMounted(() => {
+  void window.zen?.shell
+    .platformInfo()
+    .then((info) => {
+      showInFolderLabel.value = info.showInFolderLabel || showInFolderLabel.value;
+    })
+    .catch(() => undefined);
+});
+
+/** IPC 结果兜底：reject 时折成 {ok:false}，避免无人 catch 的 Promise 静默吞错 */
+function ipcFallback(err: unknown): { ok: false; error: string } {
+  return { ok: false, error: err instanceof Error ? err.message : String(err) };
+}
+
+function absPathOf(rel: string): string {
+  return resolveFileRefPath(rel, treeRoot.value);
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    toast.err("复制到剪贴板失败");
+  }
+}
+
+async function openWithSystemApp(node: FileNode) {
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  const result = await zen.shell.openPath(absPathOf(node.path)).catch(ipcFallback);
+  if (!result.ok) {
+    toast.err(result.error ?? "打开失败");
+  }
+}
+
+async function revealInFolder(node: FileNode) {
+  const zen = window.zen;
+  if (!zen) {
+    return;
+  }
+  const result = await zen.shell.showInFolder(absPathOf(node.path)).catch(ipcFallback);
+  if (!result.ok) {
+    toast.err(result.error ?? "显示文件位置失败");
+  }
+}
+
+async function pasteInto(destDirRel: string) {
+  const zen = window.zen;
+  const buffer = copyBuffer.value;
+  const root = treeRoot.value;
+  if (!zen || !buffer || !root) {
+    return;
+  }
+  const result = await zen.workspace.copy(root, buffer.path, destDirRel).catch(ipcFallback);
+  if (!result.ok) {
+    toast.err(result.error ?? "粘贴失败");
+    return;
+  }
+  await load();
+  void useGitStore().refreshStatus();
+}
+
+/** 文件树成功变更后的公共收尾：刷新文件树 + git 状态 */
+async function refreshAfterChange() {
+  await load();
+  void useGitStore().refreshStatus();
+}
+
+function onTreeAction(action: FileTreeAction, node: FileNode) {
+  switch (action) {
+    case "open":
+      // 目录=切换展开；文件=系统默认应用打开
+      if (node.isDir) {
+        toggle(node);
+      } else {
+        void openWithSystemApp(node);
+      }
+      break;
+    case "reveal":
+      void revealInFolder(node);
+      break;
+    case "copy-relative":
+      void copyTextToClipboard(node.path);
+      break;
+    case "copy-absolute":
+      void copyTextToClipboard(absPathOf(node.path));
+      break;
+    case "copy":
+      copyBuffer.value = { path: node.path, isDir: node.isDir };
+      break;
+    case "paste":
+      void pasteInto(pasteTargetDir(node.path, node.isDir));
+      break;
+    case "rename":
+      renameTarget.value = { path: node.path, name: node.name };
+      break;
+    case "delete":
+      deleteTarget.value = { path: node.path, name: node.name, isDir: node.isDir };
+      break;
+  }
+}
+
+async function confirmRename(newName: string) {
+  const zen = window.zen;
+  const target = renameTarget.value;
+  const root = treeRoot.value;
+  if (!zen || !target || !root) {
+    return;
+  }
+  renamePending.value = true;
+  const result = await zen.workspace.renameEntry(root, target.path, newName).catch(ipcFallback);
+  renamePending.value = false;
+  if (!result.ok) {
+    toast.err(result.error ?? "重命名失败");
+    return;
+  }
+  const nextRel = joinRelPath(parentDirPath(target.path), newName);
+  // 同步 expanded 集合里的路径前缀；预览指向旧路径时直接清掉选中
+  expanded.value = remapSetAfterRename(expanded.value, target.path, nextRel);
+  if (isPathUnder(selected.value, target.path)) {
+    selected.value = "";
+    selectedLine.value = undefined;
+  }
+  renameTarget.value = null;
+  await refreshAfterChange();
+}
+
+async function confirmDelete() {
+  const zen = window.zen;
+  const target = deleteTarget.value;
+  const root = treeRoot.value;
+  if (!zen || !target || !root) {
+    return;
+  }
+  deletePending.value = true;
+  const result = await zen.workspace.trash(root, target.path).catch(ipcFallback);
+  deletePending.value = false;
+  if (!result.ok) {
+    toast.err(result.error ?? "删除失败");
+    return;
+  }
+  if (isPathUnder(selected.value, target.path)) {
+    selected.value = "";
+    selectedLine.value = undefined;
+  }
+  deleteTarget.value = null;
+  await refreshAfterChange();
+}
 </script>
 
 <template>
@@ -272,23 +452,43 @@ watch(
         class="h-7 w-full flex-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] md:text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
         placeholder="筛选文件"
       />
-      <p v-if="!treeRoot" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">公共区未绑定目录</p>
-      <p v-else-if="loading && !files.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
-        读取中…
-      </p>
-      <p v-else-if="!tree.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
-        {{ query ? "无匹配文件" : "空目录" }}
-      </p>
-      <div v-else class="min-h-0 flex-1 overflow-auto">
-        <FileTreeNode
-          v-for="node in tree"
-          :key="node.path"
-          :node="node"
-          :expanded="expanded"
-          :selected="selected"
-          @toggle="toggle"
-        />
-      </div>
+      <ContextMenu>
+        <!-- 树空白处右键 = 粘贴到工作区根（无缓冲时禁用）；行内右键由 FileTreeNode 自带菜单处理 -->
+        <ContextMenuTrigger as-child>
+          <div class="flex min-h-0 flex-1 flex-col">
+            <p v-if="!treeRoot" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
+              公共区未绑定目录
+            </p>
+            <p
+              v-else-if="loading && !files.length"
+              class="m-0 px-1 text-[12px] text-[var(--color-dim)]"
+            >
+              读取中…
+            </p>
+            <p v-else-if="!tree.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
+              {{ query ? "无匹配文件" : "空目录" }}
+            </p>
+            <div v-else class="min-h-0 flex-1 overflow-auto">
+              <FileTreeNode
+                v-for="node in tree"
+                :key="node.path"
+                :node="node"
+                :expanded="expanded"
+                :selected="selected"
+                :can-paste="!!copyBuffer"
+                :show-in-folder-label="showInFolderLabel"
+                @toggle="toggle"
+                @action="onTreeAction"
+              />
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent class="min-w-44">
+          <ContextMenuItem :disabled="!copyBuffer" @select="copyBuffer && pasteInto('')">
+            粘贴
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
 
     <ResizeHandle line orientation="vertical" @drag="onSplitDrag" />
@@ -345,5 +545,23 @@ watch(
         @saved="onViewerDirty(false)"
       />
     </div>
+
+    <FileRenameDialog
+      :open="!!renameTarget"
+      :name="renameTarget?.name ?? ''"
+      :path="renameTarget?.path ?? ''"
+      :pending="renamePending"
+      @update:open="(open) => !open && (renameTarget = null)"
+      @confirm="confirmRename"
+    />
+    <ConfirmDialog
+      :open="!!deleteTarget"
+      :title="deleteTarget ? `删除${deleteTarget.isDir ? '目录' : '文件'}「${deleteTarget.name}」？` : ''"
+      :description="deleteTarget ? `将「${deleteTarget.path}」移入系统废纸篓，可从废纸篓中恢复。` : ''"
+      confirm-label="移入废纸篓"
+      :pending="deletePending"
+      @update:open="(open) => !open && (deleteTarget = null)"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

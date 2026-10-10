@@ -14,6 +14,10 @@ describe("ui/toast Toaster 冒烟", () => {
     toast.err("保存失败", 0);
     await Promise.resolve();
 
+    // 顶部展示：落在标题栏之下，不再固定在底部遮挡输入区/终端
+    expect(wrapper.attributes("class")).toContain("top-[calc(var(--titlebar-h)+8px)]");
+    expect(wrapper.attributes("class")).not.toContain("bottom-");
+
     expect(wrapper.text()).toContain("保存成功");
     expect(wrapper.text()).toContain("保存失败");
 

@@ -59,6 +59,7 @@ const emit = defineEmits<{
     name: string;
     capabilities: ModelCapabilities;
   }];
+  removeModel: [model: ProviderModel];
 }>();
 
 const form = reactive({
@@ -253,6 +254,7 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
       @select="(id) => emit('selectModel', id)"
       @toggle-enabled="(m, next) => emit('toggleModelEnabled', m, next)"
       @edit="onEditModel"
+      @remove="(m) => emit('removeModel', m)"
       @refresh="emit('refreshModels')"
       @add="openPicker"
     />

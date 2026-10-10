@@ -42,7 +42,7 @@ const resultDotLabel = computed(() =>
 );
 
 /**
- * 行结构：单行标题（超长截断）+ 行尾状态槽（运行 spinner / 需要操作 / 未读点）；
+ * 行结构：单行标题（超长截断）+ 行尾状态槽（运行 spinner / 需要操作 / 未读点 / 已置顶标识）；
  * 仅选中的会话整行圆角浅色底，其余（含运行中）为普通文本 + hover 高亮，
  * 运行状态只通过行尾 spinner 表达，不参与选中底色。
  * 注意必须是 computed：普通 const 只在 setup 时求值一次，点击切换会话后
@@ -74,10 +74,11 @@ const titleCls = computed(() =>
 const slotCls = "flex size-4 flex-none items-center justify-center";
 
 /** 行尾操作簇：绝对定位悬浮于行上，hover/聚焦时显现，不改变标题排版；
-    底色不透明（--color-side-chip），盖住截断在按钮区下的标题文字 */
+    底色不透明（--color-side-chip），盖住截断在按钮区下的标题文字；
+    右侧让出行尾置顶开关（pr-1.5 + size-5 = 26px），不遮挡其点击 */
 const hoverClusterCls = computed(() =>
   classes(
-    "absolute top-1/2 right-1.5 z-10 flex -translate-y-1/2 items-center gap-px rounded-[var(--radius-sm)] p-px",
+    "absolute top-1/2 right-[26px] z-10 flex -translate-y-1/2 items-center gap-px rounded-[var(--radius-sm)] p-px",
     props.active ? "bg-[var(--color-side-chip-active)]" : "bg-[var(--color-side-chip)]",
     "pointer-events-none opacity-0 transition-opacity duration-[var(--motion-fast)]",
     "group-hover/session:pointer-events-auto group-hover/session:opacity-100",
@@ -100,10 +101,6 @@ const ghostActionCls = classes(
     >
       <span :class="titleCls">{{ session.title }}</span>
     </Button>
-
-    <span v-if="session.pinned" :class="slotCls" title="已置顶" aria-label="已置顶">
-      <Pin class="size-3 shrink-0 -rotate-45 text-[var(--color-accent)]" aria-hidden="true" />
-    </span>
 
     <span v-if="running" :class="slotCls" title="进行中" aria-label="进行中" role="status">
       <LoaderCircle
@@ -131,21 +128,23 @@ const ghostActionCls = classes(
       <span class="size-1.5 shrink-0 rounded-full" :class="resultDotCls" aria-hidden="true" />
     </span>
 
+    <!-- 行尾置顶开关：置顶时常显（accent 斜钉），可直接点击取消；未置顶时 hover 才浮现 -->
+    <button
+      type="button"
+      class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-mut)] transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/session:opacity-100"
+      :class="session.pinned ? 'opacity-100' : 'opacity-0'"
+      :aria-label="session.pinned ? '取消置顶' : '置顶'"
+      :title="session.pinned ? '取消置顶' : '置顶'"
+      @click.stop="emit('pin')"
+    >
+      <Pin
+        class="size-3 shrink-0"
+        :class="session.pinned ? '-rotate-45 text-[var(--color-accent)]' : ''"
+        aria-hidden="true"
+      />
+    </button>
+
     <div :class="hoverClusterCls">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        :class="ghostActionCls"
-        :aria-label="session.pinned ? '取消置顶' : '置顶'"
-        :title="session.pinned ? '取消置顶' : '置顶'"
-        @click.stop="emit('pin')"
-      >
-        <Pin
-          class="size-[13px] shrink-0"
-          :class="session.pinned ? '-rotate-45' : ''"
-          aria-hidden="true"
-        />
-      </Button>
       <Button
         variant="ghost"
         size="icon-sm"
