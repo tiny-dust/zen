@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import GraphPanel from "@/components/right/GitGraph.vue";
-import { Bot, FolderOpen, GitGraph, Globe, PanelRight, RefreshCw, SquareTerminal, X } from "@lucide/vue";
+import { Bot, Check, FolderOpen, GitGraph, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import type { Component } from "vue";
 
 import AgentsPanel from "@/components/right/AgentsPanel.vue";
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
@@ -9,9 +10,15 @@ import ChangesPanel from "@/components/right/ChangesPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
 import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
-import { useRightPanelStore } from "@/stores/right-panel";
+import { PANEL_TITLES, useRightPanelStore, type RightPanelKind } from "@/stores/right-panel";
 import { cn } from "@/lib/utils";
 
 const layoutStore = useLayoutStore();
@@ -19,26 +26,18 @@ const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
 const { tabs, activeId, activeTab } = storeToRefs(rightPanel);
 
-// 头部保留文件 / 浏览器 / 变更 / 图谱；
-// 终端与服务由悬浮信息卡「进程」「服务」进入，不再放开关。
+/** 「打开面板」菜单：全部面板类型与图标（tab 标题由 PANEL_TITLES 统一供给） */
+const PANEL_ITEMS: { kind: RightPanelKind; icon: Component }[] = [
+  { kind: "files", icon: FolderOpen },
+  { kind: "browser", icon: Globe },
+  { kind: "changes", icon: RefreshCw },
+  { kind: "graph", icon: GitGraph },
+  { kind: "agents", icon: Bot },
+  { kind: "terminals", icon: SquareTerminal },
+];
 
 function iconFor(kind: string) {
-  if (kind === "files") {
-    return FolderOpen;
-  }
-  if (kind === "browser") {
-    return Globe;
-  }
-  if (kind === "graph") {
-    return GitGraph;
-  }
-  if (kind === "agents") {
-    return Bot;
-  }
-  if (kind === "terminals") {
-    return SquareTerminal;
-  }
-  return RefreshCw;
+  return PANEL_ITEMS.find((item) => item.kind === kind)?.icon ?? RefreshCw;
 }
 
 function tabCls(id: string) {
@@ -90,46 +89,35 @@ function tabCls(id: string) {
       </div>
 
       <div class="flex flex-none items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          :disabled="rightPanel.hasKind('files')"
-          :aria-label="rightPanel.hasKind('files') ? '文件面板已打开' : '打开文件面板'"
-          title="文件"
-          @click="rightPanel.ensureTab('files')"
-        >
-          <FolderOpen />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          :disabled="rightPanel.hasKind('browser')"
-          :aria-label="rightPanel.hasKind('browser') ? '浏览器面板已打开' : '打开浏览器面板'"
-          title="浏览器"
-          @click="rightPanel.ensureTab('browser')"
-        >
-          <Globe />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          :disabled="rightPanel.hasKind('changes')"
-          :aria-label="rightPanel.hasKind('changes') ? '变更面板已打开' : '打开变更面板'"
-          title="变更"
-          @click="rightPanel.ensureTab('changes')"
-        >
-          <RefreshCw />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          :disabled="rightPanel.hasKind('graph')"
-          :aria-label="rightPanel.hasKind('graph') ? '图谱面板已打开' : '打开图谱面板'"
-          title="图谱"
-          @click="rightPanel.ensureTab('graph')"
-        >
-          <GitGraph />
-        </Button>
+        <!-- 打开面板：单一入口，替代与 tab 重复的常驻开关（已打开的带勾，点击即切到） -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="打开面板"
+              title="打开面板"
+            >
+              <Plus />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="min-w-[160px]">
+            <DropdownMenuItem
+              v-for="item in PANEL_ITEMS"
+              :key="item.kind"
+              class="gap-2"
+              @select="rightPanel.ensureTab(item.kind)"
+            >
+              <component :is="item.icon" class="size-4 text-[var(--color-mut)]" aria-hidden="true" />
+              <span class="flex-1">{{ PANEL_TITLES[item.kind] }}</span>
+              <Check
+                v-if="rightPanel.hasKind(item.kind)"
+                class="size-3.5 text-[var(--color-accent)]"
+                aria-hidden="true"
+              />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant="ghost"
           size="icon-xs"
