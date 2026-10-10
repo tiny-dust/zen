@@ -18,7 +18,9 @@ const assetSrc = computed(() => {
   if (props.id === "custom" || props.id === "custom-preview") {
     return "";
   }
-  return `/assets/app-icon-${props.id}.png`;
+  // BASE_URL：dev 为 "/"，打包为 "./"（file:// 加载 renderer/index.html）。
+  // 写死 "/assets/…" 在打包后指向文件系统根目录，图标全部 404。
+  return `${import.meta.env.BASE_URL}assets/app-icon-${props.id}.png`;
 });
 
 const label = computed(() => {
