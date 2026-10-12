@@ -822,7 +822,12 @@
   background-color: transparent !important;
 }
 
-/* 深色下代码底色跟随所选主题自带背景，保证主题观感完整 */
+/* 深浅两侧代码底色都跟随所选主题自带背景，保证主题观感完整；
+   仅写深色侧会让浅色下 pre 被 813 行的 transparent 覆盖成透明 */
+.md-content pre.shiki {
+  background-color: var(--shiki-light-bg, var(--color-code-bg)) !important;
+}
+
 .dark .md-content pre.shiki {
   background-color: var(--shiki-dark-bg, var(--color-code-bg)) !important;
 }
