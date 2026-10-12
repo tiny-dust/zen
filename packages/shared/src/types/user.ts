@@ -206,6 +206,8 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "quick-open", label: "快速打开", command: "workbench.action.quickOpen", key: "Cmd+P" },
   { id: "command-palette", label: "命令面板", command: "workbench.action.showCommands", key: "Shift+Cmd+P" },
   { id: "toggle-sidebar", label: "切换侧边栏", command: "workbench.action.toggleSidebarVisibility", key: "Cmd+B" },
+  { id: "toggle-info", label: "切换信息面板", command: "workbench.action.toggleInfoPanel", key: "Cmd+I" },
+  { id: "toggle-right", label: "切换右侧面板", command: "workbench.action.toggleRightPanel", key: "Cmd+J" },
   { id: "toggle-terminal", label: "切换终端", command: "workbench.action.terminal.toggleTerminal", key: "Ctrl+`" },
   { id: "find", label: "查找", command: "actions.find", key: "Cmd+F" },
   { id: "settings", label: "打开设置", command: "workbench.action.openSettings", key: "Cmd+," },
