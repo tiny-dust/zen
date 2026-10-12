@@ -12,10 +12,12 @@ import { registerAgentServicesIpc } from "./agent-services-ipc";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
+import { listFileCheckpoints, restoreFileCheckpoint } from "./session-checkpoints";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
+import { resolveWorkspaceDir } from "./sandbox";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerMcpIpc, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
@@ -25,12 +27,12 @@ import { registerCacheIpc } from "./cache-ipc";
 import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
-import { initZenDir, loadAgentSettings } from "./zen-dir";
+import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
 import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
 import { registerWindowControlsIpc } from "./window-controls";
-import { appendMessage } from "./workspace-db";
+import { appendMessage, getSession, getWorkspace } from "./workspace-db";
 
 import type { AgentSession } from "@zen/agent-core";
 import type {
@@ -271,6 +273,31 @@ function registerIpc(): void {
       }
       const resolved = session.resolveAsk(answer.askId, answer.answer);
       return resolved ? { ok: true } : { ok: false, error: "ask not found" };
+    },
+  );
+
+  // 会话文件快照（检查点）：列出 / 恢复写改前备份的原文件
+  ipcMain.handle("agent:checkpoints:list", (_event, sessionId: string) =>
+    listFileCheckpoints(sessionId),
+  );
+
+  ipcMain.handle(
+    "agent:checkpoints:restore",
+    async (_event, sessionId: string, checkpointId: string) => {
+      const record = getSession(sessionId);
+      if (!record) {
+        return { ok: false, error: "session not found" };
+      }
+      // 与 runAgentRequest 同口径：按会话归属工作区解析实际根目录（沙箱模式生效）
+      const projectPath = getWorkspace(record.session.workspaceId)?.path;
+      let workspaceRoot: string;
+      if (projectPath) {
+        const agentSettings = await loadAgentSettings();
+        workspaceRoot = (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
+      } else {
+        workspaceRoot = sessionCacheDir(sessionId);
+      }
+      return restoreFileCheckpoint(sessionId, workspaceRoot, checkpointId);
     },
   );
 

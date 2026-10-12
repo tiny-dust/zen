@@ -73,6 +73,7 @@
     "@zen/skills": "workspace:*",
     "@zen/tools-browser": "workspace:*",
     "@zen/tools-terminal": "workspace:*",
+    "@zen/tools-fs": "workspace:*",
     "better-sqlite3": "13.0.3",
     "electron-updater": "6.8.9",
     "rattail": "2.2.0"

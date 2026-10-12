@@ -135,6 +135,35 @@ describe("fs 工具", () => {
       }),
     ).rejects.toThrow(/oldString not found/);
   });
+
+  it("配置 checkpointBridge 时写入前先备份，备份失败不阻塞写入", async () => {
+    const calls: string[] = [];
+    const tools = build({
+      checkpointBridge: {
+        backupFile: async (relativePath) => {
+          calls.push(relativePath);
+        },
+      },
+    });
+    await execTool(tools.writeFile, { path: "cp.txt", content: "v1" });
+    await execTool(tools.editFile, { path: "cp.txt", oldString: "v1", newString: "v2" });
+    expect(calls).toEqual(["cp.txt", "cp.txt"]);
+    await expect(execTool(tools.readFile, { path: "cp.txt" })).resolves.toBe("v2");
+
+    const failing = build({
+      checkpointBridge: {
+        backupFile: async () => {
+          throw new Error("disk full");
+        },
+      },
+    });
+    await expect(
+      execTool(failing.writeFile, { path: "cp-fail.txt", content: "still-written" }),
+    ).resolves.toMatchObject({ content: "still-written" });
+    await expect(execTool(failing.readFile, { path: "cp-fail.txt" })).resolves.toBe(
+      "still-written",
+    );
+  });
 });
 
 describe("工具输出截断", () => {

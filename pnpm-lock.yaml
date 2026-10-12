@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  vue-stream-markdown@2.0.0-beta.5: 7085e3532d287a71bf62e44dcc9182a7a5e5a6202958b6fbda0900eb503f2c53
+
 importers:
 
   .:
@@ -208,6 +211,9 @@ importers:
       '@zen/tools-browser':
         specifier: workspace:*
         version: link:../../packages/tools/browser
+      '@zen/tools-fs':
+        specifier: workspace:*
+        version: link:../../packages/tools/fs
       '@zen/tools-terminal':
         specifier: workspace:*
         version: link:../../packages/tools/terminal
@@ -379,7 +385,7 @@ importers:
         version: 5.3.1(@vue/compiler-sfc@3.5.42)(esbuild@0.25.12)(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@5.9.3)(vue@3.5.42(typescript@5.9.3)))(rollup@4.63.1)(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(stylus@0.57.0(supports-color@10.2.2))(tsx@4.23.13)(yaml@2.9.0))(vue@3.5.42(typescript@5.9.3))
       vue-stream-markdown:
         specifier: 2.0.0-beta.5
-        version: 2.0.0-beta.5(markdown-it@15.0.2)(shiki@4.4.3)(vue@3.5.42(typescript@5.9.3))
+        version: 2.0.0-beta.5(patch_hash=7085e3532d287a71bf62e44dcc9182a7a5e5a6202958b6fbda0900eb503f2c53)(markdown-it@15.0.2)(shiki@4.4.3)(vue@3.5.42(typescript@5.9.3))
     devDependencies:
       '@types/node':
         specifier: 22.20.2
@@ -10430,7 +10436,7 @@ snapshots:
       - unloader
       - webpack
 
-  vue-stream-markdown@2.0.0-beta.5(markdown-it@15.0.2)(shiki@4.4.3)(vue@3.5.42(typescript@5.9.3)):
+  vue-stream-markdown@2.0.0-beta.5(patch_hash=7085e3532d287a71bf62e44dcc9182a7a5e5a6202958b6fbda0900eb503f2c53)(markdown-it@15.0.2)(shiki@4.4.3)(vue@3.5.42(typescript@5.9.3)):
     dependencies:
       '@floating-ui/dom': 1.8.0
       '@markmend/parser': 2.0.0-beta.5(markdown-it@15.0.2)(shiki@4.4.3)

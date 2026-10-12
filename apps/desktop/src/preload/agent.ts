@@ -5,6 +5,7 @@ import type {
   AgentSettings,
   AgentStreamEvent,
   AskUserAnswer,
+  FileCheckpoint,
   PromptPreset,
   SkillSummary,
   ToolApprovalDecision,
@@ -45,6 +46,16 @@ export const agentApi = {
       answer: AskUserAnswer,
     ): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:ask-resolve", sessionId, answer);
+    },
+    /** 会话文件快照：写/改文件前的原文件备份，最新在前 */
+    listCheckpoints(sessionId: string): Promise<FileCheckpoint[]> {
+      return ipcRenderer.invoke("agent:checkpoints:list", sessionId);
+    },
+    restoreCheckpoint(
+      sessionId: string,
+      checkpointId: string,
+    ): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:checkpoints:restore", sessionId, checkpointId);
     },
     getSettings(): Promise<AgentSettings> {
       return ipcRenderer.invoke("agent:get-settings");

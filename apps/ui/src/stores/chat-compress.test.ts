@@ -96,6 +96,16 @@ describe("createCompressionDomain.prepareCompression", () => {
     expect(forceCompress.value).toBe(true);
   });
 
+  it("prepareCompression 透传焦点：压缩触发时摘要与摘要卡含压缩焦点段", () => {
+    const list = conversation();
+    const { domain } = domainOf(list, { forceCompress: true });
+    const { compression } = domain.prepareCompression("保留压缩焦点的验收路径");
+    expect(compression.compressed).toBe(true);
+    expect(compression.summary).toContain("[压缩焦点] 保留压缩焦点的验收路径");
+    const cards = list.filter((item) => item.role === "tool");
+    expect((cards[0]?.meta as { output?: string }).output).toContain("[压缩焦点] 保留压缩焦点的验收路径");
+  });
+
   it("已有摘要卡也会持续折叠（防全量历史回灌）", () => {
     const list = conversation();
     list.splice(list.length - 1, 0, {

@@ -175,6 +175,8 @@ export interface CompressOptions {
   force: boolean;
   /** 上下文用量超过阈值 */
   overThreshold: boolean;
+  /** 用户指定的压缩焦点：非空时摘要正文后注明，此后任务围绕该方向推进 */
+  focus?: string;
 }
 
 export interface CompressResult {
@@ -238,6 +240,11 @@ export function compressHistory(history: ChatTurn[], opts: CompressOptions): Com
     for (const upload of opts.uploads) {
       lines.push(`- ${upload}`);
     }
+  }
+  // 焦点段放在结尾标记之前，保证「摘要结束」仍是整段摘要的终点
+  const focus = opts.focus?.trim();
+  if (focus) {
+    lines.push("", `[压缩焦点] ${focus}`, "此后任务重点围绕该方向推进，相关上下文优先保留。");
   }
   lines.push("", "（摘要结束，以下为最近对话原文）");
 

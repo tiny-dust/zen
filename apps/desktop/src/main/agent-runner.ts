@@ -13,6 +13,7 @@ import { inspectModelCapabilities } from "./model-capabilities";
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
+import { backupWorkspaceFile } from "./session-checkpoints";
 import { loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import {
   appendMessage,
@@ -249,6 +250,16 @@ export async function runAgentRequest(
       browserBridge: getBrowserService(),
       // runTerminal 进程组跟踪：settle 后存活的 dev server 等收集为长驻服务（右栏「服务」）
       servicesBridge: getAgentServicesRegistry()?.bridge(),
+      // 会话文件快照：写/改文件前把原文件备份进会话缓存目录（失败不阻塞写入）
+      checkpointBridge: {
+        backupFile: async (rel) => {
+          try {
+            await backupWorkspaceFile(request.sessionId, workspaceRoot, rel);
+          } catch (error) {
+            console.warn("[checkpoints] 备份失败:", error);
+          }
+        },
+      },
       emit: emitTo,
     });
     sessions.set(request.sessionId, session);

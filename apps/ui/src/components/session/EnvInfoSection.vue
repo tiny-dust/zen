@@ -16,6 +16,7 @@ import { useI18n } from "vue-i18n";
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 import { openAppLink } from "@/lib/browser-element";
 import { useGitStore } from "@/stores/git";
@@ -125,6 +126,15 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           <template v-else>{{ t("shell.estimatedPercent", { n: estimatedUsage }) }}</template>
         </span>
       </div>
+
+      <!-- 压缩焦点：随下一次自动压缩消费 -->
+      <Input
+        v-model="chatStore.compressFocus"
+        variant="ghost"
+        class="h-7 pl-[27px] pr-1 text-[12px] md:text-[12px] text-[var(--color-txt)] placeholder:text-[var(--color-mut)]"
+        :placeholder="t('shell.compressFocusPlaceholder')"
+        :title="t('shell.compressFocusTitle')"
+      />
 
       <!-- 变更文件 -->
       <Button

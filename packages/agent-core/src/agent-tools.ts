@@ -96,7 +96,15 @@ export function buildToolSet(
         return exclusive(
           runtime,
           "write",
-          () => writeWorkspaceFile(workspaceRoot, path, content),
+          async () => {
+            // 检查点只是回退保障，备份失败不应让写入本身中断
+            try {
+              await config.checkpointBridge?.backupFile(path);
+            } catch {
+              // 忽略备份错误
+            }
+            return writeWorkspaceFile(workspaceRoot, path, content);
+          },
           abortSignal,
         );
       },
@@ -113,6 +121,12 @@ export function buildToolSet(
       execute: async ({ path, oldString, newString, replaceAll }, { abortSignal }) => {
         return exclusive(runtime, "write", async (signal) => {
           void signal;
+          // 检查点只是回退保障，备份失败不应让写入本身中断
+          try {
+            await config.checkpointBridge?.backupFile(path);
+          } catch {
+            // 忽略备份错误
+          }
           const result = await editWorkspaceFile(
             workspaceRoot,
             path,

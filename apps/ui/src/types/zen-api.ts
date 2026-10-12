@@ -25,6 +25,7 @@ import type {
   ChatMessage,
   DeviceCodeInfo,
   DirEntry,
+  FileCheckpoint,
   FilePreview,
   FetchModelsResult,
   GitBranches,
@@ -214,6 +215,13 @@ export interface ZenApi {
     getSettings(): Promise<AgentSettings>;
     setSettings(partial: Partial<AgentSettings>): Promise<AgentSettings>;
     listSkills(): Promise<SkillSummary[]>;
+    /** 会话文件快照：writeFile/editFile 写入前的原文件备份清单（最新在前） */
+    listCheckpoints(sessionId: string): Promise<FileCheckpoint[]>;
+    /** 把指定快照恢复回工作区原路径 */
+    restoreCheckpoint(
+      sessionId: string,
+      checkpointId: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     pickDirectory(): Promise<string | null>;
     promptPresets(): Promise<PromptPreset[]>;
     sandboxDir(): Promise<string>;

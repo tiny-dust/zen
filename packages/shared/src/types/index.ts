@@ -13,4 +13,5 @@ export * from "./multi-agent";
 export * from "./user";
 export * from "./workspace";
 export * from "./memory";
+export * from "./checkpoints";
 export * from "./id";

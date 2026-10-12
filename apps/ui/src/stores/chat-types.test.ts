@@ -95,4 +95,23 @@ describe("compressHistory", () => {
     const recent = result.turns.slice(1);
     expect(recent).toEqual(history.slice(-6));
   });
+
+  it("focus 非空时摘要正文后追加压缩焦点段", () => {
+    const result = compressHistory(turns(12), {
+      ...baseOpts,
+      force: true,
+      focus: "  保留统计口径的实现细节  ",
+    });
+    expect(result.summary).toContain("[压缩焦点] 保留统计口径的实现细节");
+    expect(result.summary).toContain("此后任务重点围绕该方向推进，相关上下文优先保留。");
+    // 焦点段在结尾标记之前，不打断「摘要结束」语义
+    expect(result.summary.indexOf("[压缩焦点]")).toBeLessThan(result.summary.indexOf("（摘要结束"));
+  });
+
+  it("未传或空 focus 时摘要不含压缩焦点段", () => {
+    const without = compressHistory(turns(12), { ...baseOpts, force: true });
+    expect(without.summary).not.toContain("[压缩焦点]");
+    const empty = compressHistory(turns(12), { ...baseOpts, force: true, focus: "   " });
+    expect(empty.summary).not.toContain("[压缩焦点]");
+  });
 });

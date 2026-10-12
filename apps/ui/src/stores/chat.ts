@@ -71,6 +71,8 @@ export const useChatStore = defineStore("chat", () => {
    * 上下文用量超阈值的折叠成功也会保持。切换会话时复位。
    */
   const forceCompress = ref(false);
+  /** 压缩焦点：用户为下一次压缩指定的重点方向；随该次压缩消费后清空，切换会话复位 */
+  const compressFocus = ref("");
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问队列（可多问询并发；展示在输入框上方） */
   const pendingAsks = ref<AskUserQuestionEvent[]>([]);
@@ -663,7 +665,12 @@ export const useChatStore = defineStore("chat", () => {
     statusText.value = i18n.global.t("app.chat.thinking");
 
     // 滚动摘要 + 超限双保险：上下文用量达到阈值（或已开启压缩）时折叠旧轮次
-    const { compression } = compressionDomain.prepareCompression();
+    const focus = compressFocus.value.trim();
+    const { compression } = compressionDomain.prepareCompression(focus || undefined);
+    // 焦点一次性：仅随真正发生的这次压缩消费；本次未触发则留给下次
+    if (compression.compressed && focus) {
+      compressFocus.value = "";
+    }
 
     // IPC 抛错与 {ok:false} 同路处理：不复位的话 status 会卡在 thinking，
     // 之后发送全被 isRunning 守卫拦进队列（无反馈），侧栏也一直「进行中」
@@ -764,6 +771,7 @@ export const useChatStore = defineStore("chat", () => {
     lastDoneReason.value = null;
     runSummary.value = null;
     forceCompress.value = false;
+    compressFocus.value = "";
     pendingToolArgs.clear();
   }
 
@@ -978,6 +986,7 @@ export const useChatStore = defineStore("chat", () => {
   return {
     messages,
     input,
+    compressFocus,
     status,
     phase,
     statusText,

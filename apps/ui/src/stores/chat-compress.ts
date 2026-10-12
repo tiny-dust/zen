@@ -98,7 +98,7 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
    * 发送前的历史压缩：返回压缩后的轮次与结果供 run 请求使用。
    * 压缩生效时 turns 明显短于全量历史（摘要 + 最近几条）。
    */
-  function prepareCompression(): { historyTurns: ChatTurn[]; compression: ReturnType<typeof compressHistory> } {
+  function prepareCompression(focus?: string): { historyTurns: ChatTurn[]; compression: ReturnType<typeof compressHistory> } {
     const historyTurns = buildHistory(messages.value).slice(0, -1);
     const usage = contextUsage() ?? 0;
     // 压缩模式 / 已有摘要卡 / 超限：三者任一触发，避免压一次后又把全量历史发回去
@@ -112,6 +112,7 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
       uploads: collectUploads(messages.value),
       force: shouldCompact,
       overThreshold: usage >= COMPRESS_THRESHOLD,
+      focus,
     });
     if (compression.compressed) {
       // 折叠成功即进入会话级压缩模式，后续发送保持短历史
