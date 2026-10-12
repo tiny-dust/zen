@@ -131,8 +131,10 @@ function tabCls(id: string) {
           <PanelRight />
         </Button>
       </div>
-      <!-- Windows/Linux 窗口三键右上角占位（--titlebar-trail，macOS 为 0） -->
-      <span class="w-[var(--titlebar-trail)] flex-none" aria-hidden="true" />
+      <!-- Windows/Linux 窗口三键右上角占位（--titlebar-trail，macOS 为 0）。
+           no-drag + h-full：把三键区从头行 drag 矩形中挖掉（必须撑满高度，
+           零高的 span 挖不出洞），避免后登记的 drag 盖住三键点击区。 -->
+      <span class="h-full w-[var(--titlebar-trail)] flex-none [-webkit-app-region:no-drag]" aria-hidden="true" />
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">

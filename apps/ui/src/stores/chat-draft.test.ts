@@ -238,3 +238,37 @@ describe("切换会话的 composer 草稿恢复", () => {
     }
   });
 });
+
+describe("切换会话的插入消息队列恢复", () => {
+  it("运行中排队待发送的消息切走切回不丢", async () => {
+    const chat = useChatStore();
+    const s0 = chat.sessionId;
+    persistedIds.add(s0);
+    useModelsStore().selection = { providerId: "p", modelId: "m" };
+
+    // 模拟运行中：send 走入队而不是直接发送
+    chat.status = "thinking";
+    chat.input = "排队待发送的第一条";
+    await chat.send();
+    expect(chat.queuedMessages.map((item) => item.text)).toEqual(["排队待发送的第一条"]);
+
+    // 切到 B：队列不串台
+    await chat.loadSession(recordOf("s-b", ""));
+    expect(chat.queuedMessages).toEqual([]);
+
+    // 切回 A：待发送消息完整恢复
+    await chat.loadSession(recordOf(s0, draftDb.get(s0) ?? ""));
+    expect(chat.queuedMessages.map((item) => item.text)).toEqual(["排队待发送的第一条"]);
+  });
+
+  it("新建会话队列从空开始，不残留旧会话消息", async () => {
+    const chat = useChatStore();
+    chat.status = "thinking";
+    chat.input = "旧会话的排队消息";
+    await chat.send();
+    expect(chat.queuedMessages.length).toBe(1);
+
+    await chat.newTask();
+    expect(chat.queuedMessages).toEqual([]);
+  });
+});

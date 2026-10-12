@@ -327,6 +327,7 @@ function removeAttachment(id: string) {
           :model-value="input"
           :attachments="attachments"
           :elements="elementMarks"
+          :mention-exclude="triggers.activeTokenRange.value"
           :placeholder="composerPlaceholder"
           @update:model-value="onModelValue"
           @token-hover="onTokenHover"

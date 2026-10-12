@@ -22,7 +22,7 @@ import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { createChatEventGateway } from "@/stores/chat-events";
 import { BackgroundTranscripts } from "@/stores/chat-background";
-import type { ComposerAttachment, PendingApproval, RunPhase } from "@/stores/chat-types";
+import type { ComposerAttachment, PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-types";
 import { buildHistory, estimateHistoryTokens } from "@/stores/chat-types";
 import { createCompressionDomain } from "@/stores/chat-compress";
 import { createComposerDomain } from "@/stores/chat-composer";
@@ -131,6 +131,20 @@ export const useChatStore = defineStore("chat", () => {
    * 未持久化会话的 setDraft 打到 UPDATE 0 行，只能靠这份兜底；持久化会话以此为最新态。
    */
   const stashedDrafts = new Map<string, SessionDraftState>();
+
+  /**
+   * 各会话插入消息队列的内存暂存：切走时入桶、切回时恢复。
+   * 队列消息不随 session.setDraft 持久化（草稿只含正文/附件/标注），
+   * 不暂存的话切换会话会把「待发送」的消息直接清掉。
+   */
+  const stashedQueues = new Map<string, QueuedMessage[]>();
+
+  /** 切走当前会话前：插入消息队列快照入桶（只拷贝不清空，目标会话切换时整体替换） */
+  function stashQueuedMessages() {
+    if (queue.queuedMessages.value.length) {
+      stashedQueues.set(sessionId.value, queue.queuedMessages.value.map((item) => ({ ...item })));
+    }
+  }
 
   /** 切走当前会话前：composer 现场按旧 sessionId 暂存（正文 + 附件 + 标注） */
   function stashComposerDraft() {
@@ -557,6 +571,12 @@ export const useChatStore = defineStore("chat", () => {
   async function send(overrideText?: string) {
     const continued = overrideText != null;
     const zen = window.zen;
+    // 会话切换进行中（点了别的会话/新建但状态还没落定）：等切换完成再读当前会话，
+    // 否则会把消息发给已被切走的旧会话（侧栏 loading 在旧会话上、消息区毫无反应）
+    if (switchInFlight) {
+      await switchInFlight.catch(() => undefined);
+    }
+    const seq = switchSeq;
     const text = (continued ? overrideText : input.value).trim();
     if (!zen || (!text && !attachments.value.length)) {
       return;
@@ -589,6 +609,12 @@ export const useChatStore = defineStore("chat", () => {
     const modelsStore = useModelsStore();
     if (!modelsStore.selection.providerId || !modelsStore.selection.modelId) {
       await modelsStore.refresh();
+    }
+
+    // 上述 await 期间用户又切换了会话：放弃本次发送。
+    // 此时还没清输入框，消息内容不丢，切换完成后重按发送即可
+    if (seq !== switchSeq) {
+      return;
     }
 
     const attachmentRefs: AttachmentRef[] = continued
@@ -767,14 +793,18 @@ export const useChatStore = defineStore("chat", () => {
    * 每次切换递增，await 返回后序号不一致说明已有更新的切换，本次结果整体丢弃。
    */
   let switchSeq = 0;
+  /** 进行中的会话切换：send 期间若正在切会话，需等待其完成再读当前会话状态 */
+  let switchInFlight: Promise<unknown> | null = null;
 
-  /** 切换/新建会话时的运行态复位（消息、输入、队列由调用方各自处理） */
+  /**
+   * 切换/新建会话时的运行态复位（消息、输入、队列由调用方各自处理：
+   * 队列随会话暂存/恢复，不在复位里清空）
+   */
   function resetRunState() {
     status.value = "idle";
     phase.value = "answering";
     isPaused.value = false;
     insertActive.value = false;
-    queue.clear();
     editAnchorId.value = "";
     usedUpdateTasks.value = false;
     pendingApproval.value = null;
@@ -819,6 +849,18 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 新会话：缺省落在底部当前选中的工作区/公共区，与 WorkspacePicker 一致 */
   async function newTask(workspaceId?: string) {
+    const run = doNewTask(workspaceId);
+    switchInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (switchInFlight === run) {
+        switchInFlight = null;
+      }
+    }
+  }
+
+  async function doNewTask(workspaceId?: string) {
     const workspaceStore = useWorkspaceStore();
     const target = workspaceId || sessionWorkspaceId.value;
     const zen = window.zen;
@@ -826,6 +868,11 @@ export const useChatStore = defineStore("chat", () => {
     // 侧栏状态由 sessionStatusStore 标记「进行中」，不在此 cancel
     flushDraft();
     const seq = ++switchSeq;
+    const inputAtSwitch = input.value;
+    // 旧会话的草稿与插入队列在此刻入桶（切换异步窗口内用户可能继续输入，
+    // 那部分内容保留给新会话，不进旧会话暂存）
+    stashComposerDraft();
+    stashQueuedMessages();
 
     // 先建库再切状态：创建失败时保留当前现场并提示。
     // 会话 id 由渲染层生成（uuidv7），保证每个会话有唯一 key，不依赖 DB 兜底
@@ -846,16 +893,20 @@ export const useChatStore = defineStore("chat", () => {
     if (seq !== switchSeq) {
       return;
     }
+    // 切换窗口内用户继续输入：保留刚输入的内容，不被新会话的清空覆盖
+    const typedDuringSwitch = input.value !== inputAtSwitch;
 
     // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
-    stashComposerDraft();
 
     messages.value = [];
-    input.value = "";
+    if (!typedDuringSwitch) {
+      input.value = "";
+    }
     attachments.value = [];
     elementMarks.value = [];
+    queue.queuedMessages.value = [];
     resetRunState();
     sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = null;
@@ -880,6 +931,18 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 打开历史会话：运行中的会话切到后台继续跑，事件按 sessionId 过滤不会串流 */
   async function loadSession(record: SessionRecord) {
+    const run = doLoadSession(record);
+    switchInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (switchInFlight === run) {
+        switchInFlight = null;
+      }
+    }
+  }
+
+  async function doLoadSession(record: SessionRecord) {
     const zen = window.zen;
     if (!zen) {
       return;
@@ -891,6 +954,11 @@ export const useChatStore = defineStore("chat", () => {
     // 原实现放在 await session.open 之后，快速连续切换时会把输入写串
     flushDraft();
     const seq = ++switchSeq;
+    const inputAtSwitch = input.value;
+    // 旧会话的草稿与插入队列在此刻入桶（切换异步窗口内用户可能继续输入，
+    // 那部分内容保留给目标会话，不进旧会话暂存）
+    stashComposerDraft();
+    stashQueuedMessages();
 
     const found = await zen.session.open(record.id);
     if (!found || seq !== switchSeq) {
@@ -898,11 +966,12 @@ export const useChatStore = defineStore("chat", () => {
       // 否则慢返回的旧请求会覆盖新会话（选中异常、输入框内容被换掉）
       return;
     }
+    // 切换窗口内用户继续输入：保留刚输入的内容，不被目标会话草稿覆盖
+    const typedDuringSwitch = input.value !== inputAtSwitch;
     // 切走前快照：旧会话（此时 sessionId.value 还是旧 id）仍在后台运行时，
     // 把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
-    stashComposerDraft();
     sessionId.value = record.id;
     sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
@@ -923,8 +992,19 @@ export const useChatStore = defineStore("chat", () => {
       backgroundTranscripts.drop(record.id);
     }
     messages.value = buffered ?? found.messages;
-    // 恢复该会话 composer 草稿：内存暂存优先（未持久化会话兜底），否则解析库内 draft
-    restoreComposerDraft(record.id, found.session.draft);
+    // 恢复该会话 composer 草稿：内存暂存优先（未持久化会话兜底），否则解析库内 draft。
+    // 切换窗口内用户继续输入 → 正文保留刚输入的内容，只恢复附件与标注
+    if (typedDuringSwitch) {
+      const state = stashedDrafts.get(record.id) ?? parseSessionDraft(found.session.draft);
+      stashedDrafts.delete(record.id);
+      attachments.value = state.attachments;
+      elementMarks.value = state.elementMarks;
+    } else {
+      restoreComposerDraft(record.id, found.session.draft);
+    }
+    // 恢复该会话的插入消息队列（切走时暂存的待发送消息不丢）
+    queue.queuedMessages.value = stashedQueues.get(record.id) ?? [];
+    stashedQueues.delete(record.id);
     resetRunState();
     // 切回仍在后台运行的会话：恢复运行态（isRunning=true），
     // 让 send() 走队列而不是再次 agent:run 顶掉后台 run；后续流事件正常流入展示

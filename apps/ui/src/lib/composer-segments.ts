@@ -21,6 +21,12 @@ function overlaps(marked: MarkedRange[], start: number, end: number): boolean {
   return marked.some((range) => start < range.end && end > range.start);
 }
 
+/** 进行中的 @/$ 文件触发 token 范围：范围内的提及不做引用装饰（选中落定后才变 tag） */
+export interface MentionExcludeRange {
+  start: number;
+  end: number;
+}
+
 /**
  * 未注册提及是否呈引用形态：字母/下划线开头（排除 "$5.00" 一类数字文本）。
  * 与消息列表 FILE_REF_RE 同规则：目录（$src）、中文路径（$需求.md）、无扩展名文件均命中。
@@ -29,11 +35,13 @@ function isReferenceLikeMention(token: string): boolean {
   return /^[\p{L}_]/u.test(token.slice(1));
 }
 
-/** 把 source 解析成装饰分段：token（附件引用）> 行首清单标记 > 加粗 > 链接，其余为纯文本 */
+/** 把 source 解析成装饰分段：token（附件引用）> 行首清单标记 > 加粗 > 链接，其余为纯文本。
+ * excludeMention：@/$ 弹层打开时的输入中 token（tokenStart..光标），期间保持纯文本，避免「还没选中就变 tag」。 */
 export function parseSegments(
   source: string,
   attachments: ComposerAttachment[],
   elements: ComposerElementMark[] | undefined,
+  excludeMention?: MentionExcludeRange | null,
 ): Segment[] {
   const marked: MarkedRange[] = [];
 
@@ -122,7 +130,10 @@ export function parseSegments(
     }
     const start = match.index + match[0].length - match[1].length;
     const end = start + match[1].length;
-    if (isReferenceLikeMention(match[1]) && !overlaps(marked, start, end)) {
+    // 弹层输入中的 token 不装饰：选中落定（apply 插入完整 `$路径 `）后才变 tag
+    const inProgress = excludeMention != null &&
+      start < excludeMention.end && end > excludeMention.start;
+    if (!inProgress && isReferenceLikeMention(match[1]) && !overlaps(marked, start, end)) {
       marked.push({ start, end, segment: { kind: "token", text: match[1] } });
     }
   }

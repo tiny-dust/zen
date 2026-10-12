@@ -4,9 +4,9 @@ import { i18n } from "@/locales";
 
 export type ToolResult =
   | { kind: "terminal"; text: string; exitCode?: number; error?: string }
-  | { kind: "code"; text: string; note?: string }
-  | { kind: "diff"; before: string; after: string }
-  | { kind: "replacement"; before: string; after: string; replacements: number }
+  | { kind: "code"; text: string; note?: string; path?: string }
+  | { kind: "diff"; before: string; after: string; path?: string }
+  | { kind: "replacement"; before: string; after: string; replacements: number; path?: string }
   | { kind: "text"; text: string };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -36,6 +36,12 @@ function executionText(value: unknown): string | undefined {
   if (typeof output?.output === "string") return output.output;
   if (typeof output?.message === "string") return output.message;
   return undefined;
+}
+
+/** 工具入参里的目标文件路径（readFile/writeFile/editFile 的 args.path），供语法高亮按扩展名取语言 */
+function argPath(args: unknown): string | undefined {
+  const path = record(args)?.path;
+  return typeof path === "string" && path.trim() ? path : undefined;
 }
 
 function isOutputSummary(summary: string | undefined, text: string | undefined): boolean {
@@ -77,20 +83,20 @@ export function toolResult(part: ToolPart): ToolResult | null {
     return { kind: "text", text: [reason, text].filter(Boolean).join("\n\n") || i18n.global.t("chat.tool.incomplete") };
   }
   if (part.toolName === "readFile" && (typeof part.output === "string" || typeof output?.content === "string")) {
-    return { kind: "code", text: outputText(part.output) ?? "" };
+    return { kind: "code", text: outputText(part.output) ?? "", path: argPath(part.args) };
   }
   if (state === "ok" && (part.toolName === "writeFile" || part.toolName === "editFile")) {
     if ((typeof output?.before === "string" || output?.before === null) && typeof output?.after === "string") {
-      return { kind: "diff", before: output.before ?? "", after: output.after };
+      return { kind: "diff", before: output.before ?? "", after: output.after, path: argPath(part.args) };
     }
     // Historical edits only retained replacement text, not file snapshots or line positions.
     const args = record(part.args);
     if (part.toolName === "editFile" && typeof output?.replacements === "number" && output.replacements > 0
       && typeof args?.oldString === "string" && typeof args?.newString === "string") {
-      return { kind: "replacement", before: args.oldString, after: args.newString, replacements: output.replacements };
+      return { kind: "replacement", before: args.oldString, after: args.newString, replacements: output.replacements, path: argPath(part.args) };
     }
     if (part.toolName === "writeFile" && (typeof part.output === "string" || typeof output?.content === "string")) {
-      return { kind: "code", text: outputText(part.output) ?? "", note: i18n.global.t("chat.tool.writtenContentNote") };
+      return { kind: "code", text: outputText(part.output) ?? "", note: i18n.global.t("chat.tool.writtenContentNote"), path: argPath(part.args) };
     }
   }
   const text = outputText(part.output) ?? (state === "ok" ? part.summary : undefined);

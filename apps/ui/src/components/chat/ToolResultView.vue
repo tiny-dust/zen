@@ -1,18 +1,42 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DiffView from "@/components/right/DiffView.vue";
 import { ansiToSpans, hasAnsi } from "./ansi";
 import { toolFileDiff } from "./tool-file-diff";
 import { codeLines } from "./tool-result";
+import { highlightLines, langFromPath } from "@/lib/shiki-highlight";
 
 import type { ToolResult } from "./tool-result";
 
 const props = defineProps<{ result: ToolResult }>();
 const { t } = useI18n();
 const lines = computed(() => props.result.kind === "code" ? codeLines(props.result.text) : []);
+const codeLang = computed(() => (props.result.kind === "code" ? langFromPath(props.result.path) : undefined));
+/** 读/写文件展开内容：按扩展名做语法高亮（异步，未就绪时纯文本；结果流式更新时重算） */
+const highlighted = ref<string[] | null>(null);
+let highlightVersion = 0;
+watch(
+  () => [props.result, codeLang.value] as const,
+  async () => {
+    const current = ++highlightVersion;
+    const source = props.result.kind === "code" ? props.result.text : "";
+    const lang = codeLang.value;
+    if (!lang || !source) {
+      highlighted.value = null;
+      return;
+    }
+    const result = await highlightLines(source, lang);
+    if (current === highlightVersion) {
+      highlighted.value = result;
+    }
+  },
+  { immediate: true },
+);
+
 const diff = computed(() => props.result.kind === "diff" ? toolFileDiff(props.result.before, props.result.after) : null);
+const diffPath = computed(() => (props.result.kind === "diff" ? props.result.path : undefined));
 const replacementLines = computed(() => props.result.kind === "replacement" ? [
   ...codeLines(props.result.before).map((text) => ({ kind: "del", text })),
   ...codeLines(props.result.after).map((text) => ({ kind: "add", text })),
@@ -45,7 +69,9 @@ const terminalSpans = computed(() => {
       <div v-if="lines.length" class="tool-code" role="figure" :aria-label="t('chat.tool.fileCode')">
         <div v-for="(line, index) in lines" :key="index" class="tool-code-line">
           <span class="tool-line-number" aria-hidden="true">{{ index + 1 }}</span>
-          <pre>{{ line || '\u200b' }}</pre>
+          <!-- shiki 每行 HTML（双主题 CSS 变量），未就绪/未知语言回落纯文本 -->
+          <pre v-if="highlighted?.[index] != null" class="tool-code-hl" v-html="highlighted[index]" />
+          <pre v-else>{{ line || '\u200b' }}</pre>
         </div>
       </div>
       <p v-else class="tool-result-note">{{ t("chat.tool.emptyFile") }}</p>
@@ -56,7 +82,7 @@ const terminalSpans = computed(() => {
           <span class="tool-added">+{{ diff.added }}</span>
           <span class="tool-deleted">-{{ diff.removed }}</span>
         </div>
-        <DiffView :diff="diff.patch" />
+        <DiffView :diff="diff.patch" :path="diffPath" />
       </div>
       <p v-else class="tool-result-note">{{ t("chat.tool.fileUnchanged") }}</p>
     </template>
@@ -137,6 +163,16 @@ const terminalSpans = computed(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 2;
+}
+/* shiki 高亮行：token 双主题 CSS 变量，按深浅取用（与 markdown 代码块同规则） */
+.tool-code-line .tool-code-hl {
+  color: var(--color-code-fg);
+}
+.tool-code-line .tool-code-hl :deep(span) {
+  color: var(--shiki-light, var(--color-code-fg));
+}
+:global(.dark) .tool-code-line .tool-code-hl :deep(span) {
+  color: var(--shiki-dark, var(--color-code-fg));
 }
 .tool-code-line[data-change="add"] { color: var(--color-add); background: color-mix(in srgb, var(--color-add) 12%, transparent); }
 .tool-code-line[data-change="del"] { color: var(--color-del); background: color-mix(in srgb, var(--color-del) 12%, transparent); }

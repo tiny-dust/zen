@@ -7,8 +7,29 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' http://localhost:8400; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://*.feishucdn.com https://*.larksuitecdn.com blob:; connect-src 'self' ws: http://localhost:*"    />
     <title>Zen</title>
+    <style>
+      /*
+       * Linux/Windows 窗口三键的拖拽区豁免（必须首帧静态渲染）：
+       * Chromium 只在初始布局登记 no-drag 区域；主 JS 是大体积 module，
+       * mount 晚于首帧，之后动态添加/改动的拖拽区要么整块按 drag 登记、
+       * 要么与后登记的 drag 矩形冲突，三键的 no-drag 洞会失效（点击被吞）。
+       * 此元素在所有平台常驻：代价仅为右上角 138px 不可拖拽（该处是三键
+       * 占位区，本就不应拖拽）。z-index 89：低于三键（--z-toast: 90），
+       * 不拦截按钮点击；高度 = --titlebar-h。
+       */
+      #wc-region-hole {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 138px; /* 三键最宽形态：win32 3×46；linux 为 110px，偏宽无害 */
+        height: 38px;
+        z-index: 89;
+        -webkit-app-region: no-drag;
+      }
+    </style>
   </head>
   <body>
+    <div id="wc-region-hole" aria-hidden="true"></div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

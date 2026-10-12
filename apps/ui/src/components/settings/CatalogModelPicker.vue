@@ -73,8 +73,30 @@ const groups = computed(() => {
     group.models.push(item);
     map.set(item.vendor, group);
   }
-  return [...map.values()];
+  // 组内模型按发布日期倒序（最新发布在前，无日期的排最后）；
+  // 厂商分组也按组内最新发布排序，让「有新模型」的厂商整体靠前
+  const result = [...map.values()].map((group) => ({
+    ...group,
+    models: [...group.models].sort(byReleaseDateDesc),
+  }));
+  return result.sort(
+    (a, b) =>
+      releaseTimestamp(a.models[0]) - releaseTimestamp(b.models[0]),
+  );
 });
+
+/** 发布日期倒序比较器：无日期视为最早 */
+function byReleaseDateDesc(a: CatalogModel, b: CatalogModel): number {
+  return releaseTimestamp(b) - releaseTimestamp(a) || a.id.localeCompare(b.id);
+}
+
+/** releaseDate（YYYY-MM-DD）→ 可比较时间戳；缺省为 0（排最后） */
+function releaseTimestamp(model?: CatalogModel): number {
+  if (!model?.releaseDate) {
+    return 0;
+  }
+  return Date.parse(model.releaseDate) || 0;
+}
 
 function toggleGroup(vendor: string) {
   const next = new Set(expanded.value);
@@ -151,7 +173,7 @@ onMounted(() => {
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
-      class="flex w-[min(600px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
+      class="flex w-[min(680px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
     >
       <DialogHeader class="sr-only absolute h-px w-px overflow-hidden p-0 m-[-1px]">
         <DialogTitle>{{ t("settings.models.pickerTitle") }}</DialogTitle>
@@ -249,6 +271,12 @@ onMounted(() => {
               <div class="flex items-center gap-1.5 text-[13px] text-[var(--color-txt-strong)]">
                 {{ model.name }}
                 <span v-if="isKnown(model)" class="text-[11px] text-[var(--color-mut)]">{{ t("settings.models.addedTag") }}</span>
+                <span
+                  v-if="model.releaseDate"
+                  class="shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
+                >
+                  {{ model.releaseDate }}
+                </span>
               </div>
               <div class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
                 {{ model.id }}

@@ -7,6 +7,7 @@ import { createTokenView } from "@/lib/composer-token-view";
 
 import type { ComposerAttachment } from "@/stores/chat-types";
 import type { ComposerElementMark } from "@/lib/browser-element";
+import type { MentionExcludeRange } from "@/lib/composer-segments";
 
 const props = defineProps<{
   modelValue: string;
@@ -16,6 +17,8 @@ const props = defineProps<{
   elements?: ComposerElementMark[];
   placeholder?: string;
   disabled?: boolean;
+  /** @/$ 文件弹层打开时的输入中 token 范围：期间该提及保持纯文本，选中后才变 tag */
+  mentionExclude?: MentionExcludeRange | null;
 }>();
 
 const emit = defineEmits<{
@@ -49,7 +52,9 @@ function render(source: string, caret: number | null): void {
   }
   tokenView.unmountTokenViews();
   el.replaceChildren(
-    ...tokenView.renderSegments(parseSegments(source, props.attachments, props.elements)),
+    ...tokenView.renderSegments(
+      parseSegments(source, props.attachments, props.elements, props.mentionExclude),
+    ),
   );
   if (caret !== null) {
     setCaretAt(el, caret);
@@ -69,7 +74,11 @@ function caretOffset(): number {
 }
 
 function tokenBoundary(offset: number, edge: "start" | "end" | "nearest"): number {
-  return snapToToken(parseSegments(currentSource(), props.attachments, props.elements), offset, edge);
+  return snapToToken(
+    parseSegments(currentSource(), props.attachments, props.elements, props.mentionExclude),
+    offset,
+    edge,
+  );
 }
 
 function selectionOffsets(): { start: number; end: number } {
@@ -185,6 +194,16 @@ watch(
     }
   },
   { deep: true },
+);
+
+// 弹层打开/关闭或输入中 token 范围变化时重渲染：进行中的 @ 提及降级为纯文本
+watch(
+  () => props.mentionExclude,
+  () => {
+    if (!composing) {
+      render(currentSource(), caretOffset());
+    }
+  },
 );
 
 onBeforeUnmount(() => {

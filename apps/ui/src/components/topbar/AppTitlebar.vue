@@ -115,10 +115,12 @@ function toggleButtonClass(active: boolean) {
       >
         <PanelRight />
       </Button>
-      <!-- Windows/Linux 三键（原生叠加或自绘）右上角固定占位；macOS 交通灯在左上，此处为 0 -->
+      <!-- Windows/Linux 三键（自绘）右上角固定占位；macOS 交通灯在左上，此处为 0。
+           no-drag + h-full：把三键区从头行 drag 矩形中挖掉（必须撑满高度，
+           零高的 span 挖不出洞），避免后登记的 drag 盖住三键点击区。 -->
       <span
         v-if="rightCollapsed"
-        class="w-[var(--titlebar-trail)] flex-none"
+        class="h-full w-[var(--titlebar-trail)] flex-none [-webkit-app-region:no-drag]"
         aria-hidden="true"
       />
     </div>

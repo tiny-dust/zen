@@ -202,6 +202,16 @@ export function useComposerTriggers(options: {
 
   const activeItem = computed(() => items.value[active.value] ?? null);
 
+  /**
+   * 文件弹层打开时的输入中 token 范围（tokenStart..光标）：
+   * 编辑器据此把该段提及降级为纯文本，选中落定（apply 插入完整 `$路径 `）后才变 tag
+   */
+  const activeTokenRange = computed(() =>
+    open.value && kind.value === "file"
+      ? { start: tokenStart.value, end: tokenStart.value + 1 + query.value.length }
+      : null,
+  );
+
   async function ensureFiles() {
     if (Date.now() - filesFetchedAt < 30_000 && files.value.length) {
       return;
@@ -333,5 +343,6 @@ export function useComposerTriggers(options: {
     move,
     apply,
     onKeydown,
+    activeTokenRange,
   };
 }

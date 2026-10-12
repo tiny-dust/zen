@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { Copy, Minus, Square, X } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
-import { useAppTheme } from "@/composables/useAppTheme";
 import { cn } from "@/lib/utils";
 
 type Platform = "darwin" | "win32" | "linux";
@@ -12,29 +11,29 @@ type Platform = "darwin" | "win32" | "linux";
 const { t } = useI18n();
 const api = window.zen?.window ?? null;
 
-const platform = ref<Platform | null>(null);
+/**
+ * 平台来自 preload 的同步值（process.platform），首帧即定：三键必须在首帧
+ * 渲染——Chromium 只在初始布局登记拖拽区的 no-drag 子区域，首帧后动态添加
+ * 的拖拽容器只登记 drag 矩形，按钮的点击会被整块吞掉（Linux/Windows 均如此）。
+ */
+const platform = ref<Platform | null>(api?.getPlatform() ?? null);
 const maximized = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
-/** win32 原生 caption 叠加可用时交给系统画；不可用时回落自绘（安全降级） */
-const nativeOverlay = ref(false);
 let disposeMaximized: (() => void) | null = null;
 
 /** win32 自绘走 Windows 通栏三键；Linux 走 GNOME 风格紧凑三键 */
 const variant = computed(() => (platform.value === "win32" ? "windows" : "gnome"));
 
-/** macOS 红绿灯原生；win32 原生叠加时也不自绘 */
-const showControls = computed(() => {
-  if (!api || !platform.value || platform.value === "darwin") {
-    return false;
-  }
-  return platform.value === "linux" || !nativeOverlay.value;
-});
+/** macOS 红绿灯原生，其余平台自绘 */
+const showControls = computed(() => Boolean(api && platform.value && platform.value !== "darwin"));
 
 const rootCls = computed(() =>
   cn(
-    // 固定窗口右上角；容器保留拖拽（不吞掉标题栏拖拽区），仅按钮 no-drag
+    // 固定窗口右上角（覆盖 index.html 的 #wc-region-hole 静态豁免区）。
+    // 容器自身不带 app-region：动态登记的 drag 矩形没有 no-drag 洞，
+    // 会把豁免区重新盖死；拖拽由下层标题栏头行提供，豁免由静态元素保证。
     "fixed right-0 top-0 z-[var(--z-toast)] flex h-[var(--titlebar-h)] select-none",
-    "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+    "[&_button]:[-webkit-app-region:no-drag]",
     variant.value === "windows" ? "items-stretch" : "items-center gap-1 pr-1.5",
   ),
 );
@@ -56,15 +55,6 @@ function btnCls(kind: "default" | "close") {
 }
 
 const glyphCls = computed(() => (variant.value === "windows" ? "size-3" : "size-3.5"));
-
-// 主题切换后 token 已换值，原生 caption 叠加配色需要重新同步（仅 win32 生效）
-const { isDark } = useAppTheme();
-watch(isDark, async () => {
-  if (platform.value === "win32" && nativeOverlay.value) {
-    await nextTick();
-    syncNativeOverlayColors();
-  }
-});
 
 function minimize() {
   void api?.minimize();
@@ -105,22 +95,6 @@ function onTitlebarDoubleClick(event: MouseEvent) {
   void api?.toggleMaximize();
 }
 
-/** Windows 原生叠加按钮实际宽度（缺 API 时回落 Win11 标准 3×46） */
-function overlayButtonsWidth(): number | null {
-  const wco = (
-    navigator as unknown as {
-      windowControlsOverlay?: {
-        visible?: boolean;
-        getBoundingClientRect?: () => { width: number };
-      };
-    }
-  ).windowControlsOverlay;
-  if (!wco?.visible) {
-    return null;
-  }
-  return wco.getBoundingClientRect?.().width ?? null;
-}
-
 function fallbackWidth() {
   return variant.value === "windows" ? 138 : 110;
 }
@@ -129,23 +103,10 @@ function fallbackWidth() {
 function syncTrail() {
   const root = document.documentElement;
   if (!showControls.value) {
-    root.style.setProperty(
-      "--titlebar-trail",
-      platform.value === "win32" && nativeOverlay.value ? `${overlayButtonsWidth() ?? 138}px` : "0px",
-    );
+    root.style.setProperty("--titlebar-trail", "0px");
     return;
   }
   root.style.setProperty("--titlebar-trail", `${rootEl.value?.offsetWidth || fallbackWidth()}px`);
-}
-
-/** 按 styles.css token 实际值同步原生叠加配色（构造参数只是首帧近似） */
-function syncNativeOverlayColors() {
-  const styles = getComputedStyle(document.documentElement);
-  void api?.setTitleBarOverlay({
-    color: styles.getPropertyValue("--color-bg").trim() || undefined,
-    symbolColor: styles.getPropertyValue("--color-topbar-icon").trim() || undefined,
-    height: parseFloat(styles.getPropertyValue("--titlebar-h")) || 38,
-  });
 }
 
 onMounted(async () => {
@@ -153,22 +114,13 @@ onMounted(async () => {
     return;
   }
   document.addEventListener("dblclick", onTitlebarDoubleClick);
-  const info = await window.zen?.shell.platformInfo().catch(() => null);
-  platform.value = info?.platform ?? null;
-  if (platform.value === "win32") {
-    nativeOverlay.value = overlayButtonsWidth() != null;
-    if (nativeOverlay.value) {
-      syncNativeOverlayColors();
-    }
-  }
+  syncTrail();
   if (showControls.value) {
     maximized.value = await api.isMaximized().catch(() => false);
     disposeMaximized = api.onMaximizedChange((value) => {
       maximized.value = value;
     });
   }
-  await nextTick();
-  syncTrail();
 });
 
 onBeforeUnmount(() => {

@@ -169,7 +169,9 @@ function onSubmit() {
   emit("save", {
     id,
     name: form.name.trim() || id,
-    custom: Boolean(props.initial?.custom ?? !props.template),
+    // 新增一律视为手动添加（含目录模板）：可删除、带「手动」标识；
+    // 编辑已有模型沿用其原有标记，避免把拉取的模型改写成可删
+    custom: props.initial ? Boolean(props.initial.custom) : true,
     capabilities: buildCapabilities(),
   });
   emit("update:open", false);
@@ -207,7 +209,7 @@ function protocolOptions() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex w-[min(640px,calc(100vw-32px))] flex-col gap-3">
+    <DialogContent class="flex w-[min(760px,calc(100vw-32px))] flex-col gap-3">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <span>{{ initial ? t("settings.models.editModel") : t("settings.models.addModel") }}</span>
