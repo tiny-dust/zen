@@ -65,15 +65,9 @@ function createWindow(): BrowserWindow {
     titleBarStyle: "hidden",
     // 交通灯在 38px 标题栏内垂直居中（--titlebar-h / --titlebar-lead 与之一致）
     trafficLightPosition: { x: 12, y: 13 },
-    // Windows：原生 caption 按钮叠加（Win11 观感 + Snap Layouts）。初始配色与
-    // styles.css 的 --color-bg / --color-topbar-icon（dark，同 backgroundColor）
-    // 一致，渲染层挂载后按 token 实际值再同步（window:set-titlebar-overlay）。
-    // macOS 不传（红绿灯原样）；Linux 叠加观感不可控，走渲染层自绘三键。
-    ...(process.platform === "win32"
-      ? {
-          titleBarOverlay: { color: "#181818", symbolColor: "#f4f4f5", height: 38 },
-        }
-      : {}),
+    // Windows/Linux 均为 frameless + 渲染层首帧自绘三键（WindowControls.vue）。
+    // 不用 Windows 原生 titleBarOverlay：其可见性检测在挂载期有竞态，
+    // 且动态渲染的拖拽区 no-drag 子区域不被 Chromium 登记，自绘键会全部失效。
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: true,

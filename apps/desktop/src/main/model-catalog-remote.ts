@@ -29,6 +29,7 @@ interface RemoteModel {
   status?: unknown;
   reasoning?: unknown;
   tool_call?: unknown;
+  release_date?: unknown;
   modalities?: { input?: unknown; output?: unknown };
   limit?: { context?: unknown; output?: unknown };
 }
@@ -93,6 +94,11 @@ function mapRemoteModel(vendorId: string, model: RemoteModel): CatalogModel | nu
     return null;
   }
   const name = typeof model.name === "string" && model.name.trim() ? model.name.trim() : id;
+  // 发布日期（release_date，ISO YYYY-MM-DD）：目录列表按最新发布排序展示
+  const releaseDate =
+    typeof model.release_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(model.release_date)
+      ? model.release_date
+      : undefined;
   return {
     vendor: vendorId,
     vendorLabel: VENDOR_LABEL.get(vendorId) ?? vendorId,
@@ -100,6 +106,7 @@ function mapRemoteModel(vendorId: string, model: RemoteModel): CatalogModel | nu
     id,
     name,
     capabilities: mapCapabilities(model),
+    ...(releaseDate ? { releaseDate } : {}),
   };
 }
 

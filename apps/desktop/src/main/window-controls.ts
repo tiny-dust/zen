@@ -1,13 +1,11 @@
 import { BrowserWindow, ipcMain } from "electron";
 
-import type { TitleBarOverlayOptions } from "electron";
-
 /**
  * 窗口控制：最小化 / 最大化 / 还原 / 关闭 + 最大化状态同步。
  *
- * macOS 由系统红绿灯处理；这些 IPC 供 Windows/Linux 自绘三键、
- * Windows 原生 caption 叠加不可用时的自绘兜底、以及三平台
- * 「双击标题栏最大化-还原」共用。
+ * macOS 由系统红绿灯处理；Windows/Linux 由渲染层自绘三键走这些 IPC。
+ * 渲染层的三键必须首帧渲染（preload 的 window.getPlatform 同步给平台），
+ * 否则拖拽区的 no-drag 子区域不会被 Chromium 登记，点击全被吞掉。
  */
 
 const hookedWindows = new WeakSet<BrowserWindow>();
@@ -73,34 +71,4 @@ export function registerWindowControlsIpc(): void {
   ipcMain.handle("window:is-maximized", (event) => {
     return windowFromEvent(event)?.isMaximized() ?? false;
   });
-
-  /**
-   * Windows 原生 caption 叠加配色同步：渲染层按 styles.css token
-   * 实际值下发，主题切换后仍与界面一致。其它平台忽略（安全降级）。
-   */
-  ipcMain.handle(
-    "window:set-titlebar-overlay",
-    (event, options: TitleBarOverlayOptions) => {
-      const window = windowFromEvent(event);
-      if (!window || process.platform !== "win32" || !options) {
-        return { ok: false };
-      }
-      try {
-        const overlay: TitleBarOverlayOptions = {};
-        if (typeof options.color === "string" && options.color) {
-          overlay.color = options.color;
-        }
-        if (typeof options.symbolColor === "string" && options.symbolColor) {
-          overlay.symbolColor = options.symbolColor;
-        }
-        if (typeof options.height === "number" && options.height > 0) {
-          overlay.height = options.height;
-        }
-        window.setTitleBarOverlay(overlay);
-        return { ok: true };
-      } catch {
-        return { ok: false };
-      }
-    },
-  );
 }

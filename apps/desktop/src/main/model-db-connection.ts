@@ -168,6 +168,14 @@ function migrate(conn: Database.Database) {
     conn.exec(`ALTER TABLE provider_models ADD COLUMN custom INTEGER NOT NULL DEFAULT 0`);
   }
 
+  // 目录发布日期（models.dev release_date）：列表按最新发布排序；旧库补列，空值排最后
+  const catalogCols = conn.prepare(`PRAGMA table_info(catalog_models)`).all() as Array<{
+    name: string;
+  }>;
+  if (!catalogCols.some((col) => col.name === "release_date")) {
+    conn.exec(`ALTER TABLE catalog_models ADD COLUMN release_date TEXT`);
+  }
+
   const workspaceCols = conn.prepare(`PRAGMA table_info(workspaces)`).all() as Array<{
     name: string;
   }>;

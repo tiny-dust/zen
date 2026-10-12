@@ -46,8 +46,18 @@ export const appApi = {
     },
   },
   // 窗口控制：新增域，不改动既有 app./shell. 签名。
-  // macOS 由系统红绿灯处理；Win32 优先原生 caption 叠加，其余场景由渲染层自绘。
+  // macOS 由系统红绿灯处理；Windows/Linux 由渲染层自绘三键。
   window: {
+    /**
+     * 平台标识（sandbox preload 的 process.platform，同步可用）。
+     * 三键必须在首帧渲染：Chromium 对首帧之后动态添加的拖拽区
+     * 只登记 drag 矩形、不登记 no-drag 子区域（Linux/Windows 均如此），
+     * 若等异步 platformInfo 再 v-if 渲染，三键会被拖拽区吞掉所有点击。
+     */
+    getPlatform(): "darwin" | "win32" | "linux" {
+      // Node 的 Platform 联合比 Electron 三平台宽，此处收窄
+      return process.platform as "darwin" | "win32" | "linux";
+    },
     minimize(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("window:minimize");
     },
@@ -65,14 +75,6 @@ export const appApi = {
     },
     isMaximized(): Promise<boolean> {
       return ipcRenderer.invoke("window:is-maximized");
-    },
-    /** Windows 原生 caption 叠加配色同步（渲染层按 styles.css token 实际值下发） */
-    setTitleBarOverlay(options: {
-      color?: string;
-      symbolColor?: string;
-      height?: number;
-    }): Promise<{ ok: boolean }> {
-      return ipcRenderer.invoke("window:set-titlebar-overlay", options);
     },
     onMaximizedChange(handler: (maximized: boolean) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) => {

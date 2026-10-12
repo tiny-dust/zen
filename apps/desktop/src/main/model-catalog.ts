@@ -22,7 +22,7 @@ function loadDbCatalog(): CatalogModel[] {
   }
   const rows = getDb()
     .prepare(
-      `SELECT model_key, vendor, vendor_label, model_id, display_name, capabilities_json
+      `SELECT model_key, vendor, vendor_label, model_id, display_name, capabilities_json, release_date
        FROM catalog_models`,
     )
     .all() as Array<{
@@ -32,6 +32,7 @@ function loadDbCatalog(): CatalogModel[] {
     model_id: string;
     display_name: string;
     capabilities_json: string;
+    release_date: string | null;
   }>;
   dbCatalog = rows.map((row) => {
     let capabilities: CatalogModel["capabilities"] = { source: "catalog" };
@@ -47,6 +48,7 @@ function loadDbCatalog(): CatalogModel[] {
       id: row.model_id,
       name: row.display_name,
       capabilities,
+      ...(row.release_date ? { releaseDate: row.release_date } : {}),
     };
   });
   return dbCatalog;
@@ -176,8 +178,8 @@ export async function refreshCatalogFromRemote(): Promise<CatalogRefreshResult> 
   const db = getDb();
   const insert = db.prepare(
     `INSERT INTO catalog_models
-      (model_key, vendor, vendor_label, model_id, display_name, capabilities_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (model_key, vendor, vendor_label, model_id, display_name, capabilities_json, updated_at, release_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   db.transaction(() => {
     db.prepare(`DELETE FROM catalog_models`).run();
@@ -190,6 +192,7 @@ export async function refreshCatalogFromRemote(): Promise<CatalogRefreshResult> 
         model.name,
         JSON.stringify(model.capabilities),
         fetchedAt,
+        model.releaseDate ?? null,
       );
     }
   })();

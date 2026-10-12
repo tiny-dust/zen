@@ -192,6 +192,33 @@ describe("mapRemoteCatalog 边角", () => {
     expect(mapRemoteCatalog({ openai: { id: "openai" } })).toEqual([]);
     expect(mapRemoteCatalog({ openai: "str" })).toEqual([]);
   });
+
+  it("release_date 透传为 releaseDate；非法格式忽略", () => {
+    const models = mapRemoteCatalog({
+      openai: {
+        id: "openai",
+        models: {
+          a: {
+            id: "new-model",
+            release_date: "2025-12-16",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          b: {
+            id: "bad-date",
+            release_date: "last tuesday",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          c: {
+            id: "no-date",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+    });
+    expect(models.find((m) => m.modelKey === "new-model")?.releaseDate).toBe("2025-12-16");
+    expect(models.find((m) => m.modelKey === "bad-date")?.releaseDate).toBeUndefined();
+    expect(models.find((m) => m.modelKey === "no-date")?.releaseDate).toBeUndefined();
+  });
 });
 
 describe("fetchRemoteCatalogModels", () => {
