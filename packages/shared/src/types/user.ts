@@ -15,8 +15,6 @@ export interface GitHubUser {
   updatedAt?: string | null;
 }
 
-export type AppIconId = "zen-ink" | "zen-mint" | "zen-ember" | "zen-mono" | "custom";
-
 /** 界面主题：system = 跟随操作系统深浅色 */
 export type ThemeMode = "dark" | "light" | "system";
 
@@ -35,8 +33,6 @@ export interface ShortcutBinding {
 }
 
 export interface AppSettings {
-  iconId: AppIconId;
-  customIconPath: string | null;
   shortcuts: ShortcutBinding[];
   /** 在线更新源地址（generic provider，局域网/本机静态目录即可）；清空表示不启用 */
   updateFeedUrl: string | null;
@@ -213,11 +209,4 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "settings", label: "打开设置", command: "workbench.action.openSettings", key: "Cmd+," },
   { id: "new-task", label: "新建任务", command: "zen.action.newTask", key: "Cmd+N" },
   { id: "send-message", label: "发送消息", command: "zen.chat.send", key: "Enter" },
-];
-
-export const BUILTIN_APP_ICONS: Array<{ id: Exclude<AppIconId, "custom">; label: string }> = [
-  { id: "zen-ink", label: "墨玉" },
-  { id: "zen-mint", label: "薄荷" },
-  { id: "zen-ember", label: "余烬" },
-  { id: "zen-mono", label: "素白" },
 ];

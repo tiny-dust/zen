@@ -90,6 +90,17 @@ export interface ReferenceItem {
   agent?: string;
 }
 
+/** 支持配置 API Key 的网络搜索供应商（未配置 Key 时走 DuckDuckGo/Bing 免登录抓取） */
+export type WebSearchApiProviderId = "tavily" | "bocha" | "serper";
+
+/** 单个搜索供应商的配置状态（masked 为脱敏预览，仅用于设置页展示） */
+export interface WebSearchProviderStatus {
+  configured: boolean;
+  masked?: string;
+}
+
+export type WebSearchStatus = Record<WebSearchApiProviderId, WebSearchProviderStatus>;
+
 export type AgentStreamEvent =
   | { type: "delta"; sessionId: string; text: string }
   | { type: "reasoning_delta"; sessionId: string; text: string }
