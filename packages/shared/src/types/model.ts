@@ -160,6 +160,8 @@ export interface CatalogModel {
   id: string;
   name: string;
   capabilities: ModelCapabilities;
+  /** 发布日期（models.dev release_date，ISO YYYY-MM-DD）；种子数据无此字段 */
+  releaseDate?: string;
 }
 
 export interface CatalogMatch {
