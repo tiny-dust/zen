@@ -2,17 +2,27 @@ import { BrowserWindow, ipcMain } from "electron";
 
 import { listSkills } from "@zen/skills";
 
-import type { AgentSettings, SkillSummary } from "@zen/shared";
+import type {
+  AgentSettings,
+  SkillSummary,
+  WebSearchApiProviderId,
+  WebSearchStatus,
+} from "@zen/shared";
 import { showOpenDialogSafe } from "./dialog-safe";
 import { currentLocale } from "./i18n";
 import { syncLarkGatewayWithSettings } from "./lark/ipc";
 import { localizedPromptPresets } from "./prompt-presets";
 import { rebuildSandbox } from "./sandbox";
+import {
+  getWebSearchStatus,
+  saveWebSearchApiKey,
+  WEB_SEARCH_API_PROVIDERS,
+} from "./websearch-auth-store";
 import { loadAgentSettings, saveAgentSettings, zenSandboxRoot } from "./zen-dir";
 
 /**
- * Agent 域 IPC：agent 设置（~/.zen/config.json）、技能列表、沙箱、提示词预设。
- * MCP 配置在 mcp-ipc.ts，云同步在 config-sync.ts。
+ * Agent 域 IPC：agent 设置（~/.zen/config.json）、技能列表、沙箱、提示词预设、
+ * 网络搜索供应商 Key。MCP 配置在 mcp-ipc.ts，云同步在 config-sync.ts。
  */
 
 export function registerAgentIpc(broadcast: (channel: string, payload: unknown) => void): void {
@@ -69,4 +79,24 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
       };
     }
   });
+
+  ipcMain.handle("agent:websearch-status", async (): Promise<WebSearchStatus> => {
+    return getWebSearchStatus();
+  });
+
+  ipcMain.handle(
+    "agent:websearch-set-key",
+    async (
+      _event,
+      provider: WebSearchApiProviderId,
+      key: string | null,
+    ): Promise<WebSearchStatus> => {
+      // 渲染层传来的 provider 不可信：非法值不落库也不抛，返回当前状态（与 set-settings 容错口径一致）
+      if (!(WEB_SEARCH_API_PROVIDERS as readonly string[]).includes(provider)) {
+        return getWebSearchStatus();
+      }
+      await saveWebSearchApiKey(provider, key);
+      return getWebSearchStatus();
+    },
+  );
 }

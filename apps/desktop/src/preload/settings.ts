@@ -10,12 +10,6 @@ export const settingsApi = {
     set(partial: Partial<AppSettings>): Promise<AppSettings> {
       return ipcRenderer.invoke("settings:set", partial);
     },
-    pickIcon(): Promise<AppSettings> {
-      return ipcRenderer.invoke("settings:pick-icon");
-    },
-    applyIcon(): Promise<AppSettings> {
-      return ipcRenderer.invoke("settings:apply-icon");
-    },
     onChanged(handler: (settings: AppSettings) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, settings: AppSettings) => {
         handler(settings);

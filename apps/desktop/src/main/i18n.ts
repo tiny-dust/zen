@@ -54,10 +54,6 @@ const dict: Record<string, { "zh-CN": string; "en-US": string }> = {
     "zh-CN": "无法打开系统浏览器",
     "en-US": "Failed to open the system browser",
   },
-  "user.pickIconTitle": {
-    "zh-CN": "选择应用图标",
-    "en-US": "Choose App Icon",
-  },
 
   // ---------- 提示词预设（prompt-presets.ts，设置页展示） ----------
   "preset.zen-default.name": { "zh-CN": "Zen 默认", "en-US": "Zen Default" },

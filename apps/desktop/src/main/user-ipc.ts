@@ -1,7 +1,7 @@
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
-import { BrowserWindow, app, ipcMain, nativeImage, nativeTheme, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeTheme, shell } from "electron";
 
 import {
   decryptTokens,
@@ -15,9 +15,8 @@ import { isModernSecret } from "./secret";
 import { currentLocale, mainT } from "./i18n";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
-import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
+import type { AppSettings, AuthState, GitHubUser } from "@zen/shared";
 import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME } from "@zen/shared";
-import { showOpenDialogSafe } from "./dialog-safe";
 import { setCurrentUserId } from "./workspace-db";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
@@ -27,7 +26,6 @@ const settingsFile = () => join(app.getPath("userData"), "settings.json");
  */
 const authFile = () =>
   join(app.getPath("userData"), app.isPackaged ? "auth.json" : "auth.dev.json");
-const customIconDir = () => join(app.getPath("userData"), "icons");
 
 /** 登录态有效期：自登录起 3 个月，到期需重新登录 */
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -35,8 +33,6 @@ const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const REFRESH_AHEAD_MS = 24 * 60 * 60 * 1000;
 
 const defaultSettings: AppSettings = {
-  iconId: "zen-ink",
-  customIconPath: null,
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
@@ -98,10 +94,15 @@ async function loadSettings(): Promise<AppSettings> {
   if (cachedSettings) {
     return cachedSettings;
   }
-  const stored = await readJson<Partial<AppSettings>>(settingsFile(), {});
+  const stored = await readJson<Partial<AppSettings> & { iconId?: unknown; customIconPath?: unknown }>(
+    settingsFile(),
+    {},
+  );
+  // 旧配置可能残留已下线的应用图标字段：读入时剥离，下次写盘即消失
+  const { iconId: _legacyIconId, customIconPath: _legacyCustomIconPath, ...storedRest } = stored;
   cachedSettings = {
     ...defaultSettings,
-    ...stored,
+    ...storedRest,
     shortcuts: stored.shortcuts?.length
       ? stored.shortcuts
       : defaultSettings.shortcuts.map((item) => ({ ...item })),
@@ -327,42 +328,6 @@ function broadcast(channel: string, payload: unknown) {
   }
 }
 
-async function applyAppIcon(settings: AppSettings) {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (!win) {
-    return;
-  }
-
-  const fileName =
-    settings.iconId === "custom" && settings.customIconPath
-      ? null
-      : `app-icon-${settings.iconId}.png`;
-  const candidates = fileName
-    ? [
-        join(__dirname, "../renderer/assets", fileName),
-        join(__dirname, "../../ui/public/assets", fileName),
-      ]
-    : [];
-  if (settings.iconId === "custom" && settings.customIconPath) {
-    candidates.push(settings.customIconPath);
-  }
-
-  for (const iconPath of candidates) {
-    try {
-      const image = nativeImage.createFromPath(iconPath);
-      if (!image.isEmpty()) {
-        win.setIcon(image);
-        if (process.platform === "darwin" && app.dock) {
-          await app.dock.setIcon(image);
-        }
-        return;
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-}
-
 export function registerUserIpc(): void {
   ipcMain.handle("auth:state", async () => loadAuth());
 
@@ -442,50 +407,10 @@ export function registerUserIpc(): void {
     broadcast("settings:changed", next);
     return next;
   });
-
-  ipcMain.handle("settings:pick-icon", async (event) => {
-    const options: Electron.OpenDialogOptions = {
-      title: mainT(await currentLocale(), "user.pickIconTitle"),
-      properties: ["openFile"],
-      filters: [
-        { name: "Images", extensions: ["png", "icns", "ico", "jpg", "jpeg", "webp", "svg"] },
-      ],
-    };
-    const parent = BrowserWindow.fromWebContents(event.sender);
-    const result = await showOpenDialogSafe(parent, options);
-    const source = result.canceled ? undefined : result.filePaths[0];
-    if (!source) {
-      return loadSettings();
-    }
-
-    const dir = customIconDir();
-    await ensureDir(dir);
-    const target = join(dir, `custom-${Date.now()}-${basename(source)}`);
-    await copyFile(source, target);
-
-    const current = await loadSettings();
-    const next: AppSettings = {
-      ...current,
-      iconId: "custom",
-      customIconPath: target,
-    };
-    cachedSettings = next;
-    await writeJson(settingsFile(), next);
-    broadcast("settings:changed", next);
-    void applyAppIcon(next);
-    return next;
-  });
-
-  ipcMain.handle("settings:apply-icon", async () => {
-    const settings = await loadSettings();
-    await applyAppIcon(settings);
-    return settings;
-  });
 }
 
 export async function initUserState() {
   const settings = await loadSettings();
   applyThemeMode(settings.theme);
-  await applyAppIcon(settings);
   return settings;
 }

@@ -9,6 +9,8 @@ import type {
   PromptPreset,
   SkillSummary,
   ToolApprovalDecision,
+  WebSearchApiProviderId,
+  WebSearchStatus,
 } from "@zen/shared";
 
 export const agentApi = {
@@ -79,6 +81,16 @@ export const agentApi = {
       projectPath: string,
     ): Promise<{ ok: boolean; dir?: string; error?: string }> {
       return ipcRenderer.invoke("agent:rebuild-sandbox", projectPath);
+    },
+    /** 网络搜索供应商 Key 状态（masked 为脱敏预览，仅设置页展示用） */
+    webSearchStatus(): Promise<WebSearchStatus> {
+      return ipcRenderer.invoke("agent:websearch-status");
+    },
+    setWebSearchKey(
+      provider: WebSearchApiProviderId,
+      key: string | null,
+    ): Promise<WebSearchStatus> {
+      return ipcRenderer.invoke("agent:websearch-set-key", provider, key);
     },
     onSettingsChanged(handler: (settings: AgentSettings) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, settings: AgentSettings) => {

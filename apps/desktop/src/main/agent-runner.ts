@@ -14,6 +14,7 @@ import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import { backupWorkspaceFile } from "./session-checkpoints";
+import { getWebSearchApiKeys } from "./websearch-auth-store";
 import { loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import {
   appendMessage,
@@ -260,6 +261,8 @@ export async function runAgentRequest(
           }
         },
       },
+      // 网络搜索供应商 Key：密文读回，失败按无 key 处理
+      webSearchApiKeys: await getWebSearchApiKeys().catch(() => ({})),
       emit: emitTo,
     });
     sessions.set(request.sessionId, session);
