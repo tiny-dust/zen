@@ -393,6 +393,7 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
     );
     await expect(execTool(tools.webSearch, { query: "none" })).resolves.toEqual({
       query: "none",
+      provider: "bing",
       results: [],
       note: "no results",
     });

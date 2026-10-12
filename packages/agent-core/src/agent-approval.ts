@@ -16,6 +16,7 @@ export function riskForTool(toolName: string): ToolRisk {
     toolName === "searchFiles" ||
     toolName === "updateTasks" ||
     toolName === "webSearch" ||
+    toolName === "webFetch" ||
     toolName === "loadSkill" ||
     toolName === "askUser" ||
     toolName === "spawnAgent" ||

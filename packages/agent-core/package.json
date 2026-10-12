@@ -8,6 +8,7 @@
     "@ai-sdk/anthropic": "4.0.53",
     "@ai-sdk/openai": "4.0.66",
     "@ai-sdk/openai-compatible": "3.0.48",
+    "@mozilla/readability": "0.6.0",
     "@zen/mcp-client": "workspace:*",
     "@zen/session": "workspace:*",
     "@zen/shared": "workspace:*",
@@ -19,7 +20,9 @@
     "@zen/tools-system": "workspace:*",
     "@zen/tools-terminal": "workspace:*",
     "ai": "7.0.99",
+    "jsdom": "27.0.0",
     "rattail": "2.2.0",
+    "turndown": "7.2.1",
     "zod": "4.6.2"
   },
   "scripts": {
@@ -27,7 +30,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/jsdom": "30.0.0",
     "@types/node": "22.20.2",
+    "@types/turndown": "5.0.5",
     "@vitest/coverage-v8": "5.0.0",
     "vitest": "5.0.0"
   }

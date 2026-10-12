@@ -8,6 +8,7 @@ import type {
   PermissionMode,
   ProviderProtocol,
   ReasoningEffort,
+  WebSearchApiProviderId,
 } from "@zen/shared";
 
 export interface AgentSkillHint {
@@ -70,6 +71,8 @@ export interface AgentSessionConfig {
   servicesBridge?: ServicesAgentBridge;
   /** 文件快照桥（main 注入）：writeFile/editFile 实际写入前备份原文件；失败不阻塞写入 */
   checkpointBridge?: { backupFile(relativePath: string): Promise<void> };
+  /** 网络搜索 API Key（desktop 注入）：配置了的供应商优先于免登录抓取（DDG/Bing） */
+  webSearchApiKeys?: Partial<Record<WebSearchApiProviderId, string>>;
   /**
    * 模型上下文窗口（tokens）。> 0 时 agent-core 在 run 内步间按真实 usage 主动压缩；
    * 未提供（未知窗口）则不主动压缩，只保留溢出报错后的恢复与手动压缩。

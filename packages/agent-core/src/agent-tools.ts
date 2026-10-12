@@ -26,7 +26,8 @@ import type {
 import type { ResourceLock } from "./resource-lock";
 import type { AgentSessionConfig } from "./agent-config";
 import { uuidLike } from "./agent-parts";
-import { runWebSearch } from "./agent-websearch";
+import { runWebFetch } from "./agent-webfetch";
+import { searchWeb } from "./agent-websearch";
 import { truncateOutput } from "./agent-model";
 
 /** 工具结果统一输出上限：超长 string 截断后再进对话历史，避免大输出每步重复挤占上下文 */
@@ -433,27 +434,57 @@ export function buildToolSet(
     }),
     webSearch: tool({
       description:
-        "Search the web (DuckDuckGo) and return top result titles/urls. Results are also listed in the UI References section.",
+        "Search the web. Tries configured API providers (Tavily/Bocha/Serper) first, then falls back to free scraping " +
+        "(DuckDuckGo, Bing). Returns top results with title/url/snippet and which provider produced them; results are " +
+        "also listed in the UI References section. Follow up with webFetch to read a promising result.",
       inputSchema: z.object({
         query: z.string().describe("Search query in the user's language when possible."),
       }),
       execute: async ({ query }) => {
-        const results = await runWebSearch(query);
-        for (const reference of results) {
+        const outcome = await searchWeb(query, { apiKeys: config.webSearchApiKeys });
+        for (const reference of outcome.results) {
           emit({
             type: "reference_found",
             sessionId,
             reference: { ...reference, source: "web" },
           });
         }
-        if (!results.length) {
-          return { query, results: [], note: "no results" };
+        if (!outcome.results.length) {
+          return { query, provider: outcome.provider, results: [], note: "no results" };
         }
         return {
           query,
-          results: results.map((item) => ({ title: item.title, url: item.url })),
+          provider: outcome.provider,
+          results: outcome.results.map((item) => ({
+            title: item.title,
+            url: item.url,
+            snippet: item.snippet,
+          })),
         };
       },
+    }),
+    webFetch: tool({
+      description:
+        "Fetch a web page and return its main content as markdown (paginated). Use after webSearch to read a result. " +
+        "Long pages return a slice plus nextStartIndex — pass it back as startIndex to continue reading. " +
+        "Do not fetch login-walled or paywalled pages; PDFs/images are not supported (use browser tools instead).",
+      inputSchema: z.object({
+        url: z.string().describe("http(s) URL to fetch"),
+        startIndex: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Character offset from a previous read's nextStartIndex."),
+        maxChars: z
+          .number()
+          .int()
+          .min(500)
+          .max(50_000)
+          .optional()
+          .describe("Max characters to return (default 10000)."),
+      }),
+      execute: async ({ url, startIndex, maxChars }) => runWebFetch(url, { startIndex, maxChars }),
     }),
   };
 
