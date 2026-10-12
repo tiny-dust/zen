@@ -211,12 +211,11 @@ onMounted(async () => {
   await browserStore.syncStatus();
   // 刷新后主进程里视图可能仍在：若仍在运行则恢复浏览器 tab，而不是关掉面板却留下页面
   if (browserStore.status.state === "running" && browserStore.status.url) {
-    showHome.value = browserStore.status.url === "about:blank";
     rightPanel.ensureTab("browser");
-    urlInput.value = browserStore.status.url;
-  } else if (!history.value.length) {
-    showHome.value = true;
   }
+  // 面板内容随会话绑定：本会话有浏览现场则把共享视图对齐回来（必要时导航），
+  // 本会话从未浏览则回到新标签页（历史页），不吞并其它会话的页面
+  await browserStore.reconcileView();
   await pushBounds();
   if (viewHost.value) {
     ro = new ResizeObserver(() => {

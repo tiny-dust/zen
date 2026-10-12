@@ -396,4 +396,21 @@ describe("SettingsLark 状态与测试卡片", () => {
     expect(setSettings.mock.calls[0]?.[0]).toMatchObject({ larkBridge: { enabled: false } });
     wrapper.unmount();
   });
+
+  it("关闭开关：载荷必须可被 structured clone（不含响应式 Proxy），否则过桥抛错开关回弹", async () => {
+    stubZen();
+    const wrapper = await mountWith();
+
+    await wrapper.find('button[aria-label="启用飞书桥接"]').trigger("click");
+    await flushPromises();
+
+    // IPC 过桥（contextBridge/ipcRenderer.invoke）要求 structured-clone 可克隆：
+    // store 深层响应式的 quickCommands 等嵌套对象是 Vue Proxy，混入载荷会抛
+    // "An object could not be cloned" 且被 void 吞掉 → 设置未保存、开关回弹
+    //（历史 bug「飞书桥接关不掉」即此因）
+    const payload = setSettings.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({ larkBridge: { enabled: false } });
+    expect(() => structuredClone(payload)).not.toThrow();
+    wrapper.unmount();
+  });
 });

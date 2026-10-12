@@ -65,7 +65,12 @@ export const useAgentStore = defineStore("agent", () => {
     if (!zen?.agent) {
       return;
     }
-    settings.value = await zen.agent.setSettings(partial);
+    // partial 可能携带 store 深层响应式 Proxy（如 settings.larkBridge.quickCommands），
+    // IPC 过桥要求 structured-clone 可克隆，混入 Proxy 会抛 "An object could not be
+    // cloned" 且被 void 吞掉 → 设置保存失败（历史 bug「飞书桥接关不掉」即此因）
+    settings.value = await zen.agent.setSettings(
+      JSON.parse(JSON.stringify(partial)) as Partial<AgentSettings>,
+    );
   }
 
   async function refreshSkills(): Promise<void> {

@@ -163,10 +163,10 @@ export function createChatEventGateway(ctx: ChatEventContext) {
   }
 
   /**
-   * 非当前会话的后台事件：只维护侧栏运行态（sessionStatusStore）与提示音。
-   * 绝不触碰 agents/agent-processes/skill-usage 等 owner-session 隔离的 store
-   * （它们会因 ensureSession 换主而清数据）；done 时该会话消息已由主进程落库，
-   * 无需处理消息流。子 Agent 会话（sessionId 带 ::）不上侧栏，直接忽略。
+   * 非当前会话的后台事件：面板数据（Agent 树 / 进程 / 任务清单 / 参考）按会话
+   * 写进对应 store 的桶（store 内按 activeKey 分流，不会劫持当前视图），
+   * 运行态由 sessionStatusStore 维护并播提示音。子 Agent 会话（sessionId 带 ::）
+   * 不上侧栏；其 runTerminal 进程事件改挂到父会话的桶。
    */
   function handleBackgroundEvent(event: AgentStreamEvent): void {
     const id = event.sessionId;
@@ -186,21 +186,34 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       return;
     }
     if (id.includes("::")) {
+      // 其它后台会话的子 Agent：runTerminal 进程事件同样改挂到其父会话的桶
+      if (
+        event.type === "tool_start" ||
+        event.type === "tool_progress" ||
+        event.type === "tool_end"
+      ) {
+        const parentId = id.split("::")[0] ?? "";
+        useAgentProcessesStore().handleStreamEvent({
+          ...event,
+          sessionId: parentId,
+        } as AgentStreamEvent);
+      }
       return;
     }
-    // 源侧已改写为父 sessionId 的子 Agent 面板事件：仅当属于当前会话时入面板，
-    // 避免后台会话事件经 ensureSession 串台到别的会话面板
-    if (id === ctx.sessionId.value) {
-      if (event.type === "tasks_updated") {
-        useSessionInfoStore().applyTasksUpdated(
-          event.sessionId,
-          event.version,
-          event.items,
-          event.agentName,
-        );
-      } else if (event.type === "reference_found") {
-        useSessionInfoStore().addReference(event.sessionId, event.reference);
-      }
+    // 后台会话的面板事件落桶：store 按 activeKey 分流写进该会话的桶（不劫持当前视图）
+    if (event.type === "agent_tree" || event.type === "agent_status") {
+      useAgentsStore().handleStreamEvent(event);
+    }
+    useAgentProcessesStore().handleStreamEvent(event);
+    if (event.type === "tasks_updated") {
+      useSessionInfoStore().applyTasksUpdated(
+        event.sessionId,
+        event.version,
+        event.items,
+        event.agentName,
+      );
+    } else if (event.type === "reference_found") {
+      useSessionInfoStore().addReference(event.sessionId, event.reference);
     }
     // 消息级事件持续归约进后台缓冲（无缓冲的会话 apply 内部忽略），
     // 切回运行中会话时优先用缓冲恢复，运行中未落库的流式内容不丢

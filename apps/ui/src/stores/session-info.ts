@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import type { ReferenceItem, TaskItem, TaskListVersion } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
+import { createSessionBuckets } from "@/stores/session-buckets";
 
 let taskSeq = 0;
 let refSeq = 0;
@@ -17,15 +18,36 @@ function nextRefId(): string {
   return `r${refSeq}`;
 }
 
+/** 单个会话的信息卡状态（分桶快照） */
+interface SessionInfoBucketState {
+  versions: TaskListVersion[];
+  activeVersionId: string;
+  references: ReferenceItem[];
+}
+
 /**
  * 会话信息卡数据：任务清单版本与 websearch 参考。
- * 按 sessionId 隔离，切会话时切换/清空。
+ * 按 sessionId 分桶隔离；切会话时暂存，切回时恢复（不再清空丢数据）。
  */
 export const useSessionInfoStore = defineStore("sessionInfo", () => {
   const versions = ref<TaskListVersion[]>([]);
   const activeVersionId = ref("");
   const references = ref<ReferenceItem[]>([]);
-  const ownerSessionId = ref("");
+
+  const buckets = createSessionBuckets<SessionInfoBucketState>({
+    initial: () => ({ versions: [], activeVersionId: "", references: [] }),
+    capture: () => ({
+      versions: versions.value,
+      activeVersionId: activeVersionId.value,
+      references: references.value,
+    }),
+    restore: (state) => {
+      versions.value = state.versions;
+      activeVersionId.value = state.activeVersionId;
+      references.value = state.references;
+    },
+  });
+  const ownerSessionId = computed(() => buckets.activeKey);
 
   const activeVersion = computed(
     () => versions.value.find((item) => item.id === activeVersionId.value) ?? null,
@@ -33,13 +55,40 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
   const activeTasks = computed(() => activeVersion.value?.items ?? []);
   const doneCount = computed(() => activeTasks.value.filter((item) => item.done).length);
 
+  /** 切换会话：旧会话信息卡入桶，目标会话恢复自己的任务清单与参考 */
   function ensureSession(sessionId: string) {
-    if (ownerSessionId.value && ownerSessionId.value !== sessionId) {
-      versions.value = [];
-      activeVersionId.value = "";
-      references.value = [];
+    buckets.switchTo(sessionId);
+  }
+
+  /**
+   * 事件落点：事件属于当前查看的会话才直接改 refs；
+   * 后台会话的事件写进其桶（切回时恢复），绝不切换当前视图。
+   */
+  function applyToSession(sessionId: string, mutate: (state: SessionInfoBucketState) => void) {
+    if (sessionId === buckets.activeKey) {
+      mutate({
+        get versions() {
+          return versions.value;
+        },
+        set versions(next) {
+          versions.value = next;
+        },
+        get activeVersionId() {
+          return activeVersionId.value;
+        },
+        set activeVersionId(next) {
+          activeVersionId.value = next;
+        },
+        get references() {
+          return references.value;
+        },
+        set references(next) {
+          references.value = next;
+        },
+      });
+      return;
     }
-    ownerSessionId.value = sessionId;
+    buckets.edit(sessionId, mutate);
   }
 
   /**
@@ -54,62 +103,65 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
     items: TaskItem[],
     agentName?: string,
   ) {
-    ensureSession(sessionId);
-    if (agentName) {
-      let target = activeVersion.value;
-      if (!target) {
-        const created: TaskListVersion = {
-          id: nextTaskId(),
-          version: 1,
-          items: [],
-          createdAt: Date.now(),
-        };
-        versions.value.push(created);
-        activeVersionId.value = created.id;
-        target = created;
-      }
-      const merged = [...target.items];
-      for (const item of items) {
-        const index = merged.findIndex((existing) => existing.id === item.id);
-        const tagged: TaskItem = { ...item, agentName };
-        if (index >= 0) {
-          merged[index] = tagged;
-        } else {
-          merged.push(tagged);
+    applyToSession(sessionId, (state) => {
+      if (agentName) {
+        let target =
+          state.versions.find((item) => item.id === state.activeVersionId) ?? null;
+        if (!target) {
+          const created: TaskListVersion = {
+            id: nextTaskId(),
+            version: 1,
+            items: [],
+            createdAt: Date.now(),
+          };
+          state.versions.push(created);
+          state.activeVersionId = created.id;
+          target = created;
         }
+        const merged = [...target.items];
+        for (const item of items) {
+          const index = merged.findIndex((existing) => existing.id === item.id);
+          const tagged: TaskItem = { ...item, agentName };
+          if (index >= 0) {
+            merged[index] = tagged;
+          } else {
+            merged.push(tagged);
+          }
+        }
+        target.items = merged;
+        return;
       }
-      target.items = merged;
-      return;
-    }
-    const existing = versions.value.find((item) => item.version === version);
-    if (existing) {
-      existing.items = items;
-      activeVersionId.value = existing.id;
-      return;
-    }
-    const created: TaskListVersion = {
-      id: nextTaskId(),
-      version,
-      items,
-      createdAt: Date.now(),
-    };
-    versions.value.push(created);
-    activeVersionId.value = created.id;
+      const existing = state.versions.find((item) => item.version === version);
+      if (existing) {
+        existing.items = items;
+        state.activeVersionId = existing.id;
+        return;
+      }
+      const created: TaskListVersion = {
+        id: nextTaskId(),
+        version,
+        items,
+        createdAt: Date.now(),
+      };
+      state.versions.push(created);
+      state.activeVersionId = created.id;
+    });
   }
 
   function addReference(sessionId: string, reference: ReferenceItem) {
-    ensureSession(sessionId);
-    if (references.value.some((item) => item.url === reference.url)) {
-      return;
-    }
-    references.value.push({ ...reference, id: reference.id || nextRefId() });
+    applyToSession(sessionId, (state) => {
+      if (state.references.some((item) => item.url === reference.url)) {
+        return;
+      }
+      state.references.push({ ...reference, id: reference.id || nextRefId() });
+    });
   }
 
   function clear() {
+    buckets.reset();
     versions.value = [];
     activeVersionId.value = "";
     references.value = [];
-    ownerSessionId.value = "";
   }
 
   /**

@@ -12,13 +12,31 @@ import type {
 } from "@zen/shared";
 import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
-import { createBrowserHistory } from "@/stores/browser-history";
+import { createBrowserHistory, loadSessionHistory, saveHistory } from "@/stores/browser-history";
 import { buildPageContextText, emptyStatus, normalizeBrowserUrl } from "@/stores/browser-utils";
+import { createSessionBuckets } from "@/stores/session-buckets";
 import { useLayoutStore } from "@/stores/layout";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { i18n } from "@/locales";
 
 export { normalizeBrowserUrl };
+
+/** 单个 chat 会话的浏览器面板状态（分桶快照）；共享原生视图与运行态不随会话切换销毁 */
+interface BrowserBucketState {
+  urlInput: string;
+  showHome: boolean;
+  panelNote: string;
+  lastSnapshot: BrowserSnapshot | null;
+  lastExtract: BrowserExtractResult | null;
+  lastPicked: BrowserElementRef | null;
+  lastScreenshotPath: string;
+  consoleEntries: BrowserConsoleEntry[];
+  history: BrowserHistoryItem[];
+}
+
+function historyStorageKey(sessionId: string): string {
+  return `zen.browser.history:${sessionId}`;
+}
 
 export const useBrowserStore = defineStore("browser", () => {
   const status = ref<BrowserStatus>(emptyStatus());
@@ -29,9 +47,18 @@ export const useBrowserStore = defineStore("browser", () => {
   const lastPicked = ref<BrowserElementRef | null>(null);
   const panelNote = ref("");
   const busy = ref(false);
-  const { history, suggestions, pushHistory, removeHistory, clearHistory } = createBrowserHistory({
+  /** 浏览历史本体（按会话分桶）；初始用旧版全局历史兜底，bindChatSession 后按会话恢复 */
+  const history = ref<BrowserHistoryItem[]>(loadSessionHistory(""));
+  const { suggestions, pushHistory, removeHistory, clearHistory } = createBrowserHistory({
     urlInput,
     panelNote,
+    history,
+    persist: (items) => {
+      const key = buckets.activeKey;
+      if (key) {
+        saveHistory(historyStorageKey(key), items);
+      }
+    },
   });
   /** 新标签/历史页：原生视图隐藏，展示历史列表 */
   const showHome = ref(true);
@@ -53,6 +80,85 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     return i18n.global.t("app.browser.embeddedChromium");
   });
+
+  /**
+   * 浏览器面板状态按 chat 会话分桶：地址栏 / 新标签页 / 提示 / 快照 / 历史 等
+   * 切走会话时快照入桶，切回时恢复。共享原生视图（单实例）不销毁；
+   * 切换后若浏览器面板已打开，把视图导航对齐到恢复会话的页面。
+   */
+  const buckets = createSessionBuckets<BrowserBucketState>({
+    initial: (key) => ({
+      urlInput: "",
+      showHome: true,
+      panelNote: "",
+      lastSnapshot: null,
+      lastExtract: null,
+      lastPicked: null,
+      lastScreenshotPath: "",
+      consoleEntries: [],
+      history: loadSessionHistory(key),
+    }),
+    capture: () => ({
+      urlInput: urlInput.value,
+      showHome: showHome.value,
+      panelNote: panelNote.value,
+      lastSnapshot: lastSnapshot.value,
+      lastExtract: lastExtract.value,
+      lastPicked: lastPicked.value,
+      lastScreenshotPath: lastScreenshotPath.value,
+      consoleEntries: consoleEntries.value,
+      history: history.value,
+    }),
+    restore: (state) => {
+      urlInput.value = state.urlInput;
+      showHome.value = state.showHome;
+      panelNote.value = state.panelNote;
+      lastSnapshot.value = state.lastSnapshot;
+      lastExtract.value = state.lastExtract;
+      lastPicked.value = state.lastPicked;
+      lastScreenshotPath.value = state.lastScreenshotPath;
+      consoleEntries.value = state.consoleEntries;
+      history.value = state.history;
+    },
+  });
+
+  /**
+   * 共享视图与当前会话状态对齐：会话停留在某页面且视图 URL 不一致时导航过去；
+   * 会话在新标签页 / 从未浏览时回到历史页（原生视图由面板 bounds 逻辑隐藏）。
+   * 画中画悬浮期间不动视图。BrowserPanel 挂载与会话切换（面板已开）时调用。
+   */
+  async function reconcileView() {
+    const zen = window.zen?.browser;
+    if (!zen || status.value.pip || status.value.pipHidden) {
+      return;
+    }
+    await syncStatus();
+    const url = urlInput.value.trim();
+    if (!url) {
+      // 本会话没有浏览现场：回到新标签页（历史页），隐藏原生视图
+      showHome.value = true;
+      await syncBoundsHost();
+      return;
+    }
+    if (status.value.state === "running" && status.value.url === url) {
+      showHome.value = false;
+      await pushBoundsNow();
+      return;
+    }
+    await openUrl(url);
+  }
+
+  /** 会话切换入口（chat store 调用）：面板状态入桶/恢复，视图按需对齐 */
+  function bindChatSession(chatSessionId: string) {
+    const switched = buckets.switchTo(chatSessionId);
+    if (!switched) {
+      return;
+    }
+    // 浏览器面板已打开才同步导航；未打开时等面板挂载（BrowserPanel onMounted）再对齐
+    if (useRightPanelStore().hasKind("browser")) {
+      void reconcileView();
+    }
+  }
 
   function bindEvents() {
     const zen = window.zen;
@@ -568,6 +674,8 @@ export const useBrowserStore = defineStore("browser", () => {
     browserSettings,
     kernelLabel,
     bindEvents,
+    bindChatSession,
+    reconcileView,
     syncStatus,
     ensureRunning,
     syncBounds,

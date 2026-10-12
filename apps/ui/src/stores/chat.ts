@@ -29,11 +29,14 @@ import { createComposerDomain } from "@/stores/chat-composer";
 import { createMessageQueue } from "@/stores/chat-queue";
 import { useGitStore } from "@/stores/git";
 import { useModelsStore } from "@/stores/models";
+import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionDraft } from "@/composables/useSessionDraft";
 import type { UploadedFileRef } from "@/composables/useComposerTriggers";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
 import { useSkillUsageStore } from "@/stores/skill-usage";
+import { useTerminalStore } from "@/stores/terminal";
+import { useBrowserStore } from "@/stores/browser";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
 import { i18n } from "@/locales";
@@ -428,6 +431,21 @@ export const useChatStore = defineStore("chat", () => {
     },
   });
 
+  /**
+   * 面板内容与会话绑定：信息卡 / Agent 树 / 进程 / 终端 / 浏览器 / 右栏 Tab
+   * 各自的 store 内部按 sessionId 分桶（switchTo 旧会话入桶、目标会话恢复）。
+   * 调用点：bootstrap（启动）/ newTask / loadSession（会话切换）。
+   */
+  function bindPanelSessions() {
+    useSessionInfoStore().ensureSession(sessionId.value);
+    useAgentsStore().ensureSession(sessionId.value);
+    useAgentProcessesStore().ensureSession(sessionId.value);
+    useTerminalStore().bindChatSession(sessionId.value);
+    // 右栏 Tab 先恢复（浏览器视图对齐依赖当前会话的 Tab 布局），再恢复浏览器面板状态
+    useRightPanelStore().bindChatSession(sessionId.value);
+    useBrowserStore().bindChatSession(sessionId.value);
+  }
+
   function bootstrap(): () => void {
     const zen = window.zen;
     if (!zen) {
@@ -442,9 +460,7 @@ export const useChatStore = defineStore("chat", () => {
     });
     void refreshGit();
     void useGitStore().refreshStatus();
-    useSessionInfoStore().ensureSession(sessionId.value);
-    useAgentsStore().ensureSession(sessionId.value);
-    useAgentProcessesStore().ensureSession(sessionId.value);
+    bindPanelSessions();
 
     return zen.agent.onEvent(handleStreamEvent);
   }
@@ -843,9 +859,6 @@ export const useChatStore = defineStore("chat", () => {
     resetRunState();
     sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = null;
-    useSessionInfoStore().clear();
-    useAgentsStore().clear();
-    useAgentProcessesStore().clear();
 
     sessionWorkspaceId.value = target;
     workspaceStore.setActive(target);
@@ -857,9 +870,9 @@ export const useChatStore = defineStore("chat", () => {
       sessionId.value = newId;
       sessionPersisted.value = false;
     }
-    useSessionInfoStore().ensureSession(sessionId.value);
-    useAgentsStore().ensureSession(sessionId.value);
-    useAgentProcessesStore().ensureSession(sessionId.value);
+    // 面板状态分桶切换：旧会话面板内容入桶，新会话恢复初始态
+    // （不能用 clear()：那会清掉全部会话的桶，切回旧会话就恢复不了了）
+    bindPanelSessions();
     restorePendingAsks(sessionId.value);
     void refreshGit();
     void useGitStore().refreshStatus();
@@ -922,13 +935,13 @@ export const useChatStore = defineStore("chat", () => {
     }
     // 恢复该会话挂起的 askUser 问询（切走时暂存 / 后台新到的），否则问询卡不显示
     restorePendingAsks(record.id);
-    useSessionInfoStore().clear();
-    useAgentsStore().clear();
-    useAgentProcessesStore().clear();
-    useSessionInfoStore().ensureSession(sessionId.value);
-    useAgentsStore().ensureSession(sessionId.value);
-    useAgentProcessesStore().ensureSession(sessionId.value);
-    useSessionInfoStore().restoreFromSession(found);
+    // 面板状态分桶切换：旧会话面板内容入桶，目标会话有桶则恢复（不能用 clear() 清全部桶）
+    bindPanelSessions();
+    // 任务清单：目标会话无内存态（本次运行内首次打开）时才从落库数据重建，
+    // 避免覆盖分桶恢复的后台实时更新（tasks_updated 事件已按会话落桶）
+    if (!useSessionInfoStore().versions.length) {
+      useSessionInfoStore().restoreFromSession(found);
+    }
     // 从最后一条 assistant 的 meta.run 恢复 run summary
     const restored = restoreRunSummaryFromMessages(found.messages);
     if (restored) {

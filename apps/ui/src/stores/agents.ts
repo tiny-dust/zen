@@ -10,6 +10,8 @@ import type { Component } from "vue";
 import { computed, ref } from "vue";
 
 import type { AgentNodeState, AgentStreamEvent, SubAgentStatus } from "@zen/shared";
+
+import { createSessionBuckets } from "@/stores/session-buckets";
 import { i18n } from "@/locales";
 
 /** UI 侧 Agent 节点（与 shared AgentNodeState 对齐） */
@@ -72,11 +74,35 @@ export const SUB_AGENT_STATUS_META: Record<
 };
 
 export const useAgentsStore = defineStore("agents", () => {
-  const sessionId = ref("");
   const nodes = ref<AgentNode[]>([]);
   const limit = ref(2);
   const running = ref(0);
   const selectedId = ref("");
+
+  /** 单个会话的 Agent 面板状态（分桶快照） */
+  interface AgentsBucketState {
+    nodes: AgentNode[];
+    selectedId: string;
+    limit: number;
+    running: number;
+  }
+
+  const buckets = createSessionBuckets<AgentsBucketState>({
+    initial: () => ({ nodes: [], selectedId: "", limit: 2, running: 0 }),
+    capture: () => ({
+      nodes: nodes.value,
+      selectedId: selectedId.value,
+      limit: limit.value,
+      running: running.value,
+    }),
+    restore: (state) => {
+      nodes.value = state.nodes;
+      selectedId.value = state.selectedId;
+      limit.value = state.limit;
+      running.value = state.running;
+    },
+  });
+  const sessionId = computed(() => buckets.activeKey);
 
   const selected = computed(
     () => nodes.value.find((item) => item.id === selectedId.value) ?? null,
@@ -109,12 +135,46 @@ export const useAgentsStore = defineStore("agents", () => {
     };
   });
 
+  /** 切换会话：旧会话 Agent 树入桶，目标会话恢复自己的树 */
   function ensureSession(id: string) {
-    if (sessionId.value && sessionId.value !== id) {
-      nodes.value = [];
-      selectedId.value = "";
+    buckets.switchTo(id);
+  }
+
+  /**
+   * 事件落点：事件属于当前查看的会话才直接改 refs；
+   * 后台会话的事件写进其桶（切回时恢复），绝不切换当前视图。
+   */
+  function applyToSession(id: string, mutate: (state: AgentsBucketState) => void) {
+    if (id === buckets.activeKey) {
+      mutate({
+        get nodes() {
+          return nodes.value;
+        },
+        set nodes(next) {
+          nodes.value = next;
+        },
+        get selectedId() {
+          return selectedId.value;
+        },
+        set selectedId(next) {
+          selectedId.value = next;
+        },
+        get limit() {
+          return limit.value;
+        },
+        set limit(next) {
+          limit.value = next;
+        },
+        get running() {
+          return running.value;
+        },
+        set running(next) {
+          running.value = next;
+        },
+      });
+      return;
     }
-    sessionId.value = id;
+    buckets.edit(id, mutate);
   }
 
   function applySnapshot(payload: {
@@ -122,17 +182,18 @@ export const useAgentsStore = defineStore("agents", () => {
     agents: AgentNodeState[];
     concurrency: { limit: number; running: number };
   }) {
-    ensureSession(payload.sessionId);
-    nodes.value = payload.agents.map((item) => ({
-      ...item,
-      log: [...item.log],
-      transcript: item.transcript?.map((entry) => ({ ...entry })),
-    }));
-    limit.value = payload.concurrency.limit;
-    running.value = payload.concurrency.running;
-    if (selectedId.value && !nodes.value.some((item) => item.id === selectedId.value)) {
-      selectedId.value = nodes.value[0]?.id ?? "";
-    }
+    applyToSession(payload.sessionId, (state) => {
+      state.nodes = payload.agents.map((item) => ({
+        ...item,
+        log: [...item.log],
+        transcript: item.transcript?.map((entry) => ({ ...entry })),
+      }));
+      state.limit = payload.concurrency.limit;
+      state.running = payload.concurrency.running;
+      if (state.selectedId && !state.nodes.some((item) => item.id === state.selectedId)) {
+        state.selectedId = state.nodes[0]?.id ?? "";
+      }
+    });
   }
 
   function applyStatus(payload: {
@@ -140,20 +201,21 @@ export const useAgentsStore = defineStore("agents", () => {
     agent: AgentNodeState;
     concurrency: { limit: number; running: number };
   }) {
-    ensureSession(payload.sessionId);
-    const next = {
-      ...payload.agent,
-      log: [...payload.agent.log],
-      transcript: payload.agent.transcript?.map((entry) => ({ ...entry })),
-    };
-    const index = nodes.value.findIndex((item) => item.id === next.id);
-    if (index >= 0) {
-      nodes.value.splice(index, 1, next);
-    } else {
-      nodes.value.push(next);
-    }
-    limit.value = payload.concurrency.limit;
-    running.value = payload.concurrency.running;
+    applyToSession(payload.sessionId, (state) => {
+      const next = {
+        ...payload.agent,
+        log: [...payload.agent.log],
+        transcript: payload.agent.transcript?.map((entry) => ({ ...entry })),
+      };
+      const index = state.nodes.findIndex((item) => item.id === next.id);
+      if (index >= 0) {
+        state.nodes.splice(index, 1, next);
+      } else {
+        state.nodes.push(next);
+      }
+      state.limit = payload.concurrency.limit;
+      state.running = payload.concurrency.running;
+    });
   }
 
   function select(id: string) {
@@ -170,7 +232,7 @@ export const useAgentsStore = defineStore("agents", () => {
   }
 
   function clear() {
-    sessionId.value = "";
+    buckets.reset();
     nodes.value = [];
     selectedId.value = "";
     running.value = 0;

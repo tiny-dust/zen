@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
+import { createSessionBuckets } from "@/stores/session-buckets";
 import { useLayoutStore } from "@/stores/layout";
 import { i18n } from "@/locales";
 
@@ -42,12 +43,33 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
 
 /**
  * 右侧工具栏 Tab：每种面板至多一个实例（新建后不能再建，只能关闭后再开）。
+ * Tab 布局按 chat 会话分桶：切走会话时暂存已开面板，切回时恢复。
  */
 export const useRightPanelStore = defineStore("rightPanel", () => {
   const tabs = ref<RightPanelTab[]>([{ id: "files", kind: "files", title: PANEL_TITLES.files }]);
   const activeId = ref("files");
   /** 待定位文件路径：消息流点击文件名时设置，FilePanel 消费后清空 */
   const pendingReveal = ref("");
+
+  /** 单个会话的右栏 Tab 布局（分桶快照） */
+  interface PanelBucketState {
+    tabs: RightPanelTab[];
+    activeId: string;
+  }
+
+  const buckets = createSessionBuckets<PanelBucketState>({
+    initial: () => ({ tabs: [{ id: "files", kind: "files", title: PANEL_TITLES.files }], activeId: "files" }),
+    capture: () => ({ tabs: tabs.value, activeId: activeId.value }),
+    restore: (state) => {
+      tabs.value = state.tabs;
+      activeId.value = state.activeId;
+    },
+  });
+
+  /** 会话切换（chat store 调用）：旧会话 Tab 布局入桶，目标会话恢复自己的面板 */
+  function bindChatSession(chatSessionId: string) {
+    buckets.switchTo(chatSessionId);
+  }
 
   const activeTab = computed(() => tabs.value.find((item) => item.id === activeId.value) ?? null);
   const kinds = computed(() => new Set(tabs.value.map((item) => item.kind)));
@@ -115,5 +137,6 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     ensureTab,
     closeTab,
     revealFile,
+    bindChatSession,
   };
 });

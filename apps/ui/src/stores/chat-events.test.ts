@@ -13,6 +13,9 @@ import { BackgroundTranscripts } from "@/stores/chat-background";
 import { createChatEventGateway } from "@/stores/chat-events";
 import type { ChatEventContext } from "@/stores/chat-events";
 import type { PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-types";
+import { useAgentProcessesStore } from "@/stores/agent-processes";
+import { useAgentsStore } from "@/stores/agents";
+import { useSessionInfoStore } from "@/stores/session-info";
 
 function contextOf(): ChatEventContext {
   return {
@@ -95,5 +98,101 @@ describe("createChatEventGateway context_compacted", () => {
     expect(ctx.lastError.value).toBe("");
     expect(ctx.status.value).toBe("idle");
     expect(ctx.isPaused.value).toBe(false);
+  });
+});
+
+describe("createChatEventGateway 后台会话面板事件落桶", () => {
+  function nodeOf(id: string) {
+    return {
+      id,
+      sessionId: "s2",
+      parentId: null,
+      name: id,
+      task: "任务",
+      status: "running" as const,
+      dependsOn: [],
+      attempts: 1,
+      maxAttempts: 1,
+      log: [],
+    };
+  }
+
+  it("后台会话的 agent_tree 落桶，不劫持当前视图；切回恢复", () => {
+    const ctx = contextOf();
+    const agents = useAgentsStore();
+    agents.ensureSession("s1");
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+
+    handleStreamEvent({
+      type: "agent_tree",
+      sessionId: "s2",
+      agents: [nodeOf("a1")],
+      concurrency: { limit: 2, running: 1 },
+    });
+    // 当前会话 s1 的 Agent 面板仍为空
+    expect(agents.nodes).toHaveLength(0);
+    // 切到 s2：后台落桶的树恢复
+    agents.ensureSession("s2");
+    expect(agents.nodes.map((item) => item.id)).toEqual(["a1"]);
+  });
+
+  it("后台会话的 runTerminal 进程事件落桶", () => {
+    const ctx = contextOf();
+    const processes = useAgentProcessesStore();
+    processes.ensureSession("s1");
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+
+    handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s2",
+      toolCallId: "tc1",
+      toolName: "runTerminal",
+      args: { command: "npm run dev" },
+    });
+    expect(processes.items).toHaveLength(0);
+    processes.ensureSession("s2");
+    expect(processes.items.map((item) => item.command)).toEqual(["npm run dev"]);
+  });
+
+  it("其它后台会话的子 Agent runTerminal 事件改挂到其父会话桶", () => {
+    const ctx = contextOf();
+    const processes = useAgentProcessesStore();
+    processes.ensureSession("s1");
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+
+    handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s2::agent-1",
+      toolCallId: "tc2",
+      toolName: "runTerminal",
+      args: { command: "vite" },
+    });
+    expect(processes.items).toHaveLength(0);
+    processes.ensureSession("s2");
+    expect(processes.items.map((item) => item.command)).toEqual(["vite"]);
+  });
+
+  it("后台会话的 tasks_updated / reference_found 落桶", () => {
+    const ctx = contextOf();
+    const info = useSessionInfoStore();
+    info.ensureSession("s1");
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+
+    handleStreamEvent({
+      type: "tasks_updated",
+      sessionId: "s2",
+      version: 1,
+      items: [{ id: "t1", label: "后台任务", done: false }],
+    });
+    handleStreamEvent({
+      type: "reference_found",
+      sessionId: "s2",
+      reference: { id: "", title: "文档", url: "https://doc", source: "web" },
+    });
+    expect(info.versions).toHaveLength(0);
+    expect(info.references).toHaveLength(0);
+    info.ensureSession("s2");
+    expect(info.activeTasks.map((item) => item.label)).toEqual(["后台任务"]);
+    expect(info.references.map((item) => item.url)).toEqual(["https://doc"]);
   });
 });

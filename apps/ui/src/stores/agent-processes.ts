@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 
 import type { AgentStreamEvent, ToolCallState, ToolProgressEvent } from "@zen/shared";
 
+import { createSessionBuckets } from "@/stores/session-buckets";
 import { i18n } from "@/locales";
 
 export type AgentProcessStatus = ToolCallState | "running";
@@ -117,25 +118,62 @@ function outputTextOf(output: unknown): string | undefined {
   return typeof text === "string" ? text : undefined;
 }
 
+/** 单个会话的进程面板状态（分桶快照） */
+interface ProcessesBucketState {
+  items: AgentProcess[];
+  expandedId: string;
+}
+
 /**
  * 会话信息卡「进程」：收集 Agent 调起的 runTerminal。
- * 按 sessionId 隔离；切会话时清空。
+ * 按 sessionId 分桶隔离；切会话时暂存，切回时恢复（不再清空丢数据）。
  */
 export const useAgentProcessesStore = defineStore("agentProcesses", () => {
-  const ownerSessionId = ref("");
   const items = ref<AgentProcess[]>([]);
   const expandedId = ref("");
+
+  const buckets = createSessionBuckets<ProcessesBucketState>({
+    initial: () => ({ items: [], expandedId: "" }),
+    capture: () => ({ items: items.value, expandedId: expandedId.value }),
+    restore: (state) => {
+      items.value = state.items;
+      expandedId.value = state.expandedId;
+    },
+  });
+  const ownerSessionId = computed(() => buckets.activeKey);
 
   const runningCount = computed(
     () => items.value.filter((item) => item.status === "running").length,
   );
 
+  /** 切换会话：旧会话进程清单入桶，目标会话恢复自己的清单 */
   function ensureSession(sessionId: string) {
-    if (ownerSessionId.value && ownerSessionId.value !== sessionId) {
-      items.value = [];
-      expandedId.value = "";
+    buckets.switchTo(sessionId);
+  }
+
+  /**
+   * 事件落点：事件属于当前查看的会话才直接改 refs；
+   * 后台会话的事件写进其桶（切回时恢复），绝不切换当前视图。
+   */
+  function applyToSession(sessionId: string, mutate: (state: ProcessesBucketState) => void) {
+    if (sessionId === buckets.activeKey) {
+      mutate({
+        get items() {
+          return items.value;
+        },
+        set items(next) {
+          items.value = next;
+        },
+        get expandedId() {
+          return expandedId.value;
+        },
+        set expandedId(next) {
+          expandedId.value = next;
+        },
+      });
+      return;
     }
-    ownerSessionId.value = sessionId;
+    buckets.edit(sessionId, mutate);
   }
 
   function noteToolStart(sessionId: string, toolCallId: string, toolName: string, args: unknown) {
@@ -146,22 +184,23 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     if (!isPersistentCommand(commandOf(args))) {
       return;
     }
-    ensureSession(sessionId);
-    const existing = items.value.find((item) => item.id === toolCallId);
-    if (existing) {
-      existing.status = "running";
-      existing.endedAt = undefined;
-      existing.summary = undefined;
-      existing.output = undefined;
-      existing.error = undefined;
-      return;
-    }
-    items.value.push({
-      id: toolCallId,
-      sessionId,
-      command: commandOf(args),
-      status: "running",
-      startedAt: Date.now(),
+    applyToSession(sessionId, (state) => {
+      const existing = state.items.find((item) => item.id === toolCallId);
+      if (existing) {
+        existing.status = "running";
+        existing.endedAt = undefined;
+        existing.summary = undefined;
+        existing.output = undefined;
+        existing.error = undefined;
+        return;
+      }
+      state.items.push({
+        id: toolCallId,
+        sessionId,
+        command: commandOf(args),
+        status: "running",
+        startedAt: Date.now(),
+      });
     });
   }
 
@@ -179,17 +218,18 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     if (toolName !== "runTerminal") {
       return;
     }
-    ensureSession(sessionId);
-    const item = items.value.find((entry) => entry.id === toolCallId);
-    if (!item) {
-      return;
-    }
-    const exitCode = exitCodeOf(payload.output);
-    item.status = payload.state ?? (payload.ok ? "ok" : "error");
-    item.endedAt = Date.now();
-    item.summary = exitCode != null ? `${payload.summary} · exit ${exitCode}` : payload.summary;
-    item.output = outputTextOf(payload.output);
-    item.error = payload.ok ? undefined : payload.summary;
+    applyToSession(sessionId, (state) => {
+      const item = state.items.find((entry) => entry.id === toolCallId);
+      if (!item) {
+        return;
+      }
+      const exitCode = exitCodeOf(payload.output);
+      item.status = payload.state ?? (payload.ok ? "ok" : "error");
+      item.endedAt = Date.now();
+      item.summary = exitCode != null ? `${payload.summary} · exit ${exitCode}` : payload.summary;
+      item.output = outputTextOf(payload.output);
+      item.error = payload.ok ? undefined : payload.summary;
+    });
   }
 
   /** 运行中输出尾部：tool_progress 增量刷新（持续运行命令的实时输出，仅保留发送侧限量尾部） */
@@ -197,12 +237,13 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     if (event.toolName !== "runTerminal" || event.outputTail == null) {
       return;
     }
-    ensureSession(sessionId);
-    const item = items.value.find((entry) => entry.id === event.toolCallId);
-    if (!item || item.status !== "running") {
-      return;
-    }
-    item.output = event.outputTail;
+    applyToSession(sessionId, (state) => {
+      const item = state.items.find((entry) => entry.id === event.toolCallId);
+      if (!item || item.status !== "running") {
+        return;
+      }
+      item.output = event.outputTail;
+    });
   }
 
   function toggle(id: string) {
@@ -210,7 +251,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
   }
 
   function clear() {
-    ownerSessionId.value = "";
+    buckets.reset();
     items.value = [];
     expandedId.value = "";
   }

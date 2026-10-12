@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { ref } from "vue";
 
+import { LEGACY_HISTORY_KEY, loadHistory, saveHistory } from "@/stores/browser-history";
 import { createBrowserHistory } from "@/stores/browser-history";
 
-const HISTORY_KEY = "zen.browser.history";
+const HISTORY_KEY = "zen.browser.history:test";
 
+/** 组装分桶时代的浏览历史子域：history 本体由调用方持有，persist 指定 key 落库 */
 function setup() {
-  return createBrowserHistory({ urlInput: ref(""), panelNote: ref("") });
+  const history = ref(loadHistory(HISTORY_KEY));
+  const domain = createBrowserHistory({
+    urlInput: ref(""),
+    panelNote: ref(""),
+    history,
+    persist: (items) => saveHistory(HISTORY_KEY, items),
+  });
+  return { ...domain, history };
 }
 
 function seed(items: unknown) {
@@ -21,8 +30,8 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe("createBrowserHistory 初始加载", () => {
-  it("从 localStorage 恢复历史", () => {
+describe("loadHistory / loadSessionHistory 初始加载", () => {
+  it("从指定 key 恢复历史", () => {
     seed([{ url: "https://a.com", title: "A", visitedAt: 1 }]);
     const { history } = setup();
     expect(history.value).toHaveLength(1);
@@ -51,6 +60,22 @@ describe("createBrowserHistory 初始加载", () => {
     );
     expect(setup().history.value).toHaveLength(50);
     expect(setup().history.value[49]?.url).toBe("https://site49.com");
+  });
+
+  it("会话 key 无数据时回落旧版全局历史（迁移种子）", () => {
+    localStorage.setItem(
+      LEGACY_HISTORY_KEY,
+      JSON.stringify([{ url: "https://legacy.com", title: "旧", visitedAt: 1 }]),
+    );
+    expect(loadHistory(LEGACY_HISTORY_KEY)).toHaveLength(1);
+    // 会话自己的 key 优先：有数据时不再回落
+    localStorage.setItem(
+      "zen.browser.history:s1",
+      JSON.stringify([{ url: "https://own.com", title: "自己", visitedAt: 2 }]),
+    );
+    // loadSessionHistory 语义在 browser store 测试中覆盖；此处直接验证两个 key 的读取
+    expect(loadHistory("zen.browser.history:s1")).toHaveLength(1);
+    expect(loadHistory("zen.browser.history:s2")).toEqual([]);
   });
 });
 
@@ -102,9 +127,12 @@ describe("pushHistory / removeHistory / clearHistory", () => {
 
   it("clearHistory 清空并提示", () => {
     const panelNote = ref("");
-    const { history, pushHistory, clearHistory } = createBrowserHistory({
+    const history = ref(loadHistory(HISTORY_KEY));
+    const { pushHistory, clearHistory } = createBrowserHistory({
       urlInput: ref(""),
       panelNote,
+      history,
+      persist: (items) => saveHistory(HISTORY_KEY, items),
     });
     pushHistory("https://a.com", "A");
     clearHistory();
@@ -139,9 +167,12 @@ describe("suggestions 联想", () => {
 
   it("按 url / title 过滤（忽略大小写），命中上限 8 条", () => {
     const urlInput = ref("");
+    const history = ref(loadHistory(HISTORY_KEY));
     const { pushHistory, suggestions } = createBrowserHistory({
       urlInput,
       panelNote: ref(""),
+      history,
+      persist: (items) => saveHistory(HISTORY_KEY, items),
     });
     pushHistory("https://GitHub.com/a", "Repo A");
     pushHistory("https://example.com/b", "GITHUB mirror");
