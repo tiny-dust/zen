@@ -157,6 +157,37 @@ describe("mapRemoteCatalog 边角", () => {
     expect(deduped[0]?.capabilities.contextWindow).toBe(2);
   });
 
+  it("跨厂商同名模型 ID 去重（model_key 是 DB 主键，不能重复）", () => {
+    const models = mapRemoteCatalog({
+      deepseek: {
+        id: "deepseek",
+        models: {
+          a: {
+            id: "deepseek-v3",
+            name: "DeepSeek V3",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+      alibaba: {
+        id: "alibaba",
+        models: {
+          b: {
+            id: "deepseek-v3",
+            name: "DeepSeek V3 (DashScope)",
+            reasoning: true,
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+    });
+    const deduped = models.filter((m) => m.modelKey === "deepseek-v3");
+    expect(deduped).toHaveLength(1);
+    // 保留带 reasoning 标记的条目
+    expect(deduped[0]?.name).toBe("DeepSeek V3 (DashScope)");
+    expect(deduped[0]?.capabilities.reasoning).toBe(true);
+  });
+
   it("provider.models 缺失/非对象 → 不产出条目", () => {
     expect(mapRemoteCatalog({ openai: { id: "openai" } })).toEqual([]);
     expect(mapRemoteCatalog({ openai: "str" })).toEqual([]);

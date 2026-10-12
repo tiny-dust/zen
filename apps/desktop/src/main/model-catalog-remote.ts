@@ -105,7 +105,8 @@ function mapRemoteModel(vendorId: string, model: RemoteModel): CatalogModel | nu
 
 /**
  * 把 models.dev 响应映射为 zen 目录模型。
- * 仅收录内置厂商（避免上百个聚合提供商淹没列表），同键去重时优先保留先出现且未标记 beta 的条目。
+ * 仅收录内置厂商（避免上百个聚合提供商淹没列表）；同一 model_key 跨厂商重复时
+ * 优先保留带 reasoning 标记的条目，其余丢弃（catalog_models.model_key 是主键）。
  */
 export function mapRemoteCatalog(data: unknown): CatalogModel[] {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -123,7 +124,9 @@ export function mapRemoteCatalog(data: unknown): CatalogModel[] {
       if (!mapped) {
         continue;
       }
-      const key = `${mapped.vendor}/${mapped.modelKey}`;
+      // DB 主键是 model_key（不带 vendor），不同厂商挂同名模型 ID（如 DeepSeek 模型
+      // 同时出现在 deepseek 与 alibaba provider 下）必须在此去重，否则落库撞主键
+      const key = mapped.modelKey;
       const existing = result.get(key);
       if (!existing || (existing.capabilities.reasoning === undefined && mapped.capabilities.reasoning)) {
         result.set(key, mapped);
