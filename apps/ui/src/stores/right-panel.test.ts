@@ -132,32 +132,32 @@ describe("useRightPanelStore", () => {
   });
 });
 
-describe("useRightPanelStore 会话分桶", () => {
-  it("bindChatSession：切走暂存 Tab 布局，切回恢复", () => {
+describe("useRightPanelStore 工作区分桶", () => {
+  it("bindWorkspaceScope：切走暂存 Tab 布局，切回恢复（同工作区会话共享）", () => {
     const store = useRightPanelStore();
-    store.bindChatSession("s1");
+    store.bindWorkspaceScope("s1");
     store.ensureTab("browser");
     store.ensureTab("changes");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "changes"]);
 
-    // 切到 s2：回到默认 files 布局
-    store.bindChatSession("s2");
+    // 切到工作区 s2：回到默认 files 布局
+    store.bindWorkspaceScope("s2");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files"]);
     expect(store.activeId).toBe("files");
 
-    // s2 自己开了 graph
+    // 工作区 s2 自己开了 graph
     store.ensureTab("graph");
 
     // 切回 s1：恢复 browser + changes，s2 的布局留在自己的桶里
-    store.bindChatSession("s1");
+    store.bindWorkspaceScope("s1");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "changes"]);
     expect(store.activeTab?.kind).toBe("changes");
 
-    store.bindChatSession("s2");
+    store.bindWorkspaceScope("s2");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files", "graph"]);
   });
 
-  it("未绑定会话时行为不变（默认 files）", () => {
+  it("未绑定时行为不变（默认 files）", () => {
     const store = useRightPanelStore();
     expect(store.tabs.map((item) => item.kind)).toEqual(["files"]);
   });

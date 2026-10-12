@@ -13,6 +13,8 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
   const items = ref<AgentServiceInfo[]>([]);
   const error = ref("");
   const killingIds = ref<Record<string, boolean>>({});
+  /** 详情展开：同一时间只展开一个（同「终端服务」节交互） */
+  const expandedId = ref("");
   /** 时钟：驱动「已运行 xx」的相对时间刷新 */
   const now = ref(Date.now());
   let ticker: ReturnType<typeof setInterval> | null = null;
@@ -37,6 +39,10 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
 
   function apply(list: AgentServiceInfo[]) {
     items.value = list;
+    // 服务自行退出（主进程清扫移除）时收起其详情
+    if (expandedId.value && !list.some((item) => item.id === expandedId.value)) {
+      expandedId.value = "";
+    }
     if (list.length) {
       startTicker();
     }
@@ -73,6 +79,9 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
       const result = await window.zen.services.kill(id);
       if (result.ok) {
         items.value = items.value.filter((item) => item.id !== id);
+        if (expandedId.value === id) {
+          expandedId.value = "";
+        }
         stopTickerIfEmpty();
       } else {
         error.value = result.error || i18n.global.t("app.services.killFailed");
@@ -83,6 +92,10 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
       delete next[id];
       killingIds.value = next;
     }
+  }
+
+  function toggle(id: string) {
+    expandedId.value = expandedId.value === id ? "" : id;
   }
 
   /** 「已运行 xx」相对时长标签 */
@@ -104,11 +117,13 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     items,
     error,
     killingIds,
+    expandedId,
     now,
     count,
     bindEvents,
     refresh,
     kill,
+    toggle,
     durationLabel,
   };
 });

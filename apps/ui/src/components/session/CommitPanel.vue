@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -32,10 +33,14 @@ const { t } = useI18n();
 const gitStore = useGitStore();
 const message = ref("");
 const includeUnstaged = ref(true);
+/** 分支切换进行中（组件局部状态）；提交/推送的进行中状态在 git store（opBusy），弹窗关闭后仍可展示 */
 const busy = ref(false);
 const generating = ref(false);
 const error = ref("");
 const branchMenuOpen = ref(false);
+
+/** 提交/推送进行中：读 store，关闭弹窗再打开（或信息卡）都能看到同一状态 */
+const opBusy = computed(() => gitStore.opBusy);
 
 const branchLabel = computed(() => gitStore.branch || "—");
 const stats = computed(() => ({
@@ -55,7 +60,7 @@ const messagePlaceholder = computed(() =>
 );
 
 function canSubmit() {
-  return !busy.value && gitStore.hasChanges;
+  return !busy.value && !opBusy.value && gitStore.hasChanges;
 }
 
 async function ensureBranches() {
@@ -105,60 +110,56 @@ async function switchBranch(name: string) {
 }
 
 async function submit(mode: "commit" | "commit-push" | "push") {
-  if (busy.value) {
+  if (busy.value || opBusy.value) {
     return;
   }
-  busy.value = true;
   error.value = "";
-  try {
-    if (mode === "push") {
-      const result = await gitStore.push();
-      if (!result.ok) {
-        error.value = result.error ?? t("shell.pushFailed");
-        return;
-      }
-      emit("close");
-      return;
-    }
-
-    // 手动填写 message：尊重显式意图，单条提交；留空则按变更内容自动分批提交
-    if (message.value.trim()) {
-      const paths = gitStore.files.map((item) => item.path);
-      const result = await gitStore.commit(message.value, paths, {
-        push: mode === "commit-push",
-        includeUnstaged: includeUnstaged.value,
-      });
-      if (!result.ok) {
-        error.value = result.error ?? t("shell.commitFailed");
-        return;
-      }
-      message.value = "";
-      emit("close");
-      return;
-    }
-
-    const paths = gitStore.files
-      .filter((item) => includeUnstaged.value || (item.x !== " " && !item.untracked))
-      .map((item) => item.path);
-    const result = await gitStore.commitBatched(paths, { push: mode === "commit-push" });
+  if (mode === "push") {
+    const result = await gitStore.push();
     if (!result.ok) {
-      error.value =
-        result.batches.length > 0
-          ? `${result.error ?? t("shell.partialCommitFailed")}${t("shell.batchesDoneSuffix", { n: result.batches.length })}`
-          : (result.error ?? t("shell.commitFailed"));
+      error.value = result.error ?? t("shell.pushFailed");
+      return;
+    }
+    emit("close");
+    return;
+  }
+
+  // 手动填写 message：尊重显式意图，单条提交；留空则按变更内容自动分批提交
+  if (message.value.trim()) {
+    const paths = gitStore.files.map((item) => item.path);
+    const result = await gitStore.commit(message.value, paths, {
+      push: mode === "commit-push",
+      includeUnstaged: includeUnstaged.value,
+    });
+    if (!result.ok) {
+      error.value = result.error ?? t("shell.commitFailed");
       return;
     }
     message.value = "";
     emit("close");
-  } finally {
-    busy.value = false;
+    return;
   }
+
+  const paths = gitStore.files
+    .filter((item) => includeUnstaged.value || (item.x !== " " && !item.untracked))
+    .map((item) => item.path);
+  const result = await gitStore.commitBatched(paths, { push: mode === "commit-push" });
+  if (!result.ok) {
+    error.value =
+      result.batches.length > 0
+        ? `${result.error ?? t("shell.partialCommitFailed")}${t("shell.batchesDoneSuffix", { n: result.batches.length })}`
+        : (result.error ?? t("shell.commitFailed"));
+    return;
+  }
+  message.value = "";
+  emit("close");
 }
 
 function onKeydown(event: KeyboardEvent) {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     event.preventDefault();
-    void submit("commit");
+    // ⇧⌘↵ 提交并推送，⌘↵ 仅提交
+    void submit(event.shiftKey ? "commit-push" : "commit");
   }
   if (event.key === "Escape") {
     emit("close");
@@ -301,11 +302,17 @@ const rowCls = cn(
         :disabled="!canSubmit()"
         @click="submit('commit')"
       >
-        <ArrowRight class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+        <RefreshCw
+          v-if="opBusy === 'commit'"
+          class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
+          aria-hidden="true"
+        />
+        <ArrowRight v-else class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         <span class="flex-1">{{ t("shell.commit") }}</span>
-        <span class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]">
-          ⌘↵
-        </span>
+        <KbdGroup class="flex-none">
+          <Kbd>⌘</Kbd>
+          <Kbd>↵</Kbd>
+        </KbdGroup>
       </Button>
       <Button
         variant="ghost"
@@ -315,7 +322,7 @@ const rowCls = cn(
         @click="submit('commit-push')"
       >
         <RefreshCw
-          v-if="busy"
+          v-if="opBusy === 'commit-push'"
           class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
           aria-hidden="true"
         />
@@ -325,16 +332,21 @@ const rowCls = cn(
           aria-hidden="true"
         />
         <span class="flex-1">{{ t("shell.commitAndPush") }}</span>
+        <KbdGroup class="flex-none">
+          <Kbd>⇧</Kbd>
+          <Kbd>⌘</Kbd>
+          <Kbd>↵</Kbd>
+        </KbdGroup>
       </Button>
       <Button
         variant="ghost"
         class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="rowCls"
-        :disabled="!gitStore.branch || busy"
+        :disabled="!gitStore.branch || !!opBusy"
         @click="submit('push')"
       >
         <RefreshCw
-          v-if="busy"
+          v-if="opBusy === 'push'"
           class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
           aria-hidden="true"
         />

@@ -65,6 +65,12 @@ useGlobalShortcuts({
       case "workbench.action.toggleSidebarVisibility":
         layoutStore.toggleLeft();
         break;
+      case "workbench.action.toggleInfoPanel":
+        layoutStore.toggleSession();
+        break;
+      case "workbench.action.toggleRightPanel":
+        layoutStore.toggleRight();
+        break;
       case "workbench.action.terminal.toggleTerminal": {
         const opening = layoutStore.bottomCollapsed;
         layoutStore.toggleBottom();

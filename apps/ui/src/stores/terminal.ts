@@ -36,7 +36,7 @@ export const useTerminalStore = defineStore("terminal", () => {
   const buffers = new Map<string, string>();
   const error = ref("");
 
-  /** 单个 chat 会话的终端面板状态（分桶快照）；输出缓冲 buffers 跨会话全局共享 */
+  /** 单个工作区的终端面板状态（分桶快照）；输出缓冲 buffers 跨工作区全局共享 */
   interface TerminalBucketState {
     sessions: TerminalSessionInfo[];
     activeId: string;
@@ -45,7 +45,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     paneIds: string[];
   }
 
-  const chatBuckets = createSessionBuckets<TerminalBucketState>({
+  const workspaceBuckets = createSessionBuckets<TerminalBucketState>({
     initial: () => ({ sessions: [], activeId: "", names: {}, splitMode: "none", paneIds: [] }),
     capture: () => ({
       sessions: sessions.value,
@@ -64,12 +64,13 @@ export const useTerminalStore = defineStore("terminal", () => {
   });
 
   /**
-   * 会话切换：终端列表 / 活动终端 / 分屏 / 命名按 chat 会话恢复。
-   * 主进程 PTY 与输出缓冲不销毁——其它会话的终端继续在后台跑，
+   * 工作区切换：终端列表 / 活动终端 / 分屏 / 命名按工作区恢复——
+   * 同一工作目录的会话共享终端现场（不按会话隔离）。
+   * 主进程 PTY 与输出缓冲不销毁——其它工作区的终端继续在后台跑，
    * 切回时 useTerminalPanes 重新挂载 xterm 并回放缓冲。
    */
-  function bindChatSession(chatSessionId: string) {
-    chatBuckets.switchTo(chatSessionId);
+  function bindWorkspaceScope(workspaceId: string) {
+    workspaceBuckets.switchTo(workspaceId);
   }
 
   /** 活跃会话的终端面板状态视图：getter/setter 直连 refs，可复用桶内的 prune 逻辑 */
@@ -106,7 +107,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     },
   };
 
-  /** 从某个会话桶里摘除已退出的终端（后台会话的终端退出时同步其桶） */
+  /** 从某个工作区桶里摘除已退出的终端（后台工作区的终端退出时同步其桶） */
   function pruneTerminalFromBucket(state: TerminalBucketState, id: string) {
     if (!state.sessions.some((item) => item.id === id)) {
       return;
@@ -130,9 +131,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
   }
 
-  /** 终端退出/关闭时：活跃会话走 refs 清理，其余会话桶统一摘除该终端 */
+  /** 终端退出/关闭时：活跃工作区走 refs 清理，其余工作区桶统一摘除该终端 */
   function pruneTerminalEverywhere(id: string) {
-    chatBuckets.editAll((state) => {
+    workspaceBuckets.editAll((state) => {
       pruneTerminalFromBucket(state, id);
     });
   }
@@ -214,10 +215,10 @@ export const useTerminalStore = defineStore("terminal", () => {
         event.sessionId,
         `\n${i18n.global.t("app.terminal.processExited", { code: event.exitCode })}\n`,
       );
-      // 活跃会话走 refs 清理（终端不在本会话列表时 prune 内部直接跳过）；
+      // 活跃工作区走 refs 清理（终端不在当前列表时 prune 内部直接跳过）；
       // 不在这里自动新建：与 close()/restart() 的创建路径并发会一次冒出两个终端
       pruneTerminalFromBucket(liveState, event.sessionId);
-      // 后台会话桶里的同一终端一并摘除（退出事件对全部 PTY 生效）
+      // 后台工作区桶里的同一终端一并摘除（退出事件对全部 PTY 生效）
       pruneTerminalEverywhere(event.sessionId);
     });
     eventsUnbind = () => {
@@ -369,7 +370,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       sessions.value = sessions.value.filter((item) => item.id !== id);
       buffers.delete(id);
       removeFromPanes(id);
-      // kill 不触发 onExit 事件：手动从其它会话桶里摘除
+      // kill 不触发 onExit 事件：手动从其它工作区桶里摘除
       pruneTerminalEverywhere(id);
     }
     await start(cwd);
@@ -394,7 +395,7 @@ export const useTerminalStore = defineStore("terminal", () => {
         paneIds.value = activeId.value ? [activeId.value] : [];
       }
     }
-    // kill 不触发 onExit 事件：手动从其它会话桶里摘除
+    // kill 不触发 onExit 事件：手动从其它工作区桶里摘除
     pruneTerminalEverywhere(id);
     // 全部关掉后不自动补建：面板保留「暂无终端」，由 Plus / ensureForWorkspace 显式创建
   }
@@ -454,7 +455,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     displayName,
     rename,
     bindEvents,
-    bindChatSession,
+    bindWorkspaceScope,
     loadShell,
     loadFont,
     start,

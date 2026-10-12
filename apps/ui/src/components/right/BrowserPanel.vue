@@ -64,6 +64,8 @@ const uaDraft = ref("");
 const zoomDraft = ref(100);
 // 弹层覆盖在页面视图区上方：打开期间压制原生 WebContentsView，否则被其盖住（表现为点了没反应）
 useBrowserOverlayGuard(settingsOpen);
+// 地址联想下拉同样落到页面视图区上方，展开期间一并压制原生视图
+useBrowserOverlayGuard(computed(() => suggestOpen.value && suggestions.value.length > 0));
 
 function openSettings() {
   settingsOpen.value = !settingsOpen.value;

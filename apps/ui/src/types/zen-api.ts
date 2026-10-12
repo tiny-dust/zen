@@ -108,17 +108,11 @@ export interface ZenApi {
     openPath(path: string): Promise<{ ok: boolean; error?: string }>;
     platformInfo(): Promise<PlatformInfo>;
   };
-  /** 窗口控制：macOS 红绿灯原生处理，这套 IPC 供 Win/Linux 使用（apps/desktop/src/main/window-controls.ts） */
+  /** 窗口控制：三平台 chrome 均系统原生（红绿灯 / titleBarOverlay），此域仅剩 Linux 双击最大化兜底（apps/desktop/src/main/window-controls.ts） */
   window: {
-    /** 平台标识（preload 的 process.platform，同步）：三键需首帧渲染，见 preload/app.ts 注释 */
+    /** 平台标识（preload 的 process.platform，同步）：Linux 需要双击兜底 */
     getPlatform(): "darwin" | "win32" | "linux";
-    minimize(): Promise<{ ok: boolean }>;
-    maximize(): Promise<{ ok: boolean }>;
-    restore(): Promise<{ ok: boolean }>;
     toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>;
-    close(): Promise<{ ok: boolean }>;
-    isMaximized(): Promise<boolean>;
-    onMaximizedChange(handler: (maximized: boolean) => void): () => void;
   };
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }>;

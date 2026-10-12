@@ -17,6 +17,9 @@ import { i18n } from "@/locales";
 
 export type DiffLayout = "single" | "double";
 
+/** 提交/推送操作类型；空串 = 空闲。状态放 store：关闭提交弹窗后操作继续、信息卡仍能展示 loading */
+export type GitOpKind = "commit" | "commit-push" | "push";
+
 export const useGitStore = defineStore("git", () => {
   const status = ref<GitStatus | null>(null);
   const branches = ref<GitBranches>({ local: [], remote: [] });
@@ -32,6 +35,8 @@ export const useGitStore = defineStore("git", () => {
   const commitPanelOpen = ref(false);
   const branchPickerOpen = ref(false);
   const feedback = ref("");
+  /** 提交/推送进行中的操作；跨组件（提交弹窗、信息卡）共享，弹窗关闭不影响操作继续执行 */
+  const opBusy = ref<GitOpKind | "">("");
 
   function cwd(): string | undefined {
     return useWorkspaceStore().pathOf(useChatStore().sessionWorkspaceId);
@@ -300,12 +305,18 @@ export const useGitStore = defineStore("git", () => {
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.commit(root, message, filesToCommit, {
-      push: options.push,
-      includeUnstaged: options.includeUnstaged ?? true,
-      // 空 message 一律允许后端自动生成（AI + 兜底），避免「提交信息不能为空」
-      autoMessage: true,
-    });
+    opBusy.value = options.push ? "commit-push" : "commit";
+    let result: Awaited<ReturnType<typeof zen.git.commit>>;
+    try {
+      result = await zen.git.commit(root, message, filesToCommit, {
+        push: options.push,
+        includeUnstaged: options.includeUnstaged ?? true,
+        // 空 message 一律允许后端自动生成（AI + 兜底），避免「提交信息不能为空」
+        autoMessage: true,
+      });
+    } finally {
+      opBusy.value = "";
+    }
     if (result.ok) {
       feedback.value = options.push
         ? i18n.global.t("app.git.committedAndPushed")
@@ -330,7 +341,13 @@ export const useGitStore = defineStore("git", () => {
     if (!zen?.git || !root) {
       return { ok: false, batches: [], error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.commitBatched(root, paths, { push: options.push });
+    opBusy.value = options.push ? "commit-push" : "commit";
+    let result: Awaited<ReturnType<typeof zen.git.commitBatched>>;
+    try {
+      result = await zen.git.commitBatched(root, paths, { push: options.push });
+    } finally {
+      opBusy.value = "";
+    }
     if (result.ok) {
       const hashes = result.batches.map((batch) => batch.hash).join(" ");
       feedback.value = options.push
@@ -357,7 +374,13 @@ export const useGitStore = defineStore("git", () => {
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.push(root);
+    opBusy.value = "push";
+    let result: Awaited<ReturnType<typeof zen.git.push>>;
+    try {
+      result = await zen.git.push(root);
+    } finally {
+      opBusy.value = "";
+    }
     if (result.ok) {
       feedback.value = i18n.global.t("app.git.pushed");
       toast.ok(i18n.global.t("app.git.pushed"));
@@ -414,6 +437,7 @@ export const useGitStore = defineStore("git", () => {
     commitPanelOpen,
     branchPickerOpen,
     feedback,
+    opBusy,
     files,
     branch,
     totalAdd,

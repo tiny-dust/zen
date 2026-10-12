@@ -76,15 +76,21 @@ export const useSettingsStore = defineStore("settings", () => {
     const theme: ThemeMode =
       value.theme === "light" || value.theme === "system" ? value.theme : DEFAULT_THEME;
     const locale: AppLocale = value.locale === "en-US" ? value.locale : DEFAULT_LOCALE;
+    // 老配置里没有的默认快捷键（新增功能）自动补齐；已存在条目尊重用户自定义
+    const knownIds = new Set(value.shortcuts.map((item) => item.id));
+    const missingDefaults = DEFAULT_SHORTCUTS.filter((item) => !knownIds.has(item.id));
     return {
       ...value,
       theme,
       locale,
       codeTheme: value.codeTheme || DEFAULT_CODE_THEME,
-      shortcuts: value.shortcuts.map((item) => ({
-        ...item,
-        key: normalizeShortcutKey(item.key),
-      })),
+      shortcuts: [
+        ...value.shortcuts.map((item) => ({
+          ...item,
+          key: normalizeShortcutKey(item.key),
+        })),
+        ...missingDefaults,
+      ],
     };
   }
 

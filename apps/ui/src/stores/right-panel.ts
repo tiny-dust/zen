@@ -43,7 +43,8 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
 
 /**
  * 右侧工具栏 Tab：每种面板至多一个实例（新建后不能再建，只能关闭后再开）。
- * Tab 布局按 chat 会话分桶：切走会话时暂存已开面板，切回时恢复。
+ * Tab 布局按工作区分桶：同一工作目录的会话共享右栏面板现场，
+ * 切换工作区时暂存已开面板，切回时恢复。
  */
 export const useRightPanelStore = defineStore("rightPanel", () => {
   const tabs = ref<RightPanelTab[]>([{ id: "files", kind: "files", title: PANEL_TITLES.files }]);
@@ -51,7 +52,7 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
   /** 待定位文件路径：消息流点击文件名时设置，FilePanel 消费后清空 */
   const pendingReveal = ref("");
 
-  /** 单个会话的右栏 Tab 布局（分桶快照） */
+  /** 单个工作区的右栏 Tab 布局（分桶快照） */
   interface PanelBucketState {
     tabs: RightPanelTab[];
     activeId: string;
@@ -66,9 +67,9 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     },
   });
 
-  /** 会话切换（chat store 调用）：旧会话 Tab 布局入桶，目标会话恢复自己的面板 */
-  function bindChatSession(chatSessionId: string) {
-    buckets.switchTo(chatSessionId);
+  /** 工作区切换（chat store 调用）：旧工作区 Tab 布局入桶，目标工作区恢复自己的面板 */
+  function bindWorkspaceScope(workspaceId: string) {
+    buckets.switchTo(workspaceId);
   }
 
   const activeTab = computed(() => tabs.value.find((item) => item.id === activeId.value) ?? null);
@@ -137,6 +138,6 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     ensureTab,
     closeTab,
     revealFile,
-    bindChatSession,
+    bindWorkspaceScope,
   };
 });

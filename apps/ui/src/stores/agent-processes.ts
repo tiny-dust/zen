@@ -250,6 +250,17 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     expandedId.value = expandedId.value === id ? "" : id;
   }
 
+  /**
+   * 从列表移除一条记录（仅影响本节展示；进程本身由「服务」节按进程组管理）。
+   * 运行中的条目移除后，后续 progress/end 事件按 id 找不到条目会直接跳过。
+   */
+  function remove(id: string) {
+    items.value = items.value.filter((item) => item.id !== id);
+    if (expandedId.value === id) {
+      expandedId.value = "";
+    }
+  }
+
   function clear() {
     buckets.reset();
     items.value = [];
@@ -286,6 +297,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     noteToolEnd,
     noteToolProgress,
     toggle,
+    remove,
     clear,
     handleStreamEvent,
   };

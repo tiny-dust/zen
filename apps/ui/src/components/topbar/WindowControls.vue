@@ -1,83 +1,53 @@
 <script setup lang="ts">
-import { Copy, Minus, Square, X } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { useI18n } from "vue-i18n";
-
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { onBeforeUnmount, onMounted } from "vue";
 
 type Platform = "darwin" | "win32" | "linux";
 
-const { t } = useI18n();
+/**
+ * 窗口三键全部为系统原生 chrome：macOS 红绿灯、Windows/Linux titleBarOverlay
+ * 原生叠加键（main 进程注入），点击在系统层处理，不经过渲染层。
+ * 本组件只剩两件事：
+ * 1) 把叠加键实际宽度写入 --titlebar-trail，头行据此给 tab/按钮留位；
+ * 2) Linux 双击拖拽区最大化兜底（frameless drag region 不处理双击）。
+ */
 const api = window.zen?.window ?? null;
+const platform: Platform | null = api?.getPlatform() ?? null;
 
-/**
- * 平台来自 preload 的同步值（process.platform），首帧即定：三键必须在首帧
- * 渲染——Chromium 只在初始布局登记拖拽区的 no-drag 子区域，首帧后动态添加
- * 的拖拽容器只登记 drag 矩形，按钮的点击会被整块吞掉（Linux/Windows 均如此）。
- */
-const platform = ref<Platform | null>(api?.getPlatform() ?? null);
-const maximized = ref(false);
-const rootEl = ref<HTMLElement | null>(null);
-let disposeMaximized: (() => void) | null = null;
+/** 叠加键宽度兜底：Win11 三键 3×46；Linux Electron 自绘近似值，API 就绪后即校正 */
+const FALLBACK_TRAIL = 138;
 
-/** win32 自绘走 Windows 通栏三键；Linux 走 GNOME 风格紧凑三键 */
-const variant = computed(() => (platform.value === "win32" ? "windows" : "gnome"));
+interface WindowControlsOverlayLike {
+  visible?: boolean;
+  getBoundingClientRect?: () => { width: number };
+  addEventListener?: (type: "geometrychange", listener: () => void) => void;
+  removeEventListener?: (type: "geometrychange", listener: () => void) => void;
+}
 
-/** macOS 红绿灯原生，其余平台自绘 */
-const showControls = computed(() => Boolean(api && platform.value && platform.value !== "darwin"));
-
-const rootCls = computed(() =>
-  cn(
-    // 固定窗口右上角（覆盖 index.html 的 #wc-region-hole 静态豁免区）。
-    // 容器自身不带 app-region：动态登记的 drag 矩形没有 no-drag 洞，
-    // 会把豁免区重新盖死；拖拽由下层标题栏头行提供，豁免由静态元素保证。
-    "fixed right-0 top-0 z-[var(--z-toast)] flex h-[var(--titlebar-h)] select-none",
-    "[&_button]:[-webkit-app-region:no-drag]",
-    variant.value === "windows" ? "items-stretch" : "items-center gap-1 pr-1.5",
-  ),
-);
-
-/**
- * 系统 chrome 按钮：hover/按下按平台惯例上底色（关闭键红底白叉），
- * 与 UI_STYLE 的「图标按钮 hover 不上底色」不同——这三键复刻系统观感。
- */
-function btnCls(kind: "default" | "close") {
-  return cn(
-    "px-0 text-[var(--color-topbar-icon)] active:translate-y-0! active:opacity-80",
-    variant.value === "windows"
-      ? "h-full w-[46px] rounded-none"
-      : "h-[var(--control-h)] w-8 rounded-[var(--radius-sm)]",
-    kind === "close"
-      ? "hover:bg-[var(--color-del)]! hover:text-[var(--destructive-foreground)]! active:bg-[var(--color-err)]! active:text-[var(--destructive-foreground)]!"
-      : "hover:bg-[var(--color-menu-hover)]! hover:text-[var(--color-txt-strong)]! active:bg-[var(--color-menu-active)]!",
+function overlayApi(): WindowControlsOverlayLike | null {
+  return (
+    (navigator as unknown as { windowControlsOverlay?: WindowControlsOverlayLike })
+      .windowControlsOverlay ?? null
   );
 }
 
-const glyphCls = computed(() => (variant.value === "windows" ? "size-3" : "size-3.5"));
-
-function minimize() {
-  void api?.minimize();
-}
-
-function toggleMaximize() {
-  if (!api) {
+/** 头行右侧预留原生三键宽度（--titlebar-trail，与 macOS 交通灯的 --titlebar-lead 对称） */
+function syncTrail() {
+  const root = document.documentElement;
+  if (platform === "darwin" || !api) {
+    root.style.setProperty("--titlebar-trail", "0px");
     return;
   }
-  void (maximized.value ? api.restore() : api.maximize());
+  const wco = overlayApi();
+  const width =
+    wco?.visible && wco.getBoundingClientRect
+      ? Math.ceil(wco.getBoundingClientRect().width)
+      : 0;
+  root.style.setProperty("--titlebar-trail", `${width || FALLBACK_TRAIL}px`);
 }
 
-function closeWindow() {
-  void api?.close();
-}
-
-/** 双击标题栏（各头行拖拽区）最大化-还原 */
+/** 双击标题栏（各头行拖拽区）最大化-还原（仅 Linux 兜底，见组件头注释） */
 function onTitlebarDoubleClick(event: MouseEvent) {
-  // 仅 Linux 需要 JS 兜底：frameless 窗口的 drag region 在 Linux 上
-  // 系统不处理双击（Electron 已知行为，GNOME/KDE 均如此）。
-  // Windows（含原生叠加与自绘兜底）/macOS 的 drag region 是系统标题栏，
-  // 双击最大化由系统处理，这里再 toggle 会一次最大化一次还原互相抵消。
-  if (platform.value !== "linux") {
+  if (platform !== "linux") {
     return;
   }
   const target = event.target instanceof Element ? event.target : null;
@@ -95,76 +65,25 @@ function onTitlebarDoubleClick(event: MouseEvent) {
   void api?.toggleMaximize();
 }
 
-function fallbackWidth() {
-  return variant.value === "windows" ? 138 : 110;
-}
-
-/** 头行右侧预留三键宽度（--titlebar-trail，与 macOS 交通灯的 --titlebar-lead 对称） */
-function syncTrail() {
-  const root = document.documentElement;
-  if (!showControls.value) {
-    root.style.setProperty("--titlebar-trail", "0px");
-    return;
-  }
-  root.style.setProperty("--titlebar-trail", `${rootEl.value?.offsetWidth || fallbackWidth()}px`);
-}
-
-onMounted(async () => {
+onMounted(() => {
   if (!api) {
     return;
   }
   document.addEventListener("dblclick", onTitlebarDoubleClick);
   syncTrail();
-  if (showControls.value) {
-    maximized.value = await api.isMaximized().catch(() => false);
-    disposeMaximized = api.onMaximizedChange((value) => {
-      maximized.value = value;
-    });
-  }
+  // WCO 几何就绪/DPI 变化时重取实际宽度（构造期 API 可能尚未就绪）
+  overlayApi()?.addEventListener?.("geometrychange", syncTrail);
+  window.addEventListener("resize", syncTrail);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("dblclick", onTitlebarDoubleClick);
-  disposeMaximized?.();
-  disposeMaximized = null;
+  overlayApi()?.removeEventListener?.("geometrychange", syncTrail);
+  window.removeEventListener("resize", syncTrail);
   document.documentElement.style.setProperty("--titlebar-trail", "0px");
 });
 </script>
 
 <template>
-  <div
-    v-if="showControls"
-    ref="rootEl"
-    :class="rootCls"
-    role="group"
-    :aria-label="t('shell.windowControls')"
-  >
-    <Button
-      variant="ghost"
-      :class="btnCls('default')"
-      :aria-label="t('shell.minimize')"
-      :title="t('shell.minimize')"
-      @click="minimize"
-    >
-      <Minus :class="glyphCls" />
-    </Button>
-    <Button
-      variant="ghost"
-      :class="btnCls('default')"
-      :aria-label="maximized ? t('shell.restore') : t('shell.maximize')"
-      :title="maximized ? t('shell.restore') : t('shell.maximize')"
-      @click="toggleMaximize"
-    >
-      <component :is="maximized ? Copy : Square" :class="glyphCls" />
-    </Button>
-    <Button
-      variant="ghost"
-      :class="btnCls('close')"
-      :aria-label="t('common.close')"
-      :title="t('common.close')"
-      @click="closeWindow"
-    >
-      <X :class="glyphCls" />
-    </Button>
-  </div>
+  <!-- 逻辑组件：原生三键由系统绘制，无需 DOM -->
 </template>

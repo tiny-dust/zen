@@ -2,6 +2,7 @@
 import GraphPanel from "@/components/right/GitGraph.vue";
 import { Bot, Check, FolderOpen, GitGraph, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { Component } from "vue";
 
@@ -17,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
 import { PANEL_TITLES, useRightPanelStore, type RightPanelKind } from "@/stores/right-panel";
@@ -27,6 +29,10 @@ const layoutStore = useLayoutStore();
 const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
 const { tabs, activeId, activeTab } = storeToRefs(rightPanel);
+
+/** 「打开面板」菜单展开态：菜单浮层 z 低于浏览器 WebContentsView，打开期间需压制原生视图 */
+const panelMenuOpen = ref(false);
+useBrowserOverlayGuard(panelMenuOpen);
 
 /** 「打开面板」菜单：全部面板类型与图标（tab 标题由 PANEL_TITLES 统一供给） */
 const PANEL_ITEMS: { kind: RightPanelKind; icon: Component }[] = [
@@ -92,7 +98,7 @@ function tabCls(id: string) {
 
       <div class="flex flex-none items-center gap-0.5">
         <!-- 打开面板：单一入口，替代与 tab 重复的常驻开关（已打开的带勾，点击即切到） -->
-        <DropdownMenu>
+        <DropdownMenu @update:open="(open: boolean) => (panelMenuOpen = open)">
           <DropdownMenuTrigger as-child>
             <Button
               variant="ghost"
@@ -131,10 +137,8 @@ function tabCls(id: string) {
           <PanelRight />
         </Button>
       </div>
-      <!-- Windows/Linux 窗口三键右上角占位（--titlebar-trail，macOS 为 0）。
-           no-drag + h-full：把三键区从头行 drag 矩形中挖掉（必须撑满高度，
-           零高的 span 挖不出洞），避免后登记的 drag 盖住三键点击区。 -->
-      <span class="h-full w-[var(--titlebar-trail)] flex-none [-webkit-app-region:no-drag]" aria-hidden="true" />
+      <!-- Windows/Linux 原生叠加三键的右上角留位（--titlebar-trail，macOS 为 0） -->
+      <span class="h-full w-[var(--titlebar-trail)] flex-none" aria-hidden="true" />
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">

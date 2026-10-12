@@ -20,6 +20,9 @@ export default {
     checkpointLoading: "加载中…",
     changedFiles: "变更文件",
     commitOrPush: "提交或推送",
+    committing: "提交中…",
+    committingAndPushing: "提交并推送中…",
+    pushing: "推送中…",
     noPullRequest: "当前分支暂无拉取请求",
     switchBranch: "切换分支",
     selectBranch: "选择分支",
@@ -61,10 +64,14 @@ export default {
     // 终端服务 / 服务节
     terminalServices: "终端服务",
     emptyCommand: "(空命令)",
+    removeProcess: "移除记录 {name}",
+    removeProcessTitle: "从列表移除该记录（运行中的进程不受影响，可在「服务」节关闭）",
     services: "服务",
     aliveProcessCount: "进程组存活进程数",
     closeService: "关闭 {name}",
     closeServiceTitle: "关闭服务（结束整个进程组）",
+    serviceStartedAt: "启动于 {time}",
+    servicePids: "进程 {pids}",
     // 任务清单节
     taskList: "任务清单",
     taskListVersions: "任务清单版本",
@@ -113,11 +120,6 @@ export default {
     rightPanel: "右侧面板",
     openLocation: "打开位置",
     noOpeners: "未检测到可用应用",
-    // 窗口控制
-    windowControls: "窗口控制",
-    minimize: "最小化",
-    maximize: "最大化",
-    restore: "还原",
     // 文件右键菜单
     fileActions: "文件操作：{path}",
     openFile: "打开文件",
@@ -144,6 +146,9 @@ export default {
     checkpointLoading: "Loading…",
     changedFiles: "Changed files",
     commitOrPush: "Commit or push",
+    committing: "Committing…",
+    committingAndPushing: "Committing & pushing…",
+    pushing: "Pushing…",
     noPullRequest: "No pull request for the current branch",
     switchBranch: "Switch branch",
     selectBranch: "Select a branch",
@@ -185,10 +190,14 @@ export default {
     // Terminal services / services section
     terminalServices: "Terminal services",
     emptyCommand: "(empty command)",
+    removeProcess: "Remove entry {name}",
+    removeProcessTitle: "Remove this entry from the list (running processes are unaffected; stop them in Services)",
     services: "Services",
     aliveProcessCount: "Alive processes in the process group",
     closeService: "Stop {name}",
     closeServiceTitle: "Stop service (terminates the whole process group)",
+    serviceStartedAt: "Started at {time}",
+    servicePids: "PIDs {pids}",
     // Task list section
     taskList: "Tasks",
     taskListVersions: "Task list versions",
@@ -237,11 +246,6 @@ export default {
     rightPanel: "Right panel",
     openLocation: "Open location",
     noOpeners: "No apps detected",
-    // Window controls
-    windowControls: "Window controls",
-    minimize: "Minimize",
-    maximize: "Maximize",
-    restore: "Restore",
     // File context menu
     fileActions: "File actions: {path}",
     openFile: "Open file",

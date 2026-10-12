@@ -446,18 +446,18 @@ export const useChatStore = defineStore("chat", () => {
   });
 
   /**
-   * 面板内容与会话绑定：信息卡 / Agent 树 / 进程 / 终端 / 浏览器 / 右栏 Tab
-   * 各自的 store 内部按 sessionId 分桶（switchTo 旧会话入桶、目标会话恢复）。
-   * 调用点：bootstrap（启动）/ newTask / loadSession（会话切换）。
+   * 面板内容绑定：信息卡 / Agent 树 / 进程按 chat 会话分桶（run 归属会话）；
+   * 终端 / 浏览器 / 右栏 Tab 按工作区分桶——同一工作目录的会话共享面板现场。
+   * 调用点：bootstrap（启动）/ newTask / loadSession（会话切换）/ setSessionWorkspace。
    */
   function bindPanelSessions() {
     useSessionInfoStore().ensureSession(sessionId.value);
     useAgentsStore().ensureSession(sessionId.value);
     useAgentProcessesStore().ensureSession(sessionId.value);
-    useTerminalStore().bindChatSession(sessionId.value);
-    // 右栏 Tab 先恢复（浏览器视图对齐依赖当前会话的 Tab 布局），再恢复浏览器面板状态
-    useRightPanelStore().bindChatSession(sessionId.value);
-    useBrowserStore().bindChatSession(sessionId.value);
+    useTerminalStore().bindWorkspaceScope(sessionWorkspaceId.value);
+    // 右栏 Tab 先恢复（浏览器视图对齐依赖当前工作区的 Tab 布局），再恢复浏览器面板状态
+    useRightPanelStore().bindWorkspaceScope(sessionWorkspaceId.value);
+    useBrowserStore().bindWorkspaceScope(sessionWorkspaceId.value);
   }
 
   function bootstrap(): () => void {
@@ -1074,6 +1074,8 @@ export const useChatStore = defineStore("chat", () => {
     }
     void refreshGit();
     void useGitStore().refreshStatus();
+    // 面板按工作区分桶：切换工作目录后右栏/终端/浏览器切到新工作区的现场
+    bindPanelSessions();
   }
 
   return {

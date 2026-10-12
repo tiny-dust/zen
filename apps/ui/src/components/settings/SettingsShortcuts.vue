@@ -3,13 +3,28 @@ import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 
 import { normalizeShortcutKey } from "@zen/shared";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { useSettingsStore } from "@/stores/settings";
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
+
+/** 按键符号化展示：修饰键/回车用 macOS 符号，其余键原样 */
+const KBD_SYMBOLS: Record<string, string> = {
+  Cmd: "⌘",
+  Ctrl: "⌃",
+  Alt: "⌥",
+  Shift: "⇧",
+  Enter: "↵",
+};
+
+/** "Shift+Cmd+P" → ["Shift", "Cmd", "P"]，逐个 Kbd 展示 */
+function keyParts(key: string): string[] {
+  return key.split("+").filter(Boolean);
+}
 
 function onCaptureKey(event: KeyboardEvent, id: string) {
   event.preventDefault();
@@ -61,13 +76,16 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
             >
               {{ item.command }}
             </span>
-            <Input
-              class="h-7 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
-              :model-value="item.key"
-              readonly
+            <Button
+              variant="outline"
+              class="h-7 w-full justify-start gap-1 bg-[var(--color-np-btn-bg)] px-2"
               :aria-label="t('settings.shortcut.key')"
               @keydown="onCaptureKey($event, item.id)"
-            />
+            >
+              <Kbd v-for="part in keyParts(item.key)" :key="part">
+                {{ KBD_SYMBOLS[part] ?? part }}
+              </Kbd>
+            </Button>
           </div>
         </div>
       </CardContent>

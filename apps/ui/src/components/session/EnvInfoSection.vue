@@ -49,6 +49,20 @@ const prLabel = computed(() => {
   return `PR #${pr.number} · ${pr.title}`;
 });
 
+/** 提交/推送进行中的行内文案；状态在 store，即使提交弹窗被关闭，这里也能持续展示 loading */
+const opRunningLabel = computed(() => {
+  switch (gitStore.opBusy) {
+    case "commit":
+      return t("shell.committing");
+    case "commit-push":
+      return t("shell.committingAndPushing");
+    case "push":
+      return t("shell.pushing");
+    default:
+      return "";
+  }
+});
+
 function onDocPointerDown(event: PointerEvent) {
   if (!gitStore.branchPickerOpen) {
     return;
@@ -203,15 +217,22 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         </Teleport>
       </div>
 
-      <!-- 提交或推送 -->
+      <!-- 提交或推送：操作进行中时展示 loading（弹窗关闭后操作继续，行内可见状态） -->
       <Button
         variant="ghost"
         class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="actionCls"
         @click="emit('openCommit')"
       >
-        <GitPullRequestArrow :class="envIconCls" aria-hidden="true" />
-        <span class="min-w-0 flex-1">{{ t("shell.commitOrPush") }}</span>
+        <RefreshCw
+          v-if="gitStore.opBusy"
+          class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
+          aria-hidden="true"
+        />
+        <GitPullRequestArrow v-else :class="envIconCls" aria-hidden="true" />
+        <span class="min-w-0 flex-1">
+          {{ gitStore.opBusy ? opRunningLabel : t("shell.commitOrPush") }}
+        </span>
       </Button>
       <div :class="noteIndentCls">
         <span class="min-w-0 flex-1 truncate">

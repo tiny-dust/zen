@@ -21,7 +21,7 @@ import { i18n } from "@/locales";
 
 export { normalizeBrowserUrl };
 
-/** 单个 chat 会话的浏览器面板状态（分桶快照）；共享原生视图与运行态不随会话切换销毁 */
+/** 单个工作区的浏览器面板状态（分桶快照）；共享原生视图与运行态不随切换销毁 */
 interface BrowserBucketState {
   urlInput: string;
   showHome: boolean;
@@ -34,8 +34,8 @@ interface BrowserBucketState {
   history: BrowserHistoryItem[];
 }
 
-function historyStorageKey(sessionId: string): string {
-  return `zen.browser.history:${sessionId}`;
+function historyStorageKey(scopeId: string): string {
+  return `zen.browser.history:${scopeId}`;
 }
 
 export const useBrowserStore = defineStore("browser", () => {
@@ -47,7 +47,7 @@ export const useBrowserStore = defineStore("browser", () => {
   const lastPicked = ref<BrowserElementRef | null>(null);
   const panelNote = ref("");
   const busy = ref(false);
-  /** 浏览历史本体（按会话分桶）；初始用旧版全局历史兜底，bindChatSession 后按会话恢复 */
+  /** 浏览历史本体（按工作区分桶）；初始用旧版全局历史兜底，bindWorkspaceScope 后按工作区恢复 */
   const history = ref<BrowserHistoryItem[]>(loadSessionHistory(""));
   const { suggestions, pushHistory, removeHistory, clearHistory } = createBrowserHistory({
     urlInput,
@@ -82,9 +82,10 @@ export const useBrowserStore = defineStore("browser", () => {
   });
 
   /**
-   * 浏览器面板状态按 chat 会话分桶：地址栏 / 新标签页 / 提示 / 快照 / 历史 等
-   * 切走会话时快照入桶，切回时恢复。共享原生视图（单实例）不销毁；
-   * 切换后若浏览器面板已打开，把视图导航对齐到恢复会话的页面。
+   * 浏览器面板状态按工作区分桶：地址栏 / 新标签页 / 提示 / 快照 / 历史 等
+   * 同一工作目录的会话共享浏览现场；切换工作区时快照入桶、切回恢复。
+   * 共享原生视图（单实例）不销毁；切换后若浏览器面板已打开，
+   * 把视图导航对齐到恢复工作区的页面。
    */
   const buckets = createSessionBuckets<BrowserBucketState>({
     initial: (key) => ({
@@ -148,9 +149,9 @@ export const useBrowserStore = defineStore("browser", () => {
     await openUrl(url);
   }
 
-  /** 会话切换入口（chat store 调用）：面板状态入桶/恢复，视图按需对齐 */
-  function bindChatSession(chatSessionId: string) {
-    const switched = buckets.switchTo(chatSessionId);
+  /** 工作区切换入口（chat store 调用）：面板状态入桶/恢复，视图按需对齐 */
+  function bindWorkspaceScope(workspaceId: string) {
+    const switched = buckets.switchTo(workspaceId);
     if (!switched) {
       return;
     }
@@ -674,7 +675,7 @@ export const useBrowserStore = defineStore("browser", () => {
     browserSettings,
     kernelLabel,
     bindEvents,
-    bindChatSession,
+    bindWorkspaceScope,
     reconcileView,
     syncStatus,
     ensureRunning,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, ChevronRight, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -54,25 +54,37 @@ function ordered() {
         class="overflow-hidden rounded-[var(--radius-sm)]"
         :class="expandedId === item.id ? 'bg-[var(--color-np-btn-bg)]' : ''"
       >
-        <Button
-          variant="ghost"
-          class="h-auto min-h-7 w-full justify-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)]"
-          :aria-expanded="expandedId === item.id"
-          @click="processes.toggle(item.id)"
-        >
-          <SquareTerminal class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-          <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
-            {{ item.command || t("shell.emptyCommand") }}
-          </span>
-          <span class="flex-none text-[10px]" :class="meta(item.status).cls">
-            {{ meta(item.status).label }}
-          </span>
-          <component
-            :is="expandedId === item.id ? ChevronDown : ChevronRight"
-            class="size-3 flex-none text-[var(--color-dim)]"
-            aria-hidden="true"
-          />
-        </Button>
+        <div class="group/process flex items-center">
+          <Button
+            variant="ghost"
+            class="h-auto min-h-7 min-w-0 flex-1 justify-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+            :aria-expanded="expandedId === item.id"
+            @click="processes.toggle(item.id)"
+          >
+            <SquareTerminal class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
+              {{ item.command || t("shell.emptyCommand") }}
+            </span>
+            <span class="flex-none text-[10px]" :class="meta(item.status).cls">
+              {{ meta(item.status).label }}
+            </span>
+            <component
+              :is="expandedId === item.id ? ChevronDown : ChevronRight"
+              class="size-3 flex-none text-[var(--color-dim)]"
+              aria-hidden="true"
+            />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="size-5! mr-1 flex-none rounded-[4px]! text-[var(--color-dim)] opacity-60 group-hover/process:opacity-100 hover:text-[var(--color-del)]"
+            :aria-label="t('shell.removeProcess', { name: item.command || t('shell.emptyCommand') })"
+            :title="t('shell.removeProcessTitle')"
+            @click="processes.remove(item.id)"
+          >
+            <X class="size-3" />
+          </Button>
+        </div>
 
         <div v-if="expandedId === item.id" class="flex flex-col gap-1 px-2 pb-2">
           <p v-if="item.summary" class="m-0 text-[11px] text-[var(--color-mut)]">{{ item.summary }}</p>
