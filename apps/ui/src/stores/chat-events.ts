@@ -393,6 +393,19 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.statusText.value = event.message;
         syncRunRefsFromMessage(ensureAssistantMessage());
         break;
+      case "context_overflow":
+        // 上下文超限自动恢复只是提示而非错误：lastError 留给紧随的 error 事件
+        ctx.statusText.value =
+          event.phase === "retrying"
+            ? i18n.global.t("app.chat.contextOverflowRetrying")
+            : i18n.global.t("app.chat.contextOverflowFailed");
+        break;
+      case "context_compacted":
+        // 步间主动压缩只是过程提示而非错误：不置 lastError、不改运行态
+        ctx.statusText.value = i18n.global.t("app.chat.contextCompacted", {
+          count: event.droppedMessages,
+        });
+        break;
       case "step_start":
         ctx.currentStep.value = event.step;
         break;

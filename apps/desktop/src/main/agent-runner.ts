@@ -226,6 +226,8 @@ export async function runAgentRequest(
       baseUrl: provider.baseUrl,
       apiKey,
       model: modelId,
+      // 已知上下文窗口下发给 agent-core：run 内步间按真实 usage 主动压缩；未知则不主动压缩
+      contextWindow: capabilities.contextWindow,
       reasoningEffort: request.reasoningEffort,
       reasoning: capabilities.reasoning === true,
       permissionMode: agentSettings.permissionMode,

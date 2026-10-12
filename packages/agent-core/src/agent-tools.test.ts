@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import type { AgentStreamEvent, BrowserAgentBridge } from "@zen/shared";
 
-import { buildToolSet } from "./agent-tools";
+import { buildToolSet, MAX_TOOL_RESULT_CHARS } from "./agent-tools";
 import type { ToolHooks } from "./agent-tools";
 import type { AgentSessionConfig } from "./agent-config";
 import { registerMcpRuntime } from "./mcp-runtime";
@@ -134,6 +134,56 @@ describe("fs 工具", () => {
         newString: "x",
       }),
     ).rejects.toThrow(/oldString not found/);
+  });
+});
+
+describe("工具输出截断", () => {
+  it("readFile 超长内容截断并带路径与检索提示", async () => {
+    const tools = build();
+    const big = "x".repeat(MAX_TOOL_RESULT_CHARS + 5000);
+    await execTool(tools.writeFile, { path: "big.txt", content: big });
+
+    const result = (await execTool(tools.readFile, { path: "big.txt" })) as string;
+    expect(result.startsWith("x")).toBe(true);
+    expect(result).toContain(
+      `[文件内容已截断：原始 ${MAX_TOOL_RESULT_CHARS + 5000} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}`,
+    );
+    expect(result).toContain("完整文件仍在 big.txt");
+    expect(result.endsWith("可用 searchFiles content 模式按片段检索]")).toBe(true);
+    // 后缀计入上限：readFile 自身截断后总长恰为上限，通用包装层不再二次截断
+    expect(result.length).toBe(MAX_TOOL_RESULT_CHARS);
+    expect(result).not.toContain("工具输出已截断");
+  });
+
+  it("通用工具超长 string 截断并带说明；正常长度与对象结果原样透传", async () => {
+    const long = "y".repeat(MAX_TOOL_RESULT_CHARS + 100);
+    const seenOptions: unknown[] = [];
+    const tools = buildToolSet(workspaceRoot, emit, "sess-tools", config(), noopHooks, {
+      multiAgentTools: {
+        echoLong: { description: "d", inputSchema: {}, execute: async () => long },
+        echoShort: { description: "d", inputSchema: {}, execute: async () => "short-ok" },
+        echoObj: { description: "d", inputSchema: {}, execute: async () => ({ a: 1 }) },
+        echoOpts: {
+          description: "d",
+          inputSchema: {},
+          execute: async (_input: unknown, options: unknown) => {
+            seenOptions.push(options);
+            return "opts-ok";
+          },
+        },
+      } as never,
+    });
+
+    const truncated = (await execTool(tools.echoLong, {})) as string;
+    expect(truncated).toContain(
+      `[工具输出已截断：原始 ${MAX_TOOL_RESULT_CHARS + 100} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}；请缩小查询范围或分次读取获取完整信息]`,
+    );
+    expect(truncated.slice(0, MAX_TOOL_RESULT_CHARS)).toBe(long.slice(0, MAX_TOOL_RESULT_CHARS));
+
+    await expect(execTool(tools.echoShort, {})).resolves.toBe("short-ok");
+    await expect(execTool(tools.echoObj, {})).resolves.toEqual({ a: 1 });
+    await expect(execTool(tools.echoOpts, {})).resolves.toBe("opts-ok");
+    expect(seenOptions[0]).toEqual({ toolCallId: "tc-1", messages: [] });
   });
 });
 

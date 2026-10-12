@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -163,7 +163,10 @@ type Behavior =
   | "ask"
   | "spawn-tasks"
   | "spawn-ask"
-  | "spawn-error";
+  | "spawn-error"
+  | "overflow-retry"
+  | "auto-compact"
+  | "compact-reinject";
 
 let server: Server;
 let origin = "";
@@ -188,6 +191,18 @@ function chunk(delta: Record<string, unknown>, finishReason: string | null): str
     created: 0,
     model: "zen-test-model",
     choices: [{ index: 0, delta, finish_reason: finishReason }],
+  })}\n\n`;
+}
+
+/** 带 usage 的收尾 chunk（步间主动压缩依赖 finish-step 的真实输入 tokens） */
+function chunkWithUsage(finishReason: string | null, usage: Record<string, unknown>): string {
+  return `data: ${JSON.stringify({
+    id: "chatcmpl-zen-session",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "zen-test-model",
+    choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+    usage,
   })}\n\n`;
 }
 
@@ -269,6 +284,64 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
       ? toolCall("spawnAgent", { name: "helper", task: "跑子任务并提问" }, "call_spawn_2")
       : textBlocks("父完成");
   }
+  // 步间主动压缩：第 1 步工具调用并回传大 usage（900/1000 窗口 ≥ 75% 阈值），第 2 步正常完成
+  if (behavior === "auto-compact") {
+    if (seq === 1) {
+      return [
+        chunk({ role: "assistant", content: "" }, null),
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_ac_1",
+              type: "function",
+              function: {
+                name: "updateTasks",
+                arguments: JSON.stringify({ tasks: [{ id: "t1", label: "清单", done: false }] }),
+              },
+            },
+          ],
+        }, null),
+        chunkWithUsage("tool_calls", { prompt_tokens: 900, completion_tokens: 10 }),
+        "data: [DONE]\n\n",
+      ];
+    }
+    return textBlocks("完成");
+  }
+  // 压缩回灌：第 1 步 readFile，随后多步工具调用把它推出尾窗，第 7 步回传大 usage 触发压缩
+  if (behavior === "compact-reinject") {
+    if (seq === 1) {
+      return toolCall("readFile", { path: "note.md" }, "call_rf_1");
+    }
+    if (seq < 7) {
+      return toolCall(
+        "updateTasks",
+        { tasks: [{ id: "t1", label: `步骤${seq}`, done: false }] },
+        `call_step_${seq}`,
+      );
+    }
+    if (seq === 7) {
+      return [
+        chunk({ role: "assistant", content: "" }, null),
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_step_7",
+              type: "function",
+              function: {
+                name: "updateTasks",
+                arguments: JSON.stringify({ tasks: [{ id: "t1", label: "步骤7", done: false }] }),
+              },
+            },
+          ],
+        }, null),
+        chunkWithUsage("tool_calls", { prompt_tokens: 900, completion_tokens: 10 }),
+        "data: [DONE]\n\n",
+      ];
+    }
+    return textBlocks("完成");
+  }
   // spawn-error
   if (isChild) {
     return [];
@@ -291,6 +364,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   if (behavior === "spawn-error" && isChild) {
     res.writeHead(400, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: { message: "child boom", type: "invalid_request_error" } }));
+    return;
+  }
+  // 上下文超限：首次请求返回 400 超限报错，等 agent-core 裁剪重试后走正常流
+  if (behavior === "overflow-retry" && seq === 1) {
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            "This model's maximum context length is 8192 tokens. However, you requested 20000 tokens (19000 in the messages, 1000 in the completion). Please reduce the length of the messages or completion.",
+        },
+        type: "invalid_request_error",
+      }),
+    );
     return;
   }
   res.writeHead(200, {
@@ -503,5 +590,185 @@ describe("AgentSession 子 Agent 派生", () => {
     const node = session.agentTree?.agents[0];
     expect(node?.status).toBe("error");
     expect(node?.error).toBeTruthy();
+  });
+});
+
+describe("AgentSession 上下文超限自动恢复", () => {
+  it("首次超限报错 → 确定性裁剪历史 → 重试成功并上报 context_overflow", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const filler = "x".repeat(2000);
+    const history: ChatTurn[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      history.push({ role: "user", content: `旧问题${i} ${filler}` });
+      history.push({ role: "assistant", content: `旧回答${i} ${filler}` });
+    }
+    const session = createSession(events, "sess-overflow", "overflow-retry");
+    await session.start("当前任务", history);
+
+    const overflowEvents = events.filter((event) => event.type === "context_overflow");
+    expect(overflowEvents).toHaveLength(1);
+    expect(overflowEvents[0]?.type === "context_overflow" && overflowEvents[0].phase).toBe(
+      "retrying",
+    );
+    expect(
+      overflowEvents[0]?.type === "context_overflow" && overflowEvents[0].droppedMessages,
+    ).toBeGreaterThan(0);
+    // 重试成功：正常完成而非 error 终态
+    expect(
+      events.some((event) => event.type === "done" && event.reason === "stop"),
+    ).toBe(true);
+    // 裁剪生效：重试请求的消息数少于首次请求，且当前任务仍在
+    const bodies = requestBodies.map(
+      (body) =>
+        (JSON.parse(body) as { messages: Array<{ role: string; content: unknown }> }).messages,
+    );
+    expect(bodies.length).toBe(2);
+    const firstMessages = bodies[0];
+    const retryMessages = bodies[1];
+    expect(firstMessages).toBeDefined();
+    expect(retryMessages).toBeDefined();
+    if (!firstMessages || !retryMessages) {
+      return;
+    }
+    expect(retryMessages.length).toBeLessThan(firstMessages.length);
+    const retryBody = requestBodies.at(-1) ?? "";
+    expect(retryBody).toContain("当前任务");
+    expect(retryBody).not.toContain("旧问题0");
+  });
+
+  it("无可裁剪内容（单条超大 prompt）不重发：上报 failed 并收尾 error", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-overflow-none", "overflow-retry");
+    await session.start("短任务");
+
+    expect(
+      events.some(
+        (event) => event.type === "context_overflow" && event.phase === "failed",
+      ),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.type === "done" && event.reason === "error"),
+    ).toBe(true);
+    // 只发过一次请求（不重发注定失败的请求）
+    expect(requestBodies.length).toBe(1);
+  });
+});
+
+describe("AgentSession 步间主动压缩", () => {
+  function bigHistory(): ChatTurn[] {
+    const filler = "x".repeat(1500);
+    const history: ChatTurn[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      history.push({ role: "user", content: `旧问题${i} ${filler}` });
+      history.push({ role: "assistant", content: `旧回答${i} ${filler}` });
+    }
+    return history;
+  }
+
+  it("usage 逼近窗口：步间 LLM 摘要压缩，重试请求含摘要且无早期历史", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-autocompact", "auto-compact", {
+      contextWindow: 1000,
+      summarizeHistory: async () => "摘要：用户此前处理过若干旧问题；当前任务是继续完成工作。",
+    });
+    await session.start("当前任务", bigHistory());
+
+    console.log(
+      "DEBUG events:",
+      JSON.stringify(
+        events.map((event) =>
+          event.type === "usage" ? event : { type: event.type },
+        ),
+      ),
+    );
+
+    const compacted = events.find(
+      (event): event is Extract<AgentStreamEvent, { type: "context_compacted" }> =>
+        event.type === "context_compacted",
+    );
+    expect(compacted?.mode).toBe("llm");
+    expect(compacted?.droppedMessages).toBeGreaterThan(0);
+    expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+    // 压缩后的第二次请求：摘要进 instructions，早期历史不再直发，尾部与当前任务保留
+    expect(requestBodies.length).toBe(2);
+    const retryBody = requestBodies.at(-1) ?? "";
+    expect(retryBody).toContain("上下文已压缩");
+    expect(retryBody).toContain("用户此前处理过若干旧问题");
+    // 任务清单跨压缩存活：updateTasks 在压缩前执行，清单注入 instructions
+    expect(retryBody).toContain("上下文任务清单");
+    expect(retryBody).toContain("t1 清单");
+    expect(retryBody).not.toContain("旧问题0");
+    expect(retryBody).toContain("当前任务");
+  });
+
+  it("未知 contextWindow 不主动压缩：全量直发且摘要器未被调用", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-autocompact-off", "auto-compact", {
+      summarizeHistory: async () => "不应被调用",
+    });
+    await session.start("当前任务", bigHistory());
+
+    expect(events.some((event) => event.type === "context_compacted")).toBe(false);
+    expect(
+      requestBodies.some((body) => body.includes("不应被调用")),
+    ).toBe(false);
+    // 两次请求都携带全量历史（未压缩）
+    expect(
+      requestBodies.every((body) => body.includes("旧问题0") && body.includes("当前任务")),
+    ).toBe(true);
+  });
+
+  it("摘要失败回退确定性裁剪并继续 run", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-autocompact-fb", "auto-compact", {
+      contextWindow: 1000,
+      summarizeHistory: async () => null,
+    });
+    await session.start("当前任务", bigHistory());
+
+    const compacted = events.find(
+      (event): event is Extract<AgentStreamEvent, { type: "context_compacted" }> =>
+        event.type === "context_compacted",
+    );
+    expect(compacted?.mode).toBe("deterministic");
+    expect(compacted?.droppedMessages).toBeGreaterThan(0);
+    expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+    const retryBody = requestBodies.at(-1) ?? "";
+    expect(retryBody).not.toContain("旧问题0");
+    expect(retryBody).toContain("当前任务");
+  });
+
+  it("压缩回灌：早期 readFile 的文件被重读注入 instructions（超长截断）", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const content = "回灌标记内容\n" + "f".repeat(5000);
+    writeFileSync(join(workspaceRoot, "note.md"), content, "utf8");
+    const session = createSession(events, "sess-reinject", "compact-reinject", {
+      contextWindow: 1000,
+      permissionMode: "full",
+      summarizeHistory: async () => "摘要：曾读取 note.md 并维护任务清单。",
+    });
+    await session.start("当前任务");
+
+    const compacted = events.find(
+      (event): event is Extract<AgentStreamEvent, { type: "context_compacted" }> =>
+        event.type === "context_compacted",
+    );
+    expect(compacted?.mode).toBe("llm");
+    expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+    // 回灌生效：重读当前内容进 instructions，超长部分截断并留路径提示；任务清单同样在
+    const retryBody = requestBodies.at(-1) ?? "";
+    expect(retryBody).toContain("压缩回灌 · 最近触及的文件");
+    expect(retryBody).toContain("回灌标记内容");
+    expect(retryBody).toContain("已截断，完整文件仍在 note.md");
+    expect(retryBody).toContain("上下文任务清单");
+    expect(retryBody).toContain("步骤7");
+    // readFile 那一步已被摘要进 head：早期历史不再直发
+    expect(retryBody).not.toContain("旧问题0");
   });
 });

@@ -1,6 +1,7 @@
 import { multiAgentInstructions } from "./multi-agent-instructions";
 import type { ResourceLock } from "./resource-lock";
 
+import type { ModelMessage } from "ai";
 import type {
   AgentStreamEvent,
   BrowserAgentBridge,
@@ -67,6 +68,19 @@ export interface AgentSessionConfig {
   browserBridge?: BrowserAgentBridge;
   /** 长驻服务桥（desktop 注入；runTerminal 进程组登记与收集，缺省不收集） */
   servicesBridge?: ServicesAgentBridge;
+  /**
+   * 模型上下文窗口（tokens）。> 0 时 agent-core 在 run 内步间按真实 usage 主动压缩；
+   * 未提供（未知窗口）则不主动压缩，只保留溢出报错后的恢复与手动压缩。
+   */
+  contextWindow?: number;
+  /**
+   * 历史摘要函数（步间主动压缩用）：缺省用当前会话模型跑结构化摘要（summarizeWithModel），
+   * 返回 null/抛错时回退确定性裁剪。注入以便测试替换。
+   */
+  summarizeHistory?: (
+    messages: ModelMessage[],
+    previousInstructions?: string | null,
+  ) => Promise<string | null>;
   /** 是否启用多 Agent 协作工具（spawnAgent 等）；子 Agent 应为 false */
   multiAgent?: boolean;
   /**

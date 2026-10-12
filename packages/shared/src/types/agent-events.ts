@@ -162,6 +162,30 @@ export type AgentStreamEvent =
   | { type: "done"; sessionId: string; reason: AgentDoneReason; phase?: "insert" }
   | { type: "error"; sessionId: string; message: string }
   /**
+   * 上下文超限自动恢复：provider 返回超限错误后，agent-core 确定性裁剪历史并重试一次。
+   * phase=retrying 表示已裁剪（droppedMessages>0）并重发；phase=failed 表示重试仍失败或
+   * 无可裁剪内容（单条超大 prompt），随后紧跟 error + done(error) 终态。
+   */
+  | {
+      type: "context_overflow";
+      sessionId: string;
+      phase: "retrying" | "failed";
+      droppedMessages: number;
+      detail: string;
+    }
+  /**
+   * 主动上下文压缩（步间）：run 内真实 usage 逼近窗口阈值时，agent-core 用 LLM
+   * 结构化摘要替换早期历史（摘要失败回退确定性裁剪）。与 context_overflow
+   * （超限报错后的恢复）互补：一个防患于未然，一个兜底已发生。
+   */
+  | {
+      type: "context_compacted";
+      sessionId: string;
+      mode: "llm" | "deterministic";
+      droppedMessages: number;
+      summaryChars: number;
+    }
+  /**
    * 插入执行开始：原 run 已暂停（checkpoint 保留），随后的事件流属于插入 run。
    * 渲染层据此切到「插入 run 进行中」语义，插入 run 的 done（phase=insert）
    * 不应被当作整个会话结束。

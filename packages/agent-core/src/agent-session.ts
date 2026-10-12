@@ -6,9 +6,11 @@ import type {
   AgentStreamEvent,
   AgentTranscriptEntry,
   ChatTurn,
+  TaskItem,
   ToolApprovalDecision,
   ToolCallState,
 } from "@zen/shared";
+import { readWorkspaceFile } from "@zen/tools-fs";
 import { buildProviderOptions, createLanguageModel } from "./agent-model";
 import { buildToolSet } from "./agent-tools";
 import type { ToolHooks } from "./agent-tools";
@@ -17,6 +19,16 @@ import { buildInstructions } from "./agent-config";
 import type { AgentSessionConfig } from "./agent-config";
 import { errorMessage, MAX_RUN_STEPS } from "./agent-parts";
 import type { PendingApproval, PendingAsk } from "./agent-parts";
+import {
+  AUTO_COMPACT_RATIO,
+  compactMessagesForOverflow,
+  formatCompactSummary,
+  isContextOverflowError,
+  OVERFLOW_TRIM_NOTE,
+  recentTouchedFilePaths,
+  summarizeWithModel,
+  tailWindowForCompact,
+} from "./context-overflow";
 import { processStreamPart } from "./agent-stream";
 import type { StreamPartState } from "./agent-stream";
 import { subAgentInstructions } from "./multi-agent-instructions";
@@ -84,6 +96,9 @@ export function rewriteSubAgentPanelEvent(
 const PAUSE_ACK_GRACE_MS = 2500;
 /** cancel 后等待 runStep 自行补 done 的宽限，超时强制补终态 */
 const CANCEL_SETTLE_GRACE_MS = 500;
+/** 压缩回灌：单文件内容上限与总预算（字符） */
+const REINJECT_FILE_MAX_CHARS = 3000;
+const REINJECT_TOTAL_MAX_CHARS = 15_000;
 
 /**
  * 单个会话的有状态 Agent 运行时。
@@ -111,6 +126,16 @@ export class AgentSession {
    */
   private pausedAcked = false;
   private step = 0;
+  /** 本 run 是否已做过溢出恢复重试（每次 run/插入阶段重置；每 run 只重试一次） */
+  private overflowRetried = false;
+  /** 最近一次 finish-step 的真实输入 tokens（步间主动压缩判据；run 开始时重置） */
+  private lastInputTokens: number | null = null;
+  /** lastInputTokens 对应的 step；与 lastCompactStep 比较避免用陈旧 usage 重复压缩 */
+  private lastUsageStep = -1;
+  /** 最近一次主动压缩发生时的 lastUsageStep */
+  private lastCompactStep = -1;
+  /** 会话最新任务清单（tasks_updated 捕获；注入 instructions，跨上下文压缩存活） */
+  private latestTasks: TaskItem[] = [];
   /** run 是否仍活跃：暂停/等审批时 start/runStep 已返回，但 run 未结束 */
   private runActive = false;
   /**
@@ -148,6 +173,8 @@ export class AgentSession {
         } else if (this.taskVersion === 0) {
           this.taskVersion = 1;
         }
+        // 捕获最新清单用于 instructions 注入：任务状态跨上下文压缩存活
+        this.latestTasks = event.items;
         config.emit({
           type: "tasks_updated",
           sessionId: event.sessionId,
@@ -202,12 +229,15 @@ export class AgentSession {
         multiAgentTools,
       }),
       instructions: buildInstructions(config),
-      stopWhen: isStepCount(30),
+      // 每流一步：工具循环由 runStep 的外循环（continueLoop）逐步驱动，
+      // 步间边界（真实 usage 可见、消息基线可改写）归 agent-session 掌控——
+      // 步间主动压缩与溢出恢复都在这里落钩子，而不是埋进 SDK 内部循环
+      stopWhen: isStepCount(1),
       providerOptions: buildProviderOptions(config) as never,
       prepareCall: (options) => {
         // history 的 system 轮并入 instructions（排在主指令之后），messages 保持无 system
         const base = typeof options.instructions === "string" ? options.instructions : undefined;
-        const merged = [base, this.historyInstructions ?? undefined]
+        const merged = [base, this.historyInstructions ?? undefined, this.renderTaskList()]
           .filter((part): part is string => !!part)
           .join("\n\n");
         return { ...options, instructions: merged || undefined };
@@ -474,6 +504,10 @@ export class AgentSession {
     }
     this.paused = false;
     this.step = 0;
+    this.overflowRetried = false;
+    this.lastInputTokens = null;
+    this.lastUsageStep = -1;
+    this.lastCompactStep = -1;
     this.pending = null;
     this.openTools.clear();
     this.runActive = true;
@@ -632,6 +666,10 @@ export class AgentSession {
     this.inserting = true;
     this.config.emit({ type: "insert_started", sessionId: this.sessionId, text });
     // 3. 执行插入 run：正常流式 emit 各类事件
+    this.overflowRetried = false;
+    this.lastInputTokens = null;
+    this.lastUsageStep = -1;
+    this.lastCompactStep = -1;
     this.controller = new AbortController();
     this.config.emit({ type: "status", sessionId: this.sessionId, status: "thinking" });
     await this.runStep();
@@ -766,6 +804,56 @@ export class AgentSession {
     await this.runStep();
   }
 
+  /**
+   * 溢出恢复：provider 报上下文超限时确定性裁剪历史并重试一次。
+   * 返回 true 表示已接管（调用方直接 return）；false 表示不恢复
+   * （非超限错误 / 已重试过 / 无内容可裁——单条超大 prompt 不重发注定失败的请求）。
+   */
+  private async recoverFromOverflow(error: unknown): Promise<boolean> {
+    if (!this.runActive || !isContextOverflowError(error)) {
+      return false;
+    }
+    const detail = errorMessage(error).slice(0, 300);
+    if (this.overflowRetried) {
+      this.config.emit({
+        type: "context_overflow",
+        sessionId: this.sessionId,
+        phase: "failed",
+        droppedMessages: 0,
+        detail,
+      });
+      return false;
+    }
+    const compacted = compactMessagesForOverflow(this.messages);
+    if (!compacted) {
+      this.overflowRetried = true;
+      this.config.emit({
+        type: "context_overflow",
+        sessionId: this.sessionId,
+        phase: "failed",
+        droppedMessages: 0,
+        detail,
+      });
+      return false;
+    }
+    this.overflowRetried = true;
+    // 半截 step 遗留的未完成工具补终态，避免 UI 悬挂「运行中」
+    this.emitUnfinishedTools("error");
+    this.historyInstructions = [this.historyInstructions, OVERFLOW_TRIM_NOTE]
+      .filter((part): part is string => !!part)
+      .join("\n\n");
+    this.messages = compacted.messages;
+    this.config.emit({
+      type: "context_overflow",
+      sessionId: this.sessionId,
+      phase: "retrying",
+      droppedMessages: compacted.droppedCount,
+      detail,
+    });
+    await this.runStep();
+    return true;
+  }
+
   private async runStep(): Promise<void> {
     if (!this.controller) {
       return;
@@ -778,6 +866,9 @@ export class AgentSession {
     try {
       stream = await this.agent.stream({ messages: this.messages, abortSignal: signal });
     } catch (error) {
+      if (await this.recoverFromOverflow(error)) {
+        return;
+      }
       this.config.emit({
         type: "error",
         sessionId: this.sessionId,
@@ -795,6 +886,7 @@ export class AgentSession {
       approvalRequested: false,
       streamError: null,
       hasText: false,
+      lastInputTokens: null,
     };
 
     try {
@@ -829,6 +921,10 @@ export class AgentSession {
     }
 
     this.step = state.step;
+    if (state.lastInputTokens != null) {
+      this.lastInputTokens = state.lastInputTokens;
+      this.lastUsageStep = this.step;
+    }
 
     // signal.aborted 兜底：abort 发生在工具执行中时，fullStream 可能直接结束
     // 而不再来 part（循环顶检查不到），这里仍按中断处理
@@ -862,6 +958,9 @@ export class AgentSession {
         /without a finish reason/i.test(state.streamError)
       ) {
         state.streamError = null;
+      } else if (await this.recoverFromOverflow(state.streamError)) {
+        // 超限恢复已接管：裁剪历史并重跑（流内 error part 与中途抛错都收敛到这里判定）
+        return;
       } else {
         this.finishRun("error");
         return;
@@ -887,10 +986,129 @@ export class AgentSession {
         this.finishRun("max_steps");
         return;
       }
+      if (this.shouldAutoCompact()) {
+        await this.compactContext();
+      }
       await this.continueLoop();
       return;
     }
 
     this.finishRun("stop");
+  }
+
+  /** 步间主动压缩判据：已知窗口 + 本 run 有真实 usage + 压缩后已有新 usage + 达到阈值比例 */
+  private shouldAutoCompact(): boolean {
+    const window = this.config.contextWindow ?? 0;
+    if (window <= 0) {
+      return false;
+    }
+    if (this.lastInputTokens == null || this.lastUsageStep <= this.lastCompactStep) {
+      return false;
+    }
+    return this.lastInputTokens >= window * AUTO_COMPACT_RATIO;
+  }
+
+  /**
+   * 步间主动压缩：LLM 结构化摘要替换早期历史（尾部窗口整体保留），摘要失败回退
+   * 确定性裁剪。压缩一次压到位；失败不阻塞 run（继续循环，溢出兜底仍会接管）。
+   */
+  private async compactContext(): Promise<boolean> {
+    const messages = this.messages;
+    const tail = tailWindowForCompact(messages);
+    const head = messages.slice(0, messages.length - tail.length);
+    if (head.length === 0) {
+      return false;
+    }
+    let summary: string | null = null;
+    try {
+      summary = this.config.summarizeHistory
+        ? await this.config.summarizeHistory(head, this.historyInstructions)
+        : await summarizeWithModel(this.config, head, this.historyInstructions);
+    } catch {
+      summary = null;
+    }
+    if (summary?.trim()) {
+      // 新摘要已并入旧 instructions 的要点：整体替换，避免反复压缩堆叠增长；
+      // 再回灌压缩前最近触及文件的当前内容，保持续跑时对代码现状的感知
+      const reinjected = await this.renderReinjectedFiles(head);
+      this.historyInstructions = [formatCompactSummary(summary), reinjected]
+        .filter((part): part is string => !!part)
+        .join("\n\n");
+      this.messages = tail;
+      this.lastCompactStep = this.lastUsageStep;
+      this.config.emit({
+        type: "context_compacted",
+        sessionId: this.sessionId,
+        mode: "llm",
+        droppedMessages: head.length,
+        summaryChars: summary.length,
+      });
+      return true;
+    }
+    const compacted = compactMessagesForOverflow(messages);
+    if (!compacted) {
+      return false;
+    }
+    this.messages = compacted.messages;
+    this.lastCompactStep = this.lastUsageStep;
+    this.config.emit({
+      type: "context_compacted",
+      sessionId: this.sessionId,
+      mode: "deterministic",
+      droppedMessages: compacted.droppedCount,
+      summaryChars: 0,
+    });
+    return true;
+  }
+
+  /** 当前任务清单渲染进 instructions：压缩摘要可能丢任务细节，清单由此跨压缩存活 */
+  private renderTaskList(): string | undefined {
+    if (!this.latestTasks.length) {
+      return undefined;
+    }
+    const lines = this.latestTasks
+      .map((item) => `- [${item.done ? "x" : " "}] ${item.id} ${item.label}`)
+      .join("\n");
+    return (
+      "[上下文任务清单] 以下是本会话最新任务清单（用 updateTasks 更新；" +
+      "跨上下文压缩保留，推进任务后记得对照更新）：\n" +
+      lines
+    );
+  }
+
+  /**
+   * 压缩回灌：重读压缩前最近触及文件的当前内容（各截 3000 字符、总量 15k 上限），
+   * 并入 instructions。只用于 LLM 摘要路径；确定性裁剪刚释放空间，不回灌以免复涨。
+   */
+  private async renderReinjectedFiles(head: ModelMessage[]): Promise<string | undefined> {
+    const paths = recentTouchedFilePaths(head);
+    if (!paths.length) {
+      return undefined;
+    }
+    const sections: string[] = [];
+    let budget = REINJECT_TOTAL_MAX_CHARS;
+    for (const path of paths) {
+      if (budget <= 0) {
+        break;
+      }
+      try {
+        const { content } = await readWorkspaceFile(this.config.workspaceRoot, path);
+        const clipped =
+          content.length > REINJECT_FILE_MAX_CHARS
+            ? `${content.slice(0, REINJECT_FILE_MAX_CHARS)}\n[...已截断，完整文件仍在 ${path}]`
+            : content;
+        sections.push(`--- ${path} ---\n${clipped}`);
+        budget -= clipped.length;
+      } catch {
+        // 文件已删除/读取失败：回灌尽力而为，跳过
+      }
+    }
+    if (!sections.length) {
+      return undefined;
+    }
+    return (
+      "[压缩回灌 · 最近触及的文件] 以下是压缩前最近读取/修改文件的当前内容（需要全文时重新读取）：\n\n" +
+      sections.join("\n\n")
+    );
   }
 }

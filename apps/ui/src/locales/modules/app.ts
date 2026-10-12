@@ -109,6 +109,9 @@ export default {
       stepLimitReached: "已达到步骤上限",
       completed: "已完成",
       approvalDismissed: "审批提示已收起",
+      contextOverflowRetrying: "上下文超出模型窗口，已自动裁剪早期对话并重试",
+      contextOverflowFailed: "上下文超限自动恢复失败，请缩短会话或新建会话后重试",
+      contextCompacted: "上下文已自动压缩：{count} 条早期消息已折叠为结构化摘要",
       context: {
         lastRequestUsage: "上次请求输入 {tokens} tokens · {usage}%",
         lastRequestNoUsage: "上次请求输入：API 未返回 usage",
@@ -288,6 +291,10 @@ export default {
       stepLimitReached: "Step limit reached",
       completed: "Completed",
       approvalDismissed: "Approval prompt dismissed",
+      contextOverflowRetrying: "Context window exceeded — trimmed older history and retrying",
+      contextOverflowFailed:
+        "Auto-recovery from context overflow failed; start a shorter session or a new chat",
+      contextCompacted: "Context compacted: {count} older messages folded into a structured summary",
       context: {
         lastRequestUsage: "Last request input {tokens} tokens · {usage}%",
         lastRequestNoUsage: "Last request input: no usage from API",

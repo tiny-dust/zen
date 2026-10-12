@@ -29,6 +29,11 @@ import { uuidLike } from "./agent-parts";
 import { runWebSearch } from "./agent-websearch";
 import { truncateOutput } from "./agent-model";
 
+/** 工具结果统一输出上限：超长 string 截断后再进对话历史，避免大输出每步重复挤占上下文 */
+export const MAX_TOOL_RESULT_CHARS = 30_000;
+
+type ToolExecute = (input: unknown, options: unknown) => Promise<unknown>;
+
 export interface ToolHooks {
   /** askUser 工具挂起等待用户回答 */
   waitForUserAnswer(question: AskUserQuestionEvent, toolCallId: string): Promise<string>;
@@ -71,7 +76,14 @@ export function buildToolSet(
       inputSchema: z.object({ path: z.string().describe("Path relative to the workspace root.") }),
       execute: async ({ path }) => {
         const result = await readWorkspaceFile(workspaceRoot, path);
-        return result.content;
+        if (result.content.length <= MAX_TOOL_RESULT_CHARS) {
+          return result.content;
+        }
+        const note =
+          `\n\n[文件内容已截断：原始 ${result.content.length} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}；` +
+          `完整文件仍在 ${path}，可用 searchFiles content 模式按片段检索]`;
+        // 后缀计入上限：readFile 自身截断后总输出不超上限，通用包装层对它就是 no-op
+        return result.content.slice(0, MAX_TOOL_RESULT_CHARS - note.length) + note;
       },
     }),
     writeFile: tool({
@@ -525,6 +537,26 @@ export function buildToolSet(
         return result.text;
       },
     });
+  }
+
+  // 统一输出上限：在工具集完全组装完（multiAgent/browser/MCP 都已并入）后包装 execute，
+  // 超长 string 截断并附说明；非 string 结果（对象）原样放行
+  for (const name of Object.keys(toolSet)) {
+    const toolDef = toolSet[name] as { execute?: ToolExecute };
+    const originalExecute = toolDef.execute;
+    if (!originalExecute) {
+      continue;
+    }
+    toolDef.execute = async (input, options) => {
+      const result = await originalExecute(input, options);
+      if (typeof result !== "string" || result.length <= MAX_TOOL_RESULT_CHARS) {
+        return result;
+      }
+      const note =
+        `\n\n[工具输出已截断：原始 ${result.length} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}；` +
+        `请缩小查询范围或分次读取获取完整信息]`;
+      return result.slice(0, MAX_TOOL_RESULT_CHARS) + note;
+    };
   }
 
   return toolSet;

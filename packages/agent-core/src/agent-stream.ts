@@ -35,6 +35,8 @@ export interface StreamPartState {
   streamError: string | null;
   /** 本次 stream 是否已产出正文文本（流结束缺 finish_reason 时据此判定为正常结束） */
   hasText: boolean;
+  /** 最近一次 finish-step 的真实输入 tokens（步间主动压缩的阈值判据；缺失/为 0 时不覆盖） */
+  lastInputTokens: number | null;
 }
 
 export interface StreamPartContext {
@@ -63,6 +65,10 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
     case "finish-step": {
       const usage = usageFromPart(part);
       if (usage) {
+        // 个别供应商只报输出 token：input 为 0 时不覆盖旧值
+        if (usage.inputTokens > 0) {
+          state.lastInputTokens = usage.inputTokens;
+        }
         emit({ type: "usage", sessionId, ...usage });
       }
       break;
