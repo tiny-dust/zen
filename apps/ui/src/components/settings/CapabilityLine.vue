@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import CapabilityBadge from "@/components/settings/CapabilityBadge.vue";
 
@@ -10,6 +11,8 @@ const props = defineProps<{
   showLimits?: boolean;
 }>();
 
+const { t } = useI18n();
+
 const badges = computed(() => {
   const caps = props.capabilities;
   if (!caps) {
@@ -17,16 +20,16 @@ const badges = computed(() => {
   }
   const list: string[] = [];
   if (caps.toolCall) {
-    list.push("工具");
+    list.push("settings.models.capTool");
   }
   if (caps.vision) {
-    list.push("视觉");
+    list.push("settings.models.capVision");
   }
   if (caps.reasoning) {
-    list.push("推理");
+    list.push("settings.models.capReasoning");
   }
   if (caps.media) {
-    list.push("媒体");
+    list.push("settings.models.capMedia");
   }
   return list;
 });
@@ -45,10 +48,10 @@ const limits = computed(() => {
   }
   const parts: string[] = [];
   if (caps.contextWindow) {
-    parts.push(`${formatK(caps.contextWindow)} 上下文`);
+    parts.push(t("settings.models.ctxLimit", { value: formatK(caps.contextWindow) }));
   }
   if (caps.maxOutputTokens) {
-    parts.push(`${formatK(caps.maxOutputTokens)} 输出`);
+    parts.push(t("settings.models.outLimit", { value: formatK(caps.maxOutputTokens) }));
   }
   return parts.join(" · ");
 });
@@ -56,7 +59,7 @@ const limits = computed(() => {
 
 <template>
   <span class="inline-flex min-w-0 flex-wrap items-center gap-1">
-    <CapabilityBadge v-for="item in badges" :key="item" :label="item" />
+    <CapabilityBadge v-for="item in badges" :key="item" :label="t(item)" />
     <span v-if="showLimits && limits" class="text-[11px] whitespace-nowrap text-[var(--color-dim)]">
       {{ limits }}
     </span>

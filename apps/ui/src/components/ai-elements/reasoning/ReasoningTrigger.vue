@@ -4,6 +4,7 @@ import { BrainIcon, ChevronDownIcon } from '@lucide/vue'
 import { CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useReasoningContext } from './context'
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const { t } = useI18n()
 
 const { isStreaming, isOpen, duration } = useReasoningContext()
 
@@ -36,15 +39,15 @@ const thinkingMessage = computed(() => {
       <BrainIcon class="size-4" />
 
       <template v-if="thinkingMessage === 'thinking'">
-        <span class="animate-pulse">思考中…</span>
+        <span class="animate-pulse">{{ t("chat.reasoning.thinking") }}</span>
       </template>
 
       <template v-else-if="thinkingMessage === 'default_done'">
-        <span>思考完成</span>
+        <span>{{ t("chat.reasoning.done") }}</span>
       </template>
 
       <template v-else>
-        <span>已思考 {{ duration }} 秒</span>
+        <span>{{ t("chat.reasoning.thoughtFor", { n: duration }) }}</span>
       </template>
 
       <ChevronDownIcon

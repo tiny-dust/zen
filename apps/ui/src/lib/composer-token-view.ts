@@ -7,6 +7,7 @@ import { Globe, Sparkles, Wrench } from "@lucide/vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { formatElementDetail } from "@/lib/browser-element";
+import { i18n } from "@/locales";
 
 import type { ComposerAttachment } from "@/stores/chat-types";
 import type { ComposerElementMark } from "@/lib/browser-element";
@@ -80,7 +81,7 @@ export function createTokenView(host: TokenViewHost): TokenView {
     const token = el("span", "composer-token composer-token-skill composer-token-element");
     token.contentEditable = "false";
     token.dataset.elementId = mark.id;
-    token.setAttribute("aria-label", `页面元素 ${mark.label}`);
+    token.setAttribute("aria-label", i18n.global.t("app.composer.elementTokenAria", { label: mark.label }));
     token.setAttribute("role", "button");
     token.tabIndex = -1;
     const icon = el("span", "composer-token-icon");
@@ -213,7 +214,7 @@ export function createTokenView(host: TokenViewHost): TokenView {
     const name = text.slice("/skill:".length);
     const token = el("span", "composer-token composer-token-skill");
     token.contentEditable = "false";
-    token.title = `技能：${name}`;
+    token.title = i18n.global.t("app.composer.skillTokenTitle", { name });
     const icon = el("span", "composer-token-icon");
     renderVue(h(Sparkles, { size: 12, "aria-hidden": "true" }), icon);
     vueContainers.push(icon);
@@ -230,7 +231,7 @@ export function createTokenView(host: TokenViewHost): TokenView {
     const name = text.slice("#mcp:".length);
     const token = el("span", "composer-token composer-token-mcp");
     token.contentEditable = "false";
-    token.title = `MCP 工具：${name}`;
+    token.title = i18n.global.t("app.composer.mcpTokenTitle", { name });
     const icon = el("span", "composer-token-icon");
     renderVue(h(Wrench, { size: 12, "aria-hidden": "true" }), icon);
     vueContainers.push(icon);

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
@@ -22,11 +24,11 @@ withDefaults(
   }>(),
   {
     description: "",
-    confirmLabel: "删除",
-    cancelLabel: "取消",
     pending: false,
   },
 );
+
+const { t } = useI18n();
 
 const emit = defineEmits<{
   "update:open": [value: boolean];
@@ -57,7 +59,7 @@ const emit = defineEmits<{
           :disabled="pending"
           @click="emit('confirm')"
         >
-          {{ confirmLabel }}
+          {{ confirmLabel ?? t("common.delete") }}
         </Button>
         <Button
           variant="ghost"
@@ -66,7 +68,7 @@ const emit = defineEmits<{
           :disabled="pending"
           @click="emit('update:open', false)"
         >
-          {{ cancelLabel }}
+          {{ cancelLabel ?? t("common.cancel") }}
         </Button>
       </div>
     </DialogContent>

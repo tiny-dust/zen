@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, FoldVertical } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -14,14 +15,15 @@ const props = defineProps<{
   label?: string;
 }>();
 
+const { t } = useI18n();
 const open = ref(false);
 
 const countText = computed(() => {
   const n = props.compactedCount;
   if (n != null && n > 0) {
-    return `已折叠 ${n} 条更早消息`;
+    return t("chat.compact.compactedCount", { n });
   }
-  return props.label || "更早对话已折叠为摘要";
+  return props.label || t("chat.compact.fallback");
 });
 </script>
 
@@ -34,11 +36,11 @@ const countText = computed(() => {
           <Button
             variant="ghost"
             class="compact-head h-auto w-full justify-start gap-2 px-2.5 py-2 font-normal"
-            :aria-label="open ? '收起压缩摘要' : '展开压缩摘要'"
+            :aria-label="open ? t('chat.compact.collapse') : t('chat.compact.expand')"
           >
             <FoldVertical class="size-4 shrink-0 compact-icon" aria-hidden="true" />
             <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
-              <span class="compact-title">上下文已压缩</span>
+              <span class="compact-title">{{ t("chat.compact.title") }}</span>
               <span class="compact-sub">{{ countText }}</span>
             </span>
             <ChevronRight

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 
 import PermissionIcon from "@/components/brand/PermissionIcon.vue";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ defineProps<{
   compact?: boolean;
 }>();
 
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const { permissionMode, permissionLabel } = storeToRefs(agentStore);
 
@@ -38,8 +40,8 @@ async function setPermissionMode(mode: unknown) {
         variant="ghost"
         class="items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         :class="compact ? 'size-7 justify-center' : 'h-7 gap-1 px-2'"
-        aria-label="选择权限模式"
-        :title="`权限：${permissionLabel}`"
+        :aria-label="t('chat.permission.select')"
+        :title="t('chat.permission.label', { label: permissionLabel })"
       >
         <PermissionIcon :mode="permissionMode" :size="16" class="flex-none" />
         <span v-if="!compact" class="text-[11px] font-normal">{{ permissionLabel }}</span>

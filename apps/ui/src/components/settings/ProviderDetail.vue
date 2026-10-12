@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Trash2 } from "@lucide/vue";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
@@ -61,6 +62,8 @@ const emit = defineEmits<{
   }];
   removeModel: [model: ProviderModel];
 }>();
+
+const { t } = useI18n();
 
 const form = reactive({
   name: "",
@@ -184,18 +187,18 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
         <VendorLogo :vendor="provider.name" :size="22" />
         <div>
           <div class="text-[14px] font-semibold text-[var(--color-txt-strong)]">{{ form.name || provider.name }}</div>
-          <div class="text-[12px] text-[var(--color-mut)]">{{ form.enabled ? "已启用" : "已停用" }}</div>
+          <div class="text-[12px] text-[var(--color-mut)]">{{ form.enabled ? t("settings.models.enabled") : t("settings.models.disabled") }}</div>
         </div>
       </div>
-      <Switch v-model="form.enabled" aria-label="启用供应商" @update:model-value="markDirty" />
+      <Switch v-model="form.enabled" :aria-label="t('settings.models.enableProviderAria')" @update:model-value="markDirty" />
     </header>
 
     <div class="flex flex-col">
       <div class="field-row">
-        <Label for="pd-protocol" :class="fieldLabel">消息协议</Label>
+        <Label for="pd-protocol" :class="fieldLabel">{{ t("settings.models.protocol") }}</Label>
         <Select v-model="form.protocol" @update:model-value="markDirty">
           <SelectTrigger id="pd-protocol" :class="selectCtrl">
-            <SelectValue placeholder="选择协议" />
+            <SelectValue :placeholder="t('settings.models.protocolPlaceholder')" />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
@@ -207,21 +210,21 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
         </Select>
       </div>
       <div class="field-row">
-        <Label for="pd-name" :class="fieldLabel">名称</Label>
+        <Label for="pd-name" :class="fieldLabel">{{ t("settings.models.name") }}</Label>
         <Input id="pd-name" v-model="form.name" :class="ctrl" @input="markDirty" />
       </div>
       <div class="field-row">
-        <Label for="pd-base" :class="fieldLabel">基础 URL</Label>
+        <Label for="pd-base" :class="fieldLabel">{{ t("settings.models.baseUrlLabel") }}</Label>
         <Input id="pd-base" v-model="form.baseUrl" :class="ctrl" @input="markDirty" />
       </div>
       <div class="field-row">
-        <Label for="pd-key" :class="fieldLabel">API 密钥</Label>
+        <Label for="pd-key" :class="fieldLabel">{{ t("settings.models.apiKey") }}</Label>
         <Input
           id="pd-key"
           v-model="form.apiKey"
           type="password"
           :class="ctrl"
-          :placeholder="provider.hasApiKey ? '已保存，如需更换请重新输入' : 'sk-...'"
+          :placeholder="provider.hasApiKey ? t('settings.models.apiKeySavedPlaceholder') : 'sk-...'"
           @input="markDirty"
         />
       </div>
@@ -235,14 +238,14 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
             placeholder="Mozilla/5.0 ..."
             @input="markDirty"
           />
-          <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-dim)]">留空则使用运行时默认值。仅应用于此供应商的模型获取和模型请求。</p>
+          <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-dim)]">{{ t("settings.models.userAgentHint") }}</p>
         </div>
       </div>
     </div>
 
     <div class="flex justify-end gap-1.5">
-      <Button variant="ghost" size="sm" @click="onCancel">取消</Button>
-      <Button size="sm" @click="onSave">保存</Button>
+      <Button variant="ghost" size="sm" @click="onCancel">{{ t("common.cancel") }}</Button>
+      <Button size="sm" @click="onSave">{{ t("common.save") }}</Button>
     </div>
 
     <ProviderModelList
@@ -262,7 +265,7 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
     <div class="flex justify-center px-0 py-1">
       <Button variant="destructive" size="sm" @click="emit('removeProvider')">
         <Trash2 data-icon="inline-start" />
-        删除此供应商
+        {{ t("settings.models.deleteThisProvider") }}
       </Button>
     </div>
 

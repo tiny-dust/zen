@@ -10,6 +10,7 @@ import {
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import type { TerminalSessionInfo } from "@zen/shared";
 
 const terminalStore = useTerminalStore();
 const { error, sessions, activeId, splitMode, visibleSessions } = storeToRefs(terminalStore);
+const { t } = useI18n();
 const { entries, setHostRef, mountVisible, disposeEntry, startResizeObserver } =
   useTerminalPanes();
 
@@ -45,10 +47,10 @@ function inView(id: string): boolean {
 
 function treeStatus(item: TerminalSessionInfo): { label: string; tone: string } {
   if (item.id === activeId.value) {
-    return { label: "活动中", tone: "text-[var(--color-accent)]" };
+    return { label: t("shell.active"), tone: "text-[var(--color-accent)]" };
   }
   if (isSplit.value && inView(item.id)) {
-    return { label: splitMode.value === "columns" ? "左右分屏" : "上下分屏", tone: "text-[var(--color-ok)]" };
+    return { label: splitMode.value === "columns" ? t("shell.splitColumns") : t("shell.splitRows"), tone: "text-[var(--color-ok)]" };
   }
   return { label: "", tone: "" };
 }
@@ -168,14 +170,14 @@ async function openExternal() {
     <!-- 右侧管理条：操作 + 终端状态树（VS Code 式） -->
     <aside
       class="flex w-[172px] flex-none flex-col border-l border-[var(--color-line)] bg-[var(--color-side)]"
-      aria-label="终端管理"
+      :aria-label="t('shell.terminalManage')"
     >
       <div class="flex flex-none items-center gap-0.5 px-1.5 py-1.5">
         <Button
           variant="ghost"
           size="icon-xs"
-          title="新建终端"
-          aria-label="新建终端"
+          :title="t('shell.newTerminal')"
+          :aria-label="t('shell.newTerminal')"
           @click="onCreateTerminal"
         >
           <Plus />
@@ -183,8 +185,8 @@ async function openExternal() {
         <Button
           variant="ghost"
           size="icon-xs"
-          title="左右分屏"
-          aria-label="左右分屏"
+          :title="t('shell.splitColumns')"
+          :aria-label="t('shell.splitColumns')"
           :disabled="isSplit && splitMode === 'columns'"
           @click="onSplit('columns')"
         >
@@ -193,8 +195,8 @@ async function openExternal() {
         <Button
           variant="ghost"
           size="icon-xs"
-          title="上下分屏"
-          aria-label="上下分屏"
+          :title="t('shell.splitRows')"
+          :aria-label="t('shell.splitRows')"
           :disabled="isSplit && splitMode === 'rows'"
           @click="onSplit('rows')"
         >
@@ -204,8 +206,8 @@ async function openExternal() {
           v-if="isSplit"
           variant="ghost"
           size="icon-xs"
-          title="取消分屏"
-          aria-label="取消分屏"
+          :title="t('shell.unsplit')"
+          :aria-label="t('shell.unsplit')"
           @click="onUnsplit"
         >
           <SquareTerminal />
@@ -213,8 +215,8 @@ async function openExternal() {
         <Button
           variant="ghost"
           size="icon-xs"
-          title="重启当前终端"
-          aria-label="重启当前终端"
+          :title="t('shell.restartTerminal')"
+          :aria-label="t('shell.restartTerminal')"
           class="ml-auto"
           @click="restart"
         >
@@ -223,8 +225,8 @@ async function openExternal() {
         <Button
           variant="ghost"
           size="icon-xs"
-          title="用系统终端打开"
-          aria-label="用系统终端打开"
+          :title="t('shell.openInSystemTerminal')"
+          :aria-label="t('shell.openInSystemTerminal')"
           @click="openExternal"
         >
           <ExternalLink />
@@ -234,7 +236,7 @@ async function openExternal() {
       <div
         class="flex-none px-2.5 pb-1 text-[10px] tracking-wide text-[var(--color-dim)]"
       >
-        终端 {{ sessions.length }}<span v-if="isSplit"> · {{ splitMode === "columns" ? "左右" : "上下" }}</span>
+        {{ t("shell.terminalsCount", { n: sessions.length }) }}<span v-if="isSplit"> · {{ splitMode === "columns" ? t("shell.splitColumnsShort") : t("shell.splitRowsShort") }}</span>
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
@@ -280,7 +282,7 @@ async function openExternal() {
             v-model="renameDraft"
             variant="ghost"
             class="min-w-0 flex-1 text-[12px] md:text-[12px] text-[var(--color-txt)]"
-            aria-label="重命名终端"
+            :aria-label="t('shell.renameTerminal')"
             @keydown.enter="commitRename"
             @keydown.esc="cancelRename"
             @blur="commitRename"
@@ -299,8 +301,8 @@ async function openExternal() {
             variant="ghost"
             size="icon-sm"
             class="size-5! flex-none rounded-[4px]! opacity-0 text-[var(--color-dim)] group-hover/term:opacity-100 hover:text-[var(--color-del)]"
-            :aria-label="`关闭 ${terminalStore.displayName(item.id, index)}`"
-            title="关闭终端"
+            :aria-label="t('shell.closeTerminalAria', { name: terminalStore.displayName(item.id, index) })"
+            :title="t('shell.closeTerminal')"
             @click.stop="onCloseSession(item.id)"
           >
             <X class="size-3" />
@@ -311,7 +313,7 @@ async function openExternal() {
           v-if="!sessions.length"
           class="px-2 py-3 text-[11px] text-[var(--color-dim)]"
         >
-          暂无终端
+          {{ t("shell.noTerminals") }}
         </div>
       </div>
     </aside>

@@ -3,6 +3,7 @@ import { Check, History, Search } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ const props = defineProps<{
   compact?: boolean;
 }>();
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
 const { providers } = storeToRefs(modelsStore);
@@ -157,15 +159,15 @@ watch(providers, () => {
       class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
-      :title="effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型'"
-      :aria-label="`模型：${effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型'}`"
+      :title="effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel')"
+      :aria-label="t('chat.model.label', { name: effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') })"
       @click="toggleOpen"
     >
       <VendorLogo
         :vendor="effectiveModel?.provider.name || effectiveModel?.model.id"
         :size="compact ? 16 : 16"
       />
-      <span v-if="!compact" class="truncate font-medium">{{ effectiveModel?.model.name || effectiveModel?.provider.name || '未配置模型' }}</span>
+      <span v-if="!compact" class="truncate font-medium">{{ effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') }}</span>
       <svg
         v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"
@@ -181,14 +183,14 @@ watch(providers, () => {
       v-if="open"
       class="absolute bottom-[calc(100%+8px)] left-0 z-[var(--z-popup)] w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] shadow-[var(--shadow-menu)]"
       role="listbox"
-      aria-label="选择模型"
+      :aria-label="t('chat.model.select')"
     >
       <div class="flex gap-3.5 border-b border-[var(--color-line)] px-3.5 pt-2.5">
         <Button
           v-for="tab in [
-            { id: 'model', label: '模型' },
-            { id: 'sub', label: '子代理' },
-            { id: 'external', label: '外部 agent' },
+            { id: 'model', label: t('chat.model.tabModel') },
+            { id: 'sub', label: t('chat.model.tabSub') },
+            { id: 'external', label: t('chat.model.tabExternal') },
           ]"
           :key="tab.id"
           variant="ghost"
@@ -213,15 +215,15 @@ watch(providers, () => {
             variant="ghost"
             class="h-6 min-w-0 flex-1 text-[12px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             type="search"
-            placeholder="搜索模型..."
+            :placeholder="t('chat.model.search')"
           />
         </div>
 
         <div class="grid min-h-[220px] max-h-[320px] grid-cols-[168px_minmax(0,1fr)]">
-          <nav class="flex flex-col gap-0.5 overflow-auto border-r border-[var(--color-line)] bg-[var(--color-sunken)] p-1.5" aria-label="供应商">
+          <nav class="flex flex-col gap-0.5 overflow-auto border-r border-[var(--color-line)] bg-[var(--color-sunken)] p-1.5" :aria-label="t('chat.model.providers')">
             <Button variant="ghost" :class="railClass('recent')" @click="selectProvider('recent')">
               <History class="size-4 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
-              <span class="truncate font-normal">最近使用</span>
+              <span class="truncate font-normal">{{ t("chat.model.recentlyUsed") }}</span>
             </Button>
             <Button
               v-for="group in enabledGroups"
@@ -258,18 +260,18 @@ watch(providers, () => {
                 v-if="item.model.custom"
                 class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] font-normal text-[var(--color-mut)]"
               >
-                自定义
+                {{ t("chat.model.custom") }}
               </span>
             </Button>
             <p v-if="!filtered.length" class="m-0 px-3 py-4 text-center text-[12px] text-[var(--color-mut)]">
-              无匹配模型
+              {{ t("chat.model.noMatch") }}
             </p>
           </div>
         </div>
       </template>
 
       <div v-else class="m-0 px-3 py-4 text-center text-[12px] text-[var(--color-mut)]">
-        {{ activeTab === "sub" ? "暂无子代理" : "暂无外部 agent" }}
+        {{ activeTab === "sub" ? t("chat.model.noSubAgents") : t("chat.model.noExternalAgents") }}
       </div>
     </div>
   </div>

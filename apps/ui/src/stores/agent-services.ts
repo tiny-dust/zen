@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 
 import type { AgentServiceInfo } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 /**
  * 右栏「服务」：主进程收集的 runTerminal 长驻进程（dev server / watch 等）。
  * 数据源为主进程推送（services:changed）与主动 list；kill 走 services:kill。
@@ -64,7 +66,7 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
 
   async function kill(id: string) {
     if (!window.zen?.services) {
-      return { ok: false, error: "服务 IPC 不可用" };
+      return { ok: false, error: i18n.global.t("app.services.ipcUnavailable") };
     }
     killingIds.value = { ...killingIds.value, [id]: true };
     try {
@@ -73,7 +75,7 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
         items.value = items.value.filter((item) => item.id !== id);
         stopTickerIfEmpty();
       } else {
-        error.value = result.error || "关闭失败";
+        error.value = result.error || i18n.global.t("app.services.killFailed");
       }
       return result;
     } finally {
@@ -85,16 +87,17 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
 
   /** 「已运行 xx」相对时长标签 */
   function durationLabel(startedAt: number): string {
+    const { t } = i18n.global;
     const seconds = Math.max(0, Math.floor((now.value - startedAt) / 1000));
     if (seconds < 60) {
-      return `${seconds} 秒`;
+      return t("app.services.durationSeconds", { n: seconds });
     }
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) {
-      return `${minutes} 分钟`;
+      return t("app.services.durationMinutes", { n: minutes });
     }
     const hours = Math.floor(minutes / 60);
-    return `${hours} 小时 ${minutes % 60} 分`;
+    return t("app.services.durationHours", { h: hours, m: minutes % 60 });
   }
 
   return {

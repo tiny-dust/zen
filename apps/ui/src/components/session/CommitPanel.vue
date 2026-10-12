@@ -8,6 +8,7 @@ import {
   RefreshCw,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { t } = useI18n();
 const gitStore = useGitStore();
 const message = ref("");
 const includeUnstaged = ref(true);
@@ -48,8 +50,8 @@ const remoteBranches = computed(() =>
 
 const messagePlaceholder = computed(() =>
   generating.value
-    ? "正在分析变更并生成提交信息…"
-    : "提交信息（留空则按变更内容自动分批提交）…",
+    ? t("shell.generatingMessage")
+    : t("shell.commitMessagePlaceholder"),
 );
 
 function canSubmit() {
@@ -75,11 +77,11 @@ async function generateMessage() {
     if (text) {
       message.value = text;
     } else if (!message.value.trim()) {
-      error.value = "模型未返回内容，可手动填写";
+      error.value = t("shell.aiMessageEmpty");
     }
   } catch (err) {
     if (!message.value.trim()) {
-      error.value = err instanceof Error ? err.message : "生成提交信息失败";
+      error.value = err instanceof Error ? err.message : t("shell.generateMessageFailed");
     }
   } finally {
     generating.value = false;
@@ -95,7 +97,7 @@ async function switchBranch(name: string) {
   try {
     const result = await gitStore.checkout(name);
     if (!result.ok) {
-      error.value = result.error ?? "切换分支失败";
+      error.value = result.error ?? t("shell.switchBranchFailed");
     }
   } finally {
     busy.value = false;
@@ -112,7 +114,7 @@ async function submit(mode: "commit" | "commit-push" | "push") {
     if (mode === "push") {
       const result = await gitStore.push();
       if (!result.ok) {
-        error.value = result.error ?? "推送失败";
+        error.value = result.error ?? t("shell.pushFailed");
         return;
       }
       emit("close");
@@ -127,7 +129,7 @@ async function submit(mode: "commit" | "commit-push" | "push") {
         includeUnstaged: includeUnstaged.value,
       });
       if (!result.ok) {
-        error.value = result.error ?? "提交失败";
+        error.value = result.error ?? t("shell.commitFailed");
         return;
       }
       message.value = "";
@@ -142,8 +144,8 @@ async function submit(mode: "commit" | "commit-push" | "push") {
     if (!result.ok) {
       error.value =
         result.batches.length > 0
-          ? `${result.error ?? "部分批次提交失败"}（已完成 ${result.batches.length} 批）`
-          : (result.error ?? "提交失败");
+          ? `${result.error ?? t("shell.partialCommitFailed")}${t("shell.batchesDoneSuffix", { n: result.batches.length })}`
+          : (result.error ?? t("shell.commitFailed"));
       return;
     }
     message.value = "";
@@ -186,7 +188,7 @@ const rowCls = cn(
   <div
     class="flex w-[228px] flex-col rounded-[10px] border border-[var(--color-line)] bg-[var(--color-popover)] py-1 shadow-[var(--shadow-pop)]"
     role="dialog"
-    aria-label="提交或推送"
+    :aria-label="t('shell.commitOrPush')"
   >
     <div class="px-2.5 pt-1.5 pb-0.5">
       <DropdownMenu v-model:open="branchMenuOpen">
@@ -203,7 +205,7 @@ const rowCls = cn(
             <span
               v-if="gitStore.status?.ahead || gitStore.status?.behind"
               class="flex-none font-[family-name:var(--font-mono)] text-[10px]"
-              title="与上游分支差异（↑ 待推送 / ↓ 落后）"
+              :title="t('shell.upstreamDiffTitle')"
             >
               <span v-if="gitStore.status?.ahead" class="text-[var(--color-add)]">
                 ↑{{ gitStore.status.ahead }}
@@ -218,7 +220,7 @@ const rowCls = cn(
         <DropdownMenuContent align="start" class="max-h-[280px] w-[200px] overflow-auto">
           <DropdownMenuGroup>
             <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
-              本地分支
+              {{ t("shell.localBranches") }}
             </DropdownMenuLabel>
             <DropdownMenuItem
               v-for="item in localBranches"
@@ -231,7 +233,7 @@ const rowCls = cn(
               <span class="truncate">{{ item.name }}</span>
             </DropdownMenuItem>
             <DropdownMenuLabel class="mt-1 text-[11px] text-[var(--color-dim)]">
-              远程分支
+              {{ t("shell.remoteBranches") }}
             </DropdownMenuLabel>
             <DropdownMenuItem
               v-for="item in remoteBranches"
@@ -261,11 +263,11 @@ const rowCls = cn(
           variant="ghost"
           class="flex h-auto items-center gap-1 rounded px-1 py-0.5 text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent disabled:pointer-events-none disabled:opacity-40"
           :disabled="generating || !gitStore.hasChanges"
-          title="AI 生成提交信息"
+          :title="t('shell.aiGenerateTitle')"
           @click="generateMessage"
         >
           <RefreshCw class="size-3" :class="generating ? 'animate-spin' : ''" aria-hidden="true" />
-          {{ generating ? "生成中" : "AI 生成" }}
+          {{ generating ? t("shell.generating") : t("shell.aiGenerate") }}
         </Button>
       </div>
     </div>
@@ -274,7 +276,7 @@ const rowCls = cn(
       class="mx-1.5 flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-1 py-1.5 text-[13px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
     >
       <Checkbox v-model="includeUnstaged" class="size-4" />
-      <span class="min-w-0 flex-1">包含未暂存的更改</span>
+      <span class="min-w-0 flex-1">{{ t("shell.includeUnstaged") }}</span>
       <span class="flex-none font-[family-name:var(--font-mono)] text-[12px]">
         <span class="text-[var(--color-add)]">+{{ stats.add }}</span>
         <span class="text-[var(--color-del)]">&nbsp;-{{ stats.del }}</span>
@@ -300,7 +302,7 @@ const rowCls = cn(
         @click="submit('commit')"
       >
         <ArrowRight class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-        <span class="flex-1">提交</span>
+        <span class="flex-1">{{ t("shell.commit") }}</span>
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]">
           ⌘↵
         </span>
@@ -322,7 +324,7 @@ const rowCls = cn(
           class="size-3.5 flex-none text-[var(--color-mut)]"
           aria-hidden="true"
         />
-        <span class="flex-1">提交并推送</span>
+        <span class="flex-1">{{ t("shell.commitAndPush") }}</span>
       </Button>
       <Button
         variant="ghost"
@@ -341,7 +343,7 @@ const rowCls = cn(
           class="size-3.5 flex-none text-[var(--color-mut)]"
           aria-hidden="true"
         />
-        <span class="flex-1">推送</span>
+        <span class="flex-1">{{ t("shell.push") }}</span>
       </Button>
     </div>
   </div>

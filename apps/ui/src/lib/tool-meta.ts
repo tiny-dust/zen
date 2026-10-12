@@ -17,6 +17,8 @@ import {
 
 import type { FunctionalComponent } from "vue";
 
+import { i18n } from "@/locales";
+
 export interface ToolIconSpec {
   icon: FunctionalComponent;
   /** 强调色 class（仅图标） */
@@ -31,18 +33,27 @@ const spec = (
   label: string,
 ): ToolIconSpec => ({ icon, cls, label });
 
+/** 展示名走 i18n 的规格构造：label 存消息键，取用时再翻译 */
+const keyedSpec = (icon: FunctionalComponent, cls: string, labelKey: string): ToolIconSpec => ({
+  icon,
+  cls,
+  get label() {
+    return i18n.global.t(labelKey);
+  },
+});
+
 const BY_NAME: Record<string, ToolIconSpec> = {
   // 动作名与 tool-part.ts / toolDisplay 对齐，避免新旧工具卡状态词不一致
-  readFile: spec(FileText, "text-[var(--color-mut)]", "读取文件"),
-  writeFile: spec(FilePlus, "text-[var(--color-add)]", "写入文件"),
-  editFile: spec(FilePen, "text-[var(--color-accent)]", "编辑文件"),
-  listDir: spec(FolderOpen, "text-[var(--color-mut)]", "浏览目录"),
-  searchFiles: spec(Search, "text-[var(--color-mut)]", "搜索文件"),
-  runTerminal: spec(Terminal, "text-[var(--color-accent-2)]", "执行终端"),
-  webSearch: spec(Globe, "text-[var(--color-link)]", "网络搜索"),
-  updateTasks: spec(ListChecks, "text-[var(--color-accent)]", "更新任务清单"),
-  askUser: spec(MessageCircleQuestion, "text-[var(--color-accent-2)]", "询问用户"),
-  loadSkill: spec(BookMarked, "text-[var(--color-mut)]", "加载技能"),
+  readFile: keyedSpec(FileText, "text-[var(--color-mut)]", "app.tool.readFile"),
+  writeFile: keyedSpec(FilePlus, "text-[var(--color-add)]", "app.tool.writeFile"),
+  editFile: keyedSpec(FilePen, "text-[var(--color-accent)]", "app.tool.editFile"),
+  listDir: keyedSpec(FolderOpen, "text-[var(--color-mut)]", "app.tool.listDir"),
+  searchFiles: keyedSpec(Search, "text-[var(--color-mut)]", "app.tool.searchFiles"),
+  runTerminal: keyedSpec(Terminal, "text-[var(--color-accent-2)]", "app.tool.runTerminal"),
+  webSearch: keyedSpec(Globe, "text-[var(--color-link)]", "app.tool.webSearch"),
+  updateTasks: keyedSpec(ListChecks, "text-[var(--color-accent)]", "app.tool.updateTasks"),
+  askUser: keyedSpec(MessageCircleQuestion, "text-[var(--color-accent-2)]", "app.tool.askUser"),
+  loadSkill: keyedSpec(BookMarked, "text-[var(--color-mut)]", "app.tool.loadSkill"),
 };
 
 /** 按工具名解析图标与中文标签；MCP/git 等走前缀兜底 */
@@ -53,7 +64,7 @@ export function toolIconSpec(toolName: string): ToolIconSpec {
   }
   if (toolName.startsWith("mcp.")) {
     const parts = toolName.split(".");
-    return spec(Plug, "text-[var(--color-mut)]", parts.slice(1).join(".") || "MCP 工具");
+    return spec(Plug, "text-[var(--color-mut)]", parts.slice(1).join(".") || i18n.global.t("app.tool.mcpFallback"));
   }
   if (toolName.startsWith("git")) {
     return spec(GitBranch, "text-[var(--color-accent-2)]", toolName);

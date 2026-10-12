@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight } from "@lucide/vue";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   select: [path: string];
 }>();
 
+const { t } = useI18n();
 const entries = ref<DirEntry[] | null>(null);
 const expanded = ref(new Set<string>());
 

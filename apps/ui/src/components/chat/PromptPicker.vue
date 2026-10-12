@@ -2,6 +2,7 @@
 import { Settings2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import PromptAgentIcon from "@/components/brand/PromptAgentIcon.vue";
 import { Button } from "@/components/ui/button";
@@ -23,17 +24,18 @@ defineProps<{
   compact?: boolean;
 }>();
 
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const { settings: agentSettings, presets } = storeToRefs(agentStore);
 const settingsStore = useSettingsStore();
 
 const activePromptName = computed(() => {
   if (agentSettings.value.prompt.presetId === "custom") {
-    return "自定义";
+    return t("chat.prompt.custom");
   }
   return (
     presets.value.find((item) => item.id === agentSettings.value.prompt.presetId)?.name ??
-    "Zen 默认"
+    t("chat.prompt.zenDefault")
   );
 });
 
@@ -64,8 +66,8 @@ function openPromptSettings() {
         variant="ghost"
         class="items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         :class="compact ? 'size-7 justify-center' : 'h-7 max-w-[160px] gap-1 px-1.5'"
-        aria-label="选择系统提示词风格"
-        :title="`系统提示词：${activePromptName}`"
+        :aria-label="t('chat.prompt.select')"
+        :title="t('chat.prompt.label', { name: activePromptName })"
       >
         <PromptAgentIcon
           :preset-id="activePromptId"
@@ -78,7 +80,7 @@ function openPromptSettings() {
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" class="w-72">
       <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
-        系统提示词风格
+        {{ t("chat.prompt.style") }}
       </DropdownMenuLabel>
       <DropdownMenuRadioGroup
         :model-value="agentSettings.prompt.presetId"
@@ -113,10 +115,10 @@ function openPromptSettings() {
           />
           <div class="flex min-w-0 flex-col gap-0.5">
             <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-              自定义
+              {{ t("chat.prompt.custom") }}
             </span>
             <span class="text-[11px] text-[var(--color-mut)]">
-              使用设置页中的自定义提示词
+              {{ t("chat.prompt.customHint") }}
             </span>
           </div>
         </DropdownMenuRadioItem>
@@ -124,7 +126,7 @@ function openPromptSettings() {
       <DropdownMenuSeparator />
       <DropdownMenuItem class="gap-2" @select="openPromptSettings">
         <Settings2 class="size-3.5" />
-        <span class="text-[12px]">前往设置 · 提示词</span>
+        <span class="text-[12px]">{{ t("chat.prompt.goSettings") }}</span>
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>

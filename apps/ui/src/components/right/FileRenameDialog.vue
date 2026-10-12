@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -29,6 +30,7 @@ const emit = defineEmits<{
 
 const value = ref("");
 const inputRef = ref<InstanceType<typeof Input> | null>(null);
+const { t } = useI18n();
 
 watch(
   () => props.open,
@@ -63,7 +65,7 @@ function submit() {
     >
       <form class="contents" @submit.prevent="submit">
         <DialogTitle class="m-0 text-[14px] font-semibold text-[var(--color-txt-strong)]">
-          重命名
+          {{ t("panels.rename") }}
         </DialogTitle>
         <DialogDescription
           class="m-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
@@ -78,9 +80,11 @@ function submit() {
             :disabled="pending"
             @click="emit('update:open', false)"
           >
-            取消
+            {{ t("panels.cancel") }}
           </Button>
-          <Button size="sm" :disabled="pending || !valid()" @click="submit">重命名</Button>
+          <Button size="sm" :disabled="pending || !valid()" @click="submit">
+            {{ t("panels.rename") }}
+          </Button>
         </div>
       </form>
     </DialogContent>

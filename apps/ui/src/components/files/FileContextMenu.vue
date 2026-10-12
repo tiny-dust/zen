@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { resolveFileRefPath } from "./file-ref";
@@ -22,8 +23,9 @@ const emit = defineEmits<{ close: [] }>();
 
 const menuEl = ref<HTMLElement | null>(null);
 const error = ref("");
-const openFolderLabel = ref("打开文件夹");
-const showInFolderLabel = ref("打开到文件位置");
+const { t } = useI18n();
+const openFolderLabel = ref(t("shell.openFolder"));
+const showInFolderLabel = ref(t("shell.showInFolder"));
 
 const MENU_MIN_W = 180;
 const MENU_MIN_H = 76;
@@ -97,7 +99,7 @@ async function run(
 ) {
   const zen = window.zen;
   if (!zen) {
-    error.value = "桌面环境不可用";
+    error.value = t("shell.shellUnavailable");
     return;
   }
   error.value = "";
@@ -108,7 +110,7 @@ async function run(
     close();
     return;
   }
-  error.value = result?.error || "打开失败";
+  error.value = result?.error || t("shell.openFailed");
 }
 
 function openDefault() {
@@ -128,7 +130,7 @@ function revealInFolder() {
       role="menu"
       tabindex="-1"
       :style="{ left: `${left}px`, top: `${top}px` }"
-      :aria-label="`文件操作：${path}`"
+      :aria-label="t('shell.fileActions', { path })"
       @contextmenu.prevent
     >
       <Button
@@ -137,7 +139,7 @@ function revealInFolder() {
         role="menuitem"
         @click="openDefault"
       >
-        {{ kind === "directory" ? openFolderLabel : "打开文件" }}
+        {{ kind === "directory" ? openFolderLabel : t("shell.openFile") }}
       </Button>
       <Button
         variant="ghost"

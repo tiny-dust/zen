@@ -3,6 +3,8 @@ import { ref } from "vue";
 
 import type { AuthState, DeviceCodeInfo } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 export const useUserStore = defineStore("user", () => {
   const auth = ref<AuthState>({ loggedIn: false, user: null, error: null });
   const loading = ref(false);
@@ -81,7 +83,7 @@ export const useUserStore = defineStore("user", () => {
         deviceCode.value = null;
       }
     } catch (error) {
-      loginError.value = error instanceof Error ? error.message : "GitHub 登录失败";
+      loginError.value = error instanceof Error ? error.message : i18n.global.t("app.user.loginFailed");
     } finally {
       loading.value = false;
       deviceCode.value = null;
@@ -115,7 +117,7 @@ export const useUserStore = defineStore("user", () => {
         loginError.value = next.error;
       }
     } catch (error) {
-      loginError.value = error instanceof Error ? error.message : "刷新资料失败";
+      loginError.value = error instanceof Error ? error.message : i18n.global.t("app.user.refreshProfileFailed");
     } finally {
       refreshing.value = false;
     }

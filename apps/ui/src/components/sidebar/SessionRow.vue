@@ -2,6 +2,7 @@
 import { Archive, ArchiveRestore, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
 
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
@@ -26,6 +27,8 @@ const emit = defineEmits<{
 const sessionStatus = useSessionStatusStore();
 const { byId } = storeToRefs(sessionStatus);
 
+const { t } = useI18n();
+
 const runtimeStatus = computed<SessionRuntimeStatus>(() => byId.value[props.session.id] ?? "idle");
 const running = computed(() => runtimeStatus.value === "running");
 const needsAction = computed(() => runtimeStatus.value === "needs_action");
@@ -38,7 +41,7 @@ const resultDotCls = computed(() =>
   runtimeStatus.value === "error" ? "bg-[var(--color-del)]" : "bg-[var(--color-ok)]",
 );
 const resultDotLabel = computed(() =>
-  runtimeStatus.value === "error" ? "上次运行失败" : "上次已完成",
+  runtimeStatus.value === "error" ? t("sidebar.lastRunFailed") : t("sidebar.lastRunDone"),
 );
 
 /**
@@ -102,7 +105,7 @@ const ghostActionCls = classes(
       <span :class="titleCls">{{ session.title }}</span>
     </Button>
 
-    <span v-if="running" :class="slotCls" title="进行中" aria-label="进行中" role="status">
+    <span v-if="running" :class="slotCls" :title="t('sidebar.running')" :aria-label="t('sidebar.running')" role="status">
       <LoaderCircle
         class="size-3.5 shrink-0 animate-spin text-[var(--color-accent)]"
         aria-hidden="true"
@@ -112,11 +115,11 @@ const ghostActionCls = classes(
     <span
       v-else-if="needsAction"
       class="flex h-4 flex-none items-center rounded-full bg-[color-mix(in_srgb,var(--color-accent-2)_16%,transparent)] px-1.5 text-[10px] leading-none font-medium text-[var(--color-accent-2)]"
-      title="等待确认"
-      aria-label="待确认"
+      :title="t('sidebar.awaitingConfirmTitle')"
+      :aria-label="t('sidebar.pendingConfirm')"
       role="status"
     >
-      待确认
+      {{ t("sidebar.pendingConfirm") }}
     </span>
     <span
       v-else-if="showResultDot"
@@ -133,8 +136,8 @@ const ghostActionCls = classes(
       type="button"
       class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-mut)] transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/session:opacity-100"
       :class="session.pinned ? 'opacity-100' : 'opacity-0'"
-      :aria-label="session.pinned ? '取消置顶' : '置顶'"
-      :title="session.pinned ? '取消置顶' : '置顶'"
+      :aria-label="session.pinned ? t('sidebar.unpin') : t('sidebar.pin')"
+      :title="session.pinned ? t('sidebar.unpin') : t('sidebar.pin')"
       @click.stop="emit('pin')"
     >
       <Pin
@@ -149,8 +152,8 @@ const ghostActionCls = classes(
         variant="ghost"
         size="icon-sm"
         :class="ghostActionCls"
-        :aria-label="session.archived ? '取消归档' : '归档'"
-        :title="session.archived ? '取消归档' : '归档'"
+        :aria-label="session.archived ? t('sidebar.unarchive') : t('sidebar.archive')"
+        :title="session.archived ? t('sidebar.unarchive') : t('sidebar.archive')"
         @click="emit('archive', !session.archived)"
       >
         <ArchiveRestore v-if="session.archived" class="size-[13px] shrink-0" />
@@ -158,7 +161,7 @@ const ghostActionCls = classes(
       </Button>
       <DangerIconButton
         :class="actionSlotCls"
-        label="删除会话"
+        :label="t('sidebar.deleteSession')"
         @click="emit('remove')"
       >
         <Trash2 class="size-[13px] shrink-0" />

@@ -8,6 +8,7 @@ import type {
 } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { i18n } from "@/locales";
 
 /** 分屏：none=单栏；columns=左右；rows=上下 */
 export type TerminalSplitMode = "none" | "columns" | "rows";
@@ -35,7 +36,7 @@ export const useTerminalStore = defineStore("terminal", () => {
   const error = ref("");
 
   const shellLabel = computed(
-    () => shellInfo.value?.label || shellInfo.value?.path || "系统默认 shell",
+    () => shellInfo.value?.label || shellInfo.value?.path || i18n.global.t("app.terminal.defaultShell"),
   );
   const session = computed(
     () => sessions.value.find((item) => item.id === activeId.value) ?? null,
@@ -107,7 +108,10 @@ export const useTerminalStore = defineStore("terminal", () => {
       appendData(event.sessionId, event.data);
     });
     const offExit = zen.terminal.onExit((event) => {
-      appendData(event.sessionId, `\n[进程已退出 exit=${event.exitCode}]\n`);
+      appendData(
+        event.sessionId,
+        `\n${i18n.global.t("app.terminal.processExited", { code: event.exitCode })}\n`,
+      );
       sessions.value = sessions.value.filter((item) => item.id !== event.sessionId);
       removeFromPanes(event.sessionId);
       if (activeId.value === event.sessionId) {
@@ -159,7 +163,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   async function doStart(cwd?: string, cols = 80, rows = 24) {
     if (!window.zen?.terminal) {
-      error.value = "终端 IPC 不可用";
+      error.value = i18n.global.t("app.terminal.ipcUnavailable");
       return;
     }
     error.value = "";
@@ -173,7 +177,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       rows,
     });
     if (!result.ok || !result.session) {
-      error.value = result.error || "终端启动失败";
+      error.value = result.error || i18n.global.t("app.terminal.startFailed");
       return;
     }
     const created = result.session;
@@ -324,7 +328,7 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   async function openExternal() {
     if (!window.zen?.terminal) {
-      return { ok: false, error: "终端 IPC 不可用" };
+      return { ok: false, error: i18n.global.t("app.terminal.ipcUnavailable") };
     }
     const workspace = useWorkspaceStore();
     return window.zen.terminal.openExternal(workspace.activePath || undefined);

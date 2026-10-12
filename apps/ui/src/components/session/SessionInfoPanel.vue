@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from "vue";
 import { classes } from "rattail";
+import { useI18n } from "vue-i18n";
 
 import AgentsSection from "@/components/session/AgentsSection.vue";
 import CommitPanel from "@/components/session/CommitPanel.vue";
@@ -24,6 +25,7 @@ withDefaults(
 const gitStore = useGitStore();
 const rootEl = ref<HTMLElement | null>(null);
 const commitPos = ref({ top: 0, left: 0 });
+const { t } = useI18n();
 
 /** 信息卡：整体可滚动（各节内容超高时不溢出），滚动条按规范收窄 */
 const cardCls = classes(
@@ -59,7 +61,7 @@ async function openCommitPanel() {
         ? 'flex min-w-0 flex-col bg-transparent'
         : 'flex h-full min-w-0 flex-col overflow-hidden bg-transparent p-2'
     "
-    aria-label="会话信息"
+    :aria-label="t('shell.sessionInfo')"
     data-select-text
   >
 
@@ -82,7 +84,7 @@ async function openCommitPanel() {
       <Button
         variant="ghost"
         class="pointer-events-auto absolute inset-0 h-auto cursor-default hover:bg-transparent dark:hover:bg-transparent"
-        aria-label="关闭提交面板"
+        :aria-label="t('shell.closeCommitPanel')"
         @click="gitStore.commitPanelOpen = false"
       />
       <div

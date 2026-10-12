@@ -6,6 +6,7 @@ import type { McpDiscoveredServer, McpServerConfig, McpServerStatus, McpToolInfo
 import type { McpClient } from "@zen/mcp-client";
 import { clearMcpAuthExcept, getValidAccessToken, saveMcpAuthEntry } from "./mcp-auth-store";
 import { scanMcpSources } from "./mcp-scan";
+import { currentLocale, mainT } from "./i18n";
 import { readMcpConfig, writeMcpConfig } from "./zen-dir";
 
 /**
@@ -69,6 +70,7 @@ async function configWithAuth(config: McpServerConfig): Promise<McpServerConfig>
 }
 
 async function collectStatuses(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
+  const locale = await currentLocale();
   return Promise.all(
     servers.map(async (config) => {
       if (!config.enabled) {
@@ -82,7 +84,7 @@ async function collectStatuses(servers: McpServerConfig[]): Promise<McpServerSta
         } catch (error) {
           // 401 挑战单独标 needs-auth，UI 据此展示「去授权」入口而不是普通报错
           if (client.requiresAuth) {
-            return { config, state: "needs-auth" as const, error: "需要浏览器授权", tools: [] };
+            return { config, state: "needs-auth" as const, error: mainT(locale, "mcp.needsAuth"), tools: [] };
           }
           return {
             config,
@@ -101,13 +103,14 @@ async function collectStatuses(servers: McpServerConfig[]): Promise<McpServerSta
 const inFlightAuthorizations = new Map<string, Promise<McpServerStatus[]>>();
 
 async function runAuthorization(serverId: string): Promise<McpServerStatus[]> {
+  const locale = await currentLocale();
   const { servers } = await readMcpConfig();
   const config = servers.find((item) => item.id === serverId);
   if (!config) {
-    throw new Error(`MCP 服务不存在: ${serverId}`);
+    throw new Error(mainT(locale, "mcp.serverNotFound", { id: serverId }));
   }
   if (config.transport !== "http" && config.transport !== "sse") {
-    throw new Error("本地 stdio 服务无需 OAuth 授权");
+    throw new Error(mainT(locale, "mcp.stdioNoAuth"));
   }
   // 401 时 client 里留着 WWW-Authenticate 挑战，传给授权流程可精确匹配 scope/resource
   const challenge = clients.get(serverId)?.authChallenge ?? null;
@@ -226,7 +229,11 @@ export async function callMcpTool(
   const { servers } = await readMcpConfig();
   const config = servers.find((item) => item.enabled && item.name === serverName);
   if (!config) {
-    return { ok: false, text: "", error: `MCP server 不存在或未启用: ${serverName}` };
+    return {
+      ok: false,
+      text: "",
+      error: mainT(await currentLocale(), "mcp.toolServerMissing", { name: serverName }),
+    };
   }
   const client = clientFor(await configWithAuth(config));
   if (!client.isConnected) {

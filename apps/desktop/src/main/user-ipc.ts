@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import { BrowserWindow, app, ipcMain, nativeImage, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 
 import {
   decryptTokens,
@@ -12,10 +12,11 @@ import {
   refreshAccessToken,
 } from "./github-auth";
 import { isModernSecret } from "./secret";
+import { currentLocale, mainT } from "./i18n";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppIconId, AppSettings, AuthState, GitHubUser } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME } from "@zen/shared";
 import { showOpenDialogSafe } from "./dialog-safe";
 import { setCurrentUserId } from "./workspace-db";
 
@@ -39,6 +40,8 @@ const defaultSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
+  theme: DEFAULT_THEME,
+  locale: DEFAULT_LOCALE,
   displayAccount: "auto",
 };
 
@@ -83,6 +86,12 @@ async function writeJson(path: string, value: unknown) {
   const tmp = `${path}.${process.pid}.tmp`;
   await writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
   await rename(tmp, path);
+}
+
+/** 主题三档同步到 Electron：dark/light 固定，system 跟随操作系统
+ *  （nativeTheme.themeSource 会联动渲染层 prefers-color-scheme，system 档由 OS 决定） */
+function applyThemeMode(theme: AppSettings["theme"]) {
+  nativeTheme.themeSource = theme === "light" || theme === "dark" ? theme : "system";
 }
 
 async function loadSettings(): Promise<AppSettings> {
@@ -152,7 +161,10 @@ function sessionExpired(stored: StoredAuth): boolean {
 async function loadAuth(): Promise<AuthState> {
   const stored = await loadStoredAuth();
   if (sessionExpired(stored)) {
-    return persistAuth({ loggedIn: false, user: null, tokens: null }, "登录已超过 3 个月，请重新登录");
+    return persistAuth(
+      { loggedIn: false, user: null, tokens: null },
+      mainT(await currentLocale(), "user.sessionExpired"),
+    );
   }
   return toPublicAuth(stored);
 }
@@ -164,7 +176,10 @@ async function ensureValidTokens(): Promise<string | null> {
     return null;
   }
   if (sessionExpired(stored)) {
-    await persistAuth({ loggedIn: false, user: null, tokens: null }, "登录已超过 3 个月，请重新登录");
+    await persistAuth(
+      { loggedIn: false, user: null, tokens: null },
+      mainT(await currentLocale(), "user.sessionExpired"),
+    );
     return null;
   }
   let tokens: GitHubTokens;
@@ -174,7 +189,7 @@ async function ensureValidTokens(): Promise<string | null> {
     // 本地密钥失效 / token 损坏：清掉凭据，引导重新登录
     await persistAuth(
       { loggedIn: false, user: null, tokens: null },
-      "本地密钥无法解密已保存的凭据，请重新登录",
+      mainT(await currentLocale(), "user.localKeyDecryptFailed"),
     );
     return null;
   }
@@ -195,17 +210,21 @@ async function forceRefreshTokens(
   stored: StoredAuth,
   refreshToken: string,
 ): Promise<{ tokens: GitHubTokens | null; error: string | null }> {
+  const locale = await currentLocale();
   try {
     const clientId = findClientId();
     if (!clientId) {
-      return { tokens: null, error: "未配置 GITHUB_CLIENT_ID" };
+      return { tokens: null, error: mainT(locale, "user.missingClientId") };
     }
     const refreshed = await refreshAccessToken(clientId, refreshToken);
     const encrypted = await encryptTokens(refreshed);
     await persistAuth({ ...stored, tokens: encrypted });
     return { tokens: refreshed, error: null };
   } catch (error) {
-    return { tokens: null, error: error instanceof Error ? error.message : "刷新令牌失败" };
+    return {
+      tokens: null,
+      error: error instanceof Error ? error.message : mainT(locale, "user.refreshTokenFailed"),
+    };
   }
 }
 
@@ -233,7 +252,8 @@ async function performLogin(): Promise<AuthState> {
     const encrypted = await encryptTokens(tokens);
     return await persistAuth({ loggedIn: true, user, tokens: encrypted, loginAt: Date.now() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "GitHub 登录失败";
+    const message =
+      error instanceof Error ? error.message : mainT(await currentLocale(), "user.githubLoginFailed");
     const current = await loadStoredAuth();
     return toPublicAuth(current, message);
   }
@@ -254,7 +274,8 @@ async function refreshProfile(): Promise<AuthState> {
     const latest = await loadStoredAuth();
     return await persistAuth({ ...latest, user });
   } catch (error) {
-    const raw = error instanceof Error ? error.message : "刷新资料失败";
+    const locale = await currentLocale();
+    const raw = error instanceof Error ? error.message : mainT(locale, "user.refreshProfileFailed");
     // 本地密钥失效 / token 损坏：清掉凭据，引导重新登录，避免一直弹 ByteString
     if (/解密|凭据无效|ByteString/i.test(raw)) {
       return await persistAuth({ loggedIn: false, user: null, tokens: null });
@@ -266,7 +287,7 @@ async function refreshProfile(): Promise<AuthState> {
         // 无 refresh token 的长期令牌：401 即凭据失效，清除
         return await persistAuth(
           { loggedIn: false, user: null, tokens: null },
-          "登录态已失效，请重新登录",
+          mainT(locale, "user.authExpired"),
         );
       }
       const refreshed = await forceRefreshTokens(stored, tokens.refreshToken);
@@ -279,7 +300,7 @@ async function refreshProfile(): Promise<AuthState> {
           // 新令牌仍被拒：凭据确实失效，清除
           return await persistAuth(
             { loggedIn: false, user: null, tokens: null },
-            "登录态已失效，请重新登录",
+            mainT(locale, "user.authExpired"),
           );
         }
       }
@@ -287,11 +308,11 @@ async function refreshProfile(): Promise<AuthState> {
         // GitHub 明确判定 refresh token 失效：清登录引导重登
         return await persistAuth(
           { loggedIn: false, user: null, tokens: null },
-          "登录态已失效，请重新登录",
+          mainT(locale, "user.authExpired"),
         );
       }
       // 瞬时失败（网络/限流/服务波动）：保留登录态，只上报错误，下次再试
-      return toPublicAuth(stored, "令牌续期未成功（网络或服务波动），已保留登录态");
+      return toPublicAuth(stored, mainT(locale, "user.tokenRefreshKept"));
     }
     // 其余错误（403 多为限流/代理拦截等）不是凭据失效：保留登录态，仅上报
     return toPublicAuth(stored, raw);
@@ -381,18 +402,24 @@ export function registerUserIpc(): void {
       await shell.openExternal(target);
       return { ok: true };
     }
-    return { ok: false, error: "仅支持 http(s) 在应用内打开" };
+    return { ok: false, error: mainT(await currentLocale(), "user.openExternalUnsupported") };
   });
 
   ipcMain.handle("app:open-system-external", async (_event, url: string) => {
     if (typeof url !== "string" || !url.trim() || !/^https?:\/\//i.test(url.trim())) {
-      return { ok: false, error: "仅支持 http(s) 链接" };
+      return { ok: false, error: mainT(await currentLocale(), "user.openSystemUnsupported") };
     }
     try {
       await shell.openExternal(url.trim());
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "无法打开系统浏览器" };
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : mainT(await currentLocale(), "user.openSystemFailed"),
+      };
     }
   });
 
@@ -409,13 +436,16 @@ export function registerUserIpc(): void {
     };
     cachedSettings = next;
     await writeJson(settingsFile(), next);
+    if (partial.theme) {
+      applyThemeMode(next.theme);
+    }
     broadcast("settings:changed", next);
     return next;
   });
 
   ipcMain.handle("settings:pick-icon", async (event) => {
     const options: Electron.OpenDialogOptions = {
-      title: "选择应用图标",
+      title: mainT(await currentLocale(), "user.pickIconTitle"),
       properties: ["openFile"],
       filters: [
         { name: "Images", extensions: ["png", "icns", "ico", "jpg", "jpeg", "webp", "svg"] },
@@ -455,6 +485,7 @@ export function registerUserIpc(): void {
 
 export async function initUserState() {
   const settings = await loadSettings();
+  applyThemeMode(settings.theme);
   await applyAppIcon(settings);
   return settings;
 }

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { i18n } from "@/locales";
 
 import type { GitLogEntry } from "@zen/shared";
 
@@ -189,7 +190,7 @@ export function detailRowCls() {
 }
 
 export function fmtParents(parents: string[]): string {
-  return parents.length ? parents.map((p) => p.slice(0, 7)).join(" ") : "（根提交）";
+  return parents.length ? parents.map((p) => p.slice(0, 7)).join(" ") : i18n.global.t("panels.rootCommit");
 }
 
 /** 分支/标签徽标：%D 里的 ref 归类（HEAD 当前分支 / 本地 / 远端 / tag） */

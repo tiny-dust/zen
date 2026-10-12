@@ -45,7 +45,7 @@ import {
   buildStatusReply,
   collectSessionSummaries,
   expandQuickCommand,
-  extractCardAskAnswer,
+  extractCardAskAction,
   extractCardCommand,
   eventNotSubscribedError,
   formatRelativeTime,
@@ -475,6 +475,7 @@ function gatewayOf(deps: Partial<ConstructorParameters<typeof LarkGateway>[0]> =
       if (cardJson) {
         cards.push(JSON.parse(cardJson) as Record<string, unknown>);
       }
+      return `om_${sent.length}`;
     },
     ...deps,
   });
@@ -641,23 +642,45 @@ describe("带参数指令执行（mock deps）", () => {
 // ---------- 卡片推送（interactive card）与降级 ----------
 
 describe("卡片构建（纯函数）", () => {
-  it("buildAskPushCard：header 标题=会话名，正文含 agentName/问题/选项，尾注为回复指引", () => {
+  it("buildAskPushCard：表单式问询卡——header=会话名（wathet），form 含 select/input/确认取消按钮", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
     entry.question.agentName = "主进程飞书桥接";
     entry.question.options = ["方案 A", "方案 B"];
     const card = buildAskPushCard(entry, 1);
     expect(card.header?.title.content).toContain("🔔 Zen 问询 · 重构登录模块");
-    expect(card.header?.title.content).toContain("重构登录模块");
+    expect(card.header?.template).toBe("wathet");
     const body = JSON.stringify(card);
     expect(body).toContain("**来自** 主进程飞书桥接");
-    expect(body).toContain("选择哪个方案？");
-    expect(body).toContain("1. 方案 A");
-    expect(body).toContain("点击按钮，或直接回复选项编号 / 文字");
+    expect(body).toContain("**选择哪个方案？**");
+    // 表单：select_static pick（value=选项原文）+ input text + 确认/取消按钮
+    const forms = elementsOf(card).filter((el) => el.tag === "form");
+    expect(forms).toHaveLength(1);
+    const inner = forms[0]!.elements as Array<Record<string, any>>;
+    const selector = inner.find((el) => el.tag === "select_static")!;
+    expect(selector.name).toBe("pick");
+    expect(selector.options).toEqual([
+      { text: { tag: "plain_text", content: "方案 A" }, value: "方案 A" },
+      { text: { tag: "plain_text", content: "方案 B" }, value: "方案 B" },
+    ]);
+    const input = inner.find((el) => el.tag === "input")!;
+    expect(input.name).toBe("text");
+    const buttons = formButtonsOf(inner);
+    expect(buttons.map((btn) => btn.name)).toEqual(["btn_cancel", "btn_ok"]);
+    expect(body).toContain("选择/输入后点击「确认」提交；也可以直接回复文字或选项编号");
   });
 
-  it("buildAskPushCard：多条待答尾注换成 #序号 指引", () => {
-    const card = buildAskPushCard(pendingOf({ askId: "a1", seq: 4 }), 3);
-    expect(JSON.stringify(card)).toContain("以 #序号 开头，如 #4 <答案>");
+  it("buildAskPushCard：multiSelect 注明可多选并使用 multi_select_static", () => {
+    const entry = pendingOf({ askId: "a1", seq: 4 });
+    entry.question.options = ["A", "B", "C"];
+    entry.question.multiSelect = true;
+    const card = buildAskPushCard(entry, 3);
+    const body = JSON.stringify(card);
+    expect(body).toContain("可多选");
+    const selector = (
+      elementsOf(card).find((el) => el.tag === "form")!.elements as Array<Record<string, any>>
+    ).find((el) => el.tag === "multi_select_static")!;
+    expect(selector.name).toBe("pick");
+    expect(selector.placeholder.content).toContain("可多选");
   });
 
   it("buildSessionDoneCard：标题=会话名+已完成，正文=摘要，note 引导查询", () => {
@@ -711,7 +734,7 @@ describe("出站卡片推送与鉴权（mock deps）", () => {
     expect(cards).toHaveLength(1);
     expect(cards[0]?.header).toMatchObject({
       title: { tag: "plain_text", content: "🔔 Zen 问询 · 重构登录模块" },
-      template: "orange",
+      template: "wathet",
     });
   });
 
@@ -890,6 +913,15 @@ function elementsOf(card: LarkCard2): Array<Record<string, any>> {
   return card.body.elements as Array<Record<string, any>>;
 }
 
+/** form 内确认/取消按钮放在 column_set 的两列里，这里拍平取出来 */
+function formButtonsOf(formElements: Array<Record<string, any>>): Array<Record<string, any>> {
+  const columns = formElements.find((el) => el.tag === "column_set")?.columns as
+    | Array<Record<string, any>>
+    | undefined;
+  if (!columns) return [];
+  return columns.flatMap((column) => (column.elements as Array<Record<string, any>>) ?? []);
+}
+
 function actionRecordOf(
   overrides: Partial<LarkCardActionRecord> & Pick<LarkCardActionRecord, "eventId">,
 ): LarkCardActionRecord {
@@ -898,6 +930,7 @@ function actionRecordOf(
     messageId: "om_card",
     chatId: "oc_1",
     actionTag: "button",
+    actionName: "",
     actionValue: "",
     option: "",
     options: "",
@@ -909,7 +942,7 @@ function actionRecordOf(
 }
 
 describe("卡片 2.0 构建（纯函数）", () => {
-  it("buildAskPushCard：schema 2.0 骨架 + 单选 ≤4 → 按钮排（首钮 primary），value JSON 可 round-trip", () => {
+  it("buildAskPushCard：schema 2.0 骨架 + 表单问询（select/input/双按钮），不含 note 组件", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
     entry.question.options = ["方案 A", "方案 B"];
     const card = buildAskPushCard(entry, 1);
@@ -917,38 +950,35 @@ describe("卡片 2.0 构建（纯函数）", () => {
     expect(card.config).toEqual({ update_multi: true, width_mode: "default" });
     // schema 2.0 不支持 note 组件（飞书 ErrCode 200861）：尾注必须走 markdown
     expect(JSON.stringify(card)).not.toContain('"tag":"note"');
-    const buttons = elementsOf(card).filter((el) => el.tag === "button");
-    expect(buttons).toHaveLength(2);
-    const btn0 = buttons[0]!;
-    const btn1 = buttons[1]!;
-    expect(btn0.type).toBe("primary_filled");
-    expect(btn1.type).toBe("default");
-    expect(btn0.text.content).toBe("方案 A");
-    const btn0Behavior = btn0.behaviors[0]!;
-    expect(parseAskActionValue(btn0Behavior.value)).toEqual({
-      k: "ask",
-      askId: "a1",
-      seq: 4,
-      a: "方案 A",
-    });
-    expect(buildAskActionValue("a1", 4, "方案 A")).toBe(btn0Behavior.value);
+    // 表单按钮不用 behaviors（靠 action_name 区分确认/取消）
+    const forms = elementsOf(card).filter((el) => el.tag === "form");
+    expect(forms).toHaveLength(1);
+    const inner = forms[0]!.elements as Array<Record<string, any>>;
+    const selector = inner.find((el) => el.tag === "select_static")!;
+    expect(selector.name).toBe("pick");
+    expect(selector.options.map((option: any) => option.value)).toEqual(["方案 A", "方案 B"]);
+    const buttons = formButtonsOf(inner);
+    expect(buttons.map((btn) => ({ name: btn.name, type: btn.type }))).toEqual([
+      { name: "btn_cancel", type: "default" },
+      { name: "btn_ok", type: "primary_filled" },
+    ]);
+    expect(buttons.every((btn) => btn.form_action_type === "submit" && !btn.behaviors)).toBe(true);
   });
 
-  it("buildAskPushCard：单选 >4 → select_static（value 为 JSON 字符串）", () => {
+  it("buildAskPushCard：选项多也用 select_static（下拉天然无数量限制）", () => {
     const entry = pendingOf({ askId: "a2", seq: 1 });
     entry.question.options = ["A", "B", "C", "D", "E"];
     const card = buildAskPushCard(entry, 1);
-    const selects = elementsOf(card).filter((el) => el.tag === "select_static");
-    expect(selects).toHaveLength(1);
-    expect(elementsOf(card).some((el) => el.tag === "button")).toBe(false);
-    const options = selects[0]!.options as Array<Record<string, any>>;
-    expect(options).toHaveLength(5);
-    const optionC = options[2]!;
+    const selector = (elementsOf(card).find((el) => el.tag === "form")!.elements as Array<Record<string, any>>).find(
+      (el) => el.tag === "select_static",
+    )!;
+    expect(selector.options).toHaveLength(5);
+    const optionC = selector.options[2]!;
     expect(optionC.text).toEqual({ tag: "plain_text", content: "C" });
-    expect(parseAskActionValue(optionC.value)).toMatchObject({ askId: "a2", a: "C" });
+    expect(optionC.value).toBe("C");
   });
 
-  it("buildAskPushCard：多选 → form + multi_select_static + 提交按钮（form_action_type=submit）", () => {
+  it("buildAskPushCard：多选 → form + multi_select_static（pick）", () => {
     const entry = pendingOf({ askId: "a3", seq: 2 });
     entry.question.options = ["A", "B", "C"];
     entry.question.multiSelect = true;
@@ -958,26 +988,25 @@ describe("卡片 2.0 构建（纯函数）", () => {
     const form = forms[0]!;
     expect(form.name).toBe("form_ask");
     const inner = form.elements as Array<Record<string, any>>;
-    const selector = inner[0]!;
-    const submitBtn = inner[1]!;
-    expect(selector.tag).toBe("multi_select_static");
-    expect(selector.name).toBe("answer");
+    const selector = inner.find((el) => el.tag === "multi_select_static")!;
+    expect(selector.name).toBe("pick");
     expect(selector.options).toHaveLength(3);
-    expect(submitBtn.tag).toBe("button");
-    expect(submitBtn.form_action_type).toBe("submit");
-    expect(parseAskActionValue(submitBtn.behaviors[0]!.value)).toMatchObject({
-      askId: "a3",
-      seq: 2,
-      a: "",
-    });
+    const input = inner.find((el) => el.tag === "input")!;
+    expect(input.name).toBe("text");
+    const buttons = formButtonsOf(inner);
+    expect(buttons.map((btn) => btn.name)).toEqual(["btn_cancel", "btn_ok"]);
   });
 
-  it("buildAskPushCard：无选项保持纯文本引导（无交互元素）", () => {
+  it("buildAskPushCard：无选项 → input 为唯一入口 + 确认/取消（无 select）", () => {
     const card = buildAskPushCard(pendingOf({ askId: "a1", seq: 1 }), 1);
-    const tags = elementsOf(card).map((el) => el.tag);
-    expect(tags).not.toContain("button");
-    expect(tags).not.toContain("select_static");
-    expect(tags).not.toContain("form");
+    const inner = elementsOf(card).find((el) => el.tag === "form")!.elements as Array<
+      Record<string, any>
+    >;
+    expect(inner.some((el) => el.tag === "select_static")).toBe(false);
+    expect(inner.some((el) => el.tag === "multi_select_static")).toBe(false);
+    const input = inner.find((el) => el.tag === "input")!;
+    expect(input.name).toBe("text");
+    expect(input.required).toBe(true);
     expect(JSON.stringify(card)).toContain("选择哪个方案？");
   });
 });
@@ -1016,84 +1045,105 @@ describe("卡片回调解析（纯函数）", () => {
     expect(parseAskActionValue('{"k":"ask","askId":"a1","seq":"1","a":"x"}')).toBeNull();
   });
 
-  it("extractCardAskAnswer：button + action_value → 直接取答案", () => {
-    const answer = extractCardAskAnswer(
+  it("extractCardAskAction：button + action_value → 直接取答案", () => {
+    const action = extractCardAskAction(
       actionRecordOf({
         eventId: "e1",
         actionValue: buildAskActionValue("a1", 4, "方案 B"),
       }),
     );
-    expect(answer).toEqual({ askId: "a1", seq: 4, answer: "方案 B" });
+    expect(action).toEqual({ kind: "answer", askId: "a1", seq: 4, answer: "方案 B", empty: false });
   });
 
-  it("extractCardAskAnswer：select_static + option → 取 option value JSON", () => {
-    const answer = extractCardAskAnswer(
+  it("extractCardAskAction：select_static + option（JSON value）→ 解析出答案；非 JSON → 原文兜底", () => {
+    const action = extractCardAskAction(
       actionRecordOf({
         eventId: "e2",
         actionTag: "select_static",
         option: buildAskActionValue("a2", 1, "选项 C"),
       }),
     );
-    expect(answer).toEqual({ askId: "a2", seq: 1, answer: "选项 C" });
+    expect(action).toEqual({ kind: "answer", askId: "a2", seq: 1, answer: "选项 C", empty: false });
+
+    const raw = extractCardAskAction(
+      actionRecordOf({
+        eventId: "e2b",
+        actionTag: "select_static",
+        option: "纯文本选项",
+      }),
+    );
+    expect(raw).toEqual({ kind: "answer", askId: "", seq: 0, answer: "纯文本选项", empty: false });
   });
 
-  it("extractCardAskAnswer：button + form_value.answer 数组形态 → 顿号拼接", () => {
-    const values = [
-      buildAskActionValue("a3", 2, "方案 A"),
-      buildAskActionValue("a3", 2, "方案 C"),
-    ];
-    const answer = extractCardAskAnswer(
+  it("extractCardAskAction：multi_select_static + options（选项原文）→ 顿号拼接；askId 走 fallback", () => {
+    const action = extractCardAskAction(
       actionRecordOf({
         eventId: "e3",
-        actionValue: buildAskActionValue("a3", 2, ""),
-        formValue: JSON.stringify({ answer: values }),
+        actionTag: "multi_select_static",
+        options: "方案 A,方案 C",
       }),
+      { askId: "a3", seq: 2 },
     );
-    expect(answer).toEqual({ askId: "a3", seq: 2, answer: "方案 A、方案 C" });
+    expect(action).toEqual({
+      kind: "answer",
+      askId: "a3",
+      seq: 2,
+      answer: "方案 A、方案 C",
+      empty: false,
+    });
   });
 
-  it("extractCardAskAnswer：form_value.answer 逗号连接的 value JSON 串 → 顿号拼接（无 action_value 时 askId 取自首个 value）", () => {
-    const values = [
-      buildAskActionValue("a3", 2, "方案 A"),
-      buildAskActionValue("a3", 2, "方案 B"),
-    ];
-    const answer = extractCardAskAnswer(
+  it("extractCardAskAction：btn_ok + form（pick 数组 + text 输入）→ 分号拼接", () => {
+    const action = extractCardAskAction(
       actionRecordOf({
         eventId: "e4",
-        formValue: JSON.stringify({ answer: values.join(",") }),
+        actionName: "btn_ok",
+        formValue: JSON.stringify({ pick: ["方案 A", "方案 B"], text: "补充说明" }),
       }),
+      { askId: "a4", seq: 2 },
     );
-    expect(answer).toEqual({ askId: "a3", seq: 2, answer: "方案 A、方案 B" });
+    expect(action).toEqual({
+      kind: "answer",
+      askId: "a4",
+      seq: 2,
+      answer: "方案 A、方案 B；补充说明",
+      empty: false,
+    });
   });
 
-  it("extractCardAskAnswer：form_value.answer 纯文本逗号串 → 顿号拼接", () => {
-    const answer = extractCardAskAnswer(
+  it("extractCardAskAction：btn_ok 空提交 → empty=true（不写回，提示补全）；fallback 兜底 askId", () => {
+    const action = extractCardAskAction(
+      actionRecordOf({ eventId: "e5", actionName: "btn_ok", formValue: JSON.stringify({}) }),
+      { askId: "a5", seq: 3 },
+    );
+    expect(action).toEqual({ kind: "answer", askId: "a5", seq: 3, answer: "", empty: true });
+  });
+
+  it("extractCardAskAction：btn_cancel → kind=cancel（取消在飞书回答）", () => {
+    const action = extractCardAskAction(
       actionRecordOf({
-        eventId: "e5",
-        formValue: JSON.stringify({ answer: "方案 A,方案 B" }),
+        eventId: "e6",
+        actionName: "btn_cancel",
+        actionValue: buildAskActionValue("a6", 7, ""),
       }),
+      { askId: "a6", seq: 7 },
     );
-    expect(answer).toEqual({ askId: "", seq: 0, answer: "方案 A、方案 B" });
+    expect(action).toEqual({ kind: "cancel", askId: "a6", seq: 7, answer: "", empty: false });
   });
 
-  it("extractCardAskAnswer：其他 tag / 空字段 / 坏 form_value → null", () => {
+  it("extractCardAskAction：其他 tag / 空字段 / 坏 form_value → null", () => {
     expect(
-      extractCardAskAnswer(actionRecordOf({ eventId: "e6", actionTag: "multi_select_static" })),
+      extractCardAskAction(actionRecordOf({ eventId: "e7", actionTag: "multi_select_static" })),
     ).toBeNull();
-    expect(extractCardAskAnswer(actionRecordOf({ eventId: "e7", actionTag: "button" }))).toBeNull();
+    expect(extractCardAskAction(actionRecordOf({ eventId: "e8", actionTag: "button" }))).toBeNull();
     expect(
-      extractCardAskAnswer(
-        actionRecordOf({ eventId: "e8", actionTag: "select_static", option: "not json" }),
-      ),
-    ).toBeNull();
-    expect(
-      extractCardAskAnswer(
+      extractCardAskAction(
         actionRecordOf({ eventId: "e9", actionTag: "button", formValue: "not json" }),
       ),
     ).toBeNull();
     expect(
-      extractCardAskAnswer(
-        actionRecordOf({ eventId: "e10", actionTag: "button", formValue: JSON.stringify({}) }),
+      extractCardAskAction(
+        actionRecordOf({ eventId: "e10", actionTag: "input", formValue: JSON.stringify({}) }),
       ),
     ).toBeNull();
   });
@@ -1144,7 +1194,7 @@ describe("卡片回调写回（mock deps）", () => {
     expect(internals.selfResolved.has("a1")).toBe(true);
   });
 
-  it("多选 form 提交（数组形态）→ 顿号拼接写回", async () => {
+  it("多选 form 提交（pick 数组）→ 顿号拼接写回（askId 靠 message_id 映射）", async () => {
     const resolveAsk = vi.fn(() => true);
     const { gateway, sent } = gatewayOf({ resolveAsk });
     gateway.pushAsk(
@@ -1159,17 +1209,17 @@ describe("卡片回调写回（mock deps）", () => {
       "s1",
       "重构登录模块",
     );
-    await flush();
+    // 等 pushAsk 回填 message_id 映射（gatewayOf mock 返回 om_1）
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await feedCardAction(
       gateway,
       JSON.stringify({
         event_id: "e2",
         operator_id: "ou_allowed",
+        message_id: "om_1",
         action_tag: "button",
-        action_value: buildAskActionValue("a2", 1, ""),
-        form_value: JSON.stringify({
-          answer: [buildAskActionValue("a2", 1, "A"), buildAskActionValue("a2", 1, "C")],
-        }),
+        action_name: "btn_ok",
+        form_value: JSON.stringify({ pick: ["A", "C"] }),
       }),
     );
     expect(resolveAsk).toHaveBeenCalledWith("a2", "A、C");
@@ -1777,6 +1827,7 @@ describe("卡片延迟更新与发送失败摘要", () => {
         );
       }
       out.push(markdown);
+      return null;
     });
     const { gateway } = gatewayOf({ sendMessage });
     await (gateway as unknown as { handleText(text: string): Promise<void> }).handleText("列表");
@@ -1815,6 +1866,7 @@ describe("自定义快捷命令解析与展开", () => {
       messageId: "m",
       chatId: "c",
       actionTag: "button",
+      actionName: "",
       actionValue: raw,
       option: "",
       options: "",
@@ -1941,6 +1993,7 @@ describe("纯函数边角", () => {
       messageId: "om_1",
       chatId: "oc_1",
       actionTag: "button",
+      actionName: "btn_ok",
       actionValue: "{not-json",
       option: "",
       options: "",
@@ -1976,21 +2029,28 @@ describe("纯函数边角", () => {
     expect(result.resolvedAskIds).toEqual([]);
   });
 
-  it("extractCardAskAnswer：form_value.answer 混入非字符串段 → 跳过并按顿号拼接", () => {
+  it("extractCardAskAction：form pick 混入非字符串段 → 跳过并按顿号拼接", () => {
     const record = {
       eventId: "e1",
       operatorId: "ou",
       messageId: "om",
       chatId: "oc",
       actionTag: "button",
+      actionName: "btn_ok",
       actionValue: "",
       option: "",
       options: "",
-      formValue: JSON.stringify({ answer: [123, "甲", null, "乙"] }),
+      formValue: JSON.stringify({ pick: [123, "甲", null, "乙"] }),
       token: "",
       cardContent: "",
     };
-    expect(extractCardAskAnswer(record)).toEqual({ askId: "", seq: 0, answer: "甲、乙" });
+    expect(extractCardAskAction(record)).toEqual({
+      kind: "answer",
+      askId: "",
+      seq: 0,
+      answer: "甲、乙",
+      empty: false,
+    });
   });
 
   it("LarkMessageDeduper：limit 为负时安全退出淘汰循环", () => {
@@ -2107,8 +2167,14 @@ describe("gateway.start 生命周期分支（mock cli/auth/lock）", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     sent.length = 0;
 
-    // 模拟自写回：把 a1 加入 selfResolved 后由卡片回调路径移除——直接走 applyAskReply 等价流程
-    (gateway as unknown as { selfResolved: Set<string> }).selfResolved.add("a1");
+    // 模拟真实自写回链路：卡片回调已 dropPendingAsk 并标记 selfResolved →
+    // ask_resolved 事件到达时 pendingAsks 无此 askId，早退静默（不重复提示）
+    const internals1 = gateway as unknown as {
+      pendingAsks: Map<string, unknown>;
+      selfResolved: Set<string>;
+    };
+    internals1.pendingAsks.delete("a1");
+    internals1.selfResolved.add("a1");
     gateway.onAskResolved("a1");
     expect(sent).toHaveLength(0);
 
@@ -2276,7 +2342,7 @@ describe("消费通道与默认封装", () => {
   });
 
   it("未授权私信回执独立通道：cliPath 缺失时静默", async () => {
-    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => undefined);
+    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => null);
     const child = fakeChild();
     const { gateway } = gatewayOf({
       sendMessage,
@@ -2321,13 +2387,14 @@ describe("消费通道与默认封装", () => {
   });
 
   it("defaultSendMessage：cardJson 走 interactive，markdown 走 --markdown；defaultUpdateCard 走 api POST", async () => {
+    // promisify(execFile) 在替身下按回调参数原样 resolve：给足 {stdout} 才能解析出 message_id
     execFileMock.mockImplementation(
       (
         _cmd: string,
         _args: string[],
         _opts: unknown,
-        callback: (err: Error | null) => void,
-      ) => callback(null),
+        callback: (err: Error | null, value?: { stdout: string }) => void,
+      ) => callback(null, { stdout: JSON.stringify({ ok: true, data: { message_id: "om_1" } }) }),
     );
     // 不注入 sendMessage/updateCard → 走默认封装
     const gateway = new LarkGateway({
@@ -2350,7 +2417,10 @@ describe("消费通道与默认封装", () => {
       "s1",
       "会话",
     );
-    await flush();
+    // 默认 sendMessage 经 execFile promisify（execFileMock 回调同步 resolve）：
+    // 微任务 2 tick 不够，用宏任务确保卡片发送落账
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     call = execFileMock.mock.calls.at(-1);
     expect(call?.[1]).toContain("--msg-type");
     expect(call?.[1]).toContain("interactive");
@@ -2385,7 +2455,7 @@ describe("消费通道与默认封装", () => {
       listSessions: () => [],
       resolveAsk: () => false,
       onStateChange: () => undefined,
-      sendMessage: vi.fn(async () => undefined),
+      sendMessage: vi.fn(async () => null),
     });
     expect(gateway.sendTestAskCard().ok).toBe(false);
     (gateway as unknown as { cliPath: string }).cliPath = "lark-cli-stub";
@@ -2395,7 +2465,7 @@ describe("消费通道与默认封装", () => {
   });
 
   it("无 allowedOpenId 发送 → 记录失败原因，下一条消息前置短提示", async () => {
-    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => undefined);
+    const sendMessage = vi.fn(async (_cli: string, _open: string, _markdown: string) => null);
     const gateway = new LarkGateway({
       listSessions: () => [],
       resolveAsk: () => false,

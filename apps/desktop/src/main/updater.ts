@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import electronUpdater from "electron-updater";
 
 import { loadAppSettings } from "./user-ipc";
+import { currentLocale, mainT } from "./i18n";
+import type { MainLocale } from "./i18n";
 
 import type { UpdateStatusInfo } from "@zen/shared";
 
@@ -9,6 +11,9 @@ const { autoUpdater } = electronUpdater;
 
 /** 当前已设置的更新源；变化时重新 setFeedURL */
 let activeFeedUrl = "";
+
+/** 错误文案用的语言快照：check/download 时刷新（autoUpdater error 回调无法 await） */
+let localeSnapshot: MainLocale = "zh-CN";
 
 function broadcast(status: UpdateStatusInfo) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -32,13 +37,9 @@ function releaseNotesText(notes: unknown): string | null {
 }
 
 /** Squirrel.Mac 签名校验失败：ad-hoc 旧包的 DR 钉在旧构建 cdhash 上，重装一次即可恢复 */
-function friendlyUpdateError(message: string): string {
+function friendlyUpdateError(message: string, locale: MainLocale = localeSnapshot): string {
   if (/did not pass validation|code failed to satisfy/i.test(message)) {
-    return (
-      "更新包签名校验失败（macOS）：当前安装的版本还是旧签名方案，与更新包不一致。" +
-      "请到发布目录手动安装一次最新版（覆盖拖入「应用程序」），之后即可正常自动更新。" +
-      `原始错误：${message}`
-    );
+    return mainT(locale, "update.signatureError", { message });
   }
   return message;
 }
@@ -84,12 +85,13 @@ export function registerUpdaterIpc(): void {
   ipcMain.handle("update:check", async (): Promise<{ ok: boolean; error?: string }> => {
     // electron-vite dev 会注入渲染层地址，用它区分开发模式（品牌化 dev 包的 isPackaged 不可靠）
     if (process.env.ELECTRON_RENDERER_URL) {
-      return { ok: false, error: "开发模式不支持在线更新，请使用打包版本" };
+      return { ok: false, error: mainT(await currentLocale(), "update.devModeCheck") };
     }
     const settings = await loadAppSettings();
+    localeSnapshot = settings.locale === "en-US" ? "en-US" : "zh-CN";
     const url = settings.updateFeedUrl?.trim();
     if (!url) {
-      return { ok: false, error: "请先在设置中配置更新源地址" };
+      return { ok: false, error: mainT(localeSnapshot, "update.noFeedUrl") };
     }
     if (url !== activeFeedUrl) {
       autoUpdater.setFeedURL({ provider: "generic", url });
@@ -100,7 +102,8 @@ export function registerUpdaterIpc(): void {
       return { ok: true };
     } catch (error) {
       const message = friendlyUpdateError(
-        error instanceof Error ? error.message : "检查更新失败",
+        error instanceof Error ? error.message : mainT(localeSnapshot, "update.checkFailed"),
+        localeSnapshot,
       );
       broadcast({ phase: "error", message });
       return { ok: false, error: message };
@@ -111,14 +114,17 @@ export function registerUpdaterIpc(): void {
     "update:download",
     async (): Promise<{ ok: boolean; error?: string }> => {
       if (process.env.ELECTRON_RENDERER_URL) {
-        return { ok: false, error: "开发模式不支持在线更新" };
+        return { ok: false, error: mainT(await currentLocale(), "update.devMode") };
       }
       try {
         await autoUpdater.downloadUpdate();
         return { ok: true };
       } catch (error) {
+        const locale = await currentLocale();
+        localeSnapshot = locale;
         const message = friendlyUpdateError(
-          error instanceof Error ? error.message : "下载更新失败",
+          error instanceof Error ? error.message : mainT(locale, "update.downloadFailed"),
+          locale,
         );
         broadcast({ phase: "error", message });
         return { ok: false, error: message };

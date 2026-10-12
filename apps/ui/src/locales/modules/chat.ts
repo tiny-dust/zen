@@ -1,0 +1,502 @@
+import type { LocaleModule } from "../index";
+
+/** 聊天/消息模块文案：时间线、输入框、工具调用、提问卡与消息气泡 */
+export default {
+  "zh-CN": {
+    /* 时间线 */
+    conversation: "对话",
+    ruler: "消息刻度",
+    toolRecordsCount: "工具记录 · {n} 项",
+    assistantReply: "助手回复",
+    emptyMessage: "（空消息）",
+    kindUser: "问询",
+    kindAssistant: "回复",
+    kindTools: "工具记录",
+    locateMessage: "定位到消息：{label}",
+    startConversation: "开始一段对话",
+    startConversationHint: "在下方输入并发送，Agent 将流式回复。",
+    scrollToBottom: "滚到底部",
+
+    /* 输入框 */
+    placeholderIdle:
+      "描述任务，/ 调用技能，# 引用 MCP 工具；标注页面元素会以 tag 插入，悬浮可看明细",
+    placeholderRunning:
+      "Agent 运行中：输入内容按 Enter 插入队列，当前任务结束后自动执行",
+    messageInput: "消息输入",
+    removeAttachment: "移除附件",
+    insertEditHint: "插入对话：发送后将从该消息处分叉，其后旧内容被替换",
+    cancelInsertEdit: "取消插入编辑",
+    addFile: "添加文件",
+    addFileTitle: "添加文件（也可直接粘贴文件/图像）",
+    contextUsage: "上下文用量",
+    stop: "停止",
+    resume: "继续",
+    send: "发送",
+    aiDisclaimer: "内容由 AI 生成，请注意核实",
+    triggerSuggestions: "触发建议",
+    uploaded: "已上传",
+    noMcpRunning: "没有运行中的 MCP 服务（侧栏 MCP 弹窗可配置）",
+    noMatch: "无匹配项",
+
+    /* 工具审批卡 */
+    approval: {
+      title: "工具审批",
+      needsConfirmation: "需要确认",
+      approve: "批准",
+      allowAllSession: "全部允许（本会话）",
+      deny: "拒绝",
+      allowAllHint: "全部允许后同类调用不再逐次确认",
+    },
+
+    /* Agent 提问卡 */
+    ask: {
+      title: "Agent 提问",
+      prevQuestion: "上一问",
+      nextQuestion: "下一问",
+      progress: "问询进度",
+      questionIndex: "第 {n} 问",
+      agentAsks: "{name} 向你提问",
+      sendSelected: "发送所选",
+      sendSelectedCount: "发送所选（{n}）",
+      freeTextWithMulti: "可补充说明后一并发送…",
+      freeTextOnly: "或输入你的回答…",
+      freeAnswer: "自由回答",
+      submitAnswer: "提交回答",
+    },
+
+    /* 工具调用展示 */
+    tool: {
+      runTerminal: "执行终端",
+      writeFile: "写入文件",
+      editFile: "编辑文件",
+      readFile: "读取文件",
+      listDir: "浏览目录",
+      searchFiles: "搜索文件",
+      webSearch: "网络搜索",
+      browserStatus: "查看浏览器状态",
+      browserOpen: "打开页面",
+      browserSnapshot: "截取页面结构",
+      browserExtract: "提取页面元素",
+      browserClick: "点击元素",
+      browserType: "输入文本",
+      browserConsole: "读取控制台",
+      browserPerformance: "性能分析",
+      browserScreenshot: "页面截图",
+      browserEvaluate: "执行脚本",
+      loadSkill: "加载技能",
+      updateTasks: "更新任务清单",
+      askUser: "询问用户",
+      contextCompact: "上下文已压缩",
+      spawnAgent: "派发子任务",
+      listAgents: "查看子任务",
+      waitForAgents: "等待子任务",
+      collectAgentResults: "汇总子任务结果",
+      mcpTool: "MCP · {name}",
+      genericTool: "调用工具",
+      state: {
+        preparing: "准备参数",
+        awaitingApproval: "待审批",
+        running: "执行中",
+        ok: "完成",
+        denied: "已拒绝",
+        error: "失败",
+        cancelled: "已取消",
+        interrupted: "已中断",
+        unknown: "未知",
+      },
+      status: {
+        preparing: "正在准备参数",
+        awaitingApproval: "等待审批",
+        running: "正在调用工具",
+        cancelled: "已取消，未完成",
+        interrupted: "已中断，未完成",
+        ok: "已完成",
+        notRun: "未执行",
+      },
+      incomplete: "未完成",
+      writtenContentNote: "写入内容（历史记录未保存修改前内容）",
+      viewResult: "，查看结果",
+      collapseResult: "，收起结果",
+      expandRecords: "展开工具记录：{label}",
+      collapseRecords: "收起工具记录：{label}",
+      terminalOutput: "终端输出",
+      noTerminalOutput: "无终端输出",
+      exitCode: "退出码 {code}",
+      fileCode: "文件代码",
+      emptyFile: "空文件",
+      fileUnchanged: "文件内容未变化",
+      replacementSummary: "替换 {n} 处（历史记录未保存行号与上下文）",
+      replacementSnippet: "替换代码片段",
+      noOutput: "无输出",
+    },
+
+    /* 模型选择 */
+    model: {
+      noModel: "未配置模型",
+      label: "模型：{name}",
+      select: "选择模型",
+      tabModel: "模型",
+      tabSub: "子代理",
+      tabExternal: "外部 agent",
+      search: "搜索模型...",
+      providers: "供应商",
+      recentlyUsed: "最近使用",
+      custom: "自定义",
+      noMatch: "无匹配模型",
+      noSubAgents: "暂无子代理",
+      noExternalAgents: "暂无外部 agent",
+    },
+
+    /* 系统提示词 */
+    prompt: {
+      custom: "自定义",
+      zenDefault: "Zen 默认",
+      select: "选择系统提示词风格",
+      label: "系统提示词：{name}",
+      style: "系统提示词风格",
+      customHint: "使用设置页中的自定义提示词",
+      goSettings: "前往设置 · 提示词",
+    },
+
+    /* 运行目录 / 分支 / 权限 */
+    workspace: {
+      commonArea: "公共区",
+      runDirectory: "运行目录：{name}",
+      hint: "Agent 运行目录（工作区或公共区）",
+      add: "添加工作区目录…",
+    },
+    branch: {
+      switch: "切换分支，当前 {branch}",
+      current: "当前分支：{branch}（点击切换）",
+    },
+    permission: {
+      select: "选择权限模式",
+      label: "权限：{label}",
+    },
+
+    /* 思考强度 */
+    effort: {
+      title: "思考强度",
+      off: "关闭",
+    },
+
+    /* 插入消息队列 */
+    queued: {
+      label: "插入消息队列",
+      inserting: "插入执行中",
+      insert: "插入执行",
+      insertTitle: "插入执行：打断当前任务，优先执行这条，完成后原任务自动继续",
+      atHead: "已在队首",
+      promote: "插队",
+      promoteTitle: "插队：下一步执行",
+      edit: "编辑插入消息",
+      editTitle: "编辑：放回输入框",
+      remove: "删除插入消息",
+    },
+
+    /* 本会话技能/MCP 调用 tag */
+    usage: {
+      mcpService: "MCP 服务 {name}",
+      skill: "技能 {name}",
+      calls: "本会话已调用 {n} 次",
+      label: "本会话已调用的技能与 MCP 服务",
+    },
+
+    /* 上下文压缩卡 */
+    compact: {
+      title: "上下文已压缩",
+      compactedCount: "已折叠 {n} 条更早消息",
+      fallback: "更早对话已折叠为摘要",
+      expand: "展开压缩摘要",
+      collapse: "收起压缩摘要",
+    },
+
+    /* 消息气泡与运行状态 */
+    bubble: {
+      running: "运行中",
+      thinking: "正在思考",
+      pause: "暂停",
+      pauseRun: "暂停运行",
+      resumeRun: "继续运行",
+      runDone: "已完成",
+      totalSteps: "共 {n} 步",
+      runCancelled: "已取消",
+      runCancelledDetail: "本次运行被中断，工具与正文可能不完整",
+      runFailed: "运行失败",
+      runFailedFallback: "请查看错误信息后重试",
+      stepLimit: "已达到步骤上限",
+      usageLine: "输入 {input} / 输出 {output}",
+      inserted: "已插入",
+      insertedTitle: "该消息通过「插入执行」打断原任务优先执行，原任务已在完成后自动恢复",
+      copyMessage: "复制消息",
+      copyFailed: "复制失败，请手动选择文本复制",
+      editMessage: "编辑消息并插入对话",
+      editInsert: "编辑并插入对话",
+      retryTitle: "重新生成本轮回复（丢弃本轮历史重跑）",
+      retryTooltip: "重试：丢弃本轮，从上一条消息重新生成",
+      continueTitle: "继续执行：保留历史，从已完成进度接着做",
+      continueTooltip: "继续：保留历史，从上次中断的进度接着执行（不重跑本轮）",
+      dateWithTime: "{m}月{d}日 {time}",
+      secondsShort: "{n} 秒",
+      minutesSeconds: "{m} 分 {s} 秒",
+    },
+
+    /* 思考块 / 本地图片（ai-elements） */
+    reasoning: {
+      thinking: "思考中…",
+      done: "思考完成",
+      thoughtFor: "已思考 {n} 秒",
+    },
+    loadingImage: "加载图片…",
+  },
+  "en-US": {
+    /* Timeline */
+    conversation: "Conversation",
+    ruler: "Message markers",
+    toolRecordsCount: "Tools · {n}",
+    assistantReply: "Assistant reply",
+    emptyMessage: "(empty message)",
+    kindUser: "Question",
+    kindAssistant: "Reply",
+    kindTools: "Tools",
+    locateMessage: "Go to message: {label}",
+    startConversation: "Start a conversation",
+    startConversationHint: "Type below and send — the agent will reply as it streams.",
+    scrollToBottom: "Scroll to bottom",
+
+    /* Composer */
+    placeholderIdle:
+      "Describe a task — / for skills, # for MCP tools; tagged page elements insert as chips with hover details",
+    placeholderRunning:
+      "Agent is running: press Enter to queue your message; it runs when the current task finishes",
+    messageInput: "Message input",
+    removeAttachment: "Remove attachment",
+    insertEditHint: "Insert into conversation: sending branches from this message and replaces what follows",
+    cancelInsertEdit: "Cancel insert edit",
+    addFile: "Add file",
+    addFileTitle: "Add file (you can also paste files or images)",
+    contextUsage: "Context usage",
+    stop: "Stop",
+    resume: "Resume",
+    send: "Send",
+    aiDisclaimer: "AI-generated content — please verify",
+    triggerSuggestions: "Suggestions",
+    uploaded: "Uploaded",
+    noMcpRunning: "No running MCP services (configure in the MCP panel in the sidebar)",
+    noMatch: "No matches",
+
+    /* Tool approval */
+    approval: {
+      title: "Tool approval",
+      needsConfirmation: "Confirmation needed",
+      approve: "Approve",
+      allowAllSession: "Allow all (this session)",
+      deny: "Deny",
+      allowAllHint: "After allowing all, similar calls won't ask again",
+    },
+
+    /* Ask user card */
+    ask: {
+      title: "Agent question",
+      prevQuestion: "Previous question",
+      nextQuestion: "Next question",
+      progress: "Question progress",
+      questionIndex: "Question {n}",
+      agentAsks: "{name} asks you",
+      sendSelected: "Send selected",
+      sendSelectedCount: "Send selected ({n})",
+      freeTextWithMulti: "Add a note to send along…",
+      freeTextOnly: "Or type your answer…",
+      freeAnswer: "Free-form answer",
+      submitAnswer: "Submit answer",
+    },
+
+    /* Tool calls */
+    tool: {
+      runTerminal: "Run terminal",
+      writeFile: "Write file",
+      editFile: "Edit file",
+      readFile: "Read file",
+      listDir: "Browse directory",
+      searchFiles: "Search files",
+      webSearch: "Web search",
+      browserStatus: "Check browser status",
+      browserOpen: "Open page",
+      browserSnapshot: "Capture page structure",
+      browserExtract: "Extract page elements",
+      browserClick: "Click element",
+      browserType: "Type text",
+      browserConsole: "Read console",
+      browserPerformance: "Profile performance",
+      browserScreenshot: "Screenshot page",
+      browserEvaluate: "Run script",
+      loadSkill: "Load skill",
+      updateTasks: "Update task list",
+      askUser: "Ask user",
+      contextCompact: "Context compacted",
+      spawnAgent: "Dispatch subtask",
+      listAgents: "View subtasks",
+      waitForAgents: "Wait for subtasks",
+      collectAgentResults: "Collect subtask results",
+      mcpTool: "MCP · {name}",
+      genericTool: "Call tool",
+      state: {
+        preparing: "Preparing",
+        awaitingApproval: "Awaiting approval",
+        running: "Running",
+        ok: "Done",
+        denied: "Denied",
+        error: "Failed",
+        cancelled: "Cancelled",
+        interrupted: "Interrupted",
+        unknown: "Unknown",
+      },
+      status: {
+        preparing: "Preparing parameters",
+        awaitingApproval: "Waiting for approval",
+        running: "Running tool",
+        cancelled: "Cancelled before completion",
+        interrupted: "Interrupted before completion",
+        ok: "Completed",
+        notRun: "Not run",
+      },
+      incomplete: "Not completed",
+      writtenContentNote: "Written content (history didn't keep the previous content)",
+      viewResult: ", view result",
+      collapseResult: ", collapse result",
+      expandRecords: "Expand tools: {label}",
+      collapseRecords: "Collapse tools: {label}",
+      terminalOutput: "Terminal output",
+      noTerminalOutput: "No terminal output",
+      exitCode: "Exit code {code}",
+      fileCode: "File code",
+      emptyFile: "Empty file",
+      fileUnchanged: "File unchanged",
+      replacementSummary: "Replaced {n} place(s) (history kept no line numbers or context)",
+      replacementSnippet: "Replaced snippet",
+      noOutput: "No output",
+    },
+
+    /* Model picker */
+    model: {
+      noModel: "No model configured",
+      label: "Model: {name}",
+      select: "Select model",
+      tabModel: "Models",
+      tabSub: "Sub-agents",
+      tabExternal: "External agents",
+      search: "Search models...",
+      providers: "Providers",
+      recentlyUsed: "Recent",
+      custom: "Custom",
+      noMatch: "No matching models",
+      noSubAgents: "No sub-agents yet",
+      noExternalAgents: "No external agents yet",
+    },
+
+    /* System prompt */
+    prompt: {
+      custom: "Custom",
+      zenDefault: "Zen default",
+      select: "Select system prompt style",
+      label: "System prompt: {name}",
+      style: "System prompt style",
+      customHint: "Use your custom prompt from Settings",
+      goSettings: "Settings · Prompts",
+    },
+
+    /* Workspace / branch / permission */
+    workspace: {
+      commonArea: "Common area",
+      runDirectory: "Run directory: {name}",
+      hint: "Agent run directory (workspace or common area)",
+      add: "Add workspace directory…",
+    },
+    branch: {
+      switch: "Switch branch, current {branch}",
+      current: "Current branch: {branch} (click to switch)",
+    },
+    permission: {
+      select: "Select permission mode",
+      label: "Permissions: {label}",
+    },
+
+    /* Reasoning effort */
+    effort: {
+      title: "Reasoning effort",
+      off: "Off",
+    },
+
+    /* Queued messages */
+    queued: {
+      label: "Message queue",
+      inserting: "Inserting",
+      insert: "Insert now",
+      insertTitle:
+        "Insert now: interrupts the current task, runs this first, then resumes automatically",
+      atHead: "Already first",
+      promote: "Move to front",
+      promoteTitle: "Move to front: runs next",
+      edit: "Edit queued message",
+      editTitle: "Edit: back to composer",
+      remove: "Delete queued message",
+    },
+
+    /* Session skill/MCP usage tags */
+    usage: {
+      mcpService: "MCP service {name}",
+      skill: "Skill {name}",
+      calls: "Called {n} times this session",
+      label: "Skills and MCP services used this session",
+    },
+
+    /* Context compact card */
+    compact: {
+      title: "Context compacted",
+      compactedCount: "Compacted {n} earlier messages",
+      fallback: "Earlier conversation compacted to a summary",
+      expand: "Expand summary",
+      collapse: "Collapse summary",
+    },
+
+    /* Message bubble & run status */
+    bubble: {
+      running: "Running",
+      thinking: "Thinking",
+      pause: "Pause",
+      pauseRun: "Pause run",
+      resumeRun: "Resume run",
+      runDone: "Completed",
+      totalSteps: "{n} steps total",
+      runCancelled: "Cancelled",
+      runCancelledDetail: "This run was interrupted; tools and content may be incomplete",
+      runFailed: "Run failed",
+      runFailedFallback: "Check the error and try again",
+      stepLimit: "Step limit reached",
+      usageLine: "In {input} / Out {output}",
+      inserted: "Inserted",
+      insertedTitle:
+        "This message interrupted the previous task via insert; the original task resumed after it finished",
+      copyMessage: "Copy message",
+      copyFailed: "Copy failed — select the text manually instead",
+      editMessage: "Edit message and insert into conversation",
+      editInsert: "Edit and insert into conversation",
+      retryTitle: "Regenerate this reply (discards this turn's history and reruns)",
+      retryTooltip: "Retry: discard this turn and regenerate from the previous message",
+      continueTitle: "Continue: keeps history and picks up from where it stopped",
+      continueTooltip:
+        "Continue: keeps history and resumes from the interruption (doesn't rerun this turn)",
+      dateWithTime: "{m}/{d} {time}",
+      secondsShort: "{n}s",
+      minutesSeconds: "{m}m {s}s",
+    },
+
+    /* Reasoning block / local image (ai-elements) */
+    reasoning: {
+      thinking: "Thinking…",
+      done: "Thought process",
+      thoughtFor: "Thought for {n}s",
+    },
+    loadingImage: "Loading image…",
+  },
+} satisfies LocaleModule;

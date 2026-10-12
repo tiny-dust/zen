@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, ListChecks, Loader2 } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { summarizeTools } from "@/components/chat/message-groups";
 import ToolCallRow from "@/components/chat/ToolCallRow.vue";
@@ -9,13 +10,17 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { ToolPart } from "@/components/chat/tool-part";
 
 const props = defineProps<{ tools: ToolPart[] }>();
+const { t } = useI18n();
 const open = ref(false);
 const summary = computed(() => summarizeTools(props.tools));
 </script>
 
 <template>
   <Collapsible v-model:open="open" class="tool-group">
-    <CollapsibleTrigger class="tool-group-trigger" :aria-label="`${open ? '收起' : '展开'}工具记录：${summary.label}`">
+    <CollapsibleTrigger
+      class="tool-group-trigger"
+      :aria-label="open ? t('chat.tool.collapseRecords', { label: summary.label }) : t('chat.tool.expandRecords', { label: summary.label })"
+    >
       <ChevronRight class="size-3.5 shrink-0" :class="{ 'rotate-90': open }" aria-hidden="true" />
       <Loader2 v-if="summary.active" class="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
       <ListChecks v-else class="size-3.5 shrink-0" aria-hidden="true" />

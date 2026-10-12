@@ -2,6 +2,7 @@
 import { Brain, FolderOpen, Plus, RefreshCw, ShieldCheck, TriangleAlert, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
@@ -19,6 +20,7 @@ import { PERMISSION_MODES } from "@zen/shared";
 /**
  * Agent 与权限：权限三档（默认/智能/完全访问）+ 项目隔离区 + 记忆。
  */
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
@@ -47,8 +49,8 @@ async function rebuild() {
   rebuildMessage.value = "";
   const result = await agentStore.rebuildSandbox(currentProject.value.path);
   rebuildMessage.value = result.ok
-    ? "已重建，下次会话生效"
-    : (result.error ?? "重建失败");
+    ? t("settings.agent.rebuildOk")
+    : (result.error ?? t("settings.agent.rebuildFailed"));
   rebuildBusy.value = false;
 }
 
@@ -125,10 +127,10 @@ function formatTime(ms: number): string {
     <section class="flex flex-col gap-2.5">
       <div class="flex items-center gap-2">
         <ShieldCheck :size="15" class="text-[var(--color-mut)]" />
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">权限管理</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.permissionTitle") }}</h3>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        控制读写文件、执行终端、访问网络等操作是否需要你逐次确认。
+        {{ t("settings.agent.permissionDesc") }}
       </p>
       <div class="grid gap-2 sm:grid-cols-3">
         <Button
@@ -146,12 +148,12 @@ function formatTime(ms: number): string {
         >
           <div class="flex items-center gap-1.5">
             <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-              {{ item.label }}
+              {{ t(`settings.agent.permission.${item.id}.label`) }}
             </span>
-            <Badge v-if="item.id === 'full'" variant="secondary" class="text-[10px]">高危</Badge>
+            <Badge v-if="item.id === 'full'" variant="secondary" class="text-[10px]">{{ t("settings.agent.highRisk") }}</Badge>
           </div>
           <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-mut)]">
-            {{ item.description }}
+            {{ t(`settings.agent.permission.${item.id}.desc`) }}
           </p>
         </Button>
       </div>
@@ -160,23 +162,23 @@ function formatTime(ms: number): string {
         class="flex items-start gap-2 rounded-lg bg-[color-mix(in_srgb,var(--color-warn,#d97709)_10%,transparent)] px-3 py-2 text-[11px] text-[var(--color-mut)]"
       >
         <TriangleAlert :size="14" class="mt-0.5 flex-none text-[var(--color-warn,#d97709)]" />
-        完全访问权限下，Agent 可以不经确认执行任何命令与写操作。请仅在完全信任的项目中使用。
+        {{ t("settings.agent.fullWarning") }}
       </div>
     </section>
 
     <!-- 项目隔离区 -->
     <section class="flex flex-col gap-2.5">
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">项目隔离区</h3>
+      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.sandboxTitle") }}</h3>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        隔离模式下，项目会复制到 <code
+        {{ t("settings.agent.sandboxDescPrefix") }}<code
           class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]"
-        >{{ sandboxDir || '~/.zen/sandbox' }}</code> 下操作，源目录不受影响。
+        >{{ sandboxDir || '~/.zen/sandbox' }}</code>{{ t("settings.agent.sandboxDescSuffix") }}
       </p>
       <div class="flex gap-2">
         <Button
           v-for="item in [
-            { id: 'direct' as SandboxMode, label: '直接在项目目录操作', desc: '适合自己的项目，速度最快' },
-            { id: 'isolated' as SandboxMode, label: '在隔离区操作', desc: '适合不熟悉的仓库，保护源目录' },
+            { id: 'direct' as SandboxMode, labelKey: 'settings.agent.sandboxDirectLabel', descKey: 'settings.agent.sandboxDirectDesc' },
+            { id: 'isolated' as SandboxMode, labelKey: 'settings.agent.sandboxIsolatedLabel', descKey: 'settings.agent.sandboxIsolatedDesc' },
           ]"
           :key="item.id"
           variant="ghost"
@@ -189,8 +191,8 @@ function formatTime(ms: number): string {
           :aria-pressed="settings.sandboxMode === item.id"
           @click="pickSandbox(item.id)"
         >
-          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ item.label }}</span>
-          <p class="m-0 mt-1 text-[11px] text-[var(--color-mut)]">{{ item.desc }}</p>
+          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t(item.labelKey) }}</span>
+          <p class="m-0 mt-1 text-[11px] text-[var(--color-mut)]">{{ t(item.descKey) }}</p>
         </Button>
       </div>
       <div
@@ -198,17 +200,17 @@ function formatTime(ms: number): string {
         class="flex items-center gap-2 text-[12px] text-[var(--color-mut)]"
       >
         <span class="min-w-0 flex-1 truncate">
-          当前项目：{{ currentProject.name }}（已有隔离副本时直接复用）
+          {{ t("settings.agent.currentProject", { name: currentProject.name }) }}
         </span>
         <Button variant="outline" size="sm" :disabled="rebuildBusy" @click="rebuild">
-          <RefreshCw :size="13" data-icon="inline-start" />重建隔离区
+          <RefreshCw :size="13" data-icon="inline-start" />{{ t("settings.agent.rebuildSandbox") }}
         </Button>
       </div>
       <p v-if="rebuildMessage" class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ rebuildMessage }}
       </p>
       <p v-if="chatStore.appInfo" class="m-0 text-[11px] text-[var(--color-dim)]">
-        提示：隔离区不会复制 node_modules、.git 等生成物；需要时在会话里让 Agent 重新安装依赖。
+        {{ t("settings.agent.sandboxTip") }}
       </p>
     </section>
 
@@ -216,10 +218,10 @@ function formatTime(ms: number): string {
     <section class="flex flex-col gap-2.5">
       <div class="flex items-center gap-2">
         <Brain :size="15" class="text-[var(--color-mut)]" />
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">记忆</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.memoryTitle") }}</h3>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        每次会话自动带上设备环境与用户习惯，Agent 不必重复探测路径和命令；也可以在对话里让它「记住……」。
+        {{ t("settings.agent.memoryDesc") }}
       </p>
 
       <!-- 设备环境快照 -->
@@ -229,22 +231,22 @@ function formatTime(ms: number): string {
       >
         <div class="flex items-center gap-2">
           <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
-            设备环境快照
+            {{ t("settings.agent.deviceSnapshot") }}
           </span>
           <span class="text-[11px] text-[var(--color-dim)]">
-            采集于 {{ formatTime(memory.device.collectedAt) }}
+            {{ t("settings.agent.collectedAt", { time: formatTime(memory.device.collectedAt) }) }}
           </span>
           <Button variant="outline" size="sm" :disabled="memoryBusy" @click="recollect">
-            <RefreshCw :size="13" data-icon="inline-start" />重新采集
+            <RefreshCw :size="13" data-icon="inline-start" />{{ t("settings.agent.recollect") }}
           </Button>
         </div>
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[var(--color-mut)]">
-          <span>系统：{{ memory.device.platform }} {{ memory.device.arch }}</span>
-          <span class="min-w-0 truncate">Shell：{{ memory.device.shell }}</span>
+          <span>{{ t("settings.agent.deviceSystem", { value: `${memory.device.platform} ${memory.device.arch}` }) }}</span>
+          <span class="min-w-0 truncate">{{ t("settings.agent.deviceShell", { value: memory.device.shell }) }}</span>
           <span v-if="memory.device.timezone">
-            时区：{{ memory.device.timezone }}{{ memory.device.locale ? ` · ${memory.device.locale}` : "" }}
+            {{ t("settings.agent.deviceTimezone", { value: memory.device.timezone + (memory.device.locale ? ` · ${memory.device.locale}` : "") }) }}
           </span>
-          <span class="min-w-0 truncate">用户目录：{{ memory.device.home }}</span>
+          <span class="min-w-0 truncate">{{ t("settings.agent.deviceHome", { value: memory.device.home }) }}</span>
         </div>
         <div v-if="deviceTools.length" class="flex flex-wrap gap-1.5">
           <span
@@ -260,9 +262,9 @@ function formatTime(ms: number): string {
 
         <!-- 设备备注 -->
         <div class="flex flex-col gap-1.5 border-t border-[var(--color-line-soft)] pt-2">
-          <span class="text-[11px] text-[var(--color-mut)]">设备备注</span>
+          <span class="text-[11px] text-[var(--color-mut)]">{{ t("settings.agent.deviceNotes") }}</span>
           <p v-if="!deviceNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
-            暂无备注；可记录「这个机器上全局依赖用 pnpm」之类的长期事实。
+            {{ t("settings.agent.deviceNotesEmpty") }}
           </p>
           <div
             v-for="note in deviceNoteList"
@@ -271,7 +273,7 @@ function formatTime(ms: number): string {
           >
             <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
             <DangerIconButton
-              label="删除设备备注"
+              :label="t('settings.agent.deleteDeviceNoteAria')"
               class="opacity-0 group-hover:opacity-100"
               @click="pendingDelete = { scope: 'device', id: note.id, text: note.text }"
             >
@@ -283,14 +285,14 @@ function formatTime(ms: number): string {
               v-model="deviceNoteText"
               variant="ghost"
               class="h-8 text-[12px]"
-              placeholder="补充设备环境信息，回车保存"
+              :placeholder="t('settings.agent.deviceNotePlaceholder')"
               @keydown.enter.prevent="addNote('device')"
             />
             <Button
               variant="ghost"
               size="icon-sm"
               class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-              aria-label="添加设备备注"
+              :aria-label="t('settings.agent.addDeviceNoteAria')"
               :disabled="!deviceNoteText.trim()"
               @click="addNote('device')"
             >
@@ -302,9 +304,9 @@ function formatTime(ms: number): string {
 
       <!-- 用户习惯备注 -->
       <div class="flex flex-col gap-1.5">
-        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">用户习惯</span>
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.agent.userHabits") }}</span>
         <p v-if="!userNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
-          暂无记录；Agent 会在你明确要求记住，或你表达稳定偏好时写入。
+          {{ t("settings.agent.userHabitsEmpty") }}
         </p>
         <div
           v-for="note in userNoteList"
@@ -313,7 +315,7 @@ function formatTime(ms: number): string {
         >
           <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
           <DangerIconButton
-            label="删除用户习惯"
+            :label="t('settings.agent.deleteUserNoteAria')"
             class="opacity-0 group-hover:opacity-100"
             @click="pendingDelete = { scope: 'user', id: note.id, text: note.text }"
           >
@@ -325,14 +327,14 @@ function formatTime(ms: number): string {
             v-model="userNoteText"
             variant="ghost"
             class="h-8 text-[12px]"
-            placeholder="补充你的偏好或习惯，回车保存"
+            :placeholder="t('settings.agent.userNotePlaceholder')"
             @keydown.enter.prevent="addNote('user')"
           />
           <Button
             variant="ghost"
             size="icon-sm"
             class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            aria-label="添加用户习惯"
+            :aria-label="t('settings.agent.addUserNoteAria')"
             :disabled="!userNoteText.trim()"
             @click="addNote('user')"
           >
@@ -345,9 +347,9 @@ function formatTime(ms: number): string {
     <!-- 删除备注二次确认（会落库的删除） -->
     <ConfirmDialog
       :open="pendingDelete != null"
-      :title="pendingDelete?.scope === 'user' ? '删除这条用户习惯？' : '删除这条设备备注？'"
-      :description="`「${pendingDelete?.text ?? ''}」将从记忆中移除，后续会话不再携带。`"
-      confirm-label="删除"
+      :title="pendingDelete?.scope === 'user' ? t('settings.agent.deleteUserNoteTitle') : t('settings.agent.deleteDeviceNoteTitle')"
+      :description="t('settings.agent.deleteNoteDesc', { text: pendingDelete?.text ?? '' })"
+      :confirm-label="t('common.delete')"
       :pending="deleteBusy"
       @update:open="(next) => { if (!next) pendingDelete = null; }"
       @confirm="removeNote"

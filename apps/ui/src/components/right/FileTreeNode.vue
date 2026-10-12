@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,8 @@ import { cn } from "@/lib/utils";
 import type { FileTreeNode } from "@/components/right/panel-nodes";
 import type { FileTreeAction } from "./file-tree-ops";
 
+const { t } = useI18n();
+
 const props = withDefaults(
   defineProps<{
     node: FileTreeNode;
@@ -22,10 +25,11 @@ const props = withDefaults(
     selected: string;
     /** 内部剪贴板有缓冲时「粘贴」可用（FilePanel 管理） */
     canPaste?: boolean;
-    /** 在 Finder/资源管理器中显示（platformInfo 按平台给出文案） */
+    /** 在 Finder/资源管理器中显示（platformInfo 按平台给出文案；缺省走语言包） */
     showInFolderLabel?: string;
   }>(),
-  { canPaste: false, showInFolderLabel: "在文件管理器中显示" },
+  // prop 默认值不可引用 setup 局部变量（编译期 hoist 限制），缺省文案在使用处回退 t()
+  { canPaste: false },
 );
 
 const emit = defineEmits<{
@@ -85,22 +89,30 @@ function isOpen() {
       </ContextMenuTrigger>
       <ContextMenuContent class="min-w-44">
         <ContextMenuItem @select="emit('action', 'open', node)">
-          {{ node.isDir ? (expanded.has(node.path) ? "折叠" : "展开") : "打开" }}
+          {{
+            node.isDir
+              ? (expanded.has(node.path) ? t("panels.collapse") : t("panels.expand"))
+              : t("panels.open")
+          }}
         </ContextMenuItem>
         <ContextMenuItem @select="emit('action', 'reveal', node)">
-          {{ showInFolderLabel }}
+          {{ showInFolderLabel ?? t("panels.showInFolder") }}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem @select="emit('action', 'copy-relative', node)">复制相对路径</ContextMenuItem>
-        <ContextMenuItem @select="emit('action', 'copy-absolute', node)">复制绝对路径</ContextMenuItem>
-        <ContextMenuItem @select="emit('action', 'copy', node)">复制</ContextMenuItem>
+        <ContextMenuItem @select="emit('action', 'copy-relative', node)">
+          {{ t("panels.copyRelativePath") }}
+        </ContextMenuItem>
+        <ContextMenuItem @select="emit('action', 'copy-absolute', node)">
+          {{ t("panels.copyAbsolutePath") }}
+        </ContextMenuItem>
+        <ContextMenuItem @select="emit('action', 'copy', node)">{{ t("panels.copy") }}</ContextMenuItem>
         <ContextMenuItem :disabled="!canPaste" @select="emit('action', 'paste', node)">
-          粘贴
+          {{ t("panels.paste") }}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem @select="emit('action', 'rename', node)">重命名</ContextMenuItem>
+        <ContextMenuItem @select="emit('action', 'rename', node)">{{ t("panels.rename") }}</ContextMenuItem>
         <ContextMenuItem variant="destructive" @select="emit('action', 'delete', node)">
-          删除
+          {{ t("panels.delete") }}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Loader2, Plug, Sparkles } from "@lucide/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { useChatStore } from "@/stores/chat";
 import { useSkillUsageStore } from "@/stores/skill-usage";
@@ -12,14 +13,15 @@ import type { SkillUsageItem } from "@/stores/skill-usage";
  * 新调用以弹出动效出现，进行中的调用带旋转指示；再次调用触发 10s 呼吸高亮。
  * 同名技能/MCP 在 store 层已合并为一条。数据来自 skill-usage store。
  */
+const { t } = useI18n();
 const chatStore = useChatStore();
 const usageStore = useSkillUsageStore();
 
 const entries = computed(() => usageStore.entriesOf(chatStore.sessionId));
 
 function tooltip(item: SkillUsageItem): string {
-  const label = item.kind === "mcp" ? `MCP 服务 ${item.name}` : `技能 ${item.name}`;
-  return `${label} · 本会话已调用 ${item.calls} 次`;
+  const label = item.kind === "mcp" ? t("chat.usage.mcpService", { name: item.name }) : t("chat.usage.skill", { name: item.name });
+  return `${label} · ${t("chat.usage.calls", { n: item.calls })}`;
 }
 
 /** 再次调用呼吸高亮：交替 class 重启 CSS animation，10s 后 store 清 breathUntil */
@@ -37,7 +39,7 @@ function breathClass(item: SkillUsageItem): string {
     tag="div"
     name="usage"
     class="mb-2 flex flex-wrap items-center gap-1.5"
-    aria-label="本会话已调用的技能与 MCP 服务"
+    :aria-label="t('chat.usage.label')"
   >
     <span
       v-for="item in entries"

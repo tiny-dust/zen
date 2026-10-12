@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Wrench, X } from "@lucide/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { useChatStore } from "@/stores/chat";
  * 工具审批卡片：Agent 请求授权时固定在对话区顶部，支持
  * 批准 / 本会话全部允许（同类工具不再逐次确认）/ 拒绝。
  */
+const { t } = useI18n();
 const chatStore = useChatStore();
 
 const approvalInputText = computed(() => {
@@ -30,7 +32,7 @@ const approvalInputText = computed(() => {
     v-if="chatStore.pendingApproval"
     class="rounded-2xl bg-[var(--color-composer-surface)] p-3 shadow-[var(--shadow-raised)] outline outline-1 -outline-offset-1 outline-[color-mix(in_srgb,var(--color-accent-2)_25%,transparent)]"
     role="alertdialog"
-    aria-label="工具审批"
+    :aria-label="t('chat.approval.title')"
   >
     <div class="flex items-start gap-[9px]">
       <div
@@ -40,7 +42,7 @@ const approvalInputText = computed(() => {
       </div>
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-[7px] text-[var(--color-txt-strong)]">
-          <strong>需要确认</strong>
+          <strong>{{ t("chat.approval.needsConfirmation") }}</strong>
           <Badge variant="outline">{{ chatStore.pendingApproval.toolName }}</Badge>
         </div>
         <p class="m-0 mt-0.5 truncate whitespace-normal text-[11px] text-[var(--color-mut)]">
@@ -54,15 +56,15 @@ const approvalInputText = computed(() => {
     </div>
     <div class="mt-2.5 flex items-center gap-2 pl-[33px]">
       <Button size="sm" @click="chatStore.approve(true)">
-        <Check :size="14" data-icon="inline-start" />批准
+        <Check :size="14" data-icon="inline-start" />{{ t("chat.approval.approve") }}
       </Button>
       <Button variant="outline" size="sm" @click="chatStore.approve(true, true)">
-        <Check :size="14" data-icon="inline-start" />全部允许（本会话）
+        <Check :size="14" data-icon="inline-start" />{{ t("chat.approval.allowAllSession") }}
       </Button>
       <Button variant="outline" size="sm" @click="chatStore.approve(false)">
-        <X :size="14" data-icon="inline-start" />拒绝
+        <X :size="14" data-icon="inline-start" />{{ t("chat.approval.deny") }}
       </Button>
-      <span class="text-[11px] text-[var(--color-dim)]">全部允许后同类调用不再逐次确认</span>
+      <span class="text-[11px] text-[var(--color-dim)]">{{ t("chat.approval.allowAllHint") }}</span>
     </div>
   </div>
 </template>

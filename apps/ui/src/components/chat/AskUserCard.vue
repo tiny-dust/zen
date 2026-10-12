@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, ChevronLeft, ChevronRight, CornerDownLeft, HelpCircle, UserRound } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import type { AskUserQuestionEvent } from "@zen/shared";
  * 选项竖向一行行排列：单选点击即答；多选（multiSelect）勾选后统一提交。
  * 也可自由输入后回车提交。
  */
+const { t } = useI18n();
 const chatStore = useChatStore();
 const asks = computed(() => chatStore.pendingAsks);
 
@@ -101,7 +103,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
     v-if="current"
     class="rounded-2xl bg-[var(--color-composer-surface)] p-3 shadow-[var(--shadow-composer)] outline outline-1 -outline-offset-1 outline-[color-mix(in_srgb,var(--color-accent)_30%,transparent)]"
     role="group"
-    aria-label="Agent 提问"
+    :aria-label="t('chat.ask.title')"
   >
     <!-- 卡头：图标 + 标题 + 进度 + 上/下切换 -->
     <div class="flex items-center gap-2.5">
@@ -111,7 +113,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
         <HelpCircle :size="15" />
       </div>
       <div class="min-w-0 flex-1 text-[13px] font-medium text-[var(--color-txt-strong)]">
-        Agent 提问
+        {{ t("chat.ask.title") }}
         <span v-if="asks.length > 1" class="ml-1 font-normal text-[11px] text-[var(--color-mut)]">
           {{ currentIndex + 1 }} / {{ asks.length }}
         </span>
@@ -120,7 +122,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label="上一问"
+          :aria-label="t('chat.ask.prevQuestion')"
           :disabled="currentIndex === 0"
           class="text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)]"
           @click="currentIndex -= 1"
@@ -130,7 +132,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label="下一问"
+          :aria-label="t('chat.ask.nextQuestion')"
           :disabled="currentIndex >= asks.length - 1"
           class="text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)]"
           @click="currentIndex += 1"
@@ -141,7 +143,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
     </div>
 
     <!-- 进度点：可点击跳转 -->
-    <div v-if="asks.length > 1" class="mt-2 flex items-center gap-1.5 px-0.5" role="tablist" aria-label="问询进度">
+    <div v-if="asks.length > 1" class="mt-2 flex items-center gap-1.5 px-0.5" role="tablist" :aria-label="t('chat.ask.progress')">
       <Button
         v-for="(ask, index) in asks"
         :key="ask.askId"
@@ -149,7 +151,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
         size="icon-xs"
         role="tab"
         :aria-selected="index === currentIndex"
-        :aria-label="`第 ${index + 1} 问`"
+        :aria-label="t('chat.ask.questionIndex', { n: index + 1 })"
         class="size-4 rounded-full p-0"
         @click="currentIndex = index"
       >
@@ -170,7 +172,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
       <div class="min-w-0 flex-1">
         <div v-if="current.agentName" class="mb-1 flex items-center gap-1 text-[11px] text-[var(--color-mut)]">
           <UserRound class="size-3" aria-hidden="true" />
-          <span>{{ current.agentName }} 向你提问</span>
+          <span>{{ t("chat.ask.agentAsks", { name: current.agentName }) }}</span>
         </div>
         <p class="m-0 whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--color-txt-strong)]">
           {{ current.question }}
@@ -211,8 +213,10 @@ function submitFreeText(ask: AskUserQuestionEvent) {
         <!-- 多选：统一提交按钮 -->
         <div v-if="isMulti(current)" class="mt-2 flex justify-end">
           <Button size="sm" :disabled="!draftOf(current.askId).picked.length" @click="submitPicked(current)">
-            发送所选{{
-              draftOf(current.askId).picked.length ? `（${draftOf(current.askId).picked.length}）` : ""
+            {{
+              draftOf(current.askId).picked.length
+                ? t("chat.ask.sendSelectedCount", { n: draftOf(current.askId).picked.length })
+                : t("chat.ask.sendSelected")
             }}
           </Button>
         </div>
@@ -226,8 +230,8 @@ function submitFreeText(ask: AskUserQuestionEvent) {
             variant="ghost"
             type="text"
             class="h-7 min-w-0 flex-1 text-[12px] md:text-[12px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
-            :placeholder="isMulti(current) ? '可补充说明后一并发送…' : '或输入你的回答…'"
-            aria-label="自由回答"
+            :placeholder="isMulti(current) ? t('chat.ask.freeTextWithMulti') : t('chat.ask.freeTextOnly')"
+            :aria-label="t('chat.ask.freeAnswer')"
             @update:model-value="draftOf(current.askId).freeText = String($event)"
             @keydown.enter.prevent="submitFreeText(current)"
           />
@@ -235,7 +239,7 @@ function submitFreeText(ask: AskUserQuestionEvent) {
             variant="ghost"
             size="icon-xs"
             class="flex-none rounded-lg text-[var(--color-mut)] transition-colors hover:text-[var(--color-txt-strong)] disabled:opacity-40"
-            aria-label="提交回答"
+            :aria-label="t('chat.ask.submitAnswer')"
             :disabled="!draftOf(current.askId).freeText.trim() && !draftOf(current.askId).picked.length"
             :class="
               !draftOf(current.askId).freeText.trim() && !draftOf(current.askId).picked.length && 'opacity-40'

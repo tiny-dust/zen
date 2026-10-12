@@ -1,10 +1,19 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 
 import { setCodeThemeId } from "@/components/ai-elements/response/extensions";
+import { useAppTheme } from "@/composables/useAppTheme";
+import { setAppLocale } from "@/locales";
 
-import type { AppIconId, AppSettings, DisplayAccount, ShortcutBinding } from "@zen/shared";
-import { DEFAULT_CODE_THEME, DEFAULT_SHORTCUTS, DEFAULT_UPDATE_FEED_URL, normalizeShortcutKey } from "@zen/shared";
+import type { AppIconId, AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
+import {
+  DEFAULT_CODE_THEME,
+  DEFAULT_LOCALE,
+  DEFAULT_SHORTCUTS,
+  DEFAULT_THEME,
+  DEFAULT_UPDATE_FEED_URL,
+  normalizeShortcutKey,
+} from "@zen/shared";
 
 const fallbackSettings: AppSettings = {
   iconId: "zen-ink",
@@ -12,6 +21,8 @@ const fallbackSettings: AppSettings = {
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
+  theme: DEFAULT_THEME,
+  locale: DEFAULT_LOCALE,
   displayAccount: "auto",
 };
 
@@ -62,8 +73,13 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   function normalizeSettings(value: AppSettings): AppSettings {
+    const theme: ThemeMode =
+      value.theme === "light" || value.theme === "system" ? value.theme : DEFAULT_THEME;
+    const locale: AppLocale = value.locale === "en-US" ? value.locale : DEFAULT_LOCALE;
     return {
       ...value,
+      theme,
+      locale,
       codeTheme: value.codeTheme || DEFAULT_CODE_THEME,
       shortcuts: value.shortcuts.map((item) => ({
         ...item,
@@ -71,6 +87,21 @@ export const useSettingsStore = defineStore("settings", () => {
       })),
     };
   }
+
+  // 主题与语言是全局副作用：settings 一变（含其它窗口的 onChanged 广播）即刻应用
+  const { setThemeMode } = useAppTheme();
+  watch(
+    () => settings.value.theme,
+    (theme) => {
+      setThemeMode(theme);
+    },
+  );
+  watch(
+    () => settings.value.locale,
+    (locale) => {
+      setAppLocale(locale);
+    },
+  );
 
   function bootstrap(): () => void {
     syncFromHash();
@@ -137,6 +168,26 @@ export const useSettingsStore = defineStore("settings", () => {
     settings.value = await zen.settings.set({ codeTheme: id });
   }
 
+  /** 切换界面主题三档（dark/light/system）：主进程同步 nativeTheme，渲染层 watch 生效 */
+  async function setTheme(theme: ThemeMode) {
+    const zen = window.zen;
+    if (!zen) {
+      setThemeMode(theme);
+      return;
+    }
+    settings.value = await zen.settings.set({ theme });
+  }
+
+  /** 切换界面语言：即时生效 + 持久化 */
+  async function setLocale(locale: AppLocale) {
+    const zen = window.zen;
+    if (!zen) {
+      setAppLocale(locale);
+      return;
+    }
+    settings.value = await zen.settings.set({ locale });
+  }
+
   async function updateShortcut(id: string, key: string) {
     const zen = window.zen;
     if (!zen) {
@@ -173,6 +224,8 @@ export const useSettingsStore = defineStore("settings", () => {
     pickCustomIcon,
     setFeedUrl,
     setCodeTheme,
+    setTheme,
+    setLocale,
     updateShortcut,
     setDisplayAccount,
   };

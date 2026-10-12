@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FolderOpen, Plus, RefreshCw, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import { onMounted, ref } from "vue";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import { useAgentStore } from "@/stores/agent";
 /**
  * 技能：技能目录扫描（系统目录 + 自定义多路径）。MCP 服务在独立面板配置。
  */
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const { skills, settings } = storeToRefs(agentStore);
 const newSkillPath = ref("");
@@ -51,13 +53,13 @@ async function removeSkillPath(path: string) {
   <div class="flex flex-col gap-5">
     <section class="flex flex-col gap-2.5">
       <div class="flex items-center justify-between gap-2">
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">技能</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.skills.title") }}</h3>
         <Button variant="ghost" size="sm" @click="agentStore.refreshSkills()">
-          <RefreshCw :size="13" data-icon="inline-start" />重新扫描
+          <RefreshCw :size="13" data-icon="inline-start" />{{ t("settings.skills.rescan") }}
         </Button>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        每个技能是一个含 SKILL.md 的目录，自动扫描以下系统目录；Agent 会在合适时机按需加载。
+        {{ t("settings.skills.desc") }}
       </p>
       <div class="flex flex-wrap gap-1.5">
         <Badge v-for="dir in SKILL_SYSTEM_DIRS" :key="dir.path" variant="outline">
@@ -86,11 +88,11 @@ async function removeSkillPath(path: string) {
         </div>
       </div>
       <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">
-        未发现技能。把含 SKILL.md 的目录放进上面的系统目录即可。
+        {{ t("settings.skills.empty") }}
       </p>
 
       <div class="flex flex-col gap-1.5">
-        <div class="text-[12px] text-[var(--color-mut)]">自定义目录（可多选）</div>
+        <div class="text-[12px] text-[var(--color-mut)]">{{ t("settings.skills.customDirs") }}</div>
         <div
           v-for="path in settings.skillExtraPaths"
           :key="path"
@@ -100,7 +102,7 @@ async function removeSkillPath(path: string) {
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="移除目录"
+            :aria-label="t('settings.skills.removeDirAria')"
             @click="removeSkillPath(path)"
           >
             <Trash2 :size="13" />
@@ -108,12 +110,12 @@ async function removeSkillPath(path: string) {
         </div>
         <div class="flex items-center gap-2">
           <Button variant="outline" size="sm" @click="addSkillPath">
-            <Plus :size="13" data-icon="inline-start" />添加目录
+            <Plus :size="13" data-icon="inline-start" />{{ t("settings.skills.addDir") }}
           </Button>
           <Input
             v-model="newSkillPath"
             class="h-8 flex-1 bg-[var(--color-np-btn-bg)] text-[12px]"
-            placeholder="或手动输入路径，如 ~/projects/my-skills"
+            :placeholder="t('settings.skills.pathPlaceholder')"
             @keydown.enter="addSkillPath"
           />
         </div>

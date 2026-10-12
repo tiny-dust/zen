@@ -10,6 +10,7 @@ import type { Component } from "vue";
 import { computed, ref } from "vue";
 
 import type { AgentNodeState, AgentStreamEvent, SubAgentStatus } from "@zen/shared";
+import { i18n } from "@/locales";
 
 /** UI 侧 Agent 节点（与 shared AgentNodeState 对齐） */
 export type AgentNode = AgentNodeState;
@@ -19,13 +20,55 @@ export const SUB_AGENT_STATUS_META: Record<
   SubAgentStatus,
   { label: string; icon: Component; cls: string }
 > = {
-  queued: { label: "排队", icon: CircleDashed, cls: "text-[var(--color-mut)]" },
-  waiting_deps: { label: "等待依赖", icon: Clock3, cls: "text-[var(--color-dim)]" },
-  waiting_user: { label: "等待回答", icon: Clock3, cls: "text-[var(--color-accent)]" },
-  running: { label: "运行中", icon: Loader2, cls: "text-[var(--color-accent)]" },
-  done: { label: "完成", icon: CheckCircle2, cls: "text-[var(--color-ok,#3d9a6a)]" },
-  error: { label: "失败", icon: XCircle, cls: "text-[var(--color-err,#c45c5c)]" },
-  cancelled: { label: "已取消", icon: XCircle, cls: "text-[var(--color-dim)]" },
+  queued: {
+    get label() {
+      return i18n.global.t("app.agents.status.queued");
+    },
+    icon: CircleDashed,
+    cls: "text-[var(--color-mut)]",
+  },
+  waiting_deps: {
+    get label() {
+      return i18n.global.t("app.agents.status.waitingDeps");
+    },
+    icon: Clock3,
+    cls: "text-[var(--color-dim)]",
+  },
+  waiting_user: {
+    get label() {
+      return i18n.global.t("app.agents.status.waitingUser");
+    },
+    icon: Clock3,
+    cls: "text-[var(--color-accent)]",
+  },
+  running: {
+    get label() {
+      return i18n.global.t("app.agents.status.running");
+    },
+    icon: Loader2,
+    cls: "text-[var(--color-accent)]",
+  },
+  done: {
+    get label() {
+      return i18n.global.t("app.agents.status.done");
+    },
+    icon: CheckCircle2,
+    cls: "text-[var(--color-ok,#3d9a6a)]",
+  },
+  error: {
+    get label() {
+      return i18n.global.t("app.agents.status.error");
+    },
+    icon: XCircle,
+    cls: "text-[var(--color-err,#c45c5c)]",
+  },
+  cancelled: {
+    get label() {
+      return i18n.global.t("app.agents.status.cancelled");
+    },
+    icon: XCircle,
+    cls: "text-[var(--color-dim)]",
+  },
 };
 
 export const useAgentsStore = defineStore("agents", () => {
@@ -54,8 +97,8 @@ export const useAgentsStore = defineStore("agents", () => {
       id: `main:${sessionId.value}`,
       sessionId: sessionId.value,
       parentId: null,
-      name: "主 Agent",
-      task: "当前会话主任务",
+      name: i18n.global.t("app.agents.mainAgent"),
+      task: i18n.global.t("app.agents.mainTask"),
       status: (active ? "running" : "done") as SubAgentStatus,
       dependsOn: [],
       attempts: 1,
@@ -121,7 +164,7 @@ export const useAgentsStore = defineStore("agents", () => {
   async function retry(node: AgentNode): Promise<{ ok: boolean; error?: string }> {
     const zen = window.zen;
     if (!zen) {
-      return { ok: false, error: "桌面桥接不可用" };
+      return { ok: false, error: i18n.global.t("app.agents.desktopBridgeUnavailable") };
     }
     return zen.agent.retrySubAgent(node.sessionId, node.id);
   }

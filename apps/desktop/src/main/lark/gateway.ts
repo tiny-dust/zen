@@ -12,6 +12,8 @@ import type {
   WorkspaceGroup,
 } from "@zen/shared";
 
+import { currentLocale, mainT } from "../i18n";
+import type { MainLocale } from "../i18n";
 import { acquireLarkBridgeLock, releaseLarkBridgeLock } from "./bridge-lock";
 import type { LarkBridgeLockResult } from "./bridge-lock";
 import { readLarkAuthSnapshot } from "./auth";
@@ -32,6 +34,9 @@ const execFileAsync = promisify(execFile);
  * 纯逻辑（NDJSON 解析、事件过滤、去重、指令/回复解析、文案渲染）拆成具名导出
  * 函数供单元测试直接覆盖；进程管理（spawn/execFile）走模块底部薄封装，
  * 测试不打真实网络。
+ *
+ * 用户可见文案统一走 main-i18n 字典（尾部 locale 参数默认 zh-CN，
+ * 类内文案用网关启动时读到的 currentLocale）。
  */
 
 // ---------- 纯逻辑：事件行解析与过滤 ----------
@@ -152,13 +157,21 @@ export function mapRunStateToLarkState(state: SessionRunState | null | undefined
   return state.runActive ? "running" : "idle";
 }
 
-export const LARK_STATE_LABELS: Record<LarkSessionState, string> = {
-  idle: "空闲",
-  running: "运行中",
-  "waiting-approval": "等待确认",
-  "waiting-ask": "等待回答",
-  paused: "已暂停",
-};
+/** 运行状态 → 展示标签文案（按 locale 取词） */
+export function larkStateLabel(state: LarkSessionState, locale: MainLocale = "zh-CN"): string {
+  switch (state) {
+    case "idle":
+      return mainT(locale, "lark.state.idle");
+    case "running":
+      return mainT(locale, "lark.state.running");
+    case "waiting-approval":
+      return mainT(locale, "lark.state.waitingApproval");
+    case "waiting-ask":
+      return mainT(locale, "lark.state.waitingAsk");
+    case "paused":
+      return mainT(locale, "lark.state.paused");
+  }
+}
 
 /** 工作区分组拍平 → 未归档会话按更新时间倒序取前 limit 条（「列表」指令数据源） */
 export function collectSessionSummaries(
@@ -179,21 +192,25 @@ export function collectSessionSummaries(
     }));
 }
 
-export function formatRelativeTime(ts: number, now: number = Date.now()): string {
+export function formatRelativeTime(
+  ts: number,
+  now: number = Date.now(),
+  locale: MainLocale = "zh-CN",
+): string {
   const diff = Math.max(0, now - ts);
   const minute = 60_000;
   const hour = 3_600_000;
   const day = 86_400_000;
   if (diff < minute) {
-    return "刚刚";
+    return mainT(locale, "lark.time.justNow");
   }
   if (diff < hour) {
-    return `${Math.floor(diff / minute)} 分钟前`;
+    return mainT(locale, "lark.time.minutesAgo", { n: Math.floor(diff / minute) });
   }
   if (diff < day) {
-    return `${Math.floor(diff / hour)} 小时前`;
+    return mainT(locale, "lark.time.hoursAgo", { n: Math.floor(diff / hour) });
   }
-  return `${Math.floor(diff / day)} 天前`;
+  return mainT(locale, "lark.time.daysAgo", { n: Math.floor(diff / day) });
 }
 
 export function truncateText(text: string, max: number): string {
@@ -201,15 +218,19 @@ export function truncateText(text: string, max: number): string {
 }
 
 /** 「列表」指令回复 */
-export function buildSessionsReply(summaries: LarkSessionSummary[], now = Date.now()): string {
+export function buildSessionsReply(
+  summaries: LarkSessionSummary[],
+  now = Date.now(),
+  locale: MainLocale = "zh-CN",
+): string {
   if (!summaries.length) {
-    return "📋 Zen 会话：暂无未归档会话。";
+    return mainT(locale, "lark.sessions.empty");
   }
   const lines = summaries.map(
     (item, index) =>
-      `${index + 1}. ${item.title} · ${LARK_STATE_LABELS[item.state]} · ${formatRelativeTime(item.updatedAt, now)}`,
+      `${index + 1}. ${item.title} · ${larkStateLabel(item.state, locale)} · ${formatRelativeTime(item.updatedAt, now, locale)}`,
   );
-  return ["📋 Zen 会话（最近更新）", ...lines].join("\n");
+  return [mainT(locale, "lark.sessions.header"), ...lines].join("\n");
 }
 
 /** 「状态」指令回复：只列非空闲会话，附首个待答问询（截断 80 字） */
@@ -217,47 +238,54 @@ export function buildStatusReply(
   summaries: LarkSessionSummary[],
   pendingQuestionOf: (sessionId: string) => string | null,
   now = Date.now(),
+  locale: MainLocale = "zh-CN",
 ): string {
   const active = summaries.filter((item) => item.state !== "idle");
   if (!active.length) {
-    return "📊 Zen 状态：当前没有运行中的会话。";
+    return mainT(locale, "lark.status.empty");
   }
   const lines = active.map((item, index) => {
-    const base = `${index + 1}. ${item.title} · ${LARK_STATE_LABELS[item.state]} · ${formatRelativeTime(item.updatedAt, now)}`;
+    const base = `${index + 1}. ${item.title} · ${larkStateLabel(item.state, locale)} · ${formatRelativeTime(item.updatedAt, now, locale)}`;
     const question = pendingQuestionOf(item.id);
     return question ? `${base}\n   ❓ ${truncateText(question, 80)}` : base;
   });
-  return ["📊 Zen 运行中的会话", ...lines].join("\n");
+  return [mainT(locale, "lark.status.header"), ...lines].join("\n");
 }
 
 /** 「帮助」指令回复（卡片降级文案；「菜单」同款内容见 buildMenuCard） */
-export function buildHelpReply(quickCommands: LarkQuickCommand[] = []): string {
+export function buildHelpReply(
+  quickCommands: LarkQuickCommand[] = [],
+  locale: MainLocale = "zh-CN",
+): string {
   const lines = [
-    "📖 Zen 指令",
-    "• 列表 / 会话 / sessions — 最近会话清单",
-    "• 状态 / 进度 / status — 运行中的会话与待答问询",
-    "• 项目 / projects — 项目清单",
-    "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
-    "• 新会话 <消息> / new — 强制新建会话",
-    "• 继续 <消息> / continue — 追加到当前绑定会话",
-    "• 分支 <项目名> / branches — 查看项目本地分支",
-    "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
-    "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-    "• 菜单 / 功能列表 / 帮助 / help — 本帮助",
-    "直接发送普通文本会继续当前绑定会话；无绑定会话时在公共区新建会话并运行 Agent。",
-    "收到问询推送时，直接回复文字或选项编号即可写回会话。",
+    mainT(locale, "lark.help.title"),
+    mainT(locale, "lark.cmd.sessions"),
+    mainT(locale, "lark.cmd.status"),
+    mainT(locale, "lark.cmd.projects"),
+    mainT(locale, "lark.cmd.chat"),
+    mainT(locale, "lark.cmd.new"),
+    mainT(locale, "lark.cmd.continue"),
+    mainT(locale, "lark.cmd.branches"),
+    mainT(locale, "lark.cmd.checkout"),
+    mainT(locale, "lark.cmd.commit"),
+    mainT(locale, "lark.help.last"),
+    mainT(locale, "lark.help.note1"),
+    mainT(locale, "lark.help.note2"),
   ];
-  const quick = buildQuickCommandLines(quickCommands);
+  const quick = buildQuickCommandLines(quickCommands, locale);
   return [...lines, ...quick].join("\n");
 }
 
 /** 自定义快捷命令的清单行（帮助文案与菜单卡片共用） */
-export function buildQuickCommandLines(quickCommands: LarkQuickCommand[]): string[] {
+export function buildQuickCommandLines(
+  quickCommands: LarkQuickCommand[],
+  locale: MainLocale = "zh-CN",
+): string[] {
   if (!quickCommands.length) {
     return [];
   }
   return [
-    "⚡ 自定义快捷命令（在 Zen 设置 → 飞书桥接 配置）",
+    mainT(locale, "lark.quick.header"),
     ...quickCommands.map(
       (item) => `• /${item.alias} — ${item.label || item.alias}（${truncateText(item.prompt, 60)}）`,
     ),
@@ -266,7 +294,7 @@ export function buildQuickCommandLines(quickCommands: LarkQuickCommand[]): strin
 
 // ---------- 纯逻辑：项目/分支/提交指令解析与文案 ----------
 
-export type LarkCommand = "sessions" | "status" | "help" | "projects";
+export type LarkCommand = "sessions" | "status" | "help" | "projects" | "quick";
 
 /** 指令全等匹配（去空白、大小写不敏感）；非指令文本返回 null 走问询回复解析 */
 export function parseLarkCommand(text: string): LarkCommand | null {
@@ -294,6 +322,42 @@ export function parseLarkCommand(text: string): LarkCommand | null {
   }
   if (normalized === "项目" || normalized === "projects") {
     return "projects";
+  }
+  if (normalized === "快捷命令" || normalized === "quick") {
+    return "quick";
+  }
+  return null;
+}
+
+/** 「添加/删除快捷命令」指令的解析结果 */
+export interface ParsedQuickManageCommand {
+  kind: "quick-add" | "quick-del";
+  /** 别名（quick-add/quick-del 均不带斜杠前缀） */
+  alias: string;
+  /** quick-add 的提示词（整段剩余文本）；quick-del 为空串 */
+  prompt: string;
+}
+
+/**
+ * 快捷命令管理指令解析：
+ * - 添加快捷命令 <别名> <提示词> / quick-add <alias> <prompt>（存在则更新）
+ * - 删除快捷命令 <别名> / quick-del <alias>
+ */
+export function parseQuickManageCommand(text: string): ParsedQuickManageCommand | null {
+  const headMatch = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!headMatch) {
+    return null;
+  }
+  const head = (headMatch[1] ?? "").toLowerCase();
+  const rest = (headMatch[2] ?? "").trim();
+  const aliasMatch = /^(\S+)(?:\s+([\s\S]*))?$/.exec(rest);
+  const alias = (aliasMatch?.[1] ?? "").replace(/^\/+/, "");
+  const prompt = (aliasMatch?.[2] ?? "").trim();
+  if (head === "添加快捷命令" || head === "新增快捷命令" || head === "quick-add") {
+    return { kind: "quick-add", alias, prompt };
+  }
+  if (head === "删除快捷命令" || head === "移除快捷命令" || head === "quick-del") {
+    return { kind: "quick-del", alias, prompt: "" };
   }
   return null;
 }
@@ -365,15 +429,19 @@ export function matchProjectSummaries(
 }
 
 /** 「项目」指令回复 */
-export function buildProjectsReply(projects: LarkProjectSummary[], now = Date.now()): string {
+export function buildProjectsReply(
+  projects: LarkProjectSummary[],
+  now = Date.now(),
+  locale: MainLocale = "zh-CN",
+): string {
   if (!projects.length) {
-    return "📂 Zen 项目：暂无工作区。";
+    return mainT(locale, "lark.projects.empty");
   }
   const lines = projects.map(
     (project, index) =>
-      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now)}`,
+      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now, locale)}`,
   );
-  return ["📂 Zen 项目", ...lines].join("\n");
+  return [mainT(locale, "lark.projects.header"), ...lines].join("\n");
 }
 
 /** 项目歧义/未命中时的候选清单 */
@@ -381,30 +449,33 @@ export function buildProjectCandidatesReply(
   query: string,
   matches: LarkProjectSummary[],
   now = Date.now(),
+  locale: MainLocale = "zh-CN",
 ): string {
-  const label = `匹配「${truncateText(query, 40)}」的项目`;
+  const label = mainT(locale, "lark.projects.matchLabel", { query: truncateText(query, 40) });
   if (!matches.length) {
-    return `未找到${label}。`;
+    return mainT(locale, "lark.projects.notFound", { label });
   }
   const lines = matches.map(
     (project, index) =>
-      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now)}`,
+      `${index + 1}. ${project.name} · ${project.path} · ${formatRelativeTime(project.lastActiveAt, now, locale)}`,
   );
-  return [`🔍 ${label}有多个，请用更精确的名称：`, ...lines].join("\n");
+  return [mainT(locale, "lark.projects.ambiguous", { label }), ...lines].join("\n");
 }
 
 /** 「分支」指令回复：标记当前分支 */
 export function buildBranchesReply(
   project: LarkProjectSummary,
   result: { current: string; branches: string[] },
+  locale: MainLocale = "zh-CN",
 ): string {
   if (!result.branches.length) {
-    return `🌿 ${project.name}：没有本地分支。`;
+    return mainT(locale, "lark.branches.empty", { name: project.name });
   }
+  const currentLabel = mainT(locale, "lark.branches.current");
   const lines = result.branches.map((branch) =>
-    branch === result.current ? `• ${branch} ← 当前` : `• ${branch}`,
+    branch === result.current ? `• ${branch} ${currentLabel}` : `• ${branch}`,
   );
-  return [`🌿 ${project.name} 的本地分支`, ...lines].join("\n");
+  return [mainT(locale, "lark.branches.header", { name: project.name }), ...lines].join("\n");
 }
 
 // ---------- 纯逻辑：自定义快捷命令（/别名）解析与展开 ----------
@@ -439,20 +510,23 @@ export function expandQuickCommand(prompt: string, arg: string): string {
 }
 
 /** 带参数指令的用法提示 */
-export function buildProjectCommandUsage(kind: ParsedProjectCommand["kind"]): string {
+export function buildProjectCommandUsage(
+  kind: ParsedProjectCommand["kind"],
+  locale: MainLocale = "zh-CN",
+): string {
   switch (kind) {
     case "chat":
-      return "用法：对话 <项目名> <消息>（如：对话 zen 修复登录 bug）";
+      return mainT(locale, "lark.usage.chat");
     case "branches":
-      return "用法：分支 <项目名>";
+      return mainT(locale, "lark.usage.branches");
     case "checkout":
-      return "用法：切换 <项目名> <分支名>";
+      return mainT(locale, "lark.usage.checkout");
     case "commit":
-      return "用法：提交 <项目名> <说明>";
+      return mainT(locale, "lark.usage.commit");
     case "new":
-      return "用法：新会话 <消息>（强制在公共区新建会话）";
+      return mainT(locale, "lark.usage.new");
     case "continue":
-      return "用法：继续 <消息>（追加到当前绑定会话）";
+      return mainT(locale, "lark.usage.continue");
   }
 }
 
@@ -465,14 +539,24 @@ export interface LarkPendingAsk {
   /** 递增推送序号 */
   seq: number;
   question: AskUserQuestionEvent;
+  /** 问询卡片发出后回填的飞书 message_id（卡片回调按它定位问询） */
+  messageId?: string;
 }
 
 /** 「问询推送」的 markdown 文案（多条待答时尾注换成 #序号 指引） */
-export function buildAskPushText(entry: LarkPendingAsk, pendingCount: number): string {
+export function buildAskPushText(
+  entry: LarkPendingAsk,
+  pendingCount: number,
+  locale: MainLocale = "zh-CN",
+): string {
   const question = entry.question;
-  const lines = [`🔔 Zen 问询 · ${entry.sessionTitle || "Zen 会话"}`];
+  const lines = [
+    mainT(locale, "lark.ask.title", {
+      title: entry.sessionTitle || mainT(locale, "lark.sessionFallback"),
+    }),
+  ];
   if (question.agentName) {
-    lines.push(`来自 ${question.agentName}`);
+    lines.push(mainT(locale, "lark.ask.from", { name: question.agentName }));
   }
   lines.push(question.question);
   if (question.options.length) {
@@ -481,14 +565,14 @@ export function buildAskPushText(entry: LarkPendingAsk, pendingCount: number): s
       lines.push(`${index + 1}. ${option}`);
     });
     if (question.multiSelect) {
-      lines.push("（可多选：回复「1,2」这样的编号组合）");
+      lines.push(mainT(locale, "lark.ask.multiSelectHint"));
     }
   }
   lines.push("");
   lines.push(
     pendingCount > 1
-      ? `多个问询待回答：回复 #序号 开头，如 #${entry.seq} <答案>`
-      : "直接回复文字或选项编号即可",
+      ? mainT(locale, "lark.ask.multiPendingTail", { seq: entry.seq })
+      : mainT(locale, "lark.ask.directReplyTail"),
   );
   return lines.join("\n");
 }
@@ -520,7 +604,14 @@ export interface LarkCard2 {
   body: { elements: unknown[] };
 }
 
-/** 卡片交互元素回调 value 的统一载荷（序列化为 JSON 字符串放进 behaviors.value / option value） */
+/**
+ * 卡片交互元素回调 value 的统一载荷。
+ *
+ * 重要：Card 2.0 的 behaviors.value 直接放**对象**（不 JSON.stringify）——
+ * 传字符串会导致回传 action_value 双重编码（'"{\"k\":...}"'），解析失败后
+ * 点击无任何反应（v1 的线上根因）。解析侧同时兼容对象 / JSON 字符串 /
+ * 双重编码字符串三种形态，保证旧卡片与新卡片都能路由。
+ */
 export interface AskActionValue {
   k: "ask";
   askId: string;
@@ -529,31 +620,49 @@ export interface AskActionValue {
   a: string;
 }
 
-export function buildAskActionValue(askId: string, seq: number, answer: string): string {
-  const value: AskActionValue = { k: "ask", askId, seq, a: answer };
-  return JSON.stringify(value);
+/** behaviors.value 用的对象形态（勿再序列化） */
+export function askActionValueOf(askId: string, seq: number, answer: string): AskActionValue {
+  return { k: "ask", askId, seq, a: answer };
 }
 
-export function parseAskActionValue(raw: string): AskActionValue | null {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
+/** 兼容旧测试/旧卡片的字符串形态（序列化） */
+export function buildAskActionValue(askId: string, seq: number, answer: string): string {
+  return JSON.stringify(askActionValueOf(askId, seq, answer));
+}
+
+/** 字符串 → 尽力解一层 JSON（双重编码时解两层）；非字符串原样返回 */
+function decodeMaybeJson(raw: unknown): unknown {
+  let value = raw;
+  for (let depth = 0; depth < 2 && typeof value === "string"; depth += 1) {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      break;
     }
-    const obj = parsed as Record<string, unknown>;
-    if (
-      obj.k !== "ask" ||
-      typeof obj.askId !== "string" ||
-      !obj.askId ||
-      typeof obj.seq !== "number" ||
-      typeof obj.a !== "string"
-    ) {
-      return null;
-    }
-    return { k: "ask", askId: obj.askId, seq: obj.seq, a: obj.a };
-  } catch {
+  }
+  return value;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** 回调 value → 问询载荷；接受对象 / JSON 字符串 / 双重编码字符串 */
+export function parseAskActionValue(raw: unknown): AskActionValue | null {
+  const obj = decodeMaybeJson(raw);
+  if (!isPlainObject(obj)) {
     return null;
   }
+  if (
+    obj.k !== "ask" ||
+    typeof obj.askId !== "string" ||
+    !obj.askId ||
+    typeof obj.seq !== "number" ||
+    typeof obj.a !== "string"
+  ) {
+    return null;
+  }
+  return { k: "ask", askId: obj.askId, seq: obj.seq, a: obj.a };
 }
 
 /** 菜单卡片按钮回调载荷：k="cmd"，t 为等价于用户输入的指令/快捷命令文本 */
@@ -562,25 +671,25 @@ export interface CmdActionValue {
   t: string;
 }
 
-export function buildCmdActionValue(text: string): string {
-  const value: CmdActionValue = { k: "cmd", t: text };
-  return JSON.stringify(value);
+/** behaviors.value 用的对象形态（勿再序列化） */
+export function cmdActionValueOf(text: string): CmdActionValue {
+  return { k: "cmd", t: text };
 }
 
-export function parseCmdActionValue(raw: string): CmdActionValue | null {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const obj = parsed as Record<string, unknown>;
-    if (obj.k !== "cmd" || typeof obj.t !== "string" || !obj.t.trim()) {
-      return null;
-    }
-    return { k: "cmd", t: obj.t };
-  } catch {
+export function buildCmdActionValue(text: string): string {
+  return JSON.stringify(cmdActionValueOf(text));
+}
+
+/** 回调 value → 指令载荷；接受对象 / JSON 字符串 / 双重编码字符串 */
+export function parseCmdActionValue(raw: unknown): CmdActionValue | null {
+  const obj = decodeMaybeJson(raw);
+  if (!isPlainObject(obj)) {
     return null;
   }
+  if (obj.k !== "cmd" || typeof obj.t !== "string" || !obj.t.trim()) {
+    return null;
+  }
+  return { k: "cmd", t: obj.t };
 }
 
 /** 按钮回调里的指令文本（非问询按钮）；不是指令按钮返回 null */
@@ -595,128 +704,201 @@ function plainText(content: string): { tag: "plain_text"; content: string } {
   return { tag: "plain_text", content };
 }
 
-function askOption(
-  entry: LarkPendingAsk,
+/** select/multi_select 选项：value 用选项原文（组件要求 value 为字符串且唯一） */
+function askSelectOption(
   option: string,
 ): { text: { tag: "plain_text"; content: string }; value: string } {
-  return { text: plainText(option), value: buildAskActionValue(entry.askId, entry.seq, option) };
+  return { text: plainText(option), value: option };
 }
 
-function askButton(entry: LarkPendingAsk, option: string, primary: boolean): Record<string, unknown> {
+/** form 内提交/取消按钮（表单按钮不用 behaviors，靠 action_name 区分意图） */
+function formButton(label: string, name: string, primary: boolean): Record<string, unknown> {
   return {
     tag: "button",
-    text: plainText(option),
+    text: plainText(label),
     type: primary ? "primary_filled" : "default",
-    behaviors: [{ type: "callback", value: buildAskActionValue(entry.askId, entry.seq, option) }],
+    form_action_type: "submit",
+    name,
   };
 }
 
 /**
- * 「问询推送」卡片（Card 2.0）：单选 ≤4 选项走按钮排，>4 走下拉 select_static，
- * 多选走 form + multi_select_static + 提交按钮；无选项保持纯文本引导回复。
- * 卡片发送失败/超长的降级仍由 sendOutgoing 统一处理。
+ * 「问询推送」卡片（Card 2.0 表单式）：
+ * - 有选项 → select_static（单选）/ multi_select_static（多选），value=选项原文；
+ * - allowFreeText → input 补充输入框（无选项时为唯一答案入口，required）；
+ * - 取消（btn_cancel，放弃在飞书回答）/ 确认（btn_ok，提交）两个独立按钮，
+ *   放在 form 内 column_set 并排；表单提交经 form_value 回传，askId 由
+ *   发送侧记录的 message_id 映射兜底（form 按钮无法携带回调 value）。
+ * - 无选项且不允许自由输入 → 无交互元素，纯文本引导回复。
  */
-export function buildAskPushCard(entry: LarkPendingAsk, pendingCount: number): LarkCard2 {
+export function buildAskPushCard(
+  entry: LarkPendingAsk,
+  _pendingCount: number,
+  locale: MainLocale = "zh-CN",
+): LarkCard2 {
   const question = entry.question;
   const lines: string[] = [];
   if (question.agentName) {
-    lines.push(`**来自** ${question.agentName}`);
+    lines.push(mainT(locale, "lark.ask.cardFrom", { name: question.agentName }));
   }
-  lines.push(question.question);
-  if (question.options.length) {
+  lines.push(`**${question.question}**`);
+  if (question.multiSelect) {
     lines.push("");
-    question.options.forEach((option, index) => {
-      lines.push(`${index + 1}. ${option}`);
-    });
-    if (question.multiSelect) {
-      lines.push("（可多选：回复「1,2」这样的编号组合）");
-    }
+    lines.push(`<font color='grey'>${mainT(locale, "lark.ask.multiSelectHint")}</font>`);
   }
   const elements: unknown[] = [{ tag: "markdown", content: lines.join("\n") }];
-  if (question.options.length && question.multiSelect) {
-    elements.push({
-      tag: "form",
-      name: "form_ask",
-      elements: [
+
+  const hasOptions = question.options.length > 0;
+  const hasInput = question.allowFreeText !== false;
+  if (hasOptions || hasInput) {
+    const formElements: Record<string, unknown>[] = [];
+    if (hasOptions) {
+      formElements.push({
+        tag: question.multiSelect ? "multi_select_static" : "select_static",
+        name: "pick",
+        required: !hasInput,
+        placeholder: plainText(
+          mainT(
+            locale,
+            question.multiSelect ? "lark.ask.selectPlaceholderMulti" : "lark.ask.selectPlaceholder",
+          ),
+        ),
+        options: question.options.map((option) => askSelectOption(option)),
+      });
+    }
+    if (hasInput) {
+      formElements.push({
+        tag: "input",
+        name: "text",
+        required: !hasOptions,
+        input_type: "text",
+        max_length: 1000,
+        placeholder: plainText(
+          mainT(locale, hasOptions ? "lark.ask.textOptionalPlaceholder" : "lark.ask.textRequiredPlaceholder"),
+        ),
+      });
+    }
+    formElements.push({
+      tag: "column_set",
+      flex_mode: "none",
+      columns: [
         {
-          tag: "multi_select_static",
-          name: "answer",
-          placeholder: plainText("请选择（可多选）"),
-          options: question.options.map((option) => askOption(entry, option)),
+          tag: "column",
+          width: "weighted",
+          weight: 1,
+          elements: [formButton(mainT(locale, "lark.ask.cancelLabel"), "btn_cancel", false)],
         },
         {
-          tag: "button",
-          text: plainText("提交"),
-          type: "primary_filled",
-          form_action_type: "submit",
-          name: "btn_submit",
-          behaviors: [{ type: "callback", value: buildAskActionValue(entry.askId, entry.seq, "") }],
+          tag: "column",
+          width: "weighted",
+          weight: 1,
+          elements: [formButton(mainT(locale, "lark.ask.confirmLabel"), "btn_ok", true)],
         },
       ],
     });
-  } else if (question.options.length && question.options.length <= 4) {
-    elements.push(...question.options.map((option, index) => askButton(entry, option, index === 0)));
-  } else if (question.options.length) {
-    elements.push({
-      tag: "select_static",
-      placeholder: plainText("请选择"),
-      options: question.options.map((option) => askOption(entry, option)),
-    });
+    elements.push({ tag: "form", name: "form_ask", elements: formElements });
   }
+
   elements.push(
     { tag: "hr" },
     {
-      // schema 2.0 不再支持 note 组件（unsupported tag note）：用灰色 markdown 呈现回复指引
+      // schema 2.0 不再支持 note 组件：用灰色 markdown 呈现回复指引
       tag: "markdown",
-      content:
-        pendingCount > 1
-          ? `<font color='grey'>点击按钮，或直接回复选项编号 / 文字；多个问询待回答时以 #序号 开头，如 #${entry.seq} <答案></font>`
-          : "<font color='grey'>点击按钮，或直接回复选项编号 / 文字</font>",
+      content: `<font color='grey'>${mainT(locale, "lark.ask.cardNote")}</font>`,
     },
   );
   return {
     schema: "2.0",
     config: { update_multi: true, width_mode: "default" },
     header: {
-      title: plainText(`🔔 Zen 问询 · ${entry.sessionTitle || "Zen 会话"}`),
-      template: "orange",
+      title: plainText(
+        mainT(locale, "lark.ask.title", {
+          title: entry.sessionTitle || mainT(locale, "lark.sessionFallback"),
+        }),
+      ),
+      template: "wathet",
     },
     body: { elements },
   };
 }
 
 /** 「问询已回答」卡片（延迟更新替换原卡片）：正文显示已选答案，去掉交互组件 */
-export function buildAskAnsweredCard(entry: LarkPendingAsk, answer: string): LarkCard2 {
+export function buildAskAnsweredCard(
+  entry: LarkPendingAsk,
+  answer: string,
+  locale: MainLocale = "zh-CN",
+): LarkCard2 {
   const lines: string[] = [];
   if (entry.question.agentName) {
-    lines.push(`**来自** ${entry.question.agentName}`);
+    lines.push(mainT(locale, "lark.ask.cardFrom", { name: entry.question.agentName }));
   }
   lines.push(entry.question.question);
   lines.push("");
-  lines.push(`**已选择：** ${answer}`);
+  lines.push(mainT(locale, "lark.ask.answeredPick", { answer }));
   return {
     schema: "2.0",
     config: { update_multi: true, width_mode: "default" },
     header: {
-      title: plainText(`✅ Zen 问询 · ${entry.sessionTitle || "Zen 会话"}`),
+      title: plainText(
+        mainT(locale, "lark.ask.answeredTitle", {
+          title: entry.sessionTitle || mainT(locale, "lark.sessionFallback"),
+        }),
+      ),
       template: "green",
     },
     body: {
       elements: [
         { tag: "markdown", content: lines.join("\n") },
         { tag: "hr" },
-        { tag: "markdown", content: "<font color='grey'>已写回会话</font>" },
+        { tag: "markdown", content: `<font color='grey'>${mainT(locale, "lark.ask.answeredNote")}</font>` },
+      ],
+    },
+  };
+}
+
+/** 「问询已取消」卡片（延迟更新替换原卡片）：取消在飞书回答，问询仍可在 Zen 内回答 */
+export function buildAskCancelledCard(
+  entry: LarkPendingAsk,
+  locale: MainLocale = "zh-CN",
+): LarkCard2 {
+  const lines: string[] = [];
+  if (entry.question.agentName) {
+    lines.push(mainT(locale, "lark.ask.cardFrom", { name: entry.question.agentName }));
+  }
+  lines.push(entry.question.question);
+  lines.push("");
+  lines.push(mainT(locale, "lark.ask.cancelledPick"));
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: {
+      title: plainText(
+        mainT(locale, "lark.ask.cancelledTitle", {
+          title: entry.sessionTitle || mainT(locale, "lark.sessionFallback"),
+        }),
+      ),
+      template: "grey",
+    },
+    body: {
+      elements: [
+        { tag: "markdown", content: lines.join("\n") },
+        { tag: "hr" },
+        { tag: "markdown", content: `<font color='grey'>${mainT(locale, "lark.ask.cancelledNote")}</font>` },
       ],
     },
   };
 }
 
 /** 「会话完成」卡片：标题=会话名，正文=最终助手回复摘要（截断 800 字） */
-export function buildSessionDoneCard(title: string, reply: string): LarkCard {
+export function buildSessionDoneCard(
+  title: string,
+  reply: string,
+  locale: MainLocale = "zh-CN",
+): LarkCard {
   return cardOf(
-    { title: `✅ ${title} 已完成`, template: "green" },
+    { title: mainT(locale, "lark.session.doneTitle", { title }), template: "green" },
     truncateText(reply, 800),
-    "发送「状态」查看运行中的会话，「帮助」查看全部指令",
+    mainT(locale, "lark.session.doneNote"),
   );
 }
 
@@ -731,39 +913,144 @@ function menuButton(label: string, text: string, primary = false): Record<string
 }
 
 /** 「菜单/帮助」卡片（Card 2.0）：指令清单 + 可点按钮（内置常用指令 + 自定义快捷命令） */
-export function buildMenuCard(quickCommands: LarkQuickCommand[] = []): LarkCard2 {
+export function buildMenuCard(
+  quickCommands: LarkQuickCommand[] = [],
+  locale: MainLocale = "zh-CN",
+): LarkCard2 {
   const lines = [
-    "• 列表 / 会话 / sessions — 最近会话清单",
-    "• 状态 / 进度 / status — 运行中的会话与待答问询",
-    "• 项目 / projects — 项目清单",
-    "• 对话 <项目名> <消息> / chat — 在指定项目新建会话并运行",
-    "• 新会话 <消息> / new — 强制新建会话",
-    "• 继续 <消息> / continue — 追加到当前绑定会话",
-    "• 分支 <项目名> / branches — 查看项目本地分支",
-    "• 切换 <项目名> <分支名> / checkout — 切换分支（有未提交变更时拒绝）",
-    "• 提交 <项目名> <说明> / commit — 提交项目全部变更",
-    "• 菜单 / 功能列表 / 帮助 / help — 本菜单",
+    mainT(locale, "lark.cmd.sessions"),
+    mainT(locale, "lark.cmd.status"),
+    mainT(locale, "lark.cmd.projects"),
+    mainT(locale, "lark.cmd.chat"),
+    mainT(locale, "lark.cmd.new"),
+    mainT(locale, "lark.cmd.continue"),
+    mainT(locale, "lark.cmd.branches"),
+    mainT(locale, "lark.cmd.checkout"),
+    mainT(locale, "lark.cmd.commit"),
+    mainT(locale, "lark.menu.last"),
   ];
-  lines.push("", ...buildQuickCommandLines(quickCommands));
+  lines.push("", ...buildQuickCommandLines(quickCommands, locale));
   const elements: unknown[] = [{ tag: "markdown", content: lines.join("\n") }, { tag: "hr" }];
   // 常用查询指令按钮；自定义快捷命令一键点选（按钮回调与直接输入等价）
-  elements.push(menuButton("📊 状态", "状态", true), menuButton("📋 列表", "列表"), menuButton("📂 项目", "项目"));
+  elements.push(
+    menuButton(mainT(locale, "lark.menu.statusBtn"), mainT(locale, "lark.cmdWord.status"), true),
+    menuButton(mainT(locale, "lark.menu.sessionsBtn"), mainT(locale, "lark.cmdWord.sessions")),
+    menuButton(mainT(locale, "lark.menu.projectsBtn"), mainT(locale, "lark.cmdWord.projects")),
+  );
   for (const item of quickCommands) {
     elements.push(menuButton(`⚡ ${item.label || item.alias}`, `/${item.alias}`));
   }
   elements.push({
     // schema 2.0 不再支持 note 组件：用灰色 markdown 呈现回复指引
     tag: "markdown",
-    content:
-      "<font color='grey'>点击按钮或直接发送指令文字；普通文本会继续当前绑定会话，无绑定会话时在公共区新建会话并运行 Agent；回复问询直接发文字或选项编号</font>",
+    content: `<font color='grey'>${mainT(locale, "lark.menu.footer")}</font>`,
   });
   return {
     schema: "2.0",
     config: { update_multi: true, width_mode: "default" },
     header: {
-      title: plainText("📖 Zen 指令菜单"),
+      title: plainText(mainT(locale, "lark.menu.title")),
       template: "blue",
     },
+    body: { elements },
+  };
+}
+
+/**
+ * 通用清单卡片（Card 2.0）：每条 = 加粗标题 + 灰色副标题（路径/状态/时间），
+ * 顶部指标列（可选）+ 列表 markdown + 灰色脚注；会话/项目/分支等查询共用。
+ */
+export interface ListCardItem {
+  title: string;
+  subtitle: string;
+}
+
+export function buildListCard(options: {
+  title: string;
+  template: string;
+  emptyText: string;
+  items: ListCardItem[];
+  metrics?: Array<{ label: string; value: string }>;
+  footer?: string;
+}): LarkCard2 {
+  const elements: unknown[] = [];
+  if (options.metrics?.length) {
+    elements.push({
+      tag: "column_set",
+      flex_mode: "bisect",
+      columns: options.metrics.map((metric) => ({
+        tag: "column",
+        width: "weighted",
+        weight: 1,
+        background_style: "grey-50",
+        elements: [
+          {
+            tag: "markdown",
+            text_align: "center",
+            content: `**${metric.value}**\n<font color='grey'>${metric.label}</font>`,
+          },
+        ],
+      })),
+    });
+  }
+  if (!options.items.length) {
+    elements.push({
+      tag: "markdown",
+      content: `<font color='grey'>${options.emptyText}</font>`,
+    });
+  } else {
+    elements.push({
+      tag: "markdown",
+      content: options.items.map((item) => `${item.title}\n${item.subtitle}`).join("\n\n"),
+    });
+  }
+  elements.push({ tag: "hr" });
+  if (options.footer) {
+    elements.push({ tag: "markdown", content: `<font color='grey'>${options.footer}</font>` });
+  }
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: { title: plainText(options.title), template: options.template },
+    body: { elements },
+  };
+}
+
+/**
+ * 快捷命令管理卡片（Card 2.0）：现有命令清单（每条带一键执行按钮）+
+ * 管理用法说明（添加/删除指令）；空清单时给引导文案。
+ */
+export function buildQuickManageCard(
+  quickCommands: LarkQuickCommand[] = [],
+  locale: MainLocale = "zh-CN",
+): LarkCard2 {
+  const lines: string[] = [];
+  if (!quickCommands.length) {
+    lines.push(`<font color='grey'>${mainT(locale, "lark.quick.cardEmpty")}</font>`);
+  } else {
+    for (const item of quickCommands) {
+      lines.push(`**/${item.alias}** — ${item.label || item.alias}`);
+      lines.push(`<font color='grey'>${truncateText(item.prompt, 100)}</font>`);
+      lines.push("");
+    }
+  }
+  lines.push(mainT(locale, "lark.quick.usageAdd"));
+  lines.push(mainT(locale, "lark.quick.usageDel"));
+  const elements: unknown[] = [
+    { tag: "markdown", content: lines.join("\n").trim() },
+    { tag: "hr" },
+  ];
+  for (const item of quickCommands) {
+    elements.push(menuButton(`⚡ /${item.alias}`, `/${item.alias}`));
+  }
+  elements.push({
+    tag: "markdown",
+    content: `<font color='grey'>${mainT(locale, "lark.quick.cardFooter")}</font>`,
+  });
+  return {
+    schema: "2.0",
+    config: { update_multi: true, width_mode: "default" },
+    header: { title: plainText(mainT(locale, "lark.quick.cardTitle")), template: "violet" },
     body: { elements },
   };
 }
@@ -812,9 +1099,10 @@ export function applyAskReply(
   text: string,
   pending: LarkPendingAsk[],
   resolveAsk: (askId: string, answer: string) => boolean,
+  locale: MainLocale = "zh-CN",
 ): AskReplyResult {
   if (!pending.length) {
-    return { reply: "当前没有待回答的问询。", resolvedAskIds: [], invalidAskIds: [] };
+    return { reply: mainT(locale, "lark.reply.noPending"), resolvedAskIds: [], invalidAskIds: [] };
   }
 
   let entry: LarkPendingAsk | undefined;
@@ -825,7 +1113,7 @@ export function applyAskReply(
     if (!match) {
       return {
         reply: [
-          `当前有 ${pending.length} 个问询待回答，请以 #序号 开头回复，如：#2 <答案>`,
+          mainT(locale, "lark.reply.multiPending", { count: pending.length }),
           ...pending.map((item) => `#${item.seq} ${truncateText(item.question.question, 60)}`),
         ].join("\n"),
         resolvedAskIds: [],
@@ -837,7 +1125,7 @@ export function applyAskReply(
     if (!entry) {
       return {
         reply: [
-          `#${seq} 不是当前待答问询。当前待答：`,
+          mainT(locale, "lark.reply.unknownSeq", { seq }),
           ...pending.map((item) => `#${item.seq} ${truncateText(item.question.question, 60)}`),
         ].join("\n"),
         resolvedAskIds: [],
@@ -854,20 +1142,24 @@ export function applyAskReply(
   }
 
   if (!entry) {
-    return { reply: "当前没有待回答的问询。", resolvedAskIds: [], invalidAskIds: [] };
+    return { reply: mainT(locale, "lark.reply.noPending"), resolvedAskIds: [], invalidAskIds: [] };
   }
 
   const mapped = mapOptionAnswer(answer, entry.question.options);
   const finalAnswer = mapped ?? answer;
   if (resolveAsk(entry.askId, finalAnswer)) {
     return {
-      reply: `✅ 已回答：${truncateText(entry.question.question, 80)}`,
+      reply: mainT(locale, "lark.reply.answered", {
+        question: truncateText(entry.question.question, 80),
+      }),
       resolvedAskIds: [entry.askId],
       invalidAskIds: [],
     };
   }
   return {
-    reply: `该问询已失效（可能已在 Zen 内回答或已取消）：${truncateText(entry.question.question, 80)}`,
+    reply: mainT(locale, "lark.reply.invalid", {
+      question: truncateText(entry.question.question, 80),
+    }),
     resolvedAskIds: [],
     invalidAskIds: [entry.askId],
   };
@@ -882,6 +1174,8 @@ export interface LarkCardActionRecord {
   messageId: string;
   chatId: string;
   actionTag: string;
+  /** 触发组件的 name 属性（form 内按钮靠它区分 确认 btn_ok / 取消 btn_cancel） */
+  actionName: string;
   /** 按钮 behaviors.value 回传（开发者定义的 value，JSON 字符串） */
   actionValue: string;
   /** select_static 单选选中项 value */
@@ -924,6 +1218,7 @@ export function parseCardActionLine(line: string): LarkCardActionRecord | null {
     messageId: str("message_id"),
     chatId: str("chat_id"),
     actionTag: str("action_tag"),
+    actionName: str("action_name"),
     actionValue: str("action_value"),
     option: str("option"),
     options: str("options"),
@@ -933,90 +1228,102 @@ export function parseCardActionLine(line: string): LarkCardActionRecord | null {
   };
 }
 
-/** 从回调记录定位到的问询答案 */
-export interface CardAskAnswer {
+/** 卡片回调解析出的问询动作 */
+export interface CardAskAction {
+  /** answer=提交答案；cancel=取消在飞书回答（问询仍可在 Zen 内回答） */
+  kind: "answer" | "cancel";
   askId: string;
   seq: number;
+  /** 组装好的答案文本（多选顿号拼接；选择+输入并存时以「；」连接）；cancel 时空串 */
   answer: string;
+  /** true = 确认时既未选择也未输入（提示用户补全，不写回） */
+  empty: boolean;
 }
 
-interface MultiAskValues {
-  askId: string;
-  seq: number;
-  answers: string[];
-}
-
-/**
- * 多值字段（form_value.answer / options）→ 选项文本列表。
- * 兼容三种形态：value JSON 数组、多个 value JSON 逗号连接、纯文本逗号/顿号分隔。
- * askId/seq 取第一个可解析的 value JSON。
- */
-function parseMultiAskValues(raw: unknown): MultiAskValues | null {
+/** form_value / options 字段里可能出现的多值形态 → 字符串列表 */
+function toStringList(raw: unknown): string[] {
   const segments = Array.isArray(raw) ? raw : [raw];
-  let askId = "";
-  let seq = 0;
-  const answers: string[] = [];
+  const values: string[] = [];
   for (const segment of segments) {
     if (typeof segment !== "string") {
       continue;
     }
-    const text = segment.trim();
-    if (!text) {
-      continue;
-    }
-    const direct = parseAskActionValue(text);
-    if (direct) {
-      if (!askId) {
-        askId = direct.askId;
-        seq = direct.seq;
-      }
-      answers.push(direct.a);
-      continue;
-    }
-    const embedded = text.match(/\{[^{}]*\}/g) ?? [];
-    let matched = false;
-    for (const chunk of embedded) {
-      const parsed = parseAskActionValue(chunk);
-      if (parsed) {
-        if (!askId) {
-          askId = parsed.askId;
-          seq = parsed.seq;
-        }
-        answers.push(parsed.a);
-        matched = true;
-      }
-    }
-    if (matched) {
-      continue;
-    }
-    for (const part of text.split(/[,，、]/)) {
+    for (const part of segment.split(/[,，]/)) {
       const piece = part.trim();
       if (piece) {
-        answers.push(piece);
+        values.push(piece);
       }
     }
   }
-  return answers.length ? { askId, seq, answers } : null;
+  return values;
 }
 
 /**
- * 按 action_tag 分发提取答案：
- * - select_static：option 即 value JSON 字符串；
- * - button：优先 action_value（普通按钮），否则 form_value.answer（form 提交，多选按「、」拼接）；
+ * 卡片回调 → 问询动作：
+ * - form 提交按钮（action_name=btn_ok/btn_cancel）：form_value.pick（单选/多选）
+ *   + form_value.text（自定义输入）组装答案；askId 优先取 action_value，缺失由
+ *   调用方用 message_id 映射兜底；
+ * - 独立回调按钮（action_value 为 ask 载荷）：直接取答案（兼容旧卡片/测试卡）；
+ * - 独立 select_static / multi_select_static：option(s) 为答案；
  * - 其他 tag 忽略。
  */
-export function extractCardAskAnswer(record: LarkCardActionRecord): CardAskAnswer | null {
-  if (record.actionTag === "select_static") {
+export function extractCardAskAction(
+  record: LarkCardActionRecord,
+  fallback?: { askId: string; seq: number },
+): CardAskAction | null {
+  if (record.actionTag !== "button" && record.actionTag !== "select_static" && record.actionTag !== "multi_select_static") {
+    return null;
+  }
+
+  // 独立 select（未在 form 内提交）：option/options 即选项文本
+  if (record.actionTag === "select_static" && record.option) {
     const value = parseAskActionValue(record.option);
-    return value ? { askId: value.askId, seq: value.seq, answer: value.a } : null;
+    const askId = value?.askId || fallback?.askId || "";
+    const seq = value?.seq ?? fallback?.seq ?? 0;
+    if (value?.a) {
+      return { kind: "answer", askId, seq, answer: value.a, empty: false };
+    }
+    return { kind: "answer", askId, seq, answer: record.option, empty: false };
+  }
+  if (record.actionTag === "multi_select_static" && record.options) {
+    const values = toStringList(record.options).map(
+      (item) => parseAskActionValue(item)?.a ?? item,
+    );
+    const first = parseAskActionValue(toStringList(record.options)[0] ?? "");
+    return {
+      kind: "answer",
+      askId: first?.askId || fallback?.askId || "",
+      seq: first?.seq ?? fallback?.seq ?? 0,
+      answer: values.join("、"),
+      empty: false,
+    };
   }
   if (record.actionTag !== "button") {
     return null;
   }
+
+  // form 提交按钮：优先 action_value（若按钮带回调值），否则走 form_value 组装
   const buttonValue = record.actionValue ? parseAskActionValue(record.actionValue) : null;
   if (buttonValue?.a) {
-    return { askId: buttonValue.askId, seq: buttonValue.seq, answer: buttonValue.a };
+    return {
+      kind: "answer",
+      askId: buttonValue.askId,
+      seq: buttonValue.seq,
+      answer: buttonValue.a,
+      empty: false,
+    };
   }
+
+  if (record.actionName === "btn_cancel") {
+    return {
+      kind: "cancel",
+      askId: buttonValue?.askId || fallback?.askId || "",
+      seq: buttonValue?.seq ?? fallback?.seq ?? 0,
+      answer: "",
+      empty: false,
+    };
+  }
+
   if (!record.formValue) {
     return null;
   }
@@ -1026,19 +1333,18 @@ export function extractCardAskAnswer(record: LarkCardActionRecord): CardAskAnswe
   } catch {
     return null;
   }
-  const answer =
-    form && typeof form === "object" && !Array.isArray(form)
-      ? (form as Record<string, unknown>).answer
-      : undefined;
-  const multi = parseMultiAskValues(answer);
-  if (!multi) {
+  if (!isPlainObject(form)) {
     return null;
   }
-  return {
-    askId: buttonValue?.askId || multi.askId,
-    seq: buttonValue?.seq ?? multi.seq,
-    answer: multi.answers.join("、"),
-  };
+  const askId = buttonValue?.askId || fallback?.askId || "";
+  const seq = buttonValue?.seq ?? fallback?.seq ?? 0;
+  if (record.actionName === "btn_ok" || !record.actionName) {
+    const picks = toStringList(form.pick).map((item) => parseAskActionValue(item)?.a ?? item);
+    const text = typeof form.text === "string" ? form.text.trim() : "";
+    const answer = [picks.join("、"), text].filter(Boolean).join("；");
+    return { kind: "answer", askId, seq, answer, empty: !answer };
+  }
+  return null;
 }
 
 // ---------- 进程管理薄封装（测试通过 deps 注入替身，不打真实网络） ----------
@@ -1076,7 +1382,7 @@ export interface LarkGatewayDeps {
   finalAssistantReply?: (sessionId: string) => string | null;
   /** 替身注入点：默认 spawn lark-cli event consume（eventKey 区分消息/卡片回调两个常驻通道） */
   spawnEvents?: (cliPath: string, eventKey: string) => import("node:child_process").ChildProcess;
-  /** 替身注入点：默认 execFile im +messages-send；cardJson 非空时走 interactive 卡片 */
+  /** 替身注入点：默认 execFile im +messages-send；cardJson 非空时走 interactive 卡片；返回 message_id */
   sendMessage?: (
     cliPath: string,
     /** 接收者 open_id（主通道是绑定的操控者；无权限提示发给事件发送者） */
@@ -1084,9 +1390,11 @@ export interface LarkGatewayDeps {
     markdown: string,
     cardJson: string | undefined,
     idempotencyKey: string,
-  ) => Promise<void>;
+  ) => Promise<string | null>;
   /** 替身注入点：默认 lark-cli api POST /open-apis/interactive/v1/card/update（卡片延迟更新） */
   updateCard?: (cliPath: string, token: string, cardJson: string) => Promise<void>;
+  /** 快捷命令落库（飞书内「添加/删除快捷命令」用；ipc 层写 settings 并广播） */
+  saveQuickCommands?: (commands: LarkQuickCommand[]) => Promise<void>;
   /** 替身注入点：默认 bridge-lock 文件锁（跨进程单实例，防重复处理事件） */
   acquireLock?: () => LarkBridgeLockResult;
   releaseLock?: () => void;
@@ -1116,11 +1424,11 @@ interface ChannelState {
   permanentError: string | null;
 }
 
-function clampSendText(text: string): string {
+function clampSendText(text: string, locale: MainLocale = "zh-CN"): string {
   if (text.length <= MAX_SEND_LENGTH) {
     return text;
   }
-  return `${text.slice(0, MAX_SEND_LENGTH - 6)}\n…（已截断）`;
+  return `${text.slice(0, MAX_SEND_LENGTH - 6)}\n${mainT(locale, "lark.err.truncated")}`;
 }
 
 /**
@@ -1128,12 +1436,16 @@ function clampSendText(text: string): string {
  * 进程固定 code=2 退出）→ 返回面向用户的永久性错误提示；其他行返回 null。
  * eventKey 需与通道一致，防两通道 stderr 串扰。
  */
-export function eventNotSubscribedError(line: string, eventKey: string): string | null {
+export function eventNotSubscribedError(
+  line: string,
+  eventKey: string,
+  locale: MainLocale = "zh-CN",
+): string | null {
   const match = /EventKey (\S+) requires callbacks not subscribed/.exec(line);
   if (!match || match[1] !== eventKey) {
     return null;
   }
-  return `事件 ${eventKey} 未在飞书开放平台订阅回调：请到开放平台应用后台「事件与回调」订阅后，重新启用飞书桥接`;
+  return mainT(locale, "lark.err.notSubscribed", { eventKey });
 }
 
 function defaultSpawnEvents(cliPath: string, eventKey: string): import("node:child_process").ChildProcess {
@@ -1149,7 +1461,7 @@ async function defaultSendMessage(
   markdown: string,
   cardJson: string | undefined,
   idempotencyKey: string,
-): Promise<void> {
+): Promise<string | null> {
   // execFile 不经 shell：markdown/卡片 JSON 里的特殊字符不会被 shell 解释
   const args = ["im", "+messages-send", "--as", "bot", "--user-id", openId];
   if (cardJson) {
@@ -1158,7 +1470,20 @@ async function defaultSendMessage(
     args.push("--markdown", markdown);
   }
   args.push("--idempotency-key", idempotencyKey);
-  await execFileAsync(cliPath, args, { timeout: 15_000 });
+  const { stdout } = await execFileAsync(cliPath, args, { timeout: 15_000 });
+  // stdout 是 CLI 结果 JSON（{ok, data:{message_id}}）：解析出 message_id 供
+  // 问询卡片回调定位归属（form 按钮不携带回调值，必须靠 message_id 映射）
+  try {
+    const parsed: unknown = JSON.parse(String(stdout));
+    const messageId =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? ((parsed as Record<string, unknown>).data as Record<string, unknown> | undefined)
+            ?.message_id
+        : undefined;
+    return typeof messageId === "string" ? messageId : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 卡片延迟更新（card.action.trigger 自带 token，30 分钟有效、最多 2 次）：整体替换卡片 */
@@ -1175,14 +1500,14 @@ async function defaultUpdateCard(cliPath: string, token: string, cardJson: strin
  * 发送失败通知摘要：丢掉 execFile 错误里的整条命令行（含卡片 JSON dump），
  * 只留截断 200 字的错误信息 + Feishu log_id 一行；原始细节由调用方 console.warn。
  */
-export function summarizeSendError(detail: string): string {
+export function summarizeSendError(detail: string, locale: MainLocale = "zh-CN"): string {
   const logId = /\blog_id["']?\s*[:=]\s*"?([A-Za-z0-9_-]+)/i.exec(detail)?.[1];
   const body = detail
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !/^command failed/i.test(line) && !/^\s*at\s+/.test(line))
     .join(" ");
-  const summary = truncateText(body || "发送失败", 200);
+  const summary = truncateText(body || mainT(locale, "lark.err.sendFailed"), 200);
   return logId ? `${summary}\nlog_id: ${logId}` : summary;
 }
 
@@ -1192,10 +1517,14 @@ export class LarkGateway {
   private cliPath: string | null = null;
   private allowedOpenId: string | null = null;
   private stopping = false;
+  /** 用户可见文案的当前语言（start 时读设置一次；读取失败回落 zh-CN） */
+  private locale: MainLocale = "zh-CN";
   /** 两个常驻消费通道的状态（messages / cardActions），按 channel 懒初始化 */
   private readonly channels = new Map<LarkEventChannel, ChannelState>();
   /** askId → 待答问询 */
   private readonly pendingAsks = new Map<string, LarkPendingAsk>();
+  /** 问询卡片 message_id → askId（form 按钮不携带回调值，靠它定位归属） */
+  private readonly askByMessageId = new Map<string, string>();
   /** 本网关刚写回的 askId（ask_resolved 事件到达时不重复提示） */
   private readonly selfResolved = new Set<string>();
   private askSeq = 0;
@@ -1211,11 +1540,13 @@ export class LarkGateway {
   /** 自定义快捷命令（设置变更实时生效） */
   private quickCommands: LarkQuickCommand[] = [];
   private lockHeld = false;
+  /** 锁被其他实例占用（ipc 层据此定时重试：持锁实例退出后自动接管） */
+  private lockBlocked = false;
 
   constructor(private readonly deps: LarkGatewayDeps) {}
 
-  snapshot(): { state: LarkGatewayState; gatewayError: string | null } {
-    return { state: this.state, gatewayError: this.gatewayError };
+  snapshot(): { state: LarkGatewayState; gatewayError: string | null; lockBlocked: boolean } {
+    return { state: this.state, gatewayError: this.gatewayError, lockBlocked: this.lockBlocked };
   }
 
   /**
@@ -1229,6 +1560,8 @@ export class LarkGateway {
     this.allowedOpenId = settings.allowedOpenId;
     // 快捷命令变更无需重启子进程：指令解析实时读最新值
     this.quickCommands = settings.quickCommands ?? [];
+    // 文案语言随启动读一次设置（读取失败回落 zh-CN）
+    this.locale = await currentLocale();
     if (this.state === "starting" || this.state === "ready") {
       return;
     }
@@ -1240,28 +1573,37 @@ export class LarkGateway {
     // 多实例同时消费会重复处理同一条消息（默认 bridge-lock，测试注入替身）
     const lock = (this.deps.acquireLock ?? acquireLarkBridgeLock)();
     if (!lock.ok) {
+      this.lockBlocked = true;
       this.setState(
         "error",
-        `飞书桥接已被另一个 Zen 实例占用（PID ${lock.holderPid ?? "未知"}），本次未启动事件监听；请退出另一实例或关闭其飞书桥接`,
+        mainT(this.locale, "lark.lockOccupied", {
+          pid: lock.holderPid ?? mainT(this.locale, "lark.lockUnknownPid"),
+        }),
       );
       return;
     }
+    this.lockBlocked = false;
     this.lockHeld = true;
     this.cliPath = resolveLarkCliPath();
     if (!this.cliPath) {
       this.releaseBridgeLock();
-      this.setState("error", "未找到 lark-cli 可执行文件，请先安装并登录 @larksuite/cli");
+      this.setState("error", mainT(this.locale, "lark.err.cliNotFound"));
       return;
     }
     const auth = await readLarkAuthSnapshot();
     if (!auth.available) {
       this.releaseBridgeLock();
-      this.setState("error", `lark-cli 不可用：${auth.error ?? "未知原因"}`);
+      this.setState(
+        "error",
+        mainT(this.locale, "lark.err.cliUnavailable", {
+          reason: auth.error ?? mainT(this.locale, "lark.err.unknownReason"),
+        }),
+      );
       return;
     }
     if (!auth.botReady) {
       this.releaseBridgeLock();
-      this.setState("error", "lark-cli bot 身份未就绪，请先运行 lark-cli auth login");
+      this.setState("error", mainT(this.locale, "lark.err.botNotReady"));
       return;
     }
     this.spawnAll();
@@ -1307,7 +1649,27 @@ export class LarkGateway {
       question,
     };
     this.pendingAsks.set(question.askId, entry);
-    void this.sendReply(buildAskPushText(entry, this.pendingAsks.size), buildAskPushCard(entry, this.pendingAsks.size));
+    void this.sendReply(
+      buildAskPushText(entry, this.pendingAsks.size, this.locale),
+      buildAskPushCard(entry, this.pendingAsks.size, this.locale),
+    ).then((messageId) => {
+      // 回填 message_id：表单式卡片的按钮不携带回调值，回调按它定位问询
+      if (messageId) {
+        entry.messageId = messageId;
+        this.askByMessageId.set(messageId, entry.askId);
+      }
+    });
+  }
+
+  /** 待答问询清理（含 message_id 映射） */
+  private dropPendingAsk(askId: string): LarkPendingAsk | undefined {
+    const entry = this.pendingAsks.get(askId);
+    this.pendingAsks.delete(askId);
+    this.selfResolved.delete(askId);
+    if (entry?.messageId) {
+      this.askByMessageId.delete(entry.messageId);
+    }
+    return entry;
   }
 
   /** ask_resolved 事件（含非飞书渠道回答）：移除待答；非本网关写回的补一条提示 */
@@ -1315,11 +1677,11 @@ export class LarkGateway {
     if (!this.pendingAsks.has(askId)) {
       return;
     }
-    this.pendingAsks.delete(askId);
-    if (this.selfResolved.delete(askId)) {
+    this.dropPendingAsk(askId);
+    if (this.selfResolved.has(askId)) {
       return;
     }
-    void this.sendReply("ℹ️ 该问询已在 Zen 内回答");
+    void this.sendReply(mainT(this.locale, "lark.ask.resolvedElsewhere"));
   }
 
   /** 「对话」/续聊启动成功后登记会话：done 时推送最终回复摘要，并绑定为当前续聊会话 */
@@ -1333,8 +1695,7 @@ export class LarkGateway {
   onSessionDone(sessionId: string): void {
     for (const [askId, entry] of this.pendingAsks) {
       if (entry.sessionId === sessionId) {
-        this.pendingAsks.delete(askId);
-        this.selfResolved.delete(askId);
+        this.dropPendingAsk(askId);
       }
     }
     const title = this.larkSessions.get(sessionId);
@@ -1344,8 +1705,16 @@ export class LarkGateway {
     this.larkSessions.delete(sessionId);
     // emitTo 先喂网关再同步落库（persistRun），微任务里最终助手消息已持久化
     queueMicrotask(() => {
-      const reply = this.deps.finalAssistantReply?.(sessionId)?.trim() || "（无文本回复）";
-      void this.sendReply(`✅ ${title} 已完成\n${truncateText(reply, 800)}`, buildSessionDoneCard(title, reply));
+      const reply =
+        this.deps.finalAssistantReply?.(sessionId)?.trim() ||
+        mainT(this.locale, "lark.session.noReply");
+      void this.sendReply(
+        mainT(this.locale, "lark.session.donePush", {
+          title,
+          reply: truncateText(reply, 800),
+        }),
+        buildSessionDoneCard(title, reply, this.locale),
+      );
     });
   }
 
@@ -1440,7 +1809,9 @@ export class LarkGateway {
       }
       this.handleUnexpectedExit(
         channel,
-        signal ? `进程被信号终止（${signal}）` : `进程异常退出（code=${code ?? "null"}）`,
+        signal
+          ? mainT(this.locale, "lark.err.killedBySignal", { signal })
+          : mainT(this.locale, "lark.err.exited", { code: code ?? "null" }),
       );
     });
   }
@@ -1513,7 +1884,7 @@ export class LarkGateway {
       await (this.deps.sendMessage ?? defaultSendMessage)(
         cliPath,
         recipientOpenId,
-        "⛔ 无权限：仅绑定的飞书用户可操控 Zen。",
+        mainT(this.locale, "lark.unauthorized"),
         undefined,
         randomUUID(),
       );
@@ -1539,7 +1910,7 @@ export class LarkGateway {
         }
         continue;
       }
-      const notSubscribed = eventNotSubscribedError(trimmed, EVENT_KEYS[channel]);
+      const notSubscribed = eventNotSubscribedError(trimmed, EVENT_KEYS[channel], this.locale);
       if (notSubscribed) {
         state.permanentError = notSubscribed;
       }
@@ -1572,11 +1943,20 @@ export class LarkGateway {
       const tail = state.stderrTail.slice(-5).join(" | ");
       this.setState(
         "error",
-        `飞书事件监听连续 ${state.consecutiveFailures} 次异常退出（${reason}）${tail ? `：${tail}` : ""}`,
+        mainT(this.locale, "lark.err.consecutiveFailures", {
+          count: state.consecutiveFailures,
+          reason,
+        }) + (tail ? `：${tail}` : ""),
       );
       return;
     }
-    this.setState("starting", `事件监听退出（${reason}），${RESTART_DELAY_MS / 1000}s 后重试`);
+    this.setState(
+      "starting",
+      mainT(this.locale, "lark.err.restartDelay", {
+        reason,
+        seconds: RESTART_DELAY_MS / 1000,
+      }),
+    );
     state.restartTimer = setTimeout(() => {
       state.restartTimer = null;
       if (this.stopping) {
@@ -1586,7 +1966,7 @@ export class LarkGateway {
     }, RESTART_DELAY_MS);
   }
 
-  /** card.action.trigger 通道：event_id 去重 → operator 鉴权（非白名单静默）→ 写回答案 */
+  /** card.action.trigger 通道：event_id 去重 → operator 鉴权（非白名单静默）→ 分发动作 */
   private handleCardActionLine(line: string): void {
     const record = parseCardActionLine(line);
     if (!record) {
@@ -1598,11 +1978,26 @@ export class LarkGateway {
     if (!this.allowedOpenId || record.operatorId !== this.allowedOpenId) {
       return;
     }
-    const answer = extractCardAskAnswer(record);
-    if (answer && answer.answer.trim()) {
-      void this.applyCardAskAnswer(answer, record.token).catch((error) => {
+    // 表单按钮不携带回调值：按卡片 message_id 映射兜底定位问询
+    const mappedAskId = this.askByMessageId.get(record.messageId);
+    const mappedEntry = mappedAskId ? this.pendingAsks.get(mappedAskId) : undefined;
+    const fallback = mappedEntry ? { askId: mappedEntry.askId, seq: mappedEntry.seq } : undefined;
+    const action = extractCardAskAction(record, fallback);
+    if (action && (action.kind === "cancel" || !action.empty)) {
+      void this.applyCardAskAction(action, record.token).catch((error) => {
         console.warn("[lark] 处理卡片回调失败:", error);
       });
+      return;
+    }
+    if (action?.empty) {
+      // 确认时既未选择也未输入：提示补全（不写回）
+      void this.sendReply(
+        mappedEntry
+          ? mainT(this.locale, "lark.ask.emptyReply", {
+              question: truncateText(mappedEntry.question.question, 60),
+            })
+          : mainT(this.locale, "lark.ask.emptyReplyBare"),
+      );
       return;
     }
     // 菜单卡片按钮：等价于用户直接输入指令/快捷命令文本
@@ -1614,25 +2009,49 @@ export class LarkGateway {
     }
   }
 
-  /** 按 askId 定位问询并写回；成功后用延迟更新 token 把卡片替换为已回答状态 */
-  private async applyCardAskAnswer(answer: CardAskAnswer, token: string): Promise<void> {
-    const entry = this.pendingAsks.get(answer.askId);
-    if (this.deps.resolveAsk(answer.askId, answer.answer)) {
+  /**
+   * 卡片问询动作落地：
+   * - cancel：更新卡片为「已取消」，移除待答（问询仍可在 Zen 内回答）并回执；
+   * - answer：写回会话；成功后卡片替换为「已回答」，失败回失效提示。
+   */
+  private async applyCardAskAction(action: CardAskAction, token: string): Promise<void> {
+    const entry = this.pendingAsks.get(action.askId);
+    if (action.kind === "cancel") {
       if (entry) {
-        this.pendingAsks.delete(answer.askId);
-        this.selfResolved.add(answer.askId);
-        await this.updateCardQuietly(token, buildAskAnsweredCard(entry, answer.answer));
+        this.dropPendingAsk(action.askId);
+        await this.updateCardQuietly(token, buildAskCancelledCard(entry, this.locale));
+        await this.sendReply(
+          mainT(this.locale, "lark.ask.cancelledReply", {
+            question: truncateText(entry.question.question, 80),
+          }),
+        );
+        return;
+      }
+      await this.sendReply(mainT(this.locale, "lark.reply.invalidBare"));
+      return;
+    }
+    if (this.deps.resolveAsk(action.askId, action.answer)) {
+      if (entry) {
+        this.dropPendingAsk(action.askId);
+        this.selfResolved.add(action.askId);
+        await this.updateCardQuietly(token, buildAskAnsweredCard(entry, action.answer, this.locale));
       }
       await this.sendReply(
-        entry ? `✅ 已回答：${truncateText(entry.question.question, 80)}` : "✅ 已回答",
+        entry
+          ? mainT(this.locale, "lark.reply.answered", {
+              question: truncateText(entry.question.question, 80),
+            })
+          : mainT(this.locale, "lark.answer.okBare"),
       );
       return;
     }
-    this.pendingAsks.delete(answer.askId);
+    this.dropPendingAsk(action.askId);
     await this.sendReply(
       entry
-        ? `该问询已失效（可能已在 Zen 内回答或已取消）：${truncateText(entry.question.question, 80)}`
-        : "该问询已失效（可能已在 Zen 内回答或已取消）",
+        ? mainT(this.locale, "lark.reply.invalid", {
+            question: truncateText(entry.question.question, 80),
+          })
+        : mainT(this.locale, "lark.reply.invalidBare"),
     );
   }
 
@@ -1651,7 +2070,9 @@ export class LarkGateway {
   /** 指令回复：有待答问询被指令打断时，末尾提醒剩余待答数量 */
   private async sendCommandReply(text: string, card?: LarkCard | LarkCard2): Promise<void> {
     const count = this.pendingAsks.size;
-    const reminder = count ? `\n⚠️ 还有 ${count} 个问询未回答，回复 #序号 可回答` : "";
+    const reminder = count
+      ? `\n${mainT(this.locale, "lark.cmd.pendingReminder", { count })}`
+      : "";
     await this.sendReply(text + reminder, card);
   }
 
@@ -1660,23 +2081,55 @@ export class LarkGateway {
     // ③ 无待答时续聊当前绑定会话；④ 无绑定会话才新建
     const command = parseLarkCommand(text);
     if (command === "sessions") {
-      await this.sendCommandReply(buildSessionsReply(this.deps.listSessions(10)));
+      await this.sendCommandReply(
+        buildSessionsReply(this.deps.listSessions(10), Date.now(), this.locale),
+      );
       return;
     }
     if (command === "status") {
       await this.sendCommandReply(
-        buildStatusReply(this.deps.listSessions(50), (sessionId) =>
-          this.firstPendingQuestion(sessionId),
+        buildStatusReply(
+          this.deps.listSessions(50),
+          (sessionId) => this.firstPendingQuestion(sessionId),
+          Date.now(),
+          this.locale,
         ),
       );
       return;
     }
     if (command === "help") {
-      await this.sendCommandReply(buildHelpReply(this.quickCommands), buildMenuCard(this.quickCommands));
+      await this.sendCommandReply(
+        buildHelpReply(this.quickCommands, this.locale),
+        buildMenuCard(this.quickCommands, this.locale),
+      );
       return;
     }
     if (command === "projects") {
-      await this.sendCommandReply(buildProjectsReply(this.deps.listProjects?.() ?? []));
+      await this.sendCommandReply(
+        buildProjectsReply(this.deps.listProjects?.() ?? [], Date.now(), this.locale),
+        buildListCard({
+          title: mainT(this.locale, "lark.projects.header"),
+          template: "wathet",
+          emptyText: mainT(this.locale, "lark.projects.empty"),
+          items: (this.deps.listProjects?.() ?? []).map((project) => ({
+            title: `**${project.name}**`,
+            subtitle: `<font color='grey'>${project.path} · ${formatRelativeTime(project.lastActiveAt, Date.now(), this.locale)}</font>`,
+          })),
+        }),
+      );
+      return;
+    }
+    if (command === "quick") {
+      await this.sendCommandReply(
+        [mainT(this.locale, "lark.quick.header"), ...buildQuickCommandLines(this.quickCommands, this.locale)].join("\n") ||
+          mainT(this.locale, "lark.quick.cardEmpty"),
+        buildQuickManageCard(this.quickCommands, this.locale),
+      );
+      return;
+    }
+    const quickManage = parseQuickManageCommand(text);
+    if (quickManage) {
+      await this.handleQuickManage(quickManage);
       return;
     }
     const projectCommand = parseProjectCommand(text);
@@ -1696,7 +2149,7 @@ export class LarkGateway {
     }
     const pending = [...this.pendingAsks.values()];
     if (pending.length) {
-      const result = applyAskReply(text, pending, this.deps.resolveAsk);
+      const result = applyAskReply(text, pending, this.deps.resolveAsk, this.locale);
       for (const askId of result.resolvedAskIds) {
         this.pendingAsks.delete(askId);
         this.selfResolved.add(askId);
@@ -1720,8 +2173,8 @@ export class LarkGateway {
       const known = this.quickCommands.map((item) => `/${item.alias}`).join("、");
       await this.sendCommandReply(
         known
-          ? `❓ 未识别的快捷命令 /${quick.alias}。可用：${known}`
-          : `❓ 未识别的快捷命令 /${quick.alias}（尚未配置快捷命令，在 Zen 设置 → 飞书桥接 配置）`,
+          ? mainT(this.locale, "lark.quick.unknown", { alias: quick.alias, known })
+          : mainT(this.locale, "lark.quick.noneConfigured", { alias: quick.alias }),
       );
       return;
     }
@@ -1735,19 +2188,92 @@ export class LarkGateway {
     await this.handlePlainMessage(expanded, false);
   }
 
+  /**
+   * 快捷命令管理指令执行（飞书内直接增删）：
+   * - quick-add：校验别名/提示词 → 更新内存清单 → 落库（settings 广播给所有实例）→ 回管理卡片；
+   * - quick-del：命中移除 → 落库 → 回管理卡片；未命中回提示。
+   */
+  private async handleQuickManage(cmd: ParsedQuickManageCommand): Promise<void> {
+    const alias = cmd.alias.trim().toLowerCase();
+    if (cmd.kind === "quick-add") {
+      if (!alias || !cmd.prompt.trim()) {
+        await this.sendCommandReply(mainT(this.locale, "lark.quick.usageAdd"));
+        return;
+      }
+      if (!/^[^\s/]+$/.test(alias)) {
+        await this.sendCommandReply(mainT(this.locale, "lark.quick.invalidAlias", { alias }));
+        return;
+      }
+      const existing = this.quickCommands.find((item) => item.alias.toLowerCase() === alias);
+      const entry: LarkQuickCommand = {
+        id: existing?.id ?? `qc-${Date.now()}`,
+        alias,
+        label: existing?.label ?? alias,
+        prompt: cmd.prompt.trim(),
+      };
+      const next = existing
+        ? this.quickCommands.map((item) => (item.id === existing.id ? entry : item))
+        : [...this.quickCommands, entry];
+      try {
+        await this.deps.saveQuickCommands?.(next);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        await this.sendCommandReply(
+          mainT(this.locale, "lark.quick.saveFailed", { error: truncateText(detail, 200) }),
+        );
+        return;
+      }
+      this.quickCommands = next;
+      await this.sendCommandReply(
+        existing
+          ? mainT(this.locale, "lark.quick.updated", { alias })
+          : mainT(this.locale, "lark.quick.added", { alias }),
+        buildQuickManageCard(this.quickCommands, this.locale),
+      );
+      return;
+    }
+    // quick-del
+    const hit = this.quickCommands.find((item) => item.alias.toLowerCase() === alias);
+    if (!hit) {
+      await this.sendCommandReply(mainT(this.locale, "lark.quick.notFound", { alias }));
+      return;
+    }
+    const next = this.quickCommands.filter((item) => item.id !== hit.id);
+    try {
+      await this.deps.saveQuickCommands?.(next);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.sendCommandReply(
+        mainT(this.locale, "lark.quick.saveFailed", { error: truncateText(detail, 200) }),
+      );
+      return;
+    }
+    this.quickCommands = next;
+    await this.sendCommandReply(
+      mainT(this.locale, "lark.quick.deleted", { alias }),
+      buildQuickManageCard(this.quickCommands, this.locale),
+    );
+  }
+
   /** 非指令普通文本：续聊当前绑定会话（forceNew 跳过续聊直接新建）；绑定会话失效时回退新建 */
   private async handlePlainMessage(message: string, forceNew: boolean): Promise<void> {
     if (!forceNew && this.currentSessionId && this.deps.continueChat) {
       const result = await this.deps.continueChat(this.currentSessionId, message);
       if (result.ok) {
         await this.sendReply(
-          `💬 已继续会话「${result.title ?? this.currentSessionTitle}」：${truncateText(message, 80)}\n运行期间可发送「状态」查看进度。`,
+          mainT(this.locale, "lark.chat.continued", {
+            title: result.title ?? this.currentSessionTitle,
+            message: truncateText(message, 80),
+            progress: mainT(this.locale, "lark.chat.progressNote"),
+          }),
         );
         return;
       }
       if (result.reason !== "missing") {
         // busy 等：保留绑定，等运行结束后再续聊
-        await this.sendReply(`❌ ${result.error ?? "续聊失败"}`);
+        await this.sendReply(
+          `❌ ${result.error ?? mainT(this.locale, "lark.chat.continueFailed")}`,
+        );
         return;
       }
       // 会话已归档/删除：解绑并回退新建
@@ -1755,35 +2281,41 @@ export class LarkGateway {
       this.currentSessionTitle = "";
     }
     if (!this.deps.startChat) {
-      await this.sendReply("网关未装配会话启动能力。");
+      await this.sendReply(mainT(this.locale, "lark.chat.noStartChat"));
       return;
     }
-    const hint = forceNew ? "" : "\n发送「新会话 <内容>」可另起会话";
+    const hint = forceNew ? "" : `\n${mainT(this.locale, "lark.chat.newHint")}`;
     await this.sendReply(
-      `🚀 已在公共区开始新会话：${truncateText(message, 80)}${hint}\n运行期间可发送「状态」查看进度。`,
+      `${mainT(this.locale, "lark.chat.started", {
+        message: truncateText(message, 80),
+      })}${hint}\n${mainT(this.locale, "lark.chat.progressNote")}`,
     );
     const result = await this.deps.startChat(null, message);
     if (!result.ok) {
-      await this.sendReply(`❌ 会话启动失败：${result.error ?? "未知原因"}`);
+      await this.sendReply(
+        mainT(this.locale, "lark.chat.startFailed", {
+          error: result.error ?? mainT(this.locale, "lark.err.unknownReason"),
+        }),
+      );
     }
   }
 
   /** 带参数指令执行；返回要回复的文案，null 表示已自行发送回复 */
   private async handleProjectCommand(cmd: ParsedProjectCommand): Promise<string | null> {
     if (cmd.kind === "chat" && (!cmd.project || !cmd.arg)) {
-      return buildProjectCommandUsage("chat");
+      return buildProjectCommandUsage("chat", this.locale);
     }
     if (cmd.kind === "branches" && !cmd.project) {
-      return buildProjectCommandUsage("branches");
+      return buildProjectCommandUsage("branches", this.locale);
     }
     if (cmd.kind === "checkout" && (!cmd.project || !cmd.arg)) {
-      return buildProjectCommandUsage("checkout");
+      return buildProjectCommandUsage("checkout", this.locale);
     }
     if (cmd.kind === "commit" && !cmd.project) {
-      return buildProjectCommandUsage("commit");
+      return buildProjectCommandUsage("commit", this.locale);
     }
     if ((cmd.kind === "new" || cmd.kind === "continue") && !cmd.arg) {
-      return buildProjectCommandUsage(cmd.kind);
+      return buildProjectCommandUsage(cmd.kind, this.locale);
     }
     if (cmd.kind === "new") {
       await this.handlePlainMessage(cmd.arg, true);
@@ -1791,7 +2323,7 @@ export class LarkGateway {
     }
     if (cmd.kind === "continue") {
       if (!this.currentSessionId) {
-        return "当前没有绑定的会话，发送普通消息可新建，或用「新会话 <消息>」明确新建。";
+        return mainT(this.locale, "lark.continue.noBinding");
       }
       await this.handlePlainMessage(cmd.arg, false);
       return null;
@@ -1800,27 +2332,37 @@ export class LarkGateway {
     const projects = this.deps.listProjects?.() ?? [];
     const matches = matchProjectSummaries(cmd.project, projects);
     if (!matches.length) {
-      return `未找到匹配「${truncateText(cmd.project, 40)}」的项目。\n\n${buildProjectsReply(projects)}`;
+      return mainT(this.locale, "lark.project.notFound", {
+        query: truncateText(cmd.project, 40),
+        list: buildProjectsReply(projects, Date.now(), this.locale),
+      });
     }
     if (matches.length > 1) {
-      return buildProjectCandidatesReply(cmd.project, matches);
+      return buildProjectCandidatesReply(cmd.project, matches, Date.now(), this.locale);
     }
     const project = matches[0]!;
     if (!project.path) {
-      return `项目「${project.name}」没有本地路径。`;
+      return mainT(this.locale, "lark.project.noPath", { name: project.name });
     }
 
     if (cmd.kind === "chat") {
       if (!this.deps.startChat) {
-        return "网关未装配会话启动能力。";
+        return mainT(this.locale, "lark.chat.noStartChat");
       }
       // 立即回执，不等 run 结束；运行状态走「状态」查询，完成后由网关推送摘要
       await this.sendReply(
-        `🚀 已在「${project.name}」开始新会话：${truncateText(cmd.arg, 80)}\n运行期间可发送「状态」查看进度。`,
+        `${mainT(this.locale, "lark.chat.startedInProject", {
+          name: project.name,
+          message: truncateText(cmd.arg, 80),
+        })}\n${mainT(this.locale, "lark.chat.progressNote")}`,
       );
       const result = await this.deps.startChat(project.path, cmd.arg);
       if (!result.ok) {
-        await this.sendReply(`❌ 会话启动失败：${result.error ?? "未知原因"}`);
+        await this.sendReply(
+          mainT(this.locale, "lark.chat.startFailed", {
+            error: result.error ?? mainT(this.locale, "lark.err.unknownReason"),
+          }),
+        );
       }
       return null;
     }
@@ -1828,10 +2370,12 @@ export class LarkGateway {
     if (cmd.kind === "branches") {
       try {
         const branches = await (this.deps.listBranches ?? defaultListBranches)(project.path);
-        return buildBranchesReply(project, branches);
+        return buildBranchesReply(project, branches, this.locale);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return `🌿 获取分支失败：${truncateText(message, 300)}`;
+        return mainT(this.locale, "lark.branch.fetchFailed", {
+          error: truncateText(message, 300),
+        });
       }
     }
 
@@ -1841,36 +2385,43 @@ export class LarkGateway {
         cmd.arg,
       );
       if (result.ok) {
-        return `✅ 已切换到分支 ${cmd.arg}（${project.name}）`;
+        return mainT(this.locale, "lark.checkout.ok", { branch: cmd.arg, project: project.name });
       }
       if (result.dirty) {
         return [
-          `⚠️ ${project.name} 有未提交变更，已拒绝切换分支。`,
-          `请先发送「提交 ${cmd.project} <说明>」保存代码，再切换分支。`,
+          mainT(this.locale, "lark.checkout.dirty1", { name: project.name }),
+          mainT(this.locale, "lark.checkout.dirty2", { project: cmd.project }),
           "",
           truncateText(result.error ?? "", 500),
         ].join("\n");
       }
-      return `❌ 切换失败：${result.error ?? "未知原因"}`;
+      return mainT(this.locale, "lark.checkout.failed", {
+        error: result.error ?? mainT(this.locale, "lark.err.unknownReason"),
+      });
     }
 
     // commit：缺省说明时用默认文案（提交信息尾部仍注明 via Zen/飞书）
     const result = await (this.deps.commitProject ?? defaultCommitAll)(
       project.path,
-      cmd.arg || "Zen 飞书提交",
+      cmd.arg || mainT(this.locale, "lark.commit.default"),
     );
     if (result.ok) {
-      return `✅ 已提交（${project.name}）\n${result.summary ?? ""}`;
+      return mainT(this.locale, "lark.commit.ok", {
+        project: project.name,
+        summary: result.summary ?? "",
+      });
     }
     if (result.clean) {
-      return `📭 ${project.name} 没有可提交的变更。`;
+      return mainT(this.locale, "lark.commit.clean", { name: project.name });
     }
-    return `❌ 提交失败：${result.error ?? "未知原因"}`;
+    return mainT(this.locale, "lark.commit.failed", {
+      error: result.error ?? mainT(this.locale, "lark.err.unknownReason"),
+    });
   }
 
-  /** 指令回复发送；可带卡片（1.0 或 2.0），卡片超长或上次发送失败时降级纯文本 */
-  private async sendReply(text: string, card?: LarkCard | LarkCard2): Promise<void> {
-    await this.sendOutgoing(text, card);
+  /** 指令回复发送；返回发出消息的 message_id（问询卡片靠它回填回调映射） */
+  private async sendReply(text: string, card?: LarkCard | LarkCard2): Promise<string | null> {
+    return await this.sendOutgoing(text, card);
   }
 
   async sendMarkdown(text: string): Promise<void> {
@@ -1878,7 +2429,7 @@ export class LarkGateway {
   }
 
   /** 出站发送：优先卡片；序列化超长或上一次发送失败时降级为纯文本（失败提示前置） */
-  private async sendOutgoing(markdown: string, card?: LarkCard | LarkCard2): Promise<void> {
+  private async sendOutgoing(markdown: string, card?: LarkCard | LarkCard2): Promise<string | null> {
     const notice = this.lastSendError;
     this.lastSendError = null;
     let cardJson: string | undefined;
@@ -1887,20 +2438,23 @@ export class LarkGateway {
       // 超出 CLI 单条消息长度上限：放弃卡片走纯文本（clampSendText 统一截断）
       cardJson = json.length <= MAX_SEND_LENGTH ? json : undefined;
     }
-    const body = notice ? `⚠️ 上一条消息发送失败：${notice}\n\n${markdown}` : markdown;
-    await this.sendOutgoingRaw(cardJson ? markdown : clampSendText(body), cardJson);
+    const body = notice
+      ? `${mainT(this.locale, "lark.send.prevFailed", { notice })}\n\n${markdown}`
+      : markdown;
+    return await this.sendOutgoingRaw(cardJson ? markdown : clampSendText(body, this.locale), cardJson);
   }
 
-  private async sendOutgoingRaw(markdown: string, cardJson?: string): Promise<void> {
+  private async sendOutgoingRaw(markdown: string, cardJson?: string): Promise<string | null> {
     const cliPath = this.cliPath;
     const openId = this.allowedOpenId;
     if (!cliPath || !openId) {
       // 未锁定允许的飞书用户时无处可发：记录原因，不抛错
-      this.lastSendError = this.lastSendError ?? "未配置允许操控 zen 的飞书用户";
-      return;
+      this.lastSendError =
+        this.lastSendError ?? mainT(this.locale, "lark.send.noRecipient");
+      return null;
     }
     try {
-      await (this.deps.sendMessage ?? defaultSendMessage)(
+      return await (this.deps.sendMessage ?? defaultSendMessage)(
         cliPath,
         openId,
         markdown,
@@ -1911,31 +2465,35 @@ export class LarkGateway {
       const message = error instanceof Error ? error.message : String(error);
       // 原始细节（含命令行/卡片 JSON）只进主进程日志，通知走短摘要
       console.warn("[lark] 飞书消息发送失败:", message);
-      this.lastSendError = summarizeSendError(message);
+      this.lastSendError = summarizeSendError(message, this.locale);
+      return null;
     }
   }
 
   /** 发送测试问询卡片（设置页验证按钮回调）；假 askId，回调写回会回「该问询已失效」，属预期 */
   sendTestAskCard(): { ok: boolean; error?: string } {
     if (!this.cliPath || !this.allowedOpenId) {
-      return { ok: false, error: "请先启用飞书桥接并绑定操控者" };
+      return { ok: false, error: mainT(this.locale, "lark.test.notEnabled") };
     }
     const entry: LarkPendingAsk = {
       askId: `test-${randomUUID()}`,
       sessionId: "",
-      sessionTitle: "测试问询",
+      sessionTitle: mainT(this.locale, "lark.test.title"),
       seq: 0,
       question: {
         askId: `test-${randomUUID()}`,
         toolCallId: "test",
-        question: "这是一条测试问询卡片：点击按钮或回复选项编号，验证卡片交互是否生效。",
-        options: ["选项 A", "选项 B"],
+        question: mainT(this.locale, "lark.test.question"),
+        options: [mainT(this.locale, "lark.test.optionA"), mainT(this.locale, "lark.test.optionB")],
         allowFreeText: true,
       },
     };
     entry.question.askId = entry.askId;
     // 不入 pendingAsks：测试卡片不占用真实问询回复路由
-    void this.sendReply(buildAskPushText(entry, 1), buildAskPushCard(entry, 1));
+    void this.sendReply(
+      buildAskPushText(entry, 1, this.locale),
+      buildAskPushCard(entry, 1, this.locale),
+    );
     return { ok: true };
   }
 }

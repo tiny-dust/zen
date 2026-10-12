@@ -2,6 +2,7 @@
 import { Download, Pencil, Plus, RefreshCw, ScanSearch, Trash2, Wand2, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import type { McpDiscoveredServer, McpServerConfig, McpServerPreset, McpTranspor
  * 预设目录覆盖官方与知名托管服务，选中即预填，占位参数由用户补全；
  * 也可扫描当前仓库与系统里已有的 MCP 配置（Claude Code / Desktop / Cursor 等）一键导入。
  */
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
@@ -89,7 +91,7 @@ function setTransport(transport: McpTransport) {
 function buildConfigFromForm(): { config: McpServerConfig } | { error: string } {
   const name = form.value.name.trim();
   if (!name) {
-    return { error: "请填写服务名称" };
+    return { error: t("settings.mcp.errName") };
   }
   const base = {
     id: `${name}-${Date.now().toString(36)}`,
@@ -100,7 +102,7 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
   if (form.value.transport === "stdio") {
     const commandLine = form.value.command.trim();
     if (!commandLine) {
-      return { error: "请填写启动命令" };
+      return { error: t("settings.mcp.errCommand") };
     }
     const [cmd, ...args] = commandLine.split(/\s+/);
     let env: Record<string, string> | undefined;
@@ -109,14 +111,14 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
       try {
         env = JSON.parse(envRaw) as Record<string, string>;
       } catch {
-        return { error: "环境变量不是合法 JSON，例如 {\"API_KEY\":\"xxx\"}" };
+        return { error: t("settings.mcp.errEnvJson") };
       }
     }
     return { config: { ...base, command: cmd ?? commandLine, args, env } };
   }
   const url = form.value.url.trim();
   if (!/^https?:\/\//.test(url)) {
-    return { error: "请填写 http(s):// 开头的服务地址" };
+    return { error: t("settings.mcp.errUrl") };
   }
   let headers: Record<string, string> | undefined;
   const raw = form.value.headers.trim();
@@ -124,7 +126,7 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
     try {
       headers = JSON.parse(raw) as Record<string, string>;
     } catch {
-      return { error: "请求头不是合法 JSON，例如 {\"Authorization\":\"Bearer xxx\"}" };
+      return { error: t("settings.mcp.errHeadersJson") };
     }
   }
   return { config: { ...base, url, headers } };
@@ -228,8 +230,8 @@ async function runScan() {
     scanned.value = found;
     const imported = found.filter((item) => !item.alreadyImported).length;
     scannedNote.value = found.length
-      ? `发现 ${found.length} 个服务，其中 ${imported} 个未导入`
-      : "没有在当前仓库或系统里发现 MCP 配置";
+      ? t("settings.mcp.scanFound", { total: found.length, count: imported })
+      : t("settings.mcp.scanNone");
   } finally {
     scanBusy.value = false;
   }
@@ -250,7 +252,7 @@ async function importDiscovered(item: McpDiscoveredServer) {
       ? { ...found, alreadyImported: true }
       : found,
   );
-  scannedNote.value = `已导入 ${item.config.name}`;
+  scannedNote.value = t("settings.mcp.importedNote", { name: item.config.name });
 }
 
 function stateBadge(state: string): "secondary" | "outline" | "default" {
@@ -265,22 +267,18 @@ function stateBadge(state: string): "secondary" | "outline" | "default" {
 
 function stateLabel(state: string): string {
   if (state === "running") {
-    return "运行中";
+    return t("settings.mcp.state.running");
   }
   if (state === "error") {
-    return "异常";
+    return t("settings.mcp.state.error");
   }
   if (state === "starting") {
-    return "启动中";
+    return t("settings.mcp.state.starting");
   }
-  return "已停止";
+  return t("settings.mcp.state.stopped");
 }
 
-const transportLabel: Record<McpTransport, string> = {
-  stdio: "stdio 本地",
-  sse: "SSE 旧版",
-  http: "HTTP 新版",
-};
+const transportLabel = (transport: McpTransport): string => t(`settings.mcp.transport.${transport}`);
 
 function endpointText(config: McpServerConfig): string {
   if (config.transport === "stdio") {
@@ -293,24 +291,23 @@ function endpointText(config: McpServerConfig): string {
 <template>
   <div class="flex flex-col gap-5">
     <p class="m-0 text-[12px] text-[var(--color-mut)]">
-      工具会以 <code
+      {{ t("settings.mcp.introA") }}<code
         class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]"
-      >mcp.服务器.工具</code> 的形式接入 Agent；配置持久化在 ~/.zen/mcp.json。支持
-      stdio 本地进程、SSE 旧版远程与 Streamable HTTP 新版远程三种传输。
+      >{{ t("settings.mcp.toolPattern") }}</code>{{ t("settings.mcp.introB") }}
     </p>
 
     <!-- 预设目录 -->
     <section class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-          知名服务预设
+          {{ t("settings.mcp.presetsTitle") }}
         </h3>
         <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
-          <RefreshCw :size="13" data-icon="inline-start" />重新连接
+          <RefreshCw :size="13" data-icon="inline-start" />{{ t("settings.mcp.reconnect") }}
         </Button>
       </div>
       <p class="m-0 text-[11px] text-[var(--color-dim)]">
-        点击即预填表单；带 {path}/{token} 占位或需 OAuth 的服务，补全后添加。
+        {{ t("settings.mcp.presetsDesc") }}
       </p>
       <div class="flex flex-wrap gap-1.5">
         <Button
@@ -324,7 +321,7 @@ function endpointText(config: McpServerConfig): string {
           <Wand2 :size="11" class="flex-none opacity-60 group-hover:opacity-100" />
           <span class="font-medium">{{ preset.name }}</span>
           <span class="text-[10px] text-[var(--color-dim)]">
-            {{ transportLabel[preset.transport] }}
+            {{ transportLabel(preset.transport) }}
           </span>
         </Button>
       </div>
@@ -334,16 +331,15 @@ function endpointText(config: McpServerConfig): string {
     <section class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-          扫描已有服务
+          {{ t("settings.mcp.scanTitle") }}
         </h3>
         <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
           <ScanSearch :size="13" data-icon="inline-start" />
-          {{ scanBusy ? "扫描中…" : "扫描当前仓库与系统" }}
+          {{ scanBusy ? t("settings.mcp.scanning") : t("settings.mcp.scan") }}
         </Button>
       </div>
       <p class="m-0 text-[11px] text-[var(--color-dim)]">
-        检查当前仓库的 .mcp.json / .vscode/mcp.json，以及 Claude Code、Claude Desktop、Cursor、
-        Windsurf、VS Code 的用户级配置，发现后可一键导入。
+        {{ t("settings.mcp.scanDesc") }}
       </p>
       <p v-if="scannedNote" class="m-0 text-[11px] text-[var(--color-mut)]">
         {{ scannedNote }}
@@ -366,12 +362,12 @@ function endpointText(config: McpServerConfig): string {
             v-if="!item.alreadyImported"
             variant="ghost"
             size="sm"
-            :aria-label="`导入 ${item.config.name}`"
+            :aria-label="t('settings.mcp.importAria', { name: item.config.name })"
             @click="importDiscovered(item)"
           >
-            <Download :size="12" data-icon="inline-start" />导入
+            <Download :size="12" data-icon="inline-start" />{{ t("settings.mcp.import") }}
           </Button>
-          <Badge v-else variant="secondary" class="flex-none text-[10px]">已导入</Badge>
+          <Badge v-else variant="secondary" class="flex-none text-[10px]">{{ t("settings.mcp.importedTag") }}</Badge>
         </div>
       </div>
     </section>
@@ -380,10 +376,10 @@ function endpointText(config: McpServerConfig): string {
     <section class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
       <div class="flex items-center justify-between gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
-          {{ editingId ? "编辑服务" : "添加服务" }}
+          {{ editingId ? t("settings.mcp.editService") : t("settings.mcp.addService") }}
         </h3>
         <Badge v-if="appliedPreset" variant="secondary" class="text-[10px]">
-          预设：{{ appliedPreset.name }}
+          {{ t("settings.mcp.presetBadge", { name: appliedPreset.name }) }}
         </Badge>
       </div>
       <p v-if="appliedPreset" class="m-0 text-[11px] text-[var(--color-mut)]">
@@ -396,7 +392,7 @@ function endpointText(config: McpServerConfig): string {
           <Input
             v-model="form.name"
             class="h-8 bg-[var(--color-np-btn-bg)] text-[12px]"
-            placeholder="名称"
+            :placeholder="t('settings.mcp.namePlaceholder')"
           />
           <Select
             :model-value="form.transport"
@@ -407,9 +403,9 @@ function endpointText(config: McpServerConfig): string {
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value="stdio">stdio 本地进程</SelectItem>
-                <SelectItem value="http">HTTP 新版（Streamable）</SelectItem>
-                <SelectItem value="sse">SSE 旧版</SelectItem>
+                <SelectItem value="stdio">{{ t("settings.mcp.transportStdioOption") }}</SelectItem>
+                <SelectItem value="http">{{ t("settings.mcp.transportHttpOption") }}</SelectItem>
+                <SelectItem value="sse">{{ t("settings.mcp.transportSseOption") }}</SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
@@ -420,13 +416,13 @@ function endpointText(config: McpServerConfig): string {
             <Input
               v-model="form.command"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
-              placeholder="启动命令，如 npx -y @modelcontextprotocol/server-filesystem ~/docs"
+              :placeholder="t('settings.mcp.commandPlaceholder')"
               @keydown.enter="submitForm"
             />
             <Input
               v-model="form.env"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
-              placeholder='环境变量（JSON，可选），如 {"API_KEY":"xxx"}'
+              :placeholder="t('settings.mcp.envPlaceholder')"
               @keydown.enter="submitForm"
             />
           </template>
@@ -440,17 +436,17 @@ function endpointText(config: McpServerConfig): string {
             <Input
               v-model="form.headers"
               class="h-8 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
-              placeholder='附加请求头（JSON，可选），如 {"Authorization":"Bearer xxx"}'
+              :placeholder="t('settings.mcp.headersPlaceholder')"
               @keydown.enter="submitForm"
             />
           </template>
         </div>
 
         <Button variant="outline" size="sm" class="flex-none" @click="submitForm">
-          <Plus v-if="!editingId" :size="13" data-icon="inline-start" />{{ editingId ? "保存" : "添加" }}
+          <Plus v-if="!editingId" :size="13" data-icon="inline-start" />{{ editingId ? t("common.save") : t("settings.mcp.addBtn") }}
         </Button>
         <Button v-if="editingId" variant="ghost" size="sm" class="flex-none" @click="cancelEdit">
-          <X :size="13" data-icon="inline-start" />取消
+          <X :size="13" data-icon="inline-start" />{{ t("common.cancel") }}
         </Button>
       </div>
       <p v-if="formError" class="m-0 text-[11px] text-[var(--color-err)]">{{ formError }}</p>
@@ -468,7 +464,7 @@ function endpointText(config: McpServerConfig): string {
             {{ item.config.name }}
           </span>
           <Badge variant="outline" class="text-[10px]">
-            {{ transportLabel[item.config.transport] }}
+            {{ transportLabel(item.config.transport) }}
           </Badge>
           <Badge :variant="stateBadge(item.state)" class="text-[10px]">
             {{ stateLabel(item.state) }}
@@ -477,7 +473,7 @@ function endpointText(config: McpServerConfig): string {
           <Button
             variant="ghost"
             size="icon-sm"
-            :aria-label="`编辑 ${item.config.name}`"
+            :aria-label="t('settings.mcp.editAria', { name: item.config.name })"
             @click="startEdit(item.config)"
           >
             <Pencil :size="13" />
@@ -485,12 +481,12 @@ function endpointText(config: McpServerConfig): string {
           <Button
             variant="ghost"
             size="sm"
-            :aria-label="item.config.enabled ? '禁用' : '启用'"
+            :aria-label="item.config.enabled ? t('settings.mcp.disable') : t('settings.mcp.enable')"
             @click="toggleServer(item.config)"
           >
-            {{ item.config.enabled ? "禁用" : "启用" }}
+            {{ item.config.enabled ? t("settings.mcp.disable") : t("settings.mcp.enable") }}
           </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="删除" @click="removeServer(item.config)">
+          <Button variant="ghost" size="icon-sm" :aria-label="t('settings.mcp.deleteAria')" @click="removeServer(item.config)">
             <Trash2 :size="13" />
           </Button>
         </div>
@@ -500,14 +496,14 @@ function endpointText(config: McpServerConfig): string {
           {{ endpointText(item.config) }}
         </p>
         <p v-if="item.tools.length" class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
-          {{ item.tools.length }} 个工具：{{ item.tools.map((tool) => tool.name).join("、") }}
+          {{ t("settings.mcp.toolsCount", { count: item.tools.length, list: item.tools.map((tool) => tool.name).join("、") }) }}
         </p>
         <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-err)]">
           {{ item.error }}
         </p>
       </div>
       <p v-if="!mcpStatuses.length" class="m-0 text-[12px] text-[var(--color-dim)]">
-        还没有接入 MCP 服务。从上面的预设选一个，或手动填写配置。
+        {{ t("settings.mcp.emptyHint") }}
       </p>
     </section>
   </div>

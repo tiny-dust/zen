@@ -2,6 +2,7 @@
 import { Check, FolderOpen, Globe, Plus } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,7 @@ defineProps<{
   compact?: boolean;
 }>();
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
 const { sessionWorkspaceId } = storeToRefs(chatStore);
@@ -31,10 +33,10 @@ const workspaceGroups = computed(() =>
 
 const currentName = computed(() => {
   if (sessionWorkspaceId.value === workspaceStore.COMMON_ID) {
-    return "公共区";
+    return t("chat.workspace.commonArea");
   }
   return (
-    groups.value.find((item) => item.id === sessionWorkspaceId.value)?.name || "公共区"
+    groups.value.find((item) => item.id === sessionWorkspaceId.value)?.name || t("chat.workspace.commonArea")
   );
 });
 
@@ -56,8 +58,8 @@ async function onCreateWorkspace() {
         variant="ghost"
         class="flex-none items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
         :class="compact ? 'size-7 justify-center' : 'h-7 max-w-[180px] gap-1 px-1.5'"
-        :title="`运行目录：${currentName}`"
-        :aria-label="`运行目录：${currentName}`"
+        :title="t('chat.workspace.runDirectory', { name: currentName })"
+        :aria-label="t('chat.workspace.runDirectory', { name: currentName })"
       >
         <Globe
           v-if="sessionWorkspaceId === workspaceStore.COMMON_ID"
@@ -69,7 +71,7 @@ async function onCreateWorkspace() {
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" class="w-72">
       <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
-        Agent 运行目录（工作区或公共区）
+        {{ t("chat.workspace.hint") }}
       </DropdownMenuLabel>
       <DropdownMenuItem
         class="items-center gap-2"
@@ -77,7 +79,7 @@ async function onCreateWorkspace() {
         @select="pick(workspaceStore.COMMON_ID)"
       >
         <Globe class="size-3.5 flex-none text-[var(--color-mut)]" />
-        <span class="min-w-0 flex-1 truncate text-[12px]">公共区</span>
+        <span class="min-w-0 flex-1 truncate text-[12px]">{{ t("chat.workspace.commonArea") }}</span>
         <Check
           v-if="sessionWorkspaceId === workspaceStore.COMMON_ID"
           class="size-3.5 flex-none text-[var(--color-accent)]"
@@ -108,7 +110,7 @@ async function onCreateWorkspace() {
       <DropdownMenuSeparator />
       <DropdownMenuItem class="gap-2" @select="onCreateWorkspace">
         <Plus class="size-3.5" />
-        <span class="text-[12px]">添加工作区目录…</span>
+        <span class="text-[12px]">{{ t("chat.workspace.add") }}</span>
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,8 @@ const emit = defineEmits<{
     capabilities: ModelCapabilities;
   }];
 }>();
+
+const { t } = useI18n();
 
 const form = reactive({
   id: "",
@@ -207,7 +210,7 @@ function protocolOptions() {
     <DialogContent class="flex w-[min(640px,calc(100vw-32px))] flex-col gap-3">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
-          <span>{{ initial ? "编辑模型" : "添加模型" }}</span>
+          <span>{{ initial ? t("settings.models.editModel") : t("settings.models.addModel") }}</span>
           <VendorLogo :vendor="template?.vendor || form.id || providerName" :size="18" />
         </DialogTitle>
         <DialogDescription class="mt-0.5 font-[family-name:var(--font-mono)] text-[11px]">
@@ -217,7 +220,7 @@ function protocolOptions() {
 
       <div class="flex flex-col">
         <div class="field-row">
-          <Label class="field-row-label font-normal" for="mf-id">模型 ID</Label>
+          <Label class="field-row-label font-normal" for="mf-id">{{ t("settings.models.modelId") }}</Label>
           <Input
             id="mf-id"
             v-model="form.id"
@@ -226,7 +229,7 @@ function protocolOptions() {
           />
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal" for="mf-name">显示名称</Label>
+          <Label class="field-row-label font-normal" for="mf-name">{{ t("settings.models.displayName") }}</Label>
           <Input
             id="mf-name"
             v-model="form.name"
@@ -235,7 +238,7 @@ function protocolOptions() {
           />
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal" for="mf-ctx">上下文长度</Label>
+          <Label class="field-row-label font-normal" for="mf-ctx">{{ t("settings.models.contextWindow") }}</Label>
           <Input
             id="mf-ctx"
             v-model.number="form.contextWindow"
@@ -246,7 +249,7 @@ function protocolOptions() {
           />
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal" for="mf-out">最大输出</Label>
+          <Label class="field-row-label font-normal" for="mf-out">{{ t("settings.models.maxOutput") }}</Label>
           <Input
             id="mf-out"
             v-model.number="form.maxOutputTokens"
@@ -257,10 +260,10 @@ function protocolOptions() {
           />
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal">对话端点</Label>
+          <Label class="field-row-label font-normal">{{ t("settings.models.chatEndpoint") }}</Label>
           <Select v-model="form.chatEndpoint">
             <SelectTrigger class="h-8 w-full text-[13px]">
-              <SelectValue placeholder="自动" />
+              <SelectValue :placeholder="t('settings.models.endpointAuto')" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -269,38 +272,38 @@ function protocolOptions() {
                   :key="item.id"
                   :value="item.id"
                 >
-                  {{ item.label }}
+                  {{ item.id === "auto" ? t("settings.models.endpointAuto") : item.label }}
                 </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal">工具调用</Label>
+          <Label class="field-row-label font-normal">{{ t("settings.models.toolCall") }}</Label>
           <div class="flex justify-end">
-            <Switch v-model="form.toolCall" aria-label="工具调用" />
+            <Switch v-model="form.toolCall" :aria-label="t('settings.models.toolCall')" />
           </div>
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal">视觉</Label>
+          <Label class="field-row-label font-normal">{{ t("settings.models.vision") }}</Label>
           <div class="flex justify-end">
-            <Switch v-model="form.vision" aria-label="视觉" />
+            <Switch v-model="form.vision" :aria-label="t('settings.models.vision')" />
           </div>
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal">推理</Label>
+          <Label class="field-row-label font-normal">{{ t("settings.models.reasoning") }}</Label>
           <div class="flex justify-end">
-            <Switch v-model="form.reasoning" aria-label="推理" />
+            <Switch v-model="form.reasoning" :aria-label="t('settings.models.reasoning')" />
           </div>
         </div>
         <div class="field-row">
-          <Label class="field-row-label font-normal">媒体能力</Label>
+          <Label class="field-row-label font-normal">{{ t("settings.models.media") }}</Label>
           <div class="flex justify-end">
-            <Switch v-model="form.media" aria-label="媒体能力" />
+            <Switch v-model="form.media" :aria-label="t('settings.models.media')" />
           </div>
         </div>
         <div class="field-row">
-          <span class="field-row-label font-normal">思考强度</span>
+          <span class="field-row-label font-normal">{{ t("settings.models.thinkingEffort") }}</span>
           <div class="flex flex-wrap gap-1.5">
             <Button
               v-for="opt in EFFORT_CHIPS"
@@ -314,15 +317,15 @@ function protocolOptions() {
               "
               @click="toggleEffort(opt.id)"
             >
-              {{ opt.label }}
+              {{ t(`settings.models.effort.${opt.id}`) }}
             </Button>
           </div>
         </div>
       </div>
 
       <footer class="flex justify-end gap-1.5">
-        <Button variant="ghost" size="sm" @click="emit('update:open', false)">取消</Button>
-        <Button size="sm" :disabled="!form.id.trim()" @click="onSubmit">保存</Button>
+        <Button variant="ghost" size="sm" @click="emit('update:open', false)">{{ t("common.cancel") }}</Button>
+        <Button size="sm" :disabled="!form.id.trim()" @click="onSubmit">{{ t("common.save") }}</Button>
       </footer>
     </DialogContent>
   </Dialog>

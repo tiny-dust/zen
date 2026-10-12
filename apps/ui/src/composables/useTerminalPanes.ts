@@ -3,10 +3,25 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
+import { useAppTheme } from "@/composables/useAppTheme";
 import { openAppLink } from "@/lib/open-link";
 import { useTerminalStore } from "@/stores/terminal";
 
 type TermEntry = { term: Terminal; fit: FitAddon; host: HTMLElement };
+
+/** 终端配色：深浅各一套，光标沿用品牌橙 */
+const TERM_THEME_DARK = {
+  background: "#141414",
+  foreground: "#d8d8d4",
+  cursor: "#ff6a2b",
+  selectionBackground: "#3a3a3a",
+} as const;
+const TERM_THEME_LIGHT = {
+  background: "#ffffff",
+  foreground: "#3a3a38",
+  cursor: "#ff6a2b",
+  selectionBackground: "#b3d7ff",
+} as const;
 
 /** 终端 pane 的 xterm 实例生命周期：按可见分屏挂载、适配尺寸、回放缓冲、销毁 */
 export function useTerminalPanes() {
@@ -15,6 +30,14 @@ export function useTerminalPanes() {
   const entries = new Map<string, TermEntry>();
   const booting = new Set<string>();
   let ro: ResizeObserver | null = null;
+
+  // 主题切换就地更新已挂终端配色（xterm options 支持运行时改）
+  const { isDark } = useAppTheme();
+  watch(isDark, (dark) => {
+    for (const entry of entries.values()) {
+      entry.term.options.theme = dark ? { ...TERM_THEME_DARK } : { ...TERM_THEME_LIGHT };
+    }
+  });
 
   /** 优先系统终端字体（仅内部使用，不在 UI 展示） */
   function fontStack(): string {
@@ -52,12 +75,7 @@ export function useTerminalPanes() {
       scrollback: 5000,
       allowProposedApi: true,
       logLevel: "warn",
-      theme: {
-        background: "#141414",
-        foreground: "#d8d8d4",
-        cursor: "#ff6a2b",
-        selectionBackground: "#3a3a3a",
-      },
+      theme: isDark.value ? { ...TERM_THEME_DARK } : { ...TERM_THEME_LIGHT },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

@@ -2,6 +2,7 @@
 import { ArrowDown } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
 import { groupTimelineMessages } from "@/components/chat/message-groups";
@@ -13,6 +14,7 @@ import { useChatStore } from "@/stores/chat";
 
 import { getMessageRun } from "@zen/shared";
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
 const timelineItems = computed(() => groupTimelineMessages(messages.value));
@@ -81,14 +83,14 @@ interface RulerTick {
 /** 刻度提示文案：问询取原文，回复取正文摘录，工具组汇总条数 */
 function tickLabel(item: TimelineItem): string {
   if (item.type === "tools") {
-    return `工具记录 · ${item.tools.length} 项`;
+    return t("chat.toolRecordsCount", { n: item.tools.length });
   }
   const content = item.message.content.trim();
   if (item.message.role === "user") {
     return content;
   }
   // 回复可能很长，摘要封顶避免 DOM 属性随流式 delta 无限膨胀
-  return content.slice(0, 160) || "助手回复";
+  return content.slice(0, 160) || t("chat.assistantReply");
 }
 
 const ticks = ref<RulerTick[]>([]);
@@ -159,7 +161,7 @@ function updateTicks() {
     next.push({
       id,
       kind,
-      label: raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || "（空消息）",
+      label: raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || t("chat.emptyMessage"),
       y,
     });
   }
@@ -198,11 +200,11 @@ function jumpToTick(tick: RulerTick) {
 /* 刻度 tooltip：悬浮约 120ms 延迟显示、离开立即隐藏；键盘 focus-visible 同款 */
 /* ------------------------------------------------------------------ */
 
-const KIND_LABELS: Record<TickKind, string> = {
-  user: "问询",
-  assistant: "回复",
-  tools: "工具记录",
-};
+const KIND_LABELS = computed<Record<TickKind, string>>(() => ({
+  user: t("chat.kindUser"),
+  assistant: t("chat.kindAssistant"),
+  tools: t("chat.kindTools"),
+}));
 
 interface RulerTipState {
   kind: TickKind;
@@ -313,13 +315,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="relative h-full min-h-0 min-w-0 flex-1 bg-[var(--color-main-bg)]" aria-label="对话">
+  <section class="relative h-full min-h-0 min-w-0 flex-1 bg-[var(--color-main-bg)]" :aria-label="t('chat.conversation')">
     <!-- 左侧引导线轨：刻度簇整体垂直居中贴左缘，点击定位；悬浮/键盘聚焦弹自绘 tooltip。
          悬浮某刻度时邻近刻度按距离衰减变长（--tick-w），形成坡度 -->
     <nav
       v-if="ticks.length"
       class="chat-ruler"
-      aria-label="消息刻度"
+      :aria-label="t('chat.ruler')"
       @scroll.passive="hideRulerTip"
       @mouseleave="clearHoverTick"
     >
@@ -331,7 +333,7 @@ onUnmounted(() => {
         :class="{ 'chat-ruler-tick-active': tick.id === activeTickId }"
         :style="tickStyle(index)"
         :data-kind="tick.kind"
-        :aria-label="`定位到消息：${tick.label}`"
+        :aria-label="t('chat.locateMessage', { label: tick.label })"
         @click="jumpToTick(tick)"
         @mouseenter="onTickEnter(tick, $event)"
         @mouseleave="hideRulerTip"
@@ -374,9 +376,9 @@ onUnmounted(() => {
         class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-4"
       >
         <div v-if="messages.length === 0" class="m-auto text-center text-[var(--color-mut)]">
-          <p class="m-0">开始一段对话</p>
+          <p class="m-0">{{ t("chat.startConversation") }}</p>
           <p class="mt-2 text-[12px] text-[var(--color-dim)]">
-            在下方输入并发送，Agent 将流式回复。
+            {{ t("chat.startConversationHint") }}
           </p>
         </div>
         <template v-else>
@@ -412,7 +414,7 @@ onUnmounted(() => {
       variant="ghost"
       size="icon"
       class="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border-[var(--color-line-strong)] bg-[var(--color-composer-surface)] text-[var(--color-txt)] shadow-[var(--shadow-tip)] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)]"
-      aria-label="滚到底部"
+      :aria-label="t('chat.scrollToBottom')"
       @click="scrollToBottom(true)"
     >
       <ArrowDown class="size-4" />

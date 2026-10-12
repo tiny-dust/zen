@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import AppIcon from "@/components/base/AppIcon.vue";
 import { Response } from "@/components/ai-elements/response";
@@ -13,10 +14,22 @@ import { toast } from "@/components/ui/toast";
 import { useSettingsStore } from "@/stores/settings";
 import { BUILTIN_APP_ICONS } from "@zen/shared";
 
-import type { UpdateStatusInfo } from "@zen/shared";
+import type { AppLocale, ThemeMode, UpdateStatusInfo } from "@zen/shared";
 
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
+
+/** 主题三档与语言两档：值即设置项，label 走语言包 */
+const THEME_OPTIONS: Array<{ value: ThemeMode; labelKey: string }> = [
+  { value: "dark", labelKey: "settings.general.themeDark" },
+  { value: "light", labelKey: "settings.general.themeLight" },
+  { value: "system", labelKey: "settings.general.themeSystem" },
+];
+const LOCALE_OPTIONS: Array<{ value: AppLocale; labelKey: string }> = [
+  { value: "zh-CN", labelKey: "settings.general.localeZh" },
+  { value: "en-US", labelKey: "settings.general.localeEn" },
+];
 
 /** 代码主题预览片段：同一份代码左浅右深各渲染一份（取色规则见 styles.css 预览节） */
 const PREVIEW_SNIPPET = `function greet() {
@@ -33,17 +46,17 @@ const updateError = ref("");
 const updateStatusText = computed(() => {
   switch (updateStatus.value.phase) {
     case "checking":
-      return "正在检查更新…";
+      return t("settings.update.statusChecking");
     case "available":
-      return `发现新版本 v${updateStatus.value.version ?? ""}`;
+      return t("settings.update.statusAvailable", { version: updateStatus.value.version ?? "" });
     case "not-available":
-      return "已是最新版本";
+      return t("settings.update.statusNotAvailable");
     case "downloading":
-      return `正在下载更新 ${updateStatus.value.percent ?? 0}%`;
+      return t("settings.update.statusDownloading", { percent: updateStatus.value.percent ?? 0 });
     case "downloaded":
-      return `已下载 v${updateStatus.value.version ?? ""}，重启后安装`;
+      return t("settings.update.statusDownloaded", { version: updateStatus.value.version ?? "" });
     case "error":
-      return updateStatus.value.message || "更新失败";
+      return updateStatus.value.message || t("settings.update.statusError");
     default:
       return "";
   }
@@ -65,7 +78,7 @@ onMounted(() => {
   const off = zen.updates.onStatus((status) => {
     updateStatus.value = status;
     if (status.phase === "error") {
-      updateError.value = status.message ?? "更新失败";
+      updateError.value = status.message ?? t("settings.update.statusError");
     }
   });
   onUnmounted(off);
@@ -83,7 +96,7 @@ async function saveFeed() {
   }
   await settingsStore.setFeedUrl(url);
   feedDraft.value = url ?? "";
-  toast.ok("更新源已保存");
+  toast.ok(t("settings.update.feedSaved"));
 }
 
 async function checkUpdate() {
@@ -95,7 +108,7 @@ async function checkUpdate() {
   await saveFeed();
   const result = await zen.updates.check();
   if (!result.ok) {
-    updateError.value = result.error ?? "检查更新失败";
+    updateError.value = result.error ?? t("settings.update.checkFailed");
   }
 }
 
@@ -107,23 +120,75 @@ async function downloadUpdate() {
   updateError.value = "";
   const result = await zen.updates.download();
   if (!result.ok) {
-    updateError.value = result.error ?? "下载失败";
+    updateError.value = result.error ?? t("settings.update.downloadFailed");
   }
 }
 </script>
 
 <template>
   <section class="flex flex-col">
+    <h3 class="settings-section-title">{{ t("settings.general.appearance") }}</h3>
+    <Card size="sm" class="settings-card">
+      <CardContent class="flex flex-col gap-3 p-4">
+        <div class="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-3">
+          <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.general.theme") }}</span>
+          <Select
+            :model-value="settings.theme"
+            @update:model-value="settingsStore.setTheme(String($event) as ThemeMode)"
+          >
+            <SelectTrigger class="h-8 w-full rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem
+                  v-for="item in THEME_OPTIONS"
+                  :key="item.value"
+                  :value="item.value"
+                >
+                  {{ t(item.labelKey) }}
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-3">
+          <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.general.language") }}</span>
+          <Select
+            :model-value="settings.locale"
+            @update:model-value="settingsStore.setLocale(String($event) as AppLocale)"
+          >
+            <SelectTrigger class="h-8 w-full rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem
+                  v-for="item in LOCALE_OPTIONS"
+                  :key="item.value"
+                  :value="item.value"
+                >
+                  {{ t(item.labelKey) }}
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </CardContent>
+    </Card>
+  </section>
+
+  <section class="flex flex-col">
     <!-- 软件更新（临时开放）：generic 更新源，局域网/本机静态目录即可 -->
-    <h3 class="settings-section-title">软件更新</h3>
+    <h3 class="settings-section-title">{{ t("settings.update.title") }}</h3>
     <Card size="sm" class="settings-card">
       <CardContent class="flex flex-col gap-3 p-4">
         <div class="flex items-center gap-2">
           <Input
             v-model="feedDraft"
             class="h-8 min-w-0 flex-1 font-[family-name:var(--font-mono)] text-[12px]"
-            placeholder="更新源地址，如 http://192.168.1.10:8899"
-            aria-label="更新源地址"
+            :placeholder="t('settings.update.feedPlaceholder')"
+            :aria-label="t('settings.update.feedAriaLabel')"
             @keydown.enter="saveFeed"
             @blur="saveFeed"
           />
@@ -135,23 +200,23 @@ async function downloadUpdate() {
             :disabled="updateStatus.phase === 'checking' || updateStatus.phase === 'downloading'"
             @click="checkUpdate"
           >
-            {{ updateStatus.phase === "checking" ? "检查中…" : "检查更新" }}
+            {{ updateStatus.phase === "checking" ? t("settings.update.checking") : t("settings.update.check") }}
           </Button>
           <Button
             v-if="canDownload"
             size="sm"
             @click="downloadUpdate"
           >
-            下载更新
+            {{ t("settings.update.download") }}
           </Button>
           <Button
             v-if="canInstall"
             size="sm"
             @click="installUpdate"
           >
-            立即安装并重启
+            {{ t("settings.update.install") }}
           </Button>
-          <span class="text-[11px] text-[var(--color-dim)]">当前版本 v{{ appVersion }}</span>
+          <span class="text-[11px] text-[var(--color-dim)]">{{ t("settings.update.currentVersion", { version: appVersion }) }}</span>
         </div>
         <p
           v-if="updateStatusText"
@@ -165,15 +230,14 @@ async function downloadUpdate() {
           {{ updateError }}
         </p>
         <p class="m-0 text-[11px] leading-relaxed text-[var(--color-dim)]">
-          默认指向本机 8899 端口；在仓库里运行 pnpm updates:serve 即可启动更新源（内含
-          latest-mac.yml 与安装包），局域网机器改填对应 IP。
+          {{ t("settings.update.hint") }}
         </p>
       </CardContent>
     </Card>
   </section>
 
   <section class="flex flex-col">
-    <h3 class="settings-section-title">代码主题</h3>
+    <h3 class="settings-section-title">{{ t("settings.codeTheme.title") }}</h3>
     <Card size="sm" class="settings-card">
       <CardContent class="flex flex-col gap-3 p-4">
         <Select
@@ -181,7 +245,7 @@ async function downloadUpdate() {
           @update:model-value="settingsStore.setCodeTheme(String($event))"
         >
           <SelectTrigger class="h-9 w-full rounded-[10px] bg-[var(--color-np-btn-bg)] text-[13px]">
-            <SelectValue placeholder="选择代码主题" />
+            <SelectValue :placeholder="t('settings.codeTheme.selectPlaceholder')" />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
@@ -210,17 +274,17 @@ async function downloadUpdate() {
           />
         </div>
         <p class="m-0 text-[11px] text-[var(--color-dim)]">
-          主题同时作用于对话消息里的代码块；左侧为浅色模式、右侧为深色模式下的效果。
+          {{ t("settings.codeTheme.hint") }}
         </p>
       </CardContent>
     </Card>
   </section>
 
   <section class="flex flex-col">
-    <h3 class="settings-section-title">应用图标</h3>
+    <h3 class="settings-section-title">{{ t("settings.icon.title") }}</h3>
     <Card size="sm" class="settings-card">
       <CardContent class="flex flex-col gap-3 p-4">
-        <p class="mb-0 text-[12px] text-[var(--color-mut)]">切换后窗口 / Dock 图标会立即更新。</p>
+        <p class="mb-0 text-[12px] text-[var(--color-mut)]">{{ t("settings.icon.hint") }}</p>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
           <Button
             v-for="item in BUILTIN_APP_ICONS"
@@ -231,7 +295,7 @@ async function downloadUpdate() {
             @click="settingsStore.setIcon(item.id)"
           >
             <AppIcon :id="item.id" :size="40" />
-            <span>{{ item.label }}</span>
+            <span>{{ t(`settings.icon.${item.id}`) }}</span>
           </Button>
           <Button
             variant="ghost"
@@ -244,7 +308,7 @@ async function downloadUpdate() {
               :size="40"
               :custom-path="settings.customIconPath"
             />
-            <span>自定义</span>
+            <span>{{ t("settings.icon.custom") }}</span>
           </Button>
         </div>
         <Button
@@ -253,7 +317,7 @@ async function downloadUpdate() {
           class="w-fit"
           @click="settingsStore.pickCustomIcon()"
         >
-          上传图标…
+          {{ t("settings.icon.upload") }}
         </Button>
       </CardContent>
     </Card>

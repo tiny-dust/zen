@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, GitBranch, GitBranchPlus, Loader2 } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { t } = useI18n();
 const gitStore = useGitStore();
 const busy = ref(false);
 const error = ref("");
@@ -55,7 +57,7 @@ async function select(name: string) {
     if (result.ok) {
       emit("close");
     } else {
-      error.value = result.error ?? "切换分支失败";
+      error.value = result.error ?? t("shell.switchBranchFailed");
     }
   } finally {
     busy.value = false;
@@ -67,17 +69,17 @@ async function createFrom(name: string, from: string) {
   const zen = window.zen;
   const root = gitStore.cwd();
   if (!zen?.git || !root) {
-    return { ok: false, error: "未绑定工作目录" };
+    return { ok: false, error: t("shell.noWorkdir") };
   }
   const result = await zen.git.createBranch(root, name, from);
   if (result.ok) {
     gitStore.branchPickerOpen = false;
-    gitStore.feedback = `已从 ${from} 创建并切换到 ${name}`;
-    toast.ok(`已从 ${from} 创建并切换到 ${name}`);
+    gitStore.feedback = t("shell.createdBranchFrom", { from, name });
+    toast.ok(t("shell.createdBranchFrom", { from, name }));
     await Promise.all([gitStore.refreshStatus(), gitStore.refreshBranches()]);
   } else {
-    gitStore.feedback = result.error ?? "创建分支失败";
-    toast.err(result.error ?? "创建分支失败");
+    gitStore.feedback = result.error ?? t("shell.createBranchFailed");
+    toast.err(result.error ?? t("shell.createBranchFailed"));
   }
   return result;
 }
@@ -98,7 +100,7 @@ async function create() {
       creating.value = false;
       emit("close");
     } else {
-      error.value = result.error ?? "创建分支失败";
+      error.value = result.error ?? t("shell.createBranchFailed");
     }
   } finally {
     busy.value = false;
@@ -119,7 +121,7 @@ onMounted(() => {
       <Input
         v-model="filter"
         variant="default"
-        placeholder="筛选分支"
+        :placeholder="t('shell.filterBranches')"
         class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.escape="emit('close')"
       />
@@ -132,8 +134,8 @@ onMounted(() => {
         v-else
         variant="ghost"
         size="icon-xs"
-        aria-label="新建分支"
-        title="新建分支"
+        :aria-label="t('shell.newBranch')"
+        :title="t('shell.newBranch')"
         @click="creating = !creating"
       >
         <GitBranchPlus />
@@ -144,7 +146,7 @@ onMounted(() => {
       <Input
         v-model="newBranch"
         variant="default"
-        placeholder="新分支名称"
+        :placeholder="t('shell.newBranchName')"
         class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.enter="create"
         @keydown.escape="creating = false"
@@ -153,14 +155,14 @@ onMounted(() => {
         <select
           v-model="baseBranch"
           class="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
-          aria-label="基分支"
-          title="基分支：新分支基于哪个分支创建，默认当前分支"
+          :aria-label="t('shell.baseBranch')"
+          :title="t('shell.baseBranchTitle')"
         >
-          <option value="">当前分支{{ gitStore.branch ? `（${gitStore.branch}）` : "" }}</option>
+          <option value="">{{ t("shell.currentBranch") }}{{ gitStore.branch ? `（${gitStore.branch}）` : "" }}</option>
           <optgroup
             v-if="baseLocalBranches.length"
             class="bg-[var(--color-popover)] text-[var(--color-txt)]"
-            label="本地分支"
+            :label="t('shell.localBranches')"
           >
             <option
               v-for="item in baseLocalBranches"
@@ -173,7 +175,7 @@ onMounted(() => {
           <optgroup
             v-if="baseRemoteBranches.length"
             class="bg-[var(--color-popover)] text-[var(--color-txt)]"
-            label="远程分支"
+            :label="t('shell.remoteBranches')"
           >
             <option
               v-for="item in baseRemoteBranches"
@@ -185,7 +187,7 @@ onMounted(() => {
           </optgroup>
         </select>
         <Button variant="secondary" size="xs" :disabled="!newBranch.trim() || busy" @click="create">
-          创建
+          {{ t("shell.create") }}
         </Button>
       </div>
     </div>
@@ -195,7 +197,7 @@ onMounted(() => {
     </p>
 
     <div class="min-h-0 flex-1 overflow-auto">
-      <p class="m-0 px-1.5 py-1 text-[10px] font-medium text-[var(--color-dim)]">本地分支</p>
+      <p class="m-0 px-1.5 py-1 text-[10px] font-medium text-[var(--color-dim)]">{{ t("shell.localBranches") }}</p>
       <Button
         v-for="item in localBranches"
         :key="`local-${item.name}`"
@@ -223,10 +225,10 @@ onMounted(() => {
         v-if="!localBranches.length"
         class="m-0 px-1.5 py-1.5 text-[11px] text-[var(--color-mut)]"
       >
-        {{ gitStore.branch ? "无匹配分支" : "未绑定仓库，暂无本地分支" }}
+        {{ gitStore.branch ? t("shell.noMatchBranches") : t("shell.noLocalBranches") }}
       </p>
 
-      <p class="m-0 px-1.5 py-1 pt-2 text-[10px] font-medium text-[var(--color-dim)]">远程分支</p>
+      <p class="m-0 px-1.5 py-1 pt-2 text-[10px] font-medium text-[var(--color-dim)]">{{ t("shell.remoteBranches") }}</p>
       <Button
         v-for="item in remoteBranches"
         :key="`remote-${item.name}`"
@@ -241,7 +243,7 @@ onMounted(() => {
         v-if="!remoteBranches.length"
         class="m-0 px-1.5 py-1.5 text-[11px] text-[var(--color-mut)]"
       >
-        暂无远程分支
+        {{ t("shell.noRemoteBranches") }}
       </p>
     </div>
   </div>

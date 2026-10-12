@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Ban, Check, ChevronRight, Hourglass, Loader2, Pause, X } from "@lucide/vue";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { toolDisplay, toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
 import ToolResultView from "@/components/chat/ToolResultView.vue";
@@ -16,6 +17,7 @@ import type { ToolPart } from "@/components/chat/tool-part";
 
 const props = defineProps<{ part: ToolPart }>();
 
+const { t } = useI18n();
 const rightPanel = useRightPanelStore();
 const sessionRoot = useSessionRoot();
 const open = ref(false);
@@ -31,7 +33,7 @@ const statusText = computed(() => toolStatusLine({ ...props.part, state: state.v
 const readRange = computed(() => {
   if (props.part.toolName !== "readFile" || result.value?.kind !== "code") return "";
   const count = codeLines(result.value.text).length;
-  return count ? (count === 1 ? "L1" : `L1-L${count}`) : "空文件";
+  return count ? (count === 1 ? "L1" : `L1-L${count}`) : t("chat.tool.emptyFile");
 });
 // 悬浮展示完整路径：相对引用按工作区根绝对化
 const targetTitle = computed(() => {
@@ -53,7 +55,7 @@ function revealFile() {
       <CollapsibleTrigger
         class="tool-action"
         :disabled="!hasDetails"
-        :aria-label="`${display.label}${hasDetails ? (open ? '，收起结果' : '，查看结果') : ''}`"
+        :aria-label="display.label + (hasDetails ? (open ? t('chat.tool.collapseResult') : t('chat.tool.viewResult')) : '')"
       >
         <ChevronRight v-if="hasDetails" class="size-3 shrink-0" :class="{ 'rotate-90': open }" aria-hidden="true" />
         <component :is="display.icon" class="size-3.5 shrink-0" aria-hidden="true" />

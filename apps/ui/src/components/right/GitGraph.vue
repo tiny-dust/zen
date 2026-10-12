@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, GitGraph as GitGraphIcon, GitBranch, RefreshCw, Tag } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import DiffView from "@/components/right/DiffView.vue";
@@ -40,6 +41,7 @@ import { useGitStore } from "@/stores/git";
 import type { GitCommitDetail, GitCommitFile, GitLogEntry } from "@zen/shared";
 
 const gitStore = useGitStore();
+const { t } = useI18n();
 
 const graphRows = computed(() => computeGraphRows(gitStore.log));
 
@@ -131,14 +133,14 @@ const branchFilter = computed({
       <span
         class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
       >
-        提交历史
+        {{ t("panels.commitHistory") }}
       </span>
       <span class="flex-none text-[10px] text-[var(--color-dim)]">{{ graphRows.length }}</span>
       <Button
         variant="ghost"
         size="icon-xs"
-        :aria-label="gitStore.logLoading ? '刷新中' : '刷新提交历史'"
-        title="刷新"
+        :aria-label="gitStore.logLoading ? t('panels.refreshing') : t('panels.refreshHistory')"
+        :title="t('panels.refresh')"
         @click="gitStore.refreshLog()"
       >
         <RefreshCw :class="gitStore.logLoading ? 'animate-spin' : ''" />
@@ -150,20 +152,20 @@ const branchFilter = computed({
       <SelectTrigger
         size="sm"
         class="h-7 w-full flex-none rounded-md text-[11px]"
-        aria-label="筛选分支"
+        :aria-label="t('panels.filterBranches')"
       >
-        <SelectValue placeholder="筛选分支" />
+        <SelectValue :placeholder="t('panels.filterBranches')" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">全部分支</SelectItem>
+        <SelectItem value="all">{{ t("panels.allBranches") }}</SelectItem>
         <SelectGroup>
-          <SelectLabel>本地分支</SelectLabel>
+          <SelectLabel>{{ t("panels.localBranches") }}</SelectLabel>
           <SelectItem v-for="branch in gitStore.branches.local" :key="branch.name" :value="branch.name">
-            {{ branch.name }}{{ branch.current ? "（当前）" : "" }}
+            {{ branch.name }}{{ branch.current ? t("panels.currentBranchSuffix") : "" }}
           </SelectItem>
         </SelectGroup>
         <SelectGroup v-if="gitStore.branches.remote.length">
-          <SelectLabel>远端分支</SelectLabel>
+          <SelectLabel>{{ t("panels.remoteBranches") }}</SelectLabel>
           <SelectItem
             v-for="branch in gitStore.branches.remote"
             :key="branch.name"
@@ -180,14 +182,14 @@ const branchFilter = computed({
         v-if="gitStore.logLoading && !graphRows.length"
         class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
       >
-        读取中…
+        {{ t("panels.loading") }}
       </p>
       <p
         v-else-if="!graphRows.length"
         class="m-0 flex items-center gap-1.5 px-1 py-2 text-[12px] text-[var(--color-dim)]"
       >
         <GitGraphIcon class="size-3.5 flex-none" aria-hidden="true" />
-        {{ gitStore.cwd() ? "暂无提交记录" : "公共区未绑定目录" }}
+        {{ gitStore.cwd() ? t("panels.noCommits") : t("panels.workspaceUnbound") }}
       </p>
       <template v-else>
         <template v-for="row in graphRows" :key="row.entry.hash">
@@ -314,13 +316,13 @@ const branchFilter = computed({
 
         <div class="min-w-0 flex-1 overflow-hidden px-2.5 py-2.5">
           <p v-if="loadingHash === row.entry.hash" class="m-0 text-[11px] text-[var(--color-dim)]">
-            读取提交详情…
+            {{ t("panels.loadingCommitDetail") }}
           </p>
           <p
             v-else-if="!details.get(row.entry.hash)"
             class="m-0 text-[11px] text-[var(--color-dim)]"
           >
-            无法读取提交详情
+            {{ t("panels.commitDetailFailed") }}
           </p>
           <template v-else>
             <p
@@ -343,7 +345,7 @@ const branchFilter = computed({
               v-if="details.get(row.entry.hash)!.files.length"
               class="m-0 mt-1.5 text-[10px] text-[var(--color-dim)]"
             >
-              变更文件（{{ details.get(row.entry.hash)!.files.length }}）
+              {{ t("panels.changedFilesCount", { n: details.get(row.entry.hash)!.files.length }) }}
             </p>
             <div class="mt-0.5 flex flex-col">
               <template
@@ -383,14 +385,14 @@ const branchFilter = computed({
                     v-if="loadingFile === fileKey(row.entry.hash, file.path)"
                     class="m-0 py-1 text-[11px] text-[var(--color-dim)]"
                   >
-                    读取 diff…
+                    {{ t("panels.loadingDiff") }}
                   </p>
                   <template v-else>
                     <p
                       v-if="!fileDiffs.get(fileKey(row.entry.hash, file.path))"
                       class="m-0 py-1 text-[11px] text-[var(--color-dim)]"
                     >
-                      无 diff 内容
+                      {{ t("panels.noDiffContent") }}
                     </p>
                     <DiffView
                       v-else

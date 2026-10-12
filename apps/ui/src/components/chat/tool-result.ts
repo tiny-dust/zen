@@ -1,5 +1,7 @@
 import type { ToolPart } from "./tool-part";
 
+import { i18n } from "@/locales";
+
 export type ToolResult =
   | { kind: "terminal"; text: string; exitCode?: number; error?: string }
   | { kind: "code"; text: string; note?: string }
@@ -72,7 +74,7 @@ export function toolResult(part: ToolPart): ToolResult | null {
   if (failed) {
     const text = executionText(part.output);
     const reason = isOutputSummary(error, text) ? undefined : error;
-    return { kind: "text", text: [reason, text].filter(Boolean).join("\n\n") || "未完成" };
+    return { kind: "text", text: [reason, text].filter(Boolean).join("\n\n") || i18n.global.t("chat.tool.incomplete") };
   }
   if (part.toolName === "readFile" && (typeof part.output === "string" || typeof output?.content === "string")) {
     return { kind: "code", text: outputText(part.output) ?? "" };
@@ -88,7 +90,7 @@ export function toolResult(part: ToolPart): ToolResult | null {
       return { kind: "replacement", before: args.oldString, after: args.newString, replacements: output.replacements };
     }
     if (part.toolName === "writeFile" && (typeof part.output === "string" || typeof output?.content === "string")) {
-      return { kind: "code", text: outputText(part.output) ?? "", note: "写入内容（历史记录未保存修改前内容）" };
+      return { kind: "code", text: outputText(part.output) ?? "", note: i18n.global.t("chat.tool.writtenContentNote") };
     }
   }
   const text = outputText(part.output) ?? (state === "ok" ? part.summary : undefined);

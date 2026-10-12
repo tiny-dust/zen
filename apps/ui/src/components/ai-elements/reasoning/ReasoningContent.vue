@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { computed, useSlots } from 'vue'
 import { Markdown } from 'vue-stream-markdown'
 import { streamMarkdownExtensions } from '@/components/ai-elements/response/extensions'
+import { useAppTheme } from '@/composables/useAppTheme'
 import 'vue-stream-markdown/index.css'
 
 interface Props {
@@ -29,6 +30,9 @@ const slotContent = computed<string | undefined>(() => {
 })
 
 const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
+
+// 代码高亮深浅跟随应用主题（同 Response）
+const { isDark } = useAppTheme()
 </script>
 
 <template>
@@ -45,7 +49,7 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
       :content="md"
       :enable-animate="false"
       :extensions="streamMarkdownExtensions"
-      :is-dark="true"
+      :is-dark="isDark"
     />
   </CollapsibleContent>
 </template>

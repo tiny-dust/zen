@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 
 import { ipcMain } from "electron";
 
+import { currentLocale, mainT } from "./i18n";
+import type { MainLocale } from "./i18n";
 import { zenSkillsRoot } from "./zen-dir";
 
 import type {
@@ -38,6 +40,7 @@ let searchQueue: Promise<unknown> = Promise.resolve();
 
 /** 拉取一次 skills.sh 搜索结果：429 限流时按 Retry-After / 指数退避重试 */
 async function fetchMarketplaceItems(query: string): Promise<SkillMarketHit[]> {
+  const locale = await currentLocale();
   const q = encodeURIComponent(query.trim() || "skills");
   const url = `https://skills.sh/api/search?q=${q}`;
   const maxAttempts = 3;
@@ -55,7 +58,7 @@ async function fetchMarketplaceItems(query: string): Promise<SkillMarketHit[]> {
       continue;
     }
     if (!response.ok) {
-      throw new Error(`skills.sh 搜索失败 HTTP ${response.status}`);
+      throw new Error(mainT(locale, "skills.searchFailed", { status: response.status }));
     }
     const data = (await response.json()) as {
       skills?: Array<{
@@ -155,10 +158,10 @@ async function resolveNpxInvocation(): Promise<{
 }
 
 /** execFile 错误转可读信息：剥 ANSI、取 stderr 尾部（CLI 的失败原因都在 stderr） */
-function installErrorMessage(error: unknown): string {
+function installErrorMessage(error: unknown, locale: MainLocale): string {
   const err = error as { message?: string; stderr?: string | Buffer; killed?: boolean };
   if (err?.killed) {
-    return "安装超时：skills CLI 长时间未响应，请检查网络后重试";
+    return mainT(locale, "skills.installTimeout");
   }
   const raw = typeof err?.stderr === "string" ? err.stderr : (err?.stderr?.toString("utf8") ?? "");
   const tail = raw
@@ -168,7 +171,7 @@ function installErrorMessage(error: unknown): string {
     .filter(Boolean)
     .slice(-3)
     .join("；");
-  return tail || err?.message || "安装失败";
+  return tail || err?.message || mainT(locale, "skills.installFailed");
 }
 
 /**
@@ -178,11 +181,12 @@ function installErrorMessage(error: unknown): string {
 async function installMarketSkill(
   hit: SkillMarketHit,
 ): Promise<{ ok: boolean; dir?: string; error?: string }> {
+  const locale = await currentLocale();
   const npx = await resolveNpxInvocation();
   if (!npx) {
     return {
       ok: false,
-      error: "未找到 npx（Node.js）。请安装 Node.js 后重启 Zen 再试。",
+      error: mainT(locale, "skills.npxNotFound"),
     };
   }
   try {
@@ -210,7 +214,7 @@ async function installMarketSkill(
       },
     );
   } catch (error) {
-    return { ok: false, error: installErrorMessage(error) };
+    return { ok: false, error: installErrorMessage(error, locale) };
   }
   // skills CLI --global 固定安装到 ~/.claude/skills（与 listSkills 的兼容目录一致）
   const installedDir = join(homedir(), ".claude", "skills", hit.skillId);
@@ -219,7 +223,7 @@ async function installMarketSkill(
     await writeSkillOrigin(installedDir, hit);
     return { ok: true, dir: installedDir };
   } catch {
-    return { ok: false, error: "安装完成但未找到 SKILL.md，请查看 skills CLI 输出" };
+    return { ok: false, error: mainT(locale, "skills.installNoSkillMd") };
   }
 }
 
@@ -340,6 +344,7 @@ async function checkGitUpdate(dir: string): Promise<SkillUpdateInfo | null> {
   if (!(await isGitWorkTree(dir))) {
     return null;
   }
+  const locale = await currentLocale();
   try {
     await execFileAsync("git", ["-C", dir, "fetch", "--quiet"], {
       windowsHide: true,
@@ -357,7 +362,10 @@ async function checkGitUpdate(dir: string): Promise<SkillUpdateInfo | null> {
       hasUpdate: behind > 0,
       via: "git",
       behind,
-      note: behind > 0 ? `上游有 ${behind} 个新提交` : "已是最新",
+      note:
+        behind > 0
+          ? mainT(locale, "skills.behindCommits", { n: behind })
+          : mainT(locale, "skills.upToDate"),
     };
   } catch {
     // 无上游跟踪 / fetch 失败
@@ -367,7 +375,7 @@ async function checkGitUpdate(dir: string): Promise<SkillUpdateInfo | null> {
       dir,
       hasUpdate: false,
       via: "git",
-      note: "无法比对 git 上游",
+      note: mainT(locale, "skills.gitCompareFailed"),
     };
   }
 }
@@ -467,39 +475,40 @@ async function checkMarketUpdate(
   skill: SkillSummary,
   lock: Map<string, SkillLockEntry>,
 ): Promise<SkillUpdateInfo> {
+  const locale = await currentLocale();
   const base: SkillUpdateInfo = {
     id: skill.id,
     name: skill.name,
     dir: skill.dir,
     hasUpdate: false,
     via: "market",
-    note: "已是最新",
+    note: mainT(locale, "skills.upToDate"),
   };
   const upstream = await resolveUpstream(skill, lock);
   if (!upstream) {
-    return { ...base, via: "none", note: "无上游来源记录（本地技能），跳过比对" };
+    return { ...base, via: "none", note: mainT(locale, "skills.noUpstreamSkip") };
   }
   const remote = await fetchRemoteSkillMd(upstream.source, skill.name, upstream.skillPath);
   if (remote == null) {
     return {
       ...base,
       via: "none",
-      note: `无法获取上游 SKILL.md（${upstream.source}），跳过比对`,
+      note: mainT(locale, "skills.upstreamFetchFailed", { source: upstream.source }),
     };
   }
   const remoteHash = hashText(remote);
   const localHash = await readSkillBodyHash(skill.dir);
   if (!localHash) {
-    return { ...base, note: "本地 SKILL.md 不可读" };
+    return { ...base, note: mainT(locale, "skills.localSkillMdUnreadable") };
   }
   if (remoteHash !== localHash) {
     return {
       ...base,
       hasUpdate: true,
-      note: "上游内容有变化，可覆盖安装更新",
+      note: mainT(locale, "skills.upstreamChanged"),
     };
   }
-  return { ...base, note: "已是最新" };
+  return { ...base, note: mainT(locale, "skills.upToDate") };
 }
 
 async function checkOneSkillUpdate(
@@ -513,7 +522,7 @@ async function checkOneSkillUpdate(
       dir: skill.dir,
       hasUpdate: false,
       via: "none",
-      note: "非用户技能目录，跳过",
+      note: mainT(await currentLocale(), "skills.notUserDirSkip"),
     };
   }
   const gitInfo = await checkGitUpdate(skill.dir);
@@ -600,9 +609,11 @@ async function installToSkillDir(
     return {
       ok: true,
       dir: installedDir,
-      error: `已更新 ${installedDir}，但同步回 ${skillDir} 失败：${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      error: mainT(await currentLocale(), "skills.syncBackFailed", {
+        installed: installedDir,
+        target: skillDir,
+        error: error instanceof Error ? error.message : String(error),
+      }),
     };
   }
 }
@@ -614,6 +625,7 @@ async function installToSkillDir(
 async function marketUpdateSkill(
   skill: SkillSummary,
 ): Promise<{ ok: boolean; dir?: string; error?: string }> {
+  const locale = await currentLocale();
   const dir = expandHome(skill.dir);
   if (await isGitWorkTree(dir)) {
     try {
@@ -623,13 +635,13 @@ async function marketUpdateSkill(
       });
       return { ok: true, dir };
     } catch (error) {
-      return { ok: false, error: installErrorMessage(error) };
+      return { ok: false, error: installErrorMessage(error, locale) };
     }
   }
   const lock = await readSkillLockMap();
   const upstream = await resolveUpstream(skill, lock);
   if (!upstream) {
-    return { ok: false, error: "无上游来源记录，无法更新（本地技能请手动维护）" };
+    return { ok: false, error: mainT(locale, "skills.updateNoUpstream") };
   }
   const hit: SkillMarketHit = {
     id: `${upstream.source}/${skill.name}`,
@@ -648,7 +660,7 @@ async function uninstallSkill(skill: SkillSummary): Promise<{ ok: boolean; error
   const allowed = [zenRoot, join(homedir(), ".claude", "skills"), join(homedir(), ".agents", "skills")];
   const underAllowed = allowed.some((root) => dir.startsWith(root));
   if (!underAllowed) {
-    return { ok: false, error: "该技能不在可卸载的用户技能目录中" };
+    return { ok: false, error: mainT(await currentLocale(), "skills.notUninstallable") };
   }
   try {
     await rm(dir, { recursive: true, force: true });
@@ -674,7 +686,7 @@ export function registerSkillsMarketIpc(): void {
 
   ipcMain.handle("skills:market-install", async (_e, hit: SkillMarketHit) => {
     if (!hit?.id || !hit?.skillId || !hit?.source) {
-      return { ok: false, error: "无效的技能条目" };
+      return { ok: false, error: mainT(await currentLocale(), "skills.invalidHit") };
     }
     return installMarketSkill(hit);
   });
@@ -685,14 +697,14 @@ export function registerSkillsMarketIpc(): void {
 
   ipcMain.handle("skills:market-update", async (_e, skill: SkillSummary) => {
     if (!skill?.dir) {
-      return { ok: false, error: "无效的技能" };
+      return { ok: false, error: mainT(await currentLocale(), "skills.invalidSkill") };
     }
     return marketUpdateSkill(skill);
   });
 
   ipcMain.handle("skills:uninstall", async (_e, skill: SkillSummary) => {
     if (!skill?.dir) {
-      return { ok: false, error: "无效的技能" };
+      return { ok: false, error: mainT(await currentLocale(), "skills.invalidSkill") };
     }
     return uninstallSkill(skill);
   });

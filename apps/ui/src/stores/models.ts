@@ -16,6 +16,7 @@ import type {
 
 import { toPlain } from "@/lib/utils";
 import type { ModelSelectionState } from "@/types/zen-api";
+import { i18n } from "@/locales";
 
 export const useModelsStore = defineStore("models", () => {
   const providers = ref<ProviderSummary[]>([]);
@@ -57,7 +58,7 @@ export const useModelsStore = defineStore("models", () => {
     const provider = selection.value.provider;
     const model = selection.value.model;
     if (!provider) {
-      return "未配置模型";
+      return i18n.global.t("app.models.noModelConfigured");
     }
     if (!model) {
       return provider.name;
@@ -103,7 +104,7 @@ export const useModelsStore = defineStore("models", () => {
         activeProviderId.value = providers.value[0]?.id ?? null;
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : "加载模型配置失败";
+      error.value = err instanceof Error ? err.message : i18n.global.t("app.models.loadFailed");
     } finally {
       loading.value = false;
     }
@@ -133,7 +134,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function addProvider(input: ProviderInput) {
-    const provider = await runModelAction(null, "添加供应商失败", async (zen) => {
+    const provider = await runModelAction(null, i18n.global.t("app.models.addProviderFailed"), async (zen) => {
       // 响应式对象（含嵌套 capabilities 数组）不能过 IPC 结构化克隆
       const created = await zen.models.addProvider(toPlain(input));
       await refresh();
@@ -144,7 +145,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function updateProvider(id: string, patch: Partial<ProviderInput>) {
-    return runModelAction(null, "更新供应商失败", async (zen) => {
+    return runModelAction(null, i18n.global.t("app.models.updateProviderFailed"), async (zen) => {
       const provider = await zen.models.updateProvider(id, toPlain(patch));
       await refresh();
       return provider;
@@ -152,7 +153,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function removeProvider(id: string) {
-    await runModelAction(undefined, "删除供应商失败", async (zen) => {
+    await runModelAction(undefined, i18n.global.t("app.models.removeProviderFailed"), async (zen) => {
       providers.value = await zen.models.removeProvider(id);
       selection.value = await zen.models.selection();
       if (activeProviderId.value === id) {
@@ -170,7 +171,7 @@ export const useModelsStore = defineStore("models", () => {
     custom?: boolean;
     capabilities?: ModelCapabilities;
   }) {
-    return runModelAction(null, "添加模型失败", async (zen) => {
+    return runModelAction(null, i18n.global.t("app.models.addModelFailed"), async (zen) => {
       const provider = await zen.models.addModel(toPlain(input));
       selection.value = await zen.models.selection();
       await refresh();
@@ -179,7 +180,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function updateModel(input: UpdateModelInput) {
-    return runModelAction(null, "更新模型失败", async (zen) => {
+    return runModelAction(null, i18n.global.t("app.models.updateModelFailed"), async (zen) => {
       const provider = await zen.models.updateModel(toPlain(input));
       selection.value = await zen.models.selection();
       await refresh();
@@ -188,7 +189,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function setModelsEnabled(providerId: string, modelIds: string[], enabled: boolean) {
-    return runModelAction(null, "批量启用失败", async (zen) => {
+    return runModelAction(null, i18n.global.t("app.models.enableBatchFailed"), async (zen) => {
       const provider = await zen.models.setEnabled(
         toPlain({ providerId, modelIds, enabled }),
       );
@@ -199,7 +200,7 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   async function removeModel(providerId: string, modelId: string) {
-    await runModelAction(undefined, "删除模型失败", async (zen) => {
+    await runModelAction(undefined, i18n.global.t("app.models.removeModelFailed"), async (zen) => {
       await zen.models.removeModel(providerId, modelId);
       selection.value = await zen.models.selection();
       await refresh();
@@ -225,7 +226,7 @@ export const useModelsStore = defineStore("models", () => {
     try {
       return await zen.models.previewModels(toPlain(input));
     } catch (err) {
-      error.value = err instanceof Error ? err.message : "拉取模型列表失败";
+      error.value = err instanceof Error ? err.message : i18n.global.t("app.models.fetchFailed");
       return null;
     } finally {
       fetching.value = false;
@@ -242,7 +243,7 @@ export const useModelsStore = defineStore("models", () => {
     try {
       return await zen.models.fetchFromProvider(providerId);
     } catch (err) {
-      error.value = err instanceof Error ? err.message : "刷新模型列表失败";
+      error.value = err instanceof Error ? err.message : i18n.global.t("app.models.refreshFailed");
       return null;
     } finally {
       fetching.value = false;

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
 import { useLayoutStore } from "@/stores/layout";
+import { i18n } from "@/locales";
 
 export type RightPanelKind =
   | "files"
@@ -17,14 +18,26 @@ export interface RightPanelTab {
   title: string;
 }
 
-/** 面板类型 → 标题：tab 与右栏「打开面板」菜单共用，同一文案只写一次 */
+/** 面板类型 → 标题：tab 与右栏「打开面板」菜单共用，同一文案只写一次（getter 延迟翻译，随语言切换刷新） */
 export const PANEL_TITLES: Record<RightPanelKind, string> = {
-  files: "文件",
-  browser: "浏览器",
-  changes: "变更",
-  graph: "图谱",
-  agents: "Agents",
-  terminals: "终端",
+  get files() {
+    return i18n.global.t("app.panel.files");
+  },
+  get browser() {
+    return i18n.global.t("app.panel.browser");
+  },
+  get changes() {
+    return i18n.global.t("app.panel.changes");
+  },
+  get graph() {
+    return i18n.global.t("app.panel.graph");
+  },
+  get agents() {
+    return i18n.global.t("app.panel.agents");
+  },
+  get terminals() {
+    return i18n.global.t("app.panel.terminals");
+  },
 };
 
 /**

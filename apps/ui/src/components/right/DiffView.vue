@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 /** 统一 diff 的行模型 */
 interface DiffLine {
@@ -10,6 +11,8 @@ interface DiffLine {
 }
 
 const props = defineProps<{ diff: string }>();
+
+const { t } = useI18n();
 
 const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
@@ -70,7 +73,7 @@ function gutter(value: number | null): string {
   <div
     class="min-h-0 flex-1 overflow-auto rounded-md border border-[var(--color-line-soft)] bg-[var(--color-code-bg)] px-1 py-1.5 font-[family-name:var(--font-mono)] text-[10px] leading-[1.6] text-[var(--color-code-fg)]"
     role="figure"
-    aria-label="文件 diff"
+    :aria-label="t('panels.fileDiff')"
   >
     <div
       v-for="(line, index) in lines"

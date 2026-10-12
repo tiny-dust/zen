@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
 const { sessionWorkspaceId } = storeToRefs(chatStore);
+const { t } = useI18n();
 
 const preview = ref<FilePreview | null>(null);
 const loading = ref(false);
@@ -77,7 +79,7 @@ watch(
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
       class="flex max-h-[min(76vh,720px)] w-[min(880px,calc(100vw-64px))] flex-col gap-0 overflow-hidden bg-[var(--color-set-card)] p-0"
-      aria-label="文件预览"
+      :aria-label="t('shell.filePreview')"
     >
       <header
         class="flex flex-none items-center gap-2 border-b border-[var(--color-line)] px-4 py-3"
@@ -96,7 +98,7 @@ watch(
           class="m-0 px-4 py-10 text-center text-[12px] text-[var(--color-dim)]"
           role="status"
         >
-          读取中…
+          {{ t("shell.reading") }}
         </p>
         <template v-else-if="preview?.kind === 'image'">
           <div
@@ -111,7 +113,7 @@ watch(
             >
           </div>
           <p class="m-0 border-t border-[var(--color-line-soft)] px-4 py-2 text-center text-[11px] text-[var(--color-dim)]">
-            {{ imageZoomed ? "点击缩小" : "点击查看原始尺寸" }}
+            {{ imageZoomed ? t("shell.clickToShrink") : t("shell.clickToViewOriginal") }}
           </p>
         </template>
         <template v-else-if="preview?.kind === 'text'">
@@ -123,7 +125,7 @@ watch(
             class="m-0 border-t border-[var(--color-line-soft)] px-4 py-2 text-[11px] text-[var(--color-accent)]"
             role="status"
           >
-            文件过大，仅展示前 512KB。
+            {{ t("shell.fileTooLarge") }}
           </p>
         </template>
         <p
@@ -131,14 +133,14 @@ watch(
           class="m-0 px-4 py-10 text-center text-[12px] text-[var(--color-dim)]"
           role="status"
         >
-          该文件类型暂不支持预览（{{ sizeText }}）。
+          {{ t("shell.unsupportedPreview", { size: sizeText }) }}
         </p>
         <p
           v-else
           class="m-0 px-4 py-10 text-center text-[12px] text-[var(--color-dim)]"
           role="status"
         >
-          无法读取该文件。
+          {{ t("shell.cannotReadFile") }}
         </p>
       </div>
     </DialogContent>

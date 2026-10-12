@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 
 import { normalizeShortcutKey } from "@zen/shared";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSettingsStore } from "@/stores/settings";
 
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
 
@@ -44,16 +46,16 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
           <div
             class="grid grid-cols-[1.2fr_1.4fr_140px] gap-3 border-b border-[var(--color-line)] px-3 py-2 text-[11px] text-[var(--color-dim)]"
           >
-            <span>功能</span>
-            <span>命令</span>
-            <span>快捷键</span>
+            <span>{{ t("settings.shortcut.action") }}</span>
+            <span>{{ t("settings.shortcut.command") }}</span>
+            <span>{{ t("settings.shortcut.key") }}</span>
           </div>
           <div
             v-for="item in settings.shortcuts"
             :key="item.id"
             class="grid grid-cols-[1.2fr_1.4fr_140px] items-center gap-3 border-b border-[var(--color-line-soft)] px-3 py-1.5 last:border-b-0"
           >
-            <span class="text-[12px] text-[var(--color-txt-strong)]">{{ item.label }}</span>
+            <span class="text-[12px] text-[var(--color-txt-strong)]">{{ t(`settings.shortcut.${item.id}`) }}</span>
             <span
               class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
             >
@@ -63,7 +65,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
               class="h-7 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
               :model-value="item.key"
               readonly
-              aria-label="快捷键"
+              :aria-label="t('settings.shortcut.key')"
               @keydown="onCaptureKey($event, item.id)"
             />
           </div>

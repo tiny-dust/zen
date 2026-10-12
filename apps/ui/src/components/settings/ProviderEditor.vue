@@ -2,6 +2,7 @@
 import { Plus, RefreshCw } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import EditorModelList from "@/components/settings/EditorModelList.vue";
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
+const { t } = useI18n();
 const modelsStore = useModelsStore();
 const { fetching } = storeToRefs(modelsStore);
 
@@ -159,7 +161,7 @@ const removing = ref(false);
 
 const modelRemoveDesc = computed(() => {
   const model = modelToRemove.value;
-  return model ? `将移除待添加的 ${model.name}（尚未落库）。` : "";
+  return model ? t("settings.models.removePendingDesc", { name: model.name }) : "";
 });
 
 function askRemoveModel(model: ProviderModel) {
@@ -182,14 +184,14 @@ async function confirmRemoveModel() {
   <div class="min-w-0 overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]">
     <header class="flex items-center justify-between gap-2.5 border-b border-[var(--color-line)] py-2 pl-3.5 pr-2.5">
       <div class="flex min-w-0 items-baseline gap-2">
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">新增供应商</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.models.addTitle") }}</h3>
         <span class="truncate text-[11px] text-[var(--color-mut)]">
-          协议 · 名称 · Base URL · API Key · User-Agent
+          {{ t("settings.models.addFieldHint") }}
         </span>
       </div>
       <div class="flex shrink-0 items-center gap-1">
-        <Button variant="ghost" size="sm" @click="emit('cancel')">取消</Button>
-        <Button size="sm" :disabled="saving" @click="onSave">保存供应商</Button>
+        <Button variant="ghost" size="sm" @click="emit('cancel')">{{ t("common.cancel") }}</Button>
+        <Button size="sm" :disabled="saving" @click="onSave">{{ t("settings.models.saveProvider") }}</Button>
       </div>
     </header>
 
@@ -207,18 +209,18 @@ async function confirmRemoveModel() {
         variant="outline"
         size="sm"
         :disabled="!canLoadModels || fetching"
-        :title="canLoadModels ? '按当前连接信息拉取模型列表' : '请先填写 Base URL 与 API Key'"
+        :title="canLoadModels ? t('settings.models.refreshModelsTitle') : t('settings.models.needBaseUrlKeyTitle')"
         @click="onLoadModels"
       >
         <RefreshCw data-icon="inline-start" />
-        {{ fetching ? "刷新中…" : "刷新模型" }}
+        {{ fetching ? t("settings.models.refreshing") : t("settings.models.refreshModels") }}
       </Button>
       <Button variant="outline" size="sm" @click="showManualAdd = !showManualAdd">
         <Plus data-icon="inline-start" />
-        手动添加
+        {{ t("settings.models.manualAdd") }}
       </Button>
       <span v-if="!canLoadModels" class="text-[11px] text-[var(--color-dim)]">
-        需先填写 Base URL 与 API Key
+        {{ t("settings.models.needBaseUrlKeyHint") }}
       </span>
     </div>
 
@@ -235,14 +237,14 @@ async function confirmRemoveModel() {
         placeholder="gpt-4o / VW2TTQCH/deepseek-v4-flash"
         required
       />
-      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-name">名称</label>
+      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-name">{{ t("settings.models.name") }}</label>
       <Input
         id="manual-name"
         v-model="manualForm.name"
         class="h-7 flex-1 border-0 bg-transparent text-[12px]"
-        placeholder="留空则自动推断"
+        :placeholder="t('settings.models.nameOptionalPlaceholder')"
       />
-      <Button type="submit" size="sm">添加</Button>
+      <Button type="submit" size="sm">{{ t("settings.models.add") }}</Button>
     </form>
 
     <FetchedModelList
@@ -260,9 +262,9 @@ async function confirmRemoveModel() {
 
     <ConfirmDialog
       :open="modelToRemove !== null"
-      title="移除待添加模型？"
+      :title="t('settings.models.removePendingTitle')"
       :description="modelRemoveDesc"
-      confirm-label="移除"
+      :confirm-label="t('settings.models.remove')"
       :pending="removing"
       @update:open="onModelDialogOpen"
       @confirm="confirmRemoveModel"

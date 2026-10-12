@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { ChevronDown, Copy, ExternalLink, Folder, Globe, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
   import { computed } from "vue";
+  import { useI18n } from "vue-i18n";
 
   import SessionRow from "@/components/sidebar/SessionRow.vue";
   import { Button } from "@/components/ui/button";
@@ -46,6 +47,8 @@
   }>();
 
   const workspaceStore = useWorkspaceStore();
+
+  const { t } = useI18n();
 
   const isCommon = computed(() => props.group.kind === "common");
   /** 区块头形态（公共区组头即区块头，视觉更重） */
@@ -94,13 +97,13 @@
             class="flex flex-none items-center gap-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] focus-within:opacity-100 group-hover/row:opacity-100">
             <Button variant="ghost" size="icon-sm"
               class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
-              aria-label="新建会话" title="新建会话" @click.stop="emit('new-session')">
+              :aria-label="t('sidebar.newSession')" :title="t('sidebar.newSession')" @click.stop="emit('new-session')">
               <Plus class="size-3.5" aria-hidden="true" />
             </Button>
             <template v-if="!isCommon">
               <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-del)] hover:text-[var(--color-danger-fg)] dark:hover:text-[var(--color-danger-fg)]"
-                aria-label="删除工作区" title="删除工作区" @click.stop="emit('delete-workspace')">
+                :aria-label="t('sidebar.deleteWorkspace')" :title="t('sidebar.deleteWorkspace')" @click.stop="emit('delete-workspace')">
                 <Trash2 class="size-3.5" aria-hidden="true" />
               </Button>
             </template>
@@ -109,7 +112,7 @@
           <button v-if="!isCommon" type="button"
             class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-dim)] transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/row:opacity-100"
             :class="group.pinned ? 'opacity-100' : 'opacity-0'"
-            :aria-label="group.pinned ? '取消置顶' : '置顶'" :title="group.pinned ? '取消置顶' : '置顶'"
+            :aria-label="group.pinned ? t('sidebar.unpin') : t('sidebar.pin')" :title="group.pinned ? t('sidebar.unpin') : t('sidebar.pin')"
             @click.stop="emit('pin-workspace')">
             <Pin class="size-3.5" :class="group.pinned ? '-rotate-45 text-[var(--color-accent)]' : ''" aria-hidden="true" />
           </button>
@@ -122,23 +125,23 @@
       <ContextMenuContent class="text-[12px]">
         <ContextMenuItem @select="emit('new-session')">
           <Plus class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
-          新建会话
+          {{ t("sidebar.newSession") }}
         </ContextMenuItem>
         <template v-if="!isCommon">
           <ContextMenuSeparator />
           <ContextMenuItem @select="emit('pin-workspace')">
             <PinOff v-if="group.pinned" class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
             <Pin v-else class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
-            {{ group.pinned ? "取消置顶" : "置顶" }}
+            {{ group.pinned ? t("sidebar.unpin") : t("sidebar.pin") }}
           </ContextMenuItem>
           <ContextMenuItem @select="emit('rename')">
             <Pencil class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
-            重命名
+            {{ t("sidebar.rename") }}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem @select="emit('copy-path')">
             <Copy class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
-            复制路径
+            {{ t("sidebar.copyPath") }}
           </ContextMenuItem>
           <ContextMenuItem @select="emit('show-in-folder')">
             <ExternalLink class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
@@ -147,7 +150,7 @@
           <ContextMenuSeparator />
           <ContextMenuItem variant="destructive" @select="emit('delete-workspace')">
             <Trash2 class="size-3.5" aria-hidden="true" />
-            删除工作区
+            {{ t("sidebar.deleteWorkspace") }}
           </ContextMenuItem>
         </template>
       </ContextMenuContent>
@@ -163,7 +166,7 @@
         <Button variant="ghost"
           class="h-7 px-2 text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-mut)] dark:hover:bg-transparent"
           @click="emit('toggle-expand')">
-          {{ expanded ? "收起" : "展开显示" }}
+          {{ expanded ? t("sidebar.collapse") : t("sidebar.showMore") }}
         </Button>
       </div>
     </div>

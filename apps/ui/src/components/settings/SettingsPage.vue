@@ -2,6 +2,7 @@
 import { Bot, Boxes, Keyboard, MessageSquare, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
@@ -17,6 +18,7 @@ import { useSettingsStore } from "@/stores/settings";
 
 import type { SettingsTab } from "@/stores/settings";
 
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const { settingsOpen, activeTab } = storeToRefs(settingsStore);
 
@@ -24,25 +26,25 @@ const search = ref("");
 
 const navGroups = computed(() => [
   {
-    title: "偏好",
+    title: t("settings.nav.groupPrefs"),
     items: [
-      { id: "general" as const, label: "常规", icon: Settings2 },
-      { id: "shortcuts" as const, label: "键盘快捷键", icon: Keyboard },
+      { id: "general" as const, label: t("settings.nav.general"), icon: Settings2 },
+      { id: "shortcuts" as const, label: t("settings.nav.shortcuts"), icon: Keyboard },
     ],
   },
   {
-    title: "Agent",
+    title: t("settings.nav.groupAgent"),
     items: [
-      { id: "agent" as const, label: "Agent 与权限", icon: Bot },
-      { id: "lark" as const, label: "飞书", icon: MessageSquare },
-      { id: "prompts" as const, label: "提示词", icon: Sparkles },
+      { id: "agent" as const, label: t("settings.nav.agent"), icon: Bot },
+      { id: "lark" as const, label: t("settings.nav.lark"), icon: MessageSquare },
+      { id: "prompts" as const, label: t("settings.nav.prompts"), icon: Sparkles },
     ],
   },
   {
-    title: "账号与模型",
+    title: t("settings.nav.groupAccount"),
     items: [
-      { id: "profile" as const, label: "个人资料", icon: UserRound },
-      { id: "models" as const, label: "模型供应", icon: Boxes },
+      { id: "profile" as const, label: t("settings.nav.profile"), icon: UserRound },
+      { id: "models" as const, label: t("settings.nav.models"), icon: Boxes },
     ],
   },
 ]);
@@ -63,19 +65,19 @@ const filteredGroups = computed(() => {
 const paneTitle = computed(() => {
   switch (activeTab.value) {
     case "models":
-      return "模型供应";
+      return t("settings.nav.models");
     case "profile":
-      return "个人资料";
+      return t("settings.nav.profile");
     case "shortcuts":
-      return "键盘快捷键";
+      return t("settings.nav.shortcuts");
     case "agent":
-      return "Agent 与权限";
+      return t("settings.nav.agent");
     case "lark":
-      return "飞书";
+      return t("settings.nav.lark");
     case "prompts":
-      return "提示词";
+      return t("settings.nav.prompts");
     default:
-      return "常规";
+      return t("settings.nav.general");
   }
 });
 
@@ -83,19 +85,19 @@ const paneTitle = computed(() => {
 const paneDesc = computed(() => {
   switch (activeTab.value) {
     case "models":
-      return "自定义 OpenAI / Anthropic 兼容供应商，支持三种消息协议。";
+      return t("settings.nav.descModels");
     case "profile":
-      return "本地默认身份可用全部功能；登录 GitHub 后可同步个人资料与配置云。";
+      return t("settings.nav.descProfile");
     case "shortcuts":
-      return "点击输入框后按下组合键即可重新绑定。";
+      return t("settings.nav.descShortcuts");
     case "agent":
-      return "权限三档与项目隔离区，控制 Agent 的操作边界。";
+      return t("settings.nav.descAgent");
     case "lark":
-      return "通过本机 lark-cli 网关与飞书收发消息、状态与问询。";
+      return t("settings.nav.descLark");
     case "prompts":
-      return "选择知名工具的内置系统提示词，或自定义你的规则。";
+      return t("settings.nav.descPrompts");
     default:
-      return "默认打开方式、项目位置、菜单栏与图标。";
+      return t("settings.nav.descGeneral");
   }
 });
 
@@ -127,17 +129,17 @@ watch(
       class="grid h-[min(820px,calc(100vh-56px))] w-[min(1180px,calc(100vw-48px))] grid-cols-[208px_minmax(0,1fr)] overflow-hidden rounded-[14px] border border-[var(--color-line)] bg-[var(--color-settings-content)] text-[var(--color-txt)] shadow-[var(--shadow-pop)]"
       role="dialog"
       aria-modal="true"
-      aria-label="设置"
+      :aria-label="t('settings.nav.title')"
       data-select-text
     >
       <aside
         class="flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-settings-nav)] p-3.5"
       >
-        <div class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">设置</div>
+        <div class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.nav.title") }}</div>
         <Input
           v-model="search"
           class="h-[30px] w-full flex-none bg-[var(--color-np-btn-bg)] text-[13px]"
-          placeholder="搜索设置"
+          :placeholder="t('settings.nav.searchPlaceholder')"
         />
 
         <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
@@ -180,7 +182,7 @@ watch(
             variant="ghost"
             size="icon-sm"
             class="flex-none text-[var(--color-mut)]"
-            aria-label="关闭"
+            :aria-label="t('common.close')"
             @click="settingsStore.closeSettings()"
           >
             <X />
@@ -202,7 +204,7 @@ watch(
               v-else-if="activeTab === 'skills' || activeTab === 'mcp'"
               class="text-[12px] text-[var(--color-mut)]"
             >
-              技能与 MCP 已移至左侧栏独立弹窗，请点击侧栏「技能」或「MCP」打开。
+              {{ t("settings.nav.skillsMcpMoved") }}
             </div>
           </div>
         </div>

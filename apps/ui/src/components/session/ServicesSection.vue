@@ -2,6 +2,7 @@
 import { Server, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { useAgentServicesStore } from "@/stores/agent-services";
  */
 const services = useAgentServicesStore();
 const { items, error, killingIds } = storeToRefs(services);
+const { t } = useI18n();
 const open = ref(true);
 
 onMounted(() => {
@@ -24,7 +26,7 @@ onMounted(() => {
   <section v-if="items.length" class="flex flex-col">
     <SessionSectionHead
       :icon="Server"
-      title="服务"
+      :title="t('shell.services')"
       :open="open"
       :count="`${items.length}`"
       @toggle="open = !open"
@@ -51,7 +53,7 @@ onMounted(() => {
         >
           {{ item.command }}
         </span>
-        <span class="flex-none text-[10px] text-[var(--color-dim)]" title="进程组存活进程数">
+        <span class="flex-none text-[10px] text-[var(--color-dim)]" :title="t('shell.aliveProcessCount')">
           {{ item.pids.length }}
         </span>
         <span class="flex-none text-[10px] text-[var(--color-dim)]">
@@ -62,8 +64,8 @@ onMounted(() => {
           size="icon-sm"
           class="size-5! flex-none rounded-[4px]! text-[var(--color-dim)] group-hover/service:opacity-100 hover:text-[var(--color-del)] md:opacity-60"
           :disabled="killingIds[item.id] === true"
-          :aria-label="`关闭 ${item.command}`"
-          title="关闭服务（结束整个进程组）"
+          :aria-label="t('shell.closeService', { name: item.command })"
+          :title="t('shell.closeServiceTitle')"
           @click="services.kill(item.id)"
         >
           <X class="size-3" />

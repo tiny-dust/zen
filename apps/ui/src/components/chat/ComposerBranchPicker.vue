@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, GitBranch } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ const props = defineProps<{
   compact?: boolean;
 }>();
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 
@@ -102,8 +104,8 @@ onBeforeUnmount(() => {
       variant="ghost"
       class="h-7 gap-1 rounded-md px-1.5 font-normal text-[11px] text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
       :class="open ? 'bg-[var(--color-menu-active)]' : ''"
-      :aria-label="`切换分支，当前 ${branch}`"
-      :title="`当前分支：${branch}（点击切换）`"
+      :aria-label="t('chat.branch.switch', { branch })"
+      :title="t('chat.branch.current', { branch })"
       @click="toggle"
     >
       <GitBranch class="size-3.5 flex-none" aria-hidden="true" />

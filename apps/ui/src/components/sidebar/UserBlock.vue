@@ -2,6 +2,7 @@
 import { Check, ExternalLink, HelpCircle, LogOut, Settings } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import zenAvatar from "@/assets/agent-logos/zen.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,6 +32,8 @@ import { useUserStore } from "@/stores/user";
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const agentStore = useAgentStore();
+
+const { t } = useI18n();
 const { auth, loading, loginError, deviceCode } = storeToRefs(userStore);
 const { larkStatus } = storeToRefs(agentStore);
 
@@ -70,18 +73,18 @@ const displayedAccount = computed<"github" | "lark" | null>(() => {
 
 /** 账户菜单行：已登录可切换展示，未登录点击即发起登录/绑定 */
 const accountRows = computed(() => {
-  const otherConnected = (connected: boolean) => (connected ? "绑定" : "登录");
+  const otherConnected = (connected: boolean) => (connected ? t("sidebar.user.bind") : t("sidebar.user.login"));
   return [
     {
       kind: "lark" as const,
-      label: "飞书",
+      label: t("sidebar.user.feishu"),
       name: larkIdentity.value?.name ?? null,
       connected: larkConnected.value,
       displayed: displayedAccount.value === "lark",
       action: larkConnected.value
         ? displayedAccount.value === "lark"
-          ? "展示中"
-          : "切换展示"
+          ? t("sidebar.user.displaying")
+          : t("sidebar.user.switchDisplay")
         : otherConnected(githubConnected.value),
     },
     {
@@ -92,8 +95,8 @@ const accountRows = computed(() => {
       displayed: displayedAccount.value === "github",
       action: githubConnected.value
         ? displayedAccount.value === "github"
-          ? "展示中"
-          : "切换展示"
+          ? t("sidebar.user.displaying")
+          : t("sidebar.user.switchDisplay")
         : otherConnected(larkConnected.value),
     },
   ];
@@ -167,7 +170,7 @@ async function chooseLark() {
     await window.zen?.lark?.login();
   } catch (error) {
     larkLoginPhase.value = "error";
-    larkLoginError.value = error instanceof Error ? error.message : "发起飞书登录失败";
+    larkLoginError.value = error instanceof Error ? error.message : t("sidebar.user.larkLoginStartFailed");
   }
 }
 
@@ -208,7 +211,7 @@ const shownLark = computed(() => displayedAccount.value === "lark");
 
 const displayName = computed(() => {
   if (loading.value) {
-    return deviceCode.value ? "在浏览器确认设备码" : "正在申请登录…";
+    return deviceCode.value ? t("sidebar.user.confirmDeviceInBrowser") : t("sidebar.user.requestingLogin");
   }
   if (shownGithub.value && auth.value.user) {
     return auth.value.user.name || auth.value.user.login;
@@ -216,20 +219,22 @@ const displayName = computed(() => {
   if (shownLark.value && larkIdentity.value) {
     return larkIdentity.value.name;
   }
-  return "Zen 用户";
+  return t("sidebar.user.zenUser");
 });
 
 const displaySub = computed(() => {
   if (loading.value) {
-    return deviceCode.value ? `设备码 ${deviceCode.value.userCode}` : "即将打开 GitHub 授权页";
+    return deviceCode.value
+      ? t("sidebar.user.deviceCodeValue", { code: deviceCode.value.userCode })
+      : t("sidebar.user.openingGithubAuth");
   }
   if (shownGithub.value && auth.value.user) {
     return `@${auth.value.user.login}`;
   }
   if (shownLark.value && larkIdentity.value) {
-    return "飞书已连接";
+    return t("sidebar.user.larkConnected");
   }
-  return "本地模式 · 未登录";
+  return t("sidebar.user.localMode");
 });
 
 const initials = computed(() => {
@@ -350,10 +355,10 @@ const accountRowCls =
             <GithubMark v-else class="size-4 flex-none text-[var(--color-txt)]" />
             <span class="flex min-w-0 flex-1 flex-col items-start">
               <span class="block w-full truncate text-[12px] leading-tight">
-                {{ row.connected ? row.name : `登录${row.label}` }}
+                {{ row.connected ? row.name : t("sidebar.user.signInWith", { label: row.label }) }}
               </span>
               <span class="block w-full truncate text-[10px] leading-tight text-[var(--color-mut)]">
-                {{ row.connected ? row.label : row.action === "绑定" ? "绑定后与另一账户并存" : `${row.label} 授权` }}
+                {{ row.connected ? row.label : row.action === t("sidebar.user.bind") ? t("sidebar.user.bindCoexist") : t("sidebar.user.authorizeWith", { label: row.label }) }}
               </span>
             </span>
             <Check v-if="row.connected && row.displayed" class="size-3.5 flex-none text-[var(--color-ok)]" />
@@ -371,12 +376,12 @@ const accountRowCls =
         <DropdownMenuGroup>
           <DropdownMenuItem :class="menuItemCls" @select="openSettings">
             <Settings class="size-[15px] flex-none text-[var(--color-mut)]" />
-            <span>设置</span>
+            <span>{{ t("sidebar.user.settings") }}</span>
             <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem :class="menuItemCls" @select="openProfile">
             <HelpCircle class="size-[15px] flex-none text-[var(--color-mut)]" />
-            <span>个人资料与同步</span>
+            <span>{{ t("sidebar.user.profileAndSync") }}</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
@@ -385,7 +390,7 @@ const accountRowCls =
         <DropdownMenuGroup>
           <DropdownMenuItem v-if="githubConnected" :class="[menuItemCls, menuDanger]" @select="onLogout">
             <LogOut class="size-[15px] flex-none" />
-            <span>退出 GitHub 登录</span>
+            <span>{{ t("sidebar.user.signOutGithub") }}</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
@@ -396,14 +401,14 @@ const accountRowCls =
       class="mx-1 mt-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-set-card)] p-2.5"
       role="status"
     >
-      <div class="text-[11px] text-[var(--color-mut)]">设备码</div>
+      <div class="text-[11px] text-[var(--color-mut)]">{{ t("sidebar.user.deviceCode") }}</div>
       <code
         class="mt-1 block font-[family-name:var(--font-mono)] text-[15px] font-semibold tracking-[0.12em] text-[var(--color-txt-strong)]"
       >
         {{ deviceCode.userCode }}
       </code>
       <Button size="sm" variant="outline" class="mt-2 w-fit" @click="copyDeviceCode">
-        复制
+        {{ t("common.copy") }}
       </Button>
     </div>
     <p v-if="loginError" class="mx-1 mt-2 text-[11px] text-[var(--color-danger-fg)]" role="alert">
@@ -418,10 +423,10 @@ const accountRowCls =
       >
         <template v-if="larkLoginPhase === 'choice'">
           <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
-            选择登录方式
+            {{ t("sidebar.user.chooseLoginMethod") }}
           </DialogTitle>
           <DialogDescription class="text-[12px] leading-normal text-[var(--color-mut)]">
-            两个账户可并存绑定：登录其一后，在账户菜单点击另一个即可绑定。飞书连接桥接；GitHub 同步个人资料与配置。
+            {{ t("sidebar.user.loginChoiceDesc") }}
           </DialogDescription>
           <div class="mt-1 grid w-full grid-cols-2 gap-2">
             <Button
@@ -431,10 +436,10 @@ const accountRowCls =
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
                 <FeishuLogo class="size-4" />
-                飞书
+                {{ t("sidebar.user.feishu") }}
               </span>
               <span class="text-[11px] leading-snug font-normal text-[var(--color-mut)]">
-                浏览器授权 · 连接飞书桥接
+                {{ t("sidebar.user.larkOptionHint") }}
               </span>
             </Button>
             <Button
@@ -447,34 +452,34 @@ const accountRowCls =
                 GitHub
               </span>
               <span class="text-[11px] leading-snug font-normal text-[var(--color-mut)]">
-                设备码授权 · 同步资料与配置
+                {{ t("sidebar.user.githubOptionHint") }}
               </span>
             </Button>
           </div>
           <div class="flex justify-end">
-            <Button variant="ghost" size="sm" @click="closeLoginDialog">取消</Button>
+            <Button variant="ghost" size="sm" @click="closeLoginDialog">{{ t("common.cancel") }}</Button>
           </div>
         </template>
 
         <template v-else>
           <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
-            飞书登录
+            {{ t("sidebar.user.larkLoginTitle") }}
           </DialogTitle>
           <p v-if="larkLoginPhase === 'starting'" class="m-0 text-[12px] text-[var(--color-mut)]">
-            正在发起飞书授权…
+            {{ t("sidebar.user.larkAuthStarting") }}
           </p>
           <template v-else-if="larkLoginPhase === 'waiting'">
             <DialogDescription class="text-[12px] leading-normal text-[var(--color-mut)]">
-              请在浏览器中完成飞书授权（链接 10 分钟内有效），完成后此处会自动关闭。
+              {{ t("sidebar.user.larkAuthWaitingDesc") }}
             </DialogDescription>
             <Button v-if="larkLoginUrl" variant="outline" size="sm" class="w-fit" @click="openLarkLoginUrl">
-              打开飞书授权页面
+              {{ t("sidebar.user.openLarkAuthPage") }}
               <ExternalLink data-icon="inline-end" />
             </Button>
           </template>
           <p v-else class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ larkLoginError }}</p>
           <div class="flex justify-end">
-            <Button variant="ghost" size="sm" @click="larkLoginPhase = 'choice'">返回</Button>
+            <Button variant="ghost" size="sm" @click="larkLoginPhase = 'choice'">{{ t("sidebar.user.back") }}</Button>
           </div>
         </template>
       </DialogContent>

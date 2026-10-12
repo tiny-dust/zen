@@ -14,6 +14,7 @@ import {
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ const agentStore = useAgentStore();
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
 const { mcpStatuses } = storeToRefs(agentStore);
+
+const { t } = useI18n();
 
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
 useBrowserOverlayGuard(open);
@@ -133,7 +136,7 @@ function schemaSummary(schema: Record<string, unknown>): string {
 function buildConfigFromForm(): { config: McpServerConfig } | { error: string } {
   const name = form.value.name.trim();
   if (!name) {
-    return { error: "请填写服务名称" };
+    return { error: t("sidebar.mcp.errNameRequired") };
   }
   const base = {
     id: `${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now().toString(36)}`,
@@ -144,7 +147,7 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
   if (form.value.transport === "stdio") {
     const commandLine = form.value.command.trim();
     if (!commandLine) {
-      return { error: "请填写启动命令" };
+      return { error: t("sidebar.mcp.errCommandRequired") };
     }
     const [cmd, ...args] = commandLine.split(/\s+/);
     let env: Record<string, string> | undefined;
@@ -153,14 +156,14 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
       try {
         env = JSON.parse(envRaw) as Record<string, string>;
       } catch {
-        return { error: "环境变量不是合法 JSON，例如 {\"API_KEY\":\"xxx\"}" };
+        return { error: t("sidebar.mcp.errEnvJson") };
       }
     }
     return { config: { ...base, command: cmd ?? commandLine, args, env } };
   }
   const url = form.value.url.trim();
   if (!/^https?:\/\//.test(url)) {
-    return { error: "请填写 http(s):// 开头的服务地址" };
+    return { error: t("sidebar.mcp.errUrlRequired") };
   }
   let headers: Record<string, string> | undefined;
   const raw = form.value.headers.trim();
@@ -168,7 +171,7 @@ function buildConfigFromForm(): { config: McpServerConfig } | { error: string } 
     try {
       headers = JSON.parse(raw) as Record<string, string>;
     } catch {
-      return { error: "请求头不是合法 JSON，例如 {\"Authorization\":\"Bearer xxx\"}" };
+      return { error: t("sidebar.mcp.errHeadersJson") };
     }
   }
   return { config: { ...base, url, headers } };
@@ -261,8 +264,8 @@ async function runScan() {
     discovered.value = await agentStore.scanMcp(workspaceRoot);
     const pending = discovered.value.filter((item) => !item.alreadyImported).length;
     scanNote.value = discovered.value.length
-      ? `发现 ${discovered.value.length} 个服务，其中 ${pending} 个未导入`
-      : "未在本机其它工具或当前仓库发现 MCP 配置";
+      ? t("sidebar.mcp.scanFound", { total: discovered.value.length, pending })
+      : t("sidebar.mcp.scanNone");
   } finally {
     scanBusy.value = false;
   }
@@ -292,15 +295,15 @@ async function importDiscovered(items: McpDiscoveredServer[]) {
   discovered.value = discovered.value.map((item) =>
     added.has(item.config.name) ? { ...item, alreadyImported: true } : item,
   );
-  scanNote.value = `已导入 ${add.map((item) => item.name).join("、")}`;
+  scanNote.value = t("sidebar.mcp.importedList", { names: add.map((item) => item.name).join("、") });
 }
 
 function stateLabel(state: string) {
-  if (state === "running") return "运行中";
-  if (state === "starting") return "启动中";
-  if (state === "needs-auth") return "需要授权";
-  if (state === "error") return "错误";
-  return "已停止";
+  if (state === "running") return t("sidebar.mcp.stateRunning");
+  if (state === "starting") return t("sidebar.mcp.stateStarting");
+  if (state === "needs-auth") return t("sidebar.mcp.stateNeedsAuth");
+  if (state === "error") return t("sidebar.mcp.stateError");
+  return t("sidebar.mcp.stateStopped");
 }
 
 /** needs-auth 行的 OAuth 授权进行中（按服务 id 置忙，防重复点击） */
@@ -336,40 +339,40 @@ async function authorizeServer(id: string) {
       class="flex h-[min(86vh,820px)] w-[min(980px,94vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
     >
       <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
-        <DialogTitle class="text-[15px]">MCP 服务</DialogTitle>
+        <DialogTitle class="text-[15px]">{{ t("sidebar.mcp.title") }}</DialogTitle>
         <DialogDescription class="text-[12px]">
-          配置本地 stdio 或远程 MCP；工具以 <code class="font-[family-name:var(--font-mono)]">mcp.服务.工具</code> 接入 Agent。配置写入 ~/.zen/mcp.json。远程服务要求 OAuth 时，点服务行的「授权登录」在系统浏览器完成认证。
+          {{ t("sidebar.mcp.descA") }}<code class="font-[family-name:var(--font-mono)]">{{ t("sidebar.mcp.toolPattern") }}</code>{{ t("sidebar.mcp.descB") }}
         </DialogDescription>
       </DialogHeader>
 
       <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
           <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-            {{ editingId ? "编辑服务" : "添加服务" }}
+            {{ editingId ? t("sidebar.mcp.editServer") : t("sidebar.mcp.addServer") }}
           </div>
           <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
-            <Input v-model="form.name" class="h-8 text-[12px]" placeholder="名称，如 filesystem" />
+            <Input v-model="form.name" class="h-8 text-[12px]" :placeholder="t('sidebar.mcp.namePlaceholder')" />
             <Select v-model="form.transport">
               <SelectTrigger class="h-8 text-[12px]">
-                <SelectValue placeholder="传输方式" />
+                <SelectValue :placeholder="t('sidebar.mcp.transportPlaceholder')" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="stdio">stdio（本地命令）</SelectItem>
-                <SelectItem value="http">HTTP（远程）</SelectItem>
-                <SelectItem value="sse">SSE（远程旧版）</SelectItem>
+                <SelectItem value="stdio">{{ t("sidebar.mcp.transportStdio") }}</SelectItem>
+                <SelectItem value="http">{{ t("sidebar.mcp.transportHttp") }}</SelectItem>
+                <SelectItem value="sse">{{ t("sidebar.mcp.transportSse") }}</SelectItem>
               </SelectContent>
             </Select>
             <template v-if="form.transport === 'stdio'">
               <Input
                 v-model="form.command"
                 class="h-8 text-[12px] md:col-span-2"
-                placeholder="命令，如 npx -y @modelcontextprotocol/server-filesystem /path"
+                :placeholder="t('sidebar.mcp.commandPlaceholder')"
                 @keydown.enter="submitForm"
               />
               <Input
                 v-model="form.env"
                 class="h-8 text-[12px] md:col-span-2"
-                placeholder='环境变量（JSON，可选），如 {"API_KEY":"xxx"}'
+                :placeholder="t('sidebar.mcp.envPlaceholder')"
                 @keydown.enter="submitForm"
               />
             </template>
@@ -383,20 +386,20 @@ async function authorizeServer(id: string) {
               <Input
                 v-model="form.headers"
                 class="h-8 text-[12px] md:col-span-2"
-                placeholder='附加请求头（JSON，可选），如 {"Authorization":"Bearer xxx"}'
+                :placeholder="t('sidebar.mcp.headersPlaceholder')"
                 @keydown.enter="submitForm"
               />
             </template>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <Button size="sm" @click="submitForm">
-              <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? "保存" : "添加" }}
+              <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? t("common.save") : t("sidebar.mcp.add") }}
             </Button>
             <Button v-if="editingId" variant="ghost" size="sm" @click="cancelEdit">
-              <X class="size-3.5" />取消
+              <X class="size-3.5" />{{ t("common.cancel") }}
             </Button>
             <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
-              <RefreshCw class="size-3.5" />刷新状态
+              <RefreshCw class="size-3.5" />{{ t("sidebar.mcp.refreshStatus") }}
             </Button>
             <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
           </div>
@@ -405,7 +408,7 @@ async function authorizeServer(id: string) {
         <div class="min-w-0">
           <div class="mb-2 flex items-center justify-between gap-2">
             <span class="text-[12px] font-medium text-[var(--color-mut)]">
-              发现自其它工具
+              {{ t("sidebar.mcp.discoveredTitle") }}
             </span>
             <div class="flex items-center gap-1.5">
               <Button
@@ -414,10 +417,10 @@ async function authorizeServer(id: string) {
                 size="sm"
                 @click="importDiscovered(discovered)"
               >
-                <Download class="size-3.5" />全部导入
+                <Download class="size-3.5" />{{ t("sidebar.mcp.importAll") }}
               </Button>
               <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
-                <ScanSearch class="size-3.5" />{{ scanBusy ? "扫描中…" : "扫描" }}
+                <ScanSearch class="size-3.5" />{{ scanBusy ? t("sidebar.mcp.scanning") : t("sidebar.mcp.scan") }}
               </Button>
             </div>
           </div>
@@ -450,17 +453,17 @@ async function authorizeServer(id: string) {
                 variant="ghost"
                 size="sm"
                 class="flex-none"
-                :aria-label="`导入 ${item.config.name}`"
+                :aria-label="t('sidebar.mcp.importAria', { name: item.config.name })"
                 @click="importDiscovered([item])"
               >
-                <Download class="size-3.5" />导入
+                <Download class="size-3.5" />{{ t("sidebar.mcp.import") }}
               </Button>
-              <Badge v-else variant="secondary" class="flex-none text-[10px]">已导入</Badge>
+              <Badge v-else variant="secondary" class="flex-none text-[10px]">{{ t("sidebar.mcp.imported") }}</Badge>
             </div>
           </div>
 
           <div class="mb-2 text-[12px] font-medium text-[var(--color-mut)]">
-            已配置 {{ mcpStatuses.length }} 个服务
+            {{ t("sidebar.mcp.configuredCount", { n: mcpStatuses.length }) }}
           </div>
           <div v-if="mcpStatuses.length" class="flex flex-col gap-1.5">
             <div
@@ -480,12 +483,12 @@ async function authorizeServer(id: string) {
                     size="sm"
                     class="h-5 gap-0.5 px-1.5 text-[10px]"
                     :disabled="authorizingIds.has(item.config.id)"
-                    :aria-label="`授权登录 ${item.config.name}`"
+                    :aria-label="t('sidebar.mcp.authorizeAria', { name: item.config.name })"
                     @click="authorizeServer(item.config.id)"
                   >
                     <Loader2 v-if="authorizingIds.has(item.config.id)" class="size-3 animate-spin" />
                     <LogIn v-else class="size-3" />
-                    {{ authorizingIds.has(item.config.id) ? "授权中…" : "授权登录" }}
+                    {{ authorizingIds.has(item.config.id) ? t("sidebar.mcp.authorizing") : t("sidebar.mcp.authorizeLogin") }}
                   </Button>
                   <Button
                     variant="ghost"
@@ -496,7 +499,7 @@ async function authorizeServer(id: string) {
                   >
                     <ChevronDown v-if="expandedIds.has(item.config.id)" class="size-3" />
                     <ChevronRight v-else class="size-3" />
-                    {{ item.tools.length }} 个工具
+                    {{ t("sidebar.mcp.toolCount", { n: item.tools.length }) }}
                   </Button>
                 </div>
                 <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
@@ -521,7 +524,7 @@ async function authorizeServer(id: string) {
                     v-if="item.state === 'running' && !item.tools.length"
                     class="m-0 text-[11px] text-[var(--color-dim)]"
                   >
-                    无工具
+                    {{ t("sidebar.mcp.noTools") }}
                   </p>
                   <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col">
                     <button
@@ -544,14 +547,14 @@ async function authorizeServer(id: string) {
                       class="flex flex-col gap-0.5 pb-0.5 pl-5 pr-1"
                     >
                       <p class="m-0 text-[11px] leading-4 text-[var(--color-mut)]">
-                        {{ tool.description || "无描述" }}
+                        {{ tool.description || t("sidebar.mcp.noDescription") }}
                       </p>
                       <p
                         v-if="schemaSummary(tool.inputSchema)"
                         class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
                         :title="schemaSummary(tool.inputSchema)"
                       >
-                        参数：{{ schemaSummary(tool.inputSchema) }}
+                        {{ t("sidebar.mcp.params") }}{{ schemaSummary(tool.inputSchema) }}
                       </p>
                     </div>
                   </div>
@@ -560,7 +563,7 @@ async function authorizeServer(id: string) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                :aria-label="`编辑 ${item.config.name}`"
+                :aria-label="t('sidebar.mcp.editAria', { name: item.config.name })"
                 @click="startEdit(item.config)"
               >
                 <Pencil class="size-3.5" />
@@ -569,14 +572,14 @@ async function authorizeServer(id: string) {
                 variant="ghost"
                 size="icon-sm"
                 class="text-[var(--color-danger-fg)] hover:bg-transparent!"
-                aria-label="移除服务"
+                :aria-label="t('sidebar.mcp.removeServer')"
                 @click="removeServer(item.config)"
               >
                 <Trash2 class="size-3.5" />
               </Button>
             </div>
           </div>
-          <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">尚未配置 MCP 服务。</p>
+          <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.mcp.noServers") }}</p>
         </div>
       </div>
     </DialogContent>

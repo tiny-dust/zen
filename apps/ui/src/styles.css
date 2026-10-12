@@ -731,6 +731,20 @@
   background-color: var(--shiki-light-bg, #fff) !important;
 }
 
+/* 深色半区的镜像规则：应用处于亮色时 html 无 .dark，需强制走 --shiki-dark 取色 */
+.md-content.code-theme-preview--dark .shiki,
+.md-content.code-theme-preview--dark .shiki span,
+.stream-markdown.md-content.code-theme-preview--dark .shiki,
+.stream-markdown.md-content.code-theme-preview--dark .shiki span {
+  color: var(--shiki-dark, var(--color-code-fg)) !important;
+  background-color: transparent !important;
+}
+
+.md-content.code-theme-preview--dark pre.shiki,
+.stream-markdown.md-content.code-theme-preview--dark pre.shiki {
+  background-color: var(--shiki-dark-bg, var(--color-code-bg)) !important;
+}
+
 /* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点）
    P0 密度：正文 14px/1.8；h2 18px、h3 15px；标题用中性强调，不被单一绿色统治 */
 .md-content {

@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/toast";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { i18n } from "@/locales";
 
 export type DiffLayout = "single" | "double";
 
@@ -255,17 +256,17 @@ export const useGitStore = defineStore("git", () => {
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
-      return { ok: false, error: "未绑定工作目录" };
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
     const result = await zen.git.checkout(root, name);
     if (result.ok) {
       branchPickerOpen.value = false;
-      feedback.value = `已切换到 ${name}`;
-      toast.ok(`已切换到 ${name}`);
+      feedback.value = i18n.global.t("app.git.switchedTo", { name });
+      toast.ok(i18n.global.t("app.git.switchedTo", { name }));
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
-      feedback.value = result.error ?? "切换分支失败";
-      toast.err(result.error ?? "切换分支失败");
+      feedback.value = result.error ?? i18n.global.t("app.git.switchFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.switchFailed"));
     }
     return result;
   }
@@ -274,17 +275,17 @@ export const useGitStore = defineStore("git", () => {
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
-      return { ok: false, error: "未绑定工作目录" };
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
     const result = await zen.git.createBranch(root, name);
     if (result.ok) {
       branchPickerOpen.value = false;
-      feedback.value = `已创建并切换到 ${name}`;
-      toast.ok(`已创建并切换到 ${name}`);
+      feedback.value = i18n.global.t("app.git.createdAndSwitched", { name });
+      toast.ok(i18n.global.t("app.git.createdAndSwitched", { name }));
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
-      feedback.value = result.error ?? "创建分支失败";
-      toast.err(result.error ?? "创建分支失败");
+      feedback.value = result.error ?? i18n.global.t("app.git.createBranchFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.createBranchFailed"));
     }
     return result;
   }
@@ -297,7 +298,7 @@ export const useGitStore = defineStore("git", () => {
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
-      return { ok: false, error: "未绑定工作目录" };
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
     const result = await zen.git.commit(root, message, filesToCommit, {
       push: options.push,
@@ -306,12 +307,18 @@ export const useGitStore = defineStore("git", () => {
       autoMessage: true,
     });
     if (result.ok) {
-      feedback.value = options.push ? "已提交并推送" : "已提交";
-      toast.ok(options.push ? "已提交并推送" : "已提交");
+      feedback.value = options.push
+        ? i18n.global.t("app.git.committedAndPushed")
+        : i18n.global.t("app.git.committed");
+      toast.ok(
+        options.push
+          ? i18n.global.t("app.git.committedAndPushed")
+          : i18n.global.t("app.git.committed"),
+      );
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
-      feedback.value = result.error ?? "提交失败";
-      toast.err(result.error ?? "提交失败");
+      feedback.value = result.error ?? i18n.global.t("app.git.commitFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.commitFailed"));
     }
     return result;
   }
@@ -321,18 +328,24 @@ export const useGitStore = defineStore("git", () => {
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
-      return { ok: false, batches: [], error: "未绑定工作目录" };
+      return { ok: false, batches: [], error: i18n.global.t("app.git.noWorkDir") };
     }
     const result = await zen.git.commitBatched(root, paths, { push: options.push });
     if (result.ok) {
       const hashes = result.batches.map((batch) => batch.hash).join(" ");
       feedback.value = options.push
-        ? `已分 ${result.batches.length} 批提交并推送（${hashes}）`
-        : `已分 ${result.batches.length} 批提交（${hashes}）`;
+        ? i18n.global.t("app.git.batchedPushed", {
+            n: result.batches.length,
+            hashes,
+          })
+        : i18n.global.t("app.git.batchedCommitted", {
+            n: result.batches.length,
+            hashes,
+          });
       toast.ok(feedback.value);
     }
     if (!result.ok) {
-      toast.err(result.error ?? "分批提交失败");
+      toast.err(result.error ?? i18n.global.t("app.git.batchedFailed"));
     }
     await Promise.all([refreshStatus(), refreshBranches()]);
     return result;
@@ -342,16 +355,16 @@ export const useGitStore = defineStore("git", () => {
     const zen = window.zen;
     const root = cwd();
     if (!zen?.git || !root) {
-      return { ok: false, error: "未绑定工作目录" };
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
     const result = await zen.git.push(root);
     if (result.ok) {
-      feedback.value = "已推送";
-      toast.ok("已推送");
+      feedback.value = i18n.global.t("app.git.pushed");
+      toast.ok(i18n.global.t("app.git.pushed"));
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
-      feedback.value = result.error ?? "推送失败";
-      toast.err(result.error ?? "推送失败");
+      feedback.value = result.error ?? i18n.global.t("app.git.pushFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.pushFailed"));
     }
     return result;
   }

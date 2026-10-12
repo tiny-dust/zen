@@ -1,5 +1,7 @@
 import type { SkillSummary } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 /**
  * 技能来源徽标：按所在目录归类（~/.zen=Zen 自有，~/.claude=Claude，~/.agents=Agents，
  * 其余为用户自定义扫描目录）。用「目录」而不是可卸载性表达归类——
@@ -16,5 +18,5 @@ export function skillSourceLabel(skill: Pick<SkillSummary, "dir">): string {
   if (dir.includes("/.agents/skills")) {
     return "Agents";
   }
-  return "自定义";
+  return i18n.global.t("app.skillSource.custom");
 }

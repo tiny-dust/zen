@@ -4,8 +4,9 @@ import { listSkills } from "@zen/skills";
 
 import type { AgentSettings, SkillSummary } from "@zen/shared";
 import { showOpenDialogSafe } from "./dialog-safe";
+import { currentLocale } from "./i18n";
 import { syncLarkGatewayWithSettings } from "./lark/ipc";
-import { PROMPT_PRESETS } from "./prompt-presets";
+import { localizedPromptPresets } from "./prompt-presets";
 import { rebuildSandbox } from "./sandbox";
 import { loadAgentSettings, saveAgentSettings, zenSandboxRoot } from "./zen-dir";
 
@@ -48,7 +49,9 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
-  ipcMain.handle("agent:prompt-presets", () => PROMPT_PRESETS);
+  ipcMain.handle("agent:prompt-presets", async () =>
+    localizedPromptPresets(await currentLocale()),
+  );
 
   ipcMain.handle("agent:sandbox-dir", () => zenSandboxRoot());
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, Sparkles, TriangleAlert, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Loader } from "@/components/ai-elements/loader";
 import {
@@ -33,6 +34,8 @@ const props = defineProps<{
   message: ChatMessage;
   streaming?: boolean;
 }>();
+
+const { t } = useI18n();
 
 const chatStore = useChatStore();
 
@@ -213,33 +216,33 @@ const runBanner = computed<RunBanner | null>(() => {
   if (reason === "stop") {
     // 正常完成也给一行语义，但用弱色，避免成为噪音
     return {
-      label: "已完成",
+      label: t("chat.bubble.runDone"),
       tone: "mut",
       icon: Check,
-      detail: summary.step != null ? `共 ${summary.step} 步` : undefined,
+      detail: summary.step != null ? t("chat.bubble.totalSteps", { n: summary.step }) : undefined,
     };
   }
   if (reason === "cancelled") {
     return {
-      label: "已取消",
+      label: t("chat.bubble.runCancelled"),
       tone: "warn",
       icon: Ban,
-      detail: "本次运行被中断，工具与正文可能不完整",
+      detail: t("chat.bubble.runCancelledDetail"),
     };
   }
   if (reason === "error") {
     return {
-      label: "运行失败",
+      label: t("chat.bubble.runFailed"),
       tone: "err",
       icon: CircleAlert,
-      detail: summary.error || "请查看错误信息后重试",
+      detail: summary.error || t("chat.bubble.runFailedFallback"),
     };
   }
   return {
-    label: "已达到步骤上限",
+    label: t("chat.bubble.stepLimit"),
     tone: "warn",
     icon: TriangleAlert,
-    detail: summary.step != null ? `共 ${summary.step} 步` : undefined,
+    detail: summary.step != null ? t("chat.bubble.totalSteps", { n: summary.step }) : undefined,
   };
 });
 
@@ -284,7 +287,7 @@ function formatTime(ts: number): string {
   const now = new Date();
   return date.toDateString() === now.toDateString()
     ? hm
-    : `${date.getMonth() + 1}月${date.getDate()}日 ${hm}`;
+    : t("chat.bubble.dateWithTime", { m: date.getMonth() + 1, d: date.getDate(), time: hm });
 }
 
 const copied = ref(false);
@@ -296,9 +299,9 @@ let elapsedTimer: number | undefined;
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) {
-    return `${seconds} 秒`;
+    return t("chat.bubble.secondsShort", { n: seconds });
   }
-  return `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, "0")} 秒`;
+  return t("chat.bubble.minutesSeconds", { m: Math.floor(seconds / 60), s: String(seconds % 60).padStart(2, "0") });
 }
 
 function stopElapsedTimer() {
@@ -336,7 +339,7 @@ async function copyContent() {
       copied.value = false;
     }, 1500);
   } catch {
-    chatStore.statusText = "复制失败，请手动选择文本复制";
+    chatStore.statusText = t("chat.bubble.copyFailed");
   }
 }
 
@@ -357,10 +360,10 @@ function editContent() {
       <div v-if="insertedBadge" class="mb-1.5 flex justify-end">
         <span
           class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]"
-          title="该消息通过「插入执行」打断原任务优先执行，原任务已在完成后自动恢复"
+          :title="t('chat.bubble.insertedTitle')"
         >
           <Zap class="size-3" aria-hidden="true" />
-          已插入
+          {{ t("chat.bubble.inserted") }}
         </span>
       </div>
       <!-- 随消息发送的技能 / 页面元素 tag -->
@@ -423,8 +426,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        :aria-label="copied ? '已复制' : '复制消息'"
-        :title="copied ? '已复制' : '复制'"
+        :aria-label="copied ? t('common.copied') : t('chat.bubble.copyMessage')"
+        :title="copied ? t('common.copied') : t('common.copy')"
         @click="copyContent"
       >
         <Check v-if="copied" class="size-3.5" />
@@ -434,8 +437,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="编辑消息并插入对话"
-        title="编辑并插入对话"
+        :aria-label="t('chat.bubble.editMessage')"
+        :title="t('chat.bubble.editInsert')"
         @click="editContent"
       >
         <Pencil class="size-3.5" />
@@ -499,15 +502,15 @@ function editContent() {
     >
       <Loader :size="14" />
       <span class="text-[12px] tabular-nums">
-        {{ parts.length ? "运行中" : "正在思考" }} · {{ elapsedText || "0 秒" }}
+        {{ parts.length ? t("chat.bubble.running") : t("chat.bubble.thinking") }} · {{ elapsedText || t("chat.bubble.secondsShort", { n: 0 }) }}
       </span>
       <Button
         v-if="!chatStore.isPaused"
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="暂停运行"
-        title="暂停"
+        :aria-label="t('chat.bubble.pauseRun')"
+        :title="t('chat.bubble.pause')"
         @click="chatStore.pause()"
       >
         <Pause class="size-3.5" />
@@ -517,8 +520,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="继续运行"
-        title="继续"
+        :aria-label="t('chat.bubble.resumeRun')"
+        :title="t('chat.resume')"
         @click="chatStore.resume()"
       >
         <Play class="size-3.5" />
@@ -539,7 +542,7 @@ function editContent() {
         v-if="runSummary?.usage"
         class="text-[11px] text-[var(--color-dim)] tabular-nums"
       >
-        输入 {{ runSummary.usage.inputTokens }} / 输出 {{ runSummary.usage.outputTokens }}
+        {{ t("chat.bubble.usageLine", { input: runSummary.usage.inputTokens, output: runSummary.usage.outputTokens }) }}
       </span>
     </div>
 
@@ -556,8 +559,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        :aria-label="copied ? '已复制' : '复制消息'"
-        :title="copied ? '已复制' : '复制'"
+        :aria-label="copied ? t('common.copied') : t('chat.bubble.copyMessage')"
+        :title="copied ? t('common.copied') : t('common.copy')"
         @click="copyContent"
       >
         <Check v-if="copied" class="size-3.5" />
@@ -567,8 +570,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md hover:text-[var(--color-txt-strong)]"
-        aria-label="重新生成本轮回复（丢弃本轮历史重跑）"
-        title="重试：丢弃本轮，从上一条消息重新生成"
+        :aria-label="t('chat.bubble.retryTitle')"
+        :title="t('chat.bubble.retryTooltip')"
         @click="chatStore.retryFrom(message.id)"
       >
         <RefreshCw class="size-3.5" />
@@ -579,8 +582,8 @@ function editContent() {
         variant="ghost"
         size="icon-xs"
         class="rounded-md text-[var(--color-accent)] hover:text-[var(--color-txt-strong)]"
-        aria-label="继续执行：保留历史，从已完成进度接着做"
-        title="继续：保留历史，从上次中断的进度接着执行（不重跑本轮）"
+        :aria-label="t('chat.bubble.continueTitle')"
+        :title="t('chat.bubble.continueTooltip')"
         @click="chatStore.continueRun()"
       >
         <Play class="size-3.5" />

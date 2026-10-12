@@ -1,5 +1,8 @@
 import type { PromptPreset } from "@zen/shared";
 
+import { mainT } from "./i18n";
+import type { MainLocale } from "./i18n";
+
 import claudeEn from "./prompt-texts/claude-code-en.md?raw";
 import claudeZh from "./prompt-texts/claude-code-zh.md?raw";
 import codexEn from "./prompt-texts/codex-en.md?raw";
@@ -251,4 +254,13 @@ export function resolvePromptText(settings: AgentSettingsLike): string {
 
 interface AgentSettingsLike {
   prompt: { presetId: string; customText: string };
+}
+
+/** 设置页展示用：按界面语言返回 name/description 已本地化的预设副本（origin 为来源引用，保持原样） */
+export function localizedPromptPresets(locale: MainLocale): PromptPreset[] {
+  return PROMPT_PRESETS.map((preset) => ({
+    ...preset,
+    name: mainT(locale, `preset.${preset.id}.name`),
+    description: mainT(locale, `preset.${preset.id}.description`),
+  }));
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, Circle, CircleCheck, ListChecks } from "@lucide/vue";
 import { computed, h, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { useSessionInfoStore } from "@/stores/session-info";
 import { cn } from "@/lib/utils";
 
 const sessionInfo = useSessionInfoStore();
+const { t } = useI18n();
 const open = ref(true);
 const tabsEl = ref<HTMLElement | null>(null);
 
@@ -92,7 +94,7 @@ watch(
   <section class="flex flex-col">
     <SessionSectionHead
       :icon="ListChecks"
-      title="任务清单"
+      :title="t('shell.taskList')"
       :open="open"
       :count="tasks.length ? `${doneCount}/${tasks.length}` : undefined"
       @toggle="open = !open"
@@ -104,7 +106,7 @@ watch(
         ref="tabsEl"
         class="flex gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
         role="tablist"
-        aria-label="任务清单版本"
+        :aria-label="t('shell.taskListVersions')"
       >
         <Button
           v-for="item in versions"
@@ -170,7 +172,7 @@ watch(
       </div>
 
       <!-- 空态文字与节内行文字同列（容器 5px + 22px = 27px） -->
-      <p v-if="!tasks.length" class="m-0 pl-[22px] text-[12px] text-[var(--color-dim)]">暂无任务</p>
+      <p v-if="!tasks.length" class="m-0 pl-[22px] text-[12px] text-[var(--color-dim)]">{{ t("shell.noTasks") }}</p>
     </div>
   </section>
 </template>

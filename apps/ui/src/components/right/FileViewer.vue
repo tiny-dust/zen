@@ -11,7 +11,9 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
+import { useAppTheme } from "@/composables/useAppTheme";
 import { isImagePath } from "@/lib/image-file";
 
 const props = defineProps<{
@@ -28,7 +30,10 @@ const emit = defineEmits<{
   dirtyChange: [dirty: boolean];
 }>();
 
+const { t } = useI18n();
 const hostEl = ref<HTMLDivElement | null>(null);
+// 编辑器配色跟随应用主题：深色 oneDark，浅色走 CodeMirror 默认亮色
+const { isDark } = useAppTheme();
 const failed = ref(false);
 const truncated = ref(false);
 const dirty = ref(false);
@@ -96,7 +101,7 @@ function extensionList(path: string, readOnly: boolean) {
       indentWithTab,
     ]),
     langExtension(path),
-    oneDark,
+    isDark.value ? oneDark : [],
     EditorView.lineWrapping,
     ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
     EditorView.updateListener.of((update) => {
@@ -222,7 +227,7 @@ async function save(): Promise<boolean> {
     const content = view.state.doc.toString();
     const result = await zen.workspace.writeFile(props.root, props.path, content);
     if (!result.ok) {
-      saveError.value = result.error || "保存失败";
+      saveError.value = result.error || t("panels.saveFailed");
       return false;
     }
     loadedContent = content;
@@ -230,7 +235,7 @@ async function save(): Promise<boolean> {
     emit("saved", props.path);
     return true;
   } catch (error) {
-    saveError.value = error instanceof Error ? error.message : "保存失败";
+    saveError.value = error instanceof Error ? error.message : t("panels.saveFailed");
     return false;
   } finally {
     saving.value = false;
@@ -247,6 +252,13 @@ watch(
   () => [props.path, props.root] as const,
   () => render(),
 );
+
+// 主题切换重建编辑器（CodeMirror 主题是初始化期扩展，就地换需重建）
+watch(isDark, () => {
+  if (!imageDataUrl.value) {
+    render();
+  }
+});
 
 watch(() => props.line, () => applyLine());
 
@@ -265,7 +277,7 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
   <div class="flex min-h-0 flex-1 flex-col">
     <template v-if="path && root">
       <div v-if="dirty || saveError" class="flex flex-none items-center gap-1.5 pb-1">
-        <span v-if="dirty" class="text-[11px] text-[var(--color-accent)]">未保存</span>
+        <span v-if="dirty" class="text-[11px] text-[var(--color-accent)]">{{ t("panels.unsaved") }}</span>
         <span v-if="saveError" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-err)]">
           {{ saveError }}
         </span>
@@ -276,7 +288,7 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
         class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
         role="status"
       >
-        无法读取该文件（二进制或超出大小限制）。
+        {{ t("panels.cannotReadFile") }}
       </p>
       <!-- 图片：点击在适应面板 / 原始尺寸间切换 -->
       <div
@@ -296,7 +308,7 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
         class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
         role="status"
       >
-        读取中…
+        {{ t("panels.loading") }}
       </p>
       <template v-else>
         <p
@@ -304,14 +316,14 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
           class="m-0 px-1 pb-1 text-[11px] text-[var(--color-accent)]"
           role="status"
         >
-          文件过大，仅展示前 512KB（截断部分不可保存）。
+          {{ t("panels.fileTruncated") }}
         </p>
         <p
           v-if="readonlyView"
           class="m-0 px-1 pb-1 text-[11px] text-[var(--color-accent)]"
           role="status"
         >
-          只读展示（工作区外文件不支持编辑保存）。
+          {{ t("panels.readonlyView") }}
         </p>
         <div
           ref="hostEl"
@@ -321,7 +333,7 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
     </template>
     <div v-else class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]">
       <FileCode class="size-5" aria-hidden="true" />
-      <p class="m-0 text-[12px]">在左侧选择文件，可直接编辑保存</p>
+      <p class="m-0 text-[12px]">{{ t("panels.selectFileHint") }}</p>
     </div>
   </div>
 </template>

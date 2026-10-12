@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import type { AgentProcessStatus } from "@/stores/agent-processes";
  * 运行中置顶展示状态；下方罗列历史常驻进程，点击展开命令与输出。
  */
 const processes = useAgentProcessesStore();
+const { t } = useI18n();
 const { items, expandedId, runningCount } = storeToRefs(processes);
 const open = ref(true);
 
@@ -39,7 +41,7 @@ function ordered() {
   <section v-if="items.length" class="flex flex-col">
     <SessionSectionHead
       :icon="SquareTerminal"
-      title="终端服务"
+      :title="t('shell.terminalServices')"
       :open="open"
       :count="`${runningCount}/${items.length}`"
       @toggle="open = !open"
@@ -60,7 +62,7 @@ function ordered() {
         >
           <SquareTerminal class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
-            {{ item.command || "(空命令)" }}
+            {{ item.command || t("shell.emptyCommand") }}
           </span>
           <span class="flex-none text-[10px]" :class="meta(item.status).cls">
             {{ meta(item.status).label }}

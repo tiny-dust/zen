@@ -2,6 +2,7 @@
 import { ExternalLink, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { useLayoutStore } from "@/stores/layout";
@@ -16,9 +17,10 @@ import type { TerminalSessionInfo } from "@zen/shared";
 const terminalStore = useTerminalStore();
 const layoutStore = useLayoutStore();
 const { sessions, activeId, error } = storeToRefs(terminalStore);
+const { t } = useI18n();
 
 function statusLabel(item: TerminalSessionInfo): string {
-  return item.id === activeId.value ? "活动中" : "";
+  return item.id === activeId.value ? t("panels.active") : "";
 }
 
 /** 点击会话：展开底部终端面板并切到该会话 */
@@ -57,19 +59,25 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-2" aria-label="终端会话">
+  <div class="flex min-h-0 flex-1 flex-col gap-2" :aria-label="t('panels.terminalSessions')">
     <div class="flex flex-none items-center gap-0.5">
       <span class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]">
-        终端 {{ sessions.length }}
+        {{ t("panels.terminalsCount", { n: sessions.length }) }}
       </span>
-      <Button variant="ghost" size="icon-xs" aria-label="新建终端" title="新建终端" @click="onCreateTerminal">
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        :aria-label="t('panels.newTerminal')"
+        :title="t('panels.newTerminal')"
+        @click="onCreateTerminal"
+      >
         <Plus />
       </Button>
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="重启当前终端"
-        title="重启当前终端"
+        :aria-label="t('panels.restartTerminal')"
+        :title="t('panels.restartTerminal')"
         @click="onRestart"
       >
         <RefreshCw />
@@ -77,8 +85,8 @@ onMounted(() => {
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="用系统终端打开"
-        title="用系统终端打开"
+        :aria-label="t('panels.openInSystemTerminal')"
+        :title="t('panels.openInSystemTerminal')"
         @click="openExternal"
       >
         <ExternalLink />
@@ -124,8 +132,8 @@ onMounted(() => {
           variant="ghost"
           size="icon-sm"
           class="size-5! flex-none rounded-[4px]! opacity-0 text-[var(--color-dim)] group-hover/term:opacity-100 hover:text-[var(--color-del)]"
-          :aria-label="`关闭 ${terminalStore.displayName(item.id, index)}`"
-          title="关闭终端"
+          :aria-label="t('panels.closeTerminalAria', { name: terminalStore.displayName(item.id, index) })"
+          :title="t('panels.closeTerminal')"
           @click.stop="onCloseSession(item.id)"
         >
           <X class="size-3" />
@@ -133,7 +141,7 @@ onMounted(() => {
       </div>
 
       <p v-if="!sessions.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
-        暂无运行中的终端
+        {{ t("panels.noTerminals") }}
       </p>
     </div>
   </div>

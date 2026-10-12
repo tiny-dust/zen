@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   openCommit: [];
 }>();
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 const branchAnchor = ref<HTMLElement | null>(null);
@@ -41,7 +43,7 @@ const contextTitle = computed(() => chatStore.contextUsageTitle);
 const prLabel = computed(() => {
   const pr = gitStore.pullRequest;
   if (!pr) {
-    return "当前分支暂无拉取请求";
+    return t("shell.noPullRequest");
   }
   return `PR #${pr.number} · ${pr.title}`;
 });
@@ -103,7 +105,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
 
 <template>
   <section class="flex flex-col">
-    <SessionSectionHead :icon="Info" title="环境信息" :open="open" @toggle="open = !open" />
+    <SessionSectionHead :icon="Info" :title="t('shell.envInfo')" :open="open" @toggle="open = !open" />
 
     <div v-if="open" class="mt-1 flex flex-col">
       <div
@@ -112,15 +114,15 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         :title="contextTitle"
       >
         <Gauge :class="envIconCls" aria-hidden="true" />
-        <span class="min-w-0 flex-1">上下文</span>
+        <span class="min-w-0 flex-1">{{ t("shell.context") }}</span>
         <span
           class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
         >
           <template v-if="lastRequestUsage != null && estimatedUsage != null">
-            {{ lastRequestUsage }}% · 估 {{ estimatedUsage }}%
+            {{ lastRequestUsage }}% · {{ t("shell.estimatedPercent", { n: estimatedUsage }) }}
           </template>
           <template v-else-if="lastRequestUsage != null">{{ lastRequestUsage }}%</template>
-          <template v-else>估 {{ estimatedUsage }}%</template>
+          <template v-else>{{ t("shell.estimatedPercent", { n: estimatedUsage }) }}</template>
         </span>
       </div>
 
@@ -138,7 +140,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           aria-hidden="true"
         />
         <CircleCheck v-else :class="envIconCls" aria-hidden="true" />
-        <span class="min-w-0 flex-1">变更文件</span>
+        <span class="min-w-0 flex-1">{{ t("shell.changedFiles") }}</span>
         <span class="flex-none font-[family-name:var(--font-mono)] text-[11px]">
           <span class="text-[var(--color-add)]">+{{ gitStore.totalAdd }}</span>
           <span class="text-[var(--color-del)]">&nbsp;-{{ gitStore.totalDel }}</span>
@@ -152,18 +154,18 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           variant="ghost"
           class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
           :class="actionCls"
-          aria-label="切换分支"
-          :title="branch ? `当前分支：${branch}（点击切换）` : '选择分支'"
+          :aria-label="t('shell.switchBranch')"
+          :title="branch ? t('shell.currentBranchTitle', { branch }) : t('shell.selectBranch')"
           @click="toggleBranchPicker"
         >
           <GitBranch :class="envIconCls" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[12px]">
-            {{ branch || "选择分支" }}
+            {{ branch || t("shell.selectBranch") }}
           </span>
           <span
             v-if="gitStore.status?.ahead || gitStore.status?.behind"
             class="flex-none font-[family-name:var(--font-mono)] text-[11px]"
-            title="与上游分支差异（↑ 待推送 / ↓ 落后）"
+            :title="t('shell.upstreamDiffTitle')"
           >
             <span v-if="gitStore.status?.ahead" class="text-[var(--color-add)]">
               ↑{{ gitStore.status.ahead }}
@@ -199,11 +201,11 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         @click="emit('openCommit')"
       >
         <GitPullRequestArrow :class="envIconCls" aria-hidden="true" />
-        <span class="min-w-0 flex-1">提交或推送</span>
+        <span class="min-w-0 flex-1">{{ t("shell.commitOrPush") }}</span>
       </Button>
       <div :class="noteIndentCls">
         <span class="min-w-0 flex-1 truncate">
-          {{ gitStore.pullRequest ? prLabel : "当前分支暂无拉取请求" }}
+          {{ gitStore.pullRequest ? prLabel : t("shell.noPullRequest") }}
         </span>
         <a
           v-if="gitStore.pullRequest"

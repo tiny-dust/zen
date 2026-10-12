@@ -2,29 +2,24 @@
 import { Bot, Check, CircleAlert, Download, Pencil, Plus, RefreshCw, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAgentStore } from "@/stores/agent";
 
-import type { LarkGatewayState, LarkQuickCommand } from "@zen/shared";
+import type { LarkQuickCommand } from "@zen/shared";
 
 /**
  * 飞书桥接：开关走 AgentSettings.larkBridge，状态来自 lark:status / lark:changed
  */
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const { larkStatus, settings } = storeToRefs(agentStore);
 
-const LARK_GATEWAY_LABELS: Record<LarkGatewayState, string> = {
-  off: "未启动",
-  starting: "启动中",
-  ready: "运行中",
-  error: "异常",
-};
-
 const gatewayLabel = computed(() =>
-  larkStatus.value ? LARK_GATEWAY_LABELS[larkStatus.value.gateway] : "",
+  larkStatus.value ? t(`settings.lark.gateway.${larkStatus.value.gateway}`) : "",
 );
 const checking = ref(false);
 const installing = ref(false);
@@ -47,7 +42,7 @@ async function refreshStatus() {
   try {
     larkStatus.value = await window.zen.lark.status(true);
   } catch (error) {
-    actionError.value = error instanceof Error ? error.message : "检查飞书状态失败";
+    actionError.value = error instanceof Error ? error.message : t("settings.lark.checkFailed");
   } finally {
     checking.value = false;
   }
@@ -62,12 +57,12 @@ async function installCli() {
   try {
     const result = await window.zen.lark.installCli();
     if (!result.ok) {
-      actionError.value = result.error ?? "安装 lark-cli 失败";
+      actionError.value = result.error ?? t("settings.lark.installFailed");
       return;
     }
     await refreshStatus();
   } catch (error) {
-    actionError.value = error instanceof Error ? error.message : "安装 lark-cli 失败";
+    actionError.value = error instanceof Error ? error.message : t("settings.lark.installFailed");
   } finally {
     installing.value = false;
   }
@@ -86,10 +81,10 @@ async function sendTestAskCard() {
   try {
     const result = await window.zen.lark.testAskCard();
     testHint.value = result.ok
-      ? "测试卡片已发送到飞书；点击卡片按钮，若回执「该问询已失效」说明按钮回调已通。"
-      : (result.error ?? "发送测试卡片失败");
+      ? t("settings.lark.testCardOk")
+      : (result.error ?? t("settings.lark.testCardFailed"));
   } catch (error) {
-    testHint.value = error instanceof Error ? error.message : "发送测试卡片失败";
+    testHint.value = error instanceof Error ? error.message : t("settings.lark.testCardFailed");
   } finally {
     testing.value = false;
   }
@@ -124,18 +119,18 @@ function submitQuickCommand() {
   const alias = quickForm.value.alias.trim().replace(/^\/+/, "");
   const prompt = quickForm.value.prompt.trim();
   if (!alias || !prompt) {
-    quickHint.value = "别名与预设内容不能为空";
+    quickHint.value = t("settings.lark.quickHintEmpty");
     return;
   }
   if (!/^[^\s/]+$/.test(alias)) {
-    quickHint.value = "别名不能含空格或斜杠";
+    quickHint.value = t("settings.lark.quickHintInvalid");
     return;
   }
   const duplicated = quickCommands.value.some(
     (item) => item.alias.toLowerCase() === alias.toLowerCase() && item.id !== editingQuickId.value,
   );
   if (duplicated) {
-    quickHint.value = `别名 /${alias} 已存在`;
+    quickHint.value = t("settings.lark.quickHintDuplicate", { alias });
     return;
   }
   const entry: LarkQuickCommand = {
@@ -164,35 +159,35 @@ function removeQuickCommand(id: string) {
   <section class="flex flex-col gap-2.5">
     <div class="flex items-center gap-2">
       <Bot :size="15" class="text-[var(--color-mut)]" />
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">飞书桥接</h3>
+      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.lark.bridgeTitle") }}</h3>
     </div>
     <p class="m-0 text-[12px] text-[var(--color-mut)]">
-      通过本机已登录的 lark-cli 收发：会话列表查询、运行状态、askUser 问询推送与回复。
+      {{ t("settings.lark.bridgeDesc") }}
     </p>
     <div
       class="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-line)] px-3 py-2.5"
     >
       <div class="flex flex-col gap-0.5">
-        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">启用飞书桥接</span>
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.lark.enableTitle") }}</span>
         <span class="text-[11px] text-[var(--color-mut)]">
-          开启后主进程自动拉起 lark-cli 网关并解析允许的用户
+          {{ t("settings.lark.enableDesc") }}
         </span>
       </div>
       <Switch
         :model-value="settings.larkBridge.enabled"
-        aria-label="启用飞书桥接"
+        :aria-label="t('settings.lark.enableTitle')"
         @update:model-value="(next) => setLarkEnabled(next === true)"
       />
     </div>
     <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--color-line)] p-3">
       <div class="flex flex-col gap-0.5">
-        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">运行前检查</span>
-        <span class="text-[11px] text-[var(--color-mut)]">安装 CLI 后，还需要完成飞书账号与机器人身份授权。</span>
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.lark.checkTitle") }}</span>
+        <span class="text-[11px] text-[var(--color-mut)]">{{ t("settings.lark.checkDesc") }}</span>
       </div>
       <div class="flex flex-wrap gap-1.5">
         <Button variant="outline" size="xs" :disabled="checking || installing" @click="refreshStatus">
           <RefreshCw :size="12" :class="checking ? 'animate-spin' : ''" data-icon="inline-start" />
-          {{ checking ? "检查中" : "重新检查" }}
+          {{ checking ? t("settings.lark.checking") : t("settings.lark.recheck") }}
         </Button>
         <Button
           v-if="larkStatus && !larkStatus.auth.cliInstalled"
@@ -202,7 +197,7 @@ function removeQuickCommand(id: string) {
           @click="installCli"
         >
           <Download :size="12" data-icon="inline-start" />
-          {{ installing ? "安装中" : "一键安装 lark-cli" }}
+          {{ installing ? t("settings.lark.installing") : t("settings.lark.installCli") }}
         </Button>
       </div>
     </div>
@@ -211,30 +206,37 @@ function removeQuickCommand(id: string) {
         <div class="flex items-center gap-1.5">
           <Check v-if="larkStatus.auth.cliInstalled" :size="13" class="text-[var(--color-ok)]" />
           <CircleAlert v-else :size="13" class="text-[var(--color-err)]" />
-          <span>lark-cli：{{ larkStatus.auth.cliInstalled ? `已安装${larkStatus.auth.version ? `（${larkStatus.auth.version}）` : ''}` : "未安装" }}</span>
+          <span>{{
+            t("settings.lark.cliLabel", {
+              status: larkStatus.auth.cliInstalled
+                ? t("settings.lark.cliInstalled") +
+                  (larkStatus.auth.version ? t("settings.lark.cliVersion", { version: larkStatus.auth.version }) : "")
+                : t("settings.lark.cliNotInstalled"),
+            })
+          }}</span>
         </div>
         <div class="flex items-center gap-1.5">
           <Check v-if="larkStatus.auth.userOpenId" :size="13" class="text-[var(--color-ok)]" />
           <CircleAlert v-else :size="13" class="text-[var(--color-err)]" />
-          <span>账号：{{ larkStatus.auth.userName ?? "未登录" }}</span>
+          <span>{{ t("settings.lark.accountLabel", { value: larkStatus.auth.userName ?? t("settings.lark.accountNotLoggedIn") }) }}</span>
         </div>
         <div class="flex items-center gap-1.5">
           <Check v-if="larkStatus.auth.botReady" :size="13" class="text-[var(--color-ok)]" />
           <CircleAlert v-else :size="13" class="text-[var(--color-err)]" />
-          <span>机器人身份：{{ larkStatus.auth.botReady ? "已就绪" : "未就绪" }}</span>
+          <span>{{ t("settings.lark.botLabel", { value: larkStatus.auth.botReady ? t("settings.lark.botReady") : t("settings.lark.botNotReady") }) }}</span>
         </div>
         <div class="flex items-center gap-1.5">
           <Check v-if="larkStatus.gateway === 'ready'" :size="13" class="text-[var(--color-ok)]" />
           <CircleAlert v-else :size="13" class="text-[var(--color-err)]" />
-          <span>网关：{{ gatewayLabel }}</span>
+          <span>{{ t("settings.lark.gatewayLabel", { value: gatewayLabel }) }}</span>
         </div>
       </div>
       <div v-if="larkStatus.auth.appId || larkStatus.settings.allowedOpenId" class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--color-mut)]">
         <span v-if="larkStatus.auth.appId" class="min-w-0 truncate font-[family-name:var(--font-mono)]" :title="larkStatus.auth.appId">
-          App ID：{{ larkStatus.auth.appId }}
+          {{ t("settings.lark.appIdLabel", { value: larkStatus.auth.appId }) }}
         </span>
         <span v-if="larkStatus.settings.allowedOpenId" class="min-w-0 truncate font-[family-name:var(--font-mono)]" :title="larkStatus.settings.allowedOpenId">
-          安全绑定：{{ larkStatus.settings.allowedOpenId }}
+          {{ t("settings.lark.allowedOpenIdLabel", { value: larkStatus.settings.allowedOpenId }) }}
         </span>
       </div>
       <p v-if="larkStatus.auth.error" class="m-0 text-[11px] text-[var(--color-err)]">
@@ -247,9 +249,9 @@ function removeQuickCommand(id: string) {
     <!-- 自定义快捷命令：/别名 触发 + 菜单卡片按钮一键点选 -->
     <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
       <div class="flex flex-col gap-0.5">
-        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">快捷命令</span>
+        <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.lark.quickTitle") }}</span>
         <span class="text-[11px] text-[var(--color-mut)]">
-          在飞书发送 /别名 触发预设内容（预设可为内置指令如「状态」或任意消息）；也显示为「菜单」卡片按钮。保存后即时生效。
+          {{ t("settings.lark.quickDesc") }}
         </span>
       </div>
       <div
@@ -265,38 +267,38 @@ function removeQuickCommand(id: string) {
           <span class="truncate text-[11px] text-[var(--color-mut)]" :title="item.prompt">{{ item.prompt }}</span>
         </div>
         <div class="flex shrink-0 gap-1">
-          <Button variant="ghost" size="icon" class="size-6" aria-label="编辑快捷命令" @click="startEditQuick(item)">
+          <Button variant="ghost" size="icon" class="size-6" :aria-label="t('settings.lark.editQuickAria')" @click="startEditQuick(item)">
             <Pencil :size="12" />
           </Button>
-          <Button variant="ghost" size="icon" class="size-6" aria-label="删除快捷命令" @click="removeQuickCommand(item.id)">
+          <Button variant="ghost" size="icon" class="size-6" :aria-label="t('settings.lark.deleteQuickAria')" @click="removeQuickCommand(item.id)">
             <Trash2 :size="12" />
           </Button>
         </div>
       </div>
       <div class="flex flex-col gap-1.5">
         <div class="grid gap-1.5 sm:grid-cols-3">
-          <Input v-model="quickForm.alias" placeholder="别名，如 review" class="h-7 text-[11px]" />
-          <Input v-model="quickForm.label" placeholder="按钮名（可选）" class="h-7 text-[11px]" />
-          <Input v-model="quickForm.prompt" placeholder="预设内容，如 审查当前分支改动" class="h-7 text-[11px]" />
+          <Input v-model="quickForm.alias" :placeholder="t('settings.lark.aliasPlaceholder')" class="h-7 text-[11px]" />
+          <Input v-model="quickForm.label" :placeholder="t('settings.lark.labelPlaceholder')" class="h-7 text-[11px]" />
+          <Input v-model="quickForm.prompt" :placeholder="t('settings.lark.promptPlaceholder')" class="h-7 text-[11px]" />
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
           <Button size="xs" @click="submitQuickCommand">
             <Plus v-if="!editingQuickId" :size="12" data-icon="inline-start" />
-            {{ editingQuickId ? "保存修改" : "添加快捷命令" }}
+            {{ editingQuickId ? t("settings.lark.saveChanges") : t("settings.lark.addQuickCommand") }}
           </Button>
-          <Button v-if="editingQuickId" variant="outline" size="xs" @click="cancelEditQuick">取消</Button>
+          <Button v-if="editingQuickId" variant="outline" size="xs" @click="cancelEditQuick">{{ t("common.cancel") }}</Button>
           <span v-if="quickHint" class="min-w-0 text-[11px] text-[var(--color-err)]">{{ quickHint }}</span>
         </div>
       </div>
     </div>
     <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11px] leading-relaxed text-[var(--color-mut)]">
-      <div class="font-medium text-[var(--color-txt-strong)]">卡片按钮回调</div>
+      <div class="font-medium text-[var(--color-txt-strong)]">{{ t("settings.lark.cardCallbackTitle") }}</div>
       <div>
-        问询卡片按钮依赖飞书开放平台「应用 → 事件与回调 → 回调配置」开启卡片回调（<code>card.action.trigger</code>）；未开启时按钮点击无反应（不会报错），可直接回复选项编号兑底。
+        {{ t("settings.lark.cardCallbackDescA") }}<code>card.action.trigger</code>{{ t("settings.lark.cardCallbackDescB") }}
       </div>
       <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" :disabled="testing" @click="sendTestAskCard">
-          {{ testing ? "发送中" : "发送测试问询卡片" }}
+          {{ testing ? t("settings.lark.sending") : t("settings.lark.sendTestCard") }}
         </Button>
         <span v-if="testHint" class="min-w-0 text-[11px]" :class="testHint.includes('已发送') ? 'text-[var(--color-ok)]' : 'text-[var(--color-err)]'">
           {{ testHint }}
@@ -304,12 +306,12 @@ function removeQuickCommand(id: string) {
       </div>
     </div>
     <div class="flex flex-col gap-1 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-[11px] leading-relaxed text-[var(--color-mut)]">
-      <div class="font-medium text-[var(--color-txt-strong)]">使用说明</div>
-      <div>1. 点击“一键安装 lark-cli”，或在终端执行 <code>npm install -g @larksuite/cli</code>。</div>
-      <div>2. 在设置的“个人资料”页点击“登录”并选择飞书完成授权；启用桥接后，Zen 会自动绑定当前账号的 open_id。</div>
-      <div>3. 在飞书开放平台为应用开启机器人能力，并订阅 <code>im.message.receive_v1</code>；卡片问询还需订阅 <code>card.action.trigger</code>。</div>
-      <div>4. 在飞书私聊机器人发送“帮助”查看指令；发送“列表”“状态”查看会话，普通文本会继续当前会话，无绑定会话时新建 Agent 会话。</div>
-      <div>5. 只有安全绑定的账号可以操控 Zen；API Key 与登录 token 不会展示在此页。</div>
+      <div class="font-medium text-[var(--color-txt-strong)]">{{ t("settings.lark.guideTitle") }}</div>
+      <div>{{ t("settings.lark.guide1a") }}<code>npm install -g @larksuite/cli</code>{{ t("settings.lark.guide1b") }}</div>
+      <div>{{ t("settings.lark.guide2") }}</div>
+      <div>{{ t("settings.lark.guide3a") }}<code>im.message.receive_v1</code>{{ t("settings.lark.guide3b") }}<code>card.action.trigger</code>{{ t("settings.lark.guide3c") }}</div>
+      <div>{{ t("settings.lark.guide4") }}</div>
+      <div>{{ t("settings.lark.guide5") }}</div>
     </div>
     <p v-if="actionError" class="m-0 text-[11px] text-[var(--color-err)]">{{ actionError }}</p>
   </section>

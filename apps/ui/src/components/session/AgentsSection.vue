@@ -2,6 +2,7 @@
 import { Bot, RotateCcw, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import type { SubAgentStatus } from "@zen/shared";
  */
 const agentsStore = useAgentsStore();
 const rightPanel = useRightPanelStore();
+const { t } = useI18n();
 const { nodes } = storeToRefs(agentsStore);
 const open = ref(true);
 
@@ -39,23 +41,23 @@ async function onRetry(node: AgentNode) {
 }
 
 /** 独占资源 → 中文标签（busyResource 展示用） */
-const BUSY_RESOURCE_LABELS: Record<"write" | "terminal" | "browser", string> = {
-  write: "写文件",
-  terminal: "终端",
-  browser: "浏览器",
+const BUSY_RESOURCE_LABELS: Record<"write" | "terminal" | "browser", () => string> = {
+  write: () => t("shell.resourceWrite"),
+  terminal: () => t("shell.resourceTerminal"),
+  browser: () => t("shell.resourceBrowser"),
 };
 
 /** 状态行补充信息：尝试次数 / 独占资源 / 等待回答 */
 function extraLine(node: AgentNode): string {
   const parts: string[] = [];
   if (node.status === "waiting_user" || node.waitingUser) {
-    parts.push("等待用户回答");
+    parts.push(t("shell.waitingUserAnswer"));
   }
   if (node.maxAttempts > 1) {
-    parts.push(`第 ${node.attempts}/${node.maxAttempts} 次`);
+    parts.push(t("shell.attemptOf", { current: node.attempts, total: node.maxAttempts }));
   }
   if (node.busyResource) {
-    parts.push(`占用${BUSY_RESOURCE_LABELS[node.busyResource]}资源`);
+    parts.push(t("shell.occupiedResource", { resource: BUSY_RESOURCE_LABELS[node.busyResource]() }));
   }
   return parts.join(" · ");
 }
@@ -66,7 +68,7 @@ function extraLine(node: AgentNode): string {
   <section v-if="nodes.length" class="flex flex-col">
     <SessionSectionHead
       :icon="Bot"
-      title="子 Agent"
+      :title="t('shell.subAgents')"
       :open="open"
       :count="`${nodes.filter((item) => item.status === 'running' || item.status === 'waiting_user').length}/${nodes.length}`"
       @toggle="open = !open"
@@ -78,7 +80,7 @@ function extraLine(node: AgentNode): string {
         :key="node.id"
         variant="ghost"
         class="h-auto min-h-7 w-full justify-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)]"
-        :title="`${node.task} · 在右栏查看消息`"
+        :title="t('shell.agentTaskTitle', { task: node.task })"
         @click="openMessages(node)"
       >
         <component
@@ -109,8 +111,8 @@ function extraLine(node: AgentNode): string {
           role="button"
           tabindex="0"
           class="flex-none rounded-[var(--radius-sm)] p-0.5 text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
-          title="重试"
-          aria-label="重试子 Agent"
+          :title="t('common.retry')"
+          :aria-label="t('shell.retryAgent')"
           @click.stop="onRetry(node)"
           @keydown.enter.stop="onRetry(node)"
         >

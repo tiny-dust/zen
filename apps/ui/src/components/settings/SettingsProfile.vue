@@ -2,6 +2,7 @@
 import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import zenAvatar from "@/assets/agent-logos/zen.png";
 import FeishuLogo from "@/components/brand/FeishuLogo.vue";
@@ -14,6 +15,7 @@ import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
 
+const { t } = useI18n();
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const agentStore = useAgentStore();
@@ -79,7 +81,9 @@ const expiryLabel = computed(() => {
     return null;
   }
   const until = new Date(loginAt + SESSION_TTL_MS);
-  return `登录有效期至 ${until.getFullYear()}/${until.getMonth() + 1}/${until.getDate()}（自登录起 3 个月）`;
+  return t("settings.profile.expiry", {
+    date: `${until.getFullYear()}/${until.getMonth() + 1}/${until.getDate()}`,
+  });
 });
 
 const stats = computed(() => {
@@ -88,9 +92,9 @@ const stats = computed(() => {
     return [];
   }
   return [
-    { label: "仓库", value: u.publicRepos ?? 0 },
-    { label: "关注者", value: u.followers ?? 0 },
-    { label: "正在关注", value: u.following ?? 0 },
+    { label: t("settings.profile.statsRepos"), value: u.publicRepos ?? 0 },
+    { label: t("settings.profile.statsFollowers"), value: u.followers ?? 0 },
+    { label: t("settings.profile.statsFollowing"), value: u.following ?? 0 },
   ];
 });
 
@@ -162,7 +166,7 @@ async function chooseLark() {
     await window.zen?.lark?.login();
   } catch (error) {
     larkPhase.value = "error";
-    larkError.value = error instanceof Error ? error.message : "发起飞书登录失败";
+    larkError.value = error instanceof Error ? error.message : t("settings.profile.larkLoginFailed");
   }
 }
 
@@ -241,9 +245,9 @@ function resetLark() {
 
         <div class="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" :disabled="refreshing" @click="userStore.refreshProfile()">
-            {{ refreshing ? "刷新中…" : "刷新资料" }}
+            {{ refreshing ? t("settings.profile.refreshing") : t("settings.profile.refresh") }}
           </Button>
-          <Button variant="destructive" size="sm" @click="userStore.logout()">退出登录</Button>
+          <Button variant="destructive" size="sm" @click="userStore.logout()">{{ t("settings.profile.logout") }}</Button>
         </div>
         <p v-if="expiryLabel" class="m-0 text-[11px] text-[var(--color-dim)]">
           {{ expiryLabel }}
@@ -252,7 +256,7 @@ function resetLark() {
         <!-- 飞书桥接身份（与 GitHub 账号并存展示，互不覆盖） -->
         <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
           <FeishuLogo class="size-3.5 flex-none" />
-          <span>飞书：{{ larkIdentity }}（已连接）</span>
+          <span>{{ t("settings.profile.larkConnected", { name: larkIdentity }) }}</span>
         </div>
 
         <!-- 关联账户：登录其一后可绑定另一个；两账户并存时可选择左下角展示身份 -->
@@ -260,7 +264,7 @@ function resetLark() {
           v-if="larkIdentity"
           class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3"
         >
-          <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">关联账户</div>
+          <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.profile.linkedAccounts") }}</div>
           <div class="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -273,7 +277,7 @@ function resetLark() {
               @click="settingsStore.setDisplayAccount('lark')"
             >
               <FeishuLogo class="size-3.5 flex-none" />
-              展示飞书（{{ larkIdentity }}）
+              {{ t("settings.profile.displayLark", { name: larkIdentity }) }}
             </button>
             <button
               type="button"
@@ -285,7 +289,7 @@ function resetLark() {
               "
               @click="settingsStore.setDisplayAccount('github')"
             >
-              展示 GitHub（@{{ user.login }}）
+              {{ t("settings.profile.displayGithub", { login: user.login }) }}
             </button>
           </div>
         </div>
@@ -293,27 +297,25 @@ function resetLark() {
         <!-- 配置云同步 -->
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3">
           <div class="flex items-center justify-between gap-2">
-            <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">配置云同步</div>
+            <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.profile.syncTitle") }}</div>
             <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-mut)]">
               <Checkbox
                 :model-value="agentSettings.syncEnabled"
-                aria-label="允许同步"
+                :aria-label="t('settings.profile.syncAllow')"
                 @update:model-value="agentStore.updateSettings({ syncEnabled: !agentSettings.syncEnabled })"
               />
-              允许同步
+              {{ t("settings.profile.syncAllow") }}
             </label>
           </div>
           <p class="m-0 text-[11px] leading-snug text-[var(--color-mut)]">
-            将模型供应、Agent 设置与 MCP 配置同步到你的 GitHub 私密仓库（默认
-            {{ agentSettings.syncRepo || "zen-config" }}）。API Key 属于敏感凭据，永远不会上传；登录授权需包含
-            repo 权限（见 docs/auth/github-oauth-setup.md）。
+            {{ t("settings.profile.syncDesc", { repo: agentSettings.syncRepo || "zen-config" }) }}
           </p>
           <div class="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" :disabled="syncBusy || !agentSettings.syncEnabled" @click="agentStore.syncUpload()">
-              <CloudUpload :size="13" data-icon="inline-start" />上传配置
+              <CloudUpload :size="13" data-icon="inline-start" />{{ t("settings.profile.syncUpload") }}
             </Button>
             <Button variant="outline" size="sm" :disabled="syncBusy || !agentSettings.syncEnabled" @click="agentStore.syncDownload()">
-              <CloudDownload :size="13" data-icon="inline-start" />下载并合并
+              <CloudDownload :size="13" data-icon="inline-start" />{{ t("settings.profile.syncDownload") }}
             </Button>
           </div>
           <p
@@ -321,7 +323,16 @@ function resetLark() {
             class="m-0 text-[11px]"
             :class="lastSync.ok ? 'text-[var(--color-mut)]' : 'text-[var(--color-danger-fg)]'"
           >
-            {{ lastSync.ok ? `已同步 ${lastSync.repo ?? ""}${lastSync.summary ? `：${lastSync.summary}` : ""}` : lastSync.error }}
+            {{
+              lastSync.ok
+                ? t("settings.profile.syncedOk", {
+                    repo: lastSync.repo ?? "",
+                    summary: lastSync.summary
+                      ? t("settings.profile.syncedSummary", { summary: lastSync.summary })
+                      : "",
+                  })
+                : lastSync.error
+            }}
           </p>
         </div>
       </CardContent>
@@ -335,33 +346,33 @@ function resetLark() {
             <AvatarFallback>Z</AvatarFallback>
           </Avatar>
           <div>
-            <div class="text-[14px] font-semibold text-[var(--color-txt-strong)]">Zen 用户</div>
-            <div class="text-[12px] text-[var(--color-mut)]">本地模式 · 未登录</div>
+            <div class="text-[14px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.profile.zenUser") }}</div>
+            <div class="text-[12px] text-[var(--color-mut)]">{{ t("settings.profile.localMode") }}</div>
           </div>
         </div>
         <p class="m-0 text-[12px] leading-normal text-[var(--color-mut)]">
-          对话、模型、终端、Git、技能与 MCP 等功能均可直接使用。登录 GitHub 后可同步个人资料与配置到云端；不登录不影响本地能力。
+          {{ t("settings.profile.localDesc") }}
         </p>
         <div v-if="deviceCode && loading" class="text-[12px] text-[var(--color-txt)]">
-          浏览器若未预填，请输入设备码
+          {{ t("settings.profile.deviceCodeHint") }}
           <Button
             variant="ghost"
             class="h-auto ml-1 inline-flex items-center gap-1 rounded bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 align-middle font-[family-name:var(--font-mono)] text-[13px] font-normal tracking-[0.08em] transition-colors duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
-            :aria-label="codeCopied ? '设备码已复制' : '点击复制设备码'"
-            :title="codeCopied ? '已复制' : '点击复制'"
+            :aria-label="codeCopied ? t('settings.profile.copiedCodeAria') : t('settings.profile.copyCodeAria')"
+            :title="codeCopied ? t('settings.profile.copiedTitle') : t('settings.profile.copyTitle')"
             @click="userStore.copyUserCode()"
           >
             {{ deviceCode.userCode }}
             <Check v-if="codeCopied" class="size-3 text-[var(--color-ok)]" aria-hidden="true" />
           </Button>
-          <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">已复制，可直接粘贴</span>
+          <span v-if="codeCopied" class="ml-1 text-[11px] text-[var(--color-ok)]">{{ t("settings.profile.copiedHint") }}</span>
         </div>
         <p v-if="loginError" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ loginError }}</p>
 
         <!-- 已连接的飞书身份（与 GitHub 账号并存展示，互不覆盖） -->
         <div v-if="larkIdentity" class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt)]">
           <FeishuLogo class="size-3.5 flex-none" />
-          <span>飞书：{{ larkIdentity }}（已连接）</span>
+          <span>{{ t("settings.profile.larkConnected", { name: larkIdentity }) }}</span>
         </div>
 
         <!-- 飞书登录流程状态 -->
@@ -370,32 +381,32 @@ function resetLark() {
           class="flex w-full flex-col gap-2 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3"
         >
           <p v-if="larkPhase === 'starting'" class="m-0 text-[12px] text-[var(--color-mut)]">
-            正在发起飞书授权…
+            {{ t("settings.profile.larkStarting") }}
           </p>
           <template v-else-if="larkPhase === 'waiting' && larkUrl">
             <p class="m-0 text-[12px] leading-normal text-[var(--color-txt)]">
-              请在浏览器中完成飞书授权（链接 10 分钟内有效），完成后此处会自动更新。
+              {{ t("settings.profile.larkWaiting") }}
             </p>
             <Button variant="outline" size="sm" class="w-fit" @click="openLarkUrl">
-              打开飞书授权页面
+              {{ t("settings.profile.larkOpenAuth") }}
               <ExternalLink data-icon="inline-end" />
             </Button>
           </template>
           <p v-else-if="larkPhase === 'done'" class="m-0 text-[12px] text-[var(--color-ok)]">
-            飞书{{ larkIdentity ? `：${larkIdentity}` : "" }}已连接
+            {{ t("settings.profile.larkDone", { identity: larkIdentity ? `：${larkIdentity}` : "" }) }}
           </p>
           <p v-else-if="larkPhase === 'cancelled'" class="m-0 text-[12px] text-[var(--color-mut)]">
-            已取消飞书登录
+            {{ t("settings.profile.larkCancelled") }}
           </p>
           <p v-else-if="larkPhase === 'error'" class="m-0 text-[12px] text-[var(--color-danger-fg)]">
             {{ larkError }}
           </p>
           <div class="flex flex-wrap gap-2">
             <Button v-if="larkPhase === 'waiting'" variant="outline" size="sm" @click="cancelLark">
-              取消登录
+              {{ t("settings.profile.cancelLogin") }}
             </Button>
             <Button v-else size="sm" variant="outline" @click="resetLark">
-              {{ larkPhase === "done" ? "完成" : "返回" }}
+              {{ larkPhase === "done" ? t("settings.profile.done") : t("settings.profile.back") }}
             </Button>
           </div>
         </div>
@@ -410,10 +421,10 @@ function resetLark() {
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
                 <FeishuLogo class="size-4" />
-                飞书
+                {{ t("settings.profile.chooseLark") }}
               </span>
               <span class="text-[11px] leading-snug text-[var(--color-mut)]">
-                浏览器授权 · 连接飞书桥接
+                {{ t("settings.profile.chooseLarkDesc") }}
               </span>
             </button>
             <button
@@ -426,21 +437,21 @@ function resetLark() {
                 GitHub
               </span>
               <span class="text-[11px] leading-snug text-[var(--color-mut)]">
-                设备码授权 · 同步个人资料与配置
+                {{ t("settings.profile.chooseGithubDesc") }}
               </span>
             </button>
           </div>
           <Button variant="ghost" size="xs" class="w-fit" @click="loginChoiceOpen = false">
-            返回
+            {{ t("settings.profile.back") }}
           </Button>
         </div>
 
         <div v-else class="flex flex-wrap gap-2">
           <Button size="sm" :disabled="loading" @click="loginChoiceOpen = true">
-            {{ loading && !deviceCode ? "等待授权…" : "登录" }}
+            {{ loading && !deviceCode ? t("settings.profile.waitingAuth") : t("settings.profile.login") }}
           </Button>
-          <Button size="sm" variant="outline" disabled title="登录后可用">
-            配置云同步（需登录）
+          <Button size="sm" variant="outline" disabled :title="t('settings.profile.syncNeedLoginTitle')">
+            {{ t("settings.profile.syncNeedLogin") }}
           </Button>
         </div>
       </CardContent>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Search } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
 
 import CapabilityLine from "@/components/settings/CapabilityLine.vue";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   pickTemplate: [model: CatalogModel];
 }>();
 
+const { t } = useI18n();
 const modelsStore = useModelsStore();
 const query = ref("");
 const expanded = ref<Set<string>>(new Set());
@@ -42,7 +44,9 @@ const updatedAtLabel = computed(() => {
   const date = new Date(ts);
   const sameDay = new Date().toDateString() === date.toDateString();
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return sameDay ? `今天 ${time}` : date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  return sameDay
+    ? t("settings.models.catalogToday", { time })
+    : date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
 });
 
 const filtered = computed(() => {
@@ -109,14 +113,15 @@ async function onRefresh() {
   try {
     const count = await modelsStore.refreshCatalog();
     if (count !== null) {
-      refreshMessage.value = `已更新 ${count} 个模型`;
+      refreshMessage.value = t("settings.models.updatedCount", { count });
       // 新目录可能新增/移除厂商分组，重置展开状态让默认展开逻辑重新生效
       expanded.value = new Set();
       await load();
     }
   } catch (err) {
     refreshFailed.value = true;
-    refreshMessage.value = err instanceof Error ? err.message : "更新失败，已保留当前目录";
+    refreshMessage.value =
+      err instanceof Error ? err.message : t("settings.models.updateFailedKeep");
   }
 }
 
@@ -149,7 +154,7 @@ onMounted(() => {
       class="flex w-[min(600px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
     >
       <DialogHeader class="sr-only absolute h-px w-px overflow-hidden p-0 m-[-1px]">
-        <DialogTitle>选择模型模板</DialogTitle>
+        <DialogTitle>{{ t("settings.models.pickerTitle") }}</DialogTitle>
       </DialogHeader>
 
       <div class="flex items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
@@ -157,7 +162,7 @@ onMounted(() => {
         <Input
           v-model="query"
           class="h-7 border-0 bg-transparent p-0 text-[13px] shadow-none"
-          placeholder="搜索模型..."
+          :placeholder="t('settings.models.pickerSearchPlaceholder')"
           @keydown.enter.prevent="emit('pickCustom', query.trim())"
         />
       </div>
@@ -170,17 +175,23 @@ onMounted(() => {
         >
           <Plus class="mt-0.5 size-4 shrink-0 text-[var(--color-mut)]" />
           <div>
-            <div class="text-[13px] text-[var(--color-txt-strong)]">添加自定义模型</div>
+            <div class="text-[13px] text-[var(--color-txt-strong)]">{{ t("settings.models.addCustomModel") }}</div>
             <p class="m-0 mt-0.5 text-[12px] text-[var(--color-mut)]">
-              从空白配置开始；搜索内容会预填为模型 ID。
+              {{ t("settings.models.addCustomModelDesc") }}
             </p>
           </div>
         </Button>
         <div class="flex items-center justify-between px-2.5 pb-1 pt-2">
           <div>
-            <div class="text-[12px] text-[var(--color-txt-strong)]">使用模板创建</div>
+            <div class="text-[12px] text-[var(--color-txt-strong)]">{{ t("settings.models.createFromTemplate") }}</div>
             <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
-              数据源 models.dev{{ updatedAtLabel ? ` · 更新于 ${updatedAtLabel}` : "" }}；已下架模型自动移除。
+              {{
+                t("settings.models.templateSource", {
+                  updated: updatedAtLabel
+                    ? t("settings.models.catalogUpdated", { label: updatedAtLabel })
+                    : "",
+                })
+              }}
             </p>
           </div>
           <Button
@@ -188,12 +199,12 @@ onMounted(() => {
             size="sm"
             class="h-7 shrink-0 gap-1.5 rounded-lg px-2 text-[12px] font-normal"
             :disabled="modelsStore.refreshingCatalog"
-            :title="modelsStore.refreshingCatalog ? '正在更新...' : '从 models.dev 实时拉取最新模型与能力'"
+            :title="modelsStore.refreshingCatalog ? t('settings.models.updatingTitle') : t('settings.models.refreshCatalogTitle')"
             @click="onRefresh"
           >
             <Loader2 v-if="modelsStore.refreshingCatalog" class="size-3.5 animate-spin" aria-hidden="true" />
             <RefreshCw v-else class="size-3.5" aria-hidden="true" />
-            {{ modelsStore.refreshingCatalog ? "更新中" : "更新" }}
+            {{ modelsStore.refreshingCatalog ? t("settings.models.updating") : t("settings.models.updateAction") }}
           </Button>
         </div>
         <p
@@ -237,7 +248,7 @@ onMounted(() => {
             >
               <div class="flex items-center gap-1.5 text-[13px] text-[var(--color-txt-strong)]">
                 {{ model.name }}
-                <span v-if="isKnown(model)" class="text-[11px] text-[var(--color-mut)]">已添加</span>
+                <span v-if="isKnown(model)" class="text-[11px] text-[var(--color-mut)]">{{ t("settings.models.addedTag") }}</span>
               </div>
               <div class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
                 {{ model.id }}
@@ -247,7 +258,7 @@ onMounted(() => {
           </div>
         </div>
         <p v-if="!groups.length" class="m-0 px-2.5 py-3 text-[12px] text-[var(--color-mut)]">
-          无匹配模型，可直接添加自定义模型
+          {{ t("settings.models.noMatchCustom") }}
         </p>
       </div>
     </DialogContent>

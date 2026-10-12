@@ -6,6 +6,7 @@ import FilePathRenderer from './ResponsePath.vue'
 import ResponseImage from './ResponseImage.vue'
 import { responseParserOptions } from './local-file-links'
 import { codeThemeId, compactCodeOptions, streamMarkdownExtensions } from '@/components/ai-elements/response/extensions'
+import { useAppTheme } from '@/composables/useAppTheme'
 import { cn } from '@/lib/utils'
 import 'vue-stream-markdown/index.css'
 
@@ -36,6 +37,9 @@ const slotContent = computed<string | undefined>(() => {
 })
 
 const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
+
+// 代码高亮深浅跟随应用主题（原为写死 true，亮色主题下代码块观感错误）
+const { isDark } = useAppTheme()
 </script>
 
 <template>
@@ -45,7 +49,7 @@ const md = computed(() => (slotContent.value ?? props.content ?? '') as string)
     :enable-animate="props.enableAnimate"
     :extensions="streamMarkdownExtensions"
     :code-options="compactCodeOptions"
-    :is-dark="true"
+    :is-dark="isDark"
     :components="{ code: FilePathRenderer, a: FilePathRenderer }"
     :ui-components="{ Image: ResponseImage }"
     :parser-options="responseParserOptions"

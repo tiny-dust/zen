@@ -36,6 +36,7 @@ import { useSessionStatusStore } from "@/stores/session-status";
 import { useSkillUsageStore } from "@/stores/skill-usage";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AppInfo } from "@/types/zen-api";
+import { i18n } from "@/locales";
 
 /** 后台会话消息缓冲：非响应式普通对象，切走的运行中会话事件持续归约进缓冲 */
 const backgroundTranscripts = new BackgroundTranscripts();
@@ -49,7 +50,7 @@ export const useChatStore = defineStore("chat", () => {
   const lastError = ref("");
   // 会话唯一 key 用 uuidv7：创建即生成，侧栏高亮/事件路由都按它区分
   const sessionId = ref(uuidv7());
-  const sessionName = ref("新会话");
+  const sessionName = ref(i18n.global.t("app.chat.newSession"));
   /** 会话是否已落库；启动后的本地会话在首发消息前补建，避免 agent:run 报 session not found */
   const sessionPersisted = ref(false);
   /** 当前会话归属的工作区（'common' = 公共区），决定 agent 工作目录与 git 信息来源 */
@@ -206,7 +207,7 @@ export const useChatStore = defineStore("chat", () => {
     appendMessage(localMessage);
     status.value = "thinking";
     phase.value = "thinking";
-    statusText.value = "插入执行中…";
+    statusText.value = i18n.global.t("app.chat.insertRunning");
     sessionStatusStore.set(sessionId.value, "running");
 
     // IPC 抛错与 {ok:false} 同路处理：insertActive 必须复位，否则 isRunning 永久为 true，
@@ -217,7 +218,7 @@ export const useChatStore = defineStore("chat", () => {
     } catch (error) {
       result = {
         ok: false,
-        error: error instanceof Error ? error.message : "插入执行失败",
+        error: error instanceof Error ? error.message : i18n.global.t("app.chat.insertFailed"),
       };
     }
     if (!result.ok) {
@@ -228,7 +229,7 @@ export const useChatStore = defineStore("chat", () => {
         messages.value.splice(index, 1);
       }
       queue.queuedMessages.value = [item, ...queue.queuedMessages.value];
-      lastError.value = result.error ?? "插入执行失败";
+      lastError.value = result.error ?? i18n.global.t("app.chat.insertFailed");
       statusText.value = lastError.value;
     }
   }
@@ -301,14 +302,25 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 上下文用量悬浮说明：区分「上次请求输入」与「估算当前」（EnvInfoSection / 输入框底栏共用） */
   const contextUsageTitle = computed(() => {
+    const { t } = i18n.global;
     const parts: string[] = [];
     if (lastRequestUsage.value != null && lastInputTokens.value != null) {
-      parts.push(`上次请求输入 ${lastInputTokens.value} tokens · ${lastRequestUsage.value}%`);
+      parts.push(
+        t("app.chat.context.lastRequestUsage", {
+          tokens: lastInputTokens.value,
+          usage: lastRequestUsage.value,
+        }),
+      );
     } else {
-      parts.push("上次请求输入：API 未返回 usage");
+      parts.push(t("app.chat.context.lastRequestNoUsage"));
     }
-    parts.push(`估算当前 ${estimatedInputTokens.value} tokens · ${estimatedUsage.value ?? 0}%`);
-    parts.push("百分比 = 输入占用 / 模型上下文窗口；接近 80% 时下次发送自动压缩");
+    parts.push(
+      t("app.chat.context.estimatedUsage", {
+        tokens: estimatedInputTokens.value,
+        usage: estimatedUsage.value ?? 0,
+      }),
+    );
+    parts.push(t("app.chat.context.formula"));
     return parts.join("\n");
   });
 
@@ -418,7 +430,7 @@ export const useChatStore = defineStore("chat", () => {
     const zen = window.zen;
     if (!zen) {
       status.value = "error";
-      lastError.value = "preload bridge 未注入";
+      lastError.value = i18n.global.t("app.chat.bridgeNotInjected");
       statusText.value = lastError.value;
       return () => undefined;
     }
@@ -608,8 +620,9 @@ export const useChatStore = defineStore("chat", () => {
       }
     }
 
-    if (sessionName.value === "新会话") {
-      const first = text || skills[0]?.name || attachmentRefs[0]?.name || "新会话";
+    if (sessionName.value === i18n.global.t("app.chat.newSession")) {
+      const first =
+        text || skills[0]?.name || attachmentRefs[0]?.name || i18n.global.t("app.chat.newSession");
       sessionName.value = first.slice(0, 24) + (first.length > 24 ? "…" : "");
       // 侧栏标题同步：落库 + 本地分组刷新
       void zen.session.rename(sessionId.value, sessionName.value);
@@ -647,7 +660,7 @@ export const useChatStore = defineStore("chat", () => {
     usedUpdateTasks.value = false;
     pendingApproval.value = null;
     phase.value = "thinking";
-    statusText.value = "Agent 思考中…";
+    statusText.value = i18n.global.t("app.chat.thinking");
 
     // 滚动摘要 + 超限双保险：上下文用量达到阈值（或已开启压缩）时折叠旧轮次
     const { compression } = compressionDomain.prepareCompression();
@@ -670,13 +683,13 @@ export const useChatStore = defineStore("chat", () => {
     } catch (error) {
       result = {
         ok: false,
-        error: error instanceof Error ? error.message : "运行失败",
+        error: error instanceof Error ? error.message : i18n.global.t("app.chat.runFailed"),
       };
     }
 
     if (!result.ok) {
       status.value = "error";
-      lastError.value = result.error ?? "运行失败";
+      lastError.value = result.error ?? i18n.global.t("app.chat.runFailed");
       statusText.value = lastError.value;
       // run 未启动就没有 done 事件兜底，侧栏运行态必须在此落终态
       sessionStatusStore.set(sessionId.value, "error");
@@ -696,7 +709,7 @@ export const useChatStore = defineStore("chat", () => {
       phase.value = "answering";
       isPaused.value = false;
       insertActive.value = false;
-      statusText.value = "已停止";
+      statusText.value = i18n.global.t("app.chat.stopped");
       sessionStatusStore.set(sessionId.value, "done");
     }
   }
@@ -712,7 +725,7 @@ export const useChatStore = defineStore("chat", () => {
       status.value = "idle";
       phase.value = "answering";
       isPaused.value = false;
-      statusText.value = "已停止";
+      statusText.value = i18n.global.t("app.chat.stopped");
       sessionStatusStore.set(sessionId.value, "done");
     }
   }
@@ -773,7 +786,9 @@ export const useChatStore = defineStore("chat", () => {
         );
       }
     } catch (error) {
-      lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
+      lastError.value = i18n.global.t("app.chat.createSessionFailed", {
+        error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
+      });
       statusText.value = lastError.value;
     }
   }
@@ -796,7 +811,9 @@ export const useChatStore = defineStore("chat", () => {
       try {
         record = await zen.session.create(target, newId);
       } catch (error) {
-        lastError.value = `创建会话失败：${error instanceof Error ? error.message : "未知错误"}`;
+        lastError.value = i18n.global.t("app.chat.createSessionFailed", {
+          error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
+        });
         statusText.value = lastError.value;
         return;
       }
@@ -816,7 +833,7 @@ export const useChatStore = defineStore("chat", () => {
     attachments.value = [];
     elementMarks.value = [];
     resetRunState();
-    sessionName.value = "新会话";
+    sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = null;
     useSessionInfoStore().clear();
     useAgentsStore().clear();

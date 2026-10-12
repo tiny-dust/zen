@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { SliderRange } from "@/components/ui/slider";
@@ -16,6 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [value: ReasoningEffort];
 }>();
+
+const { t } = useI18n();
 
 const open = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
@@ -35,7 +38,7 @@ const index = computed(() => {
 
 const label = computed(() => {
   const id = steps.value[index.value] ?? "off";
-  return REASONING_EFFORTS.find((item) => item.id === id)?.label ?? "关闭";
+  return REASONING_EFFORTS.find((item) => item.id === id)?.label ?? t("chat.effort.off");
 });
 
 const sliderMax = computed(() => Math.max(steps.value.length - 1, 0));
@@ -93,7 +96,7 @@ onBeforeUnmount(() => {
       class="h-auto min-h-8 gap-1.5 px-1.5 font-normal text-[12px] md:text-[12px] text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)] aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)] disabled:cursor-not-allowed disabled:opacity-55"
       :disabled="steps.length <= 1"
       :aria-expanded="open"
-      aria-label="思考强度"
+      :aria-label="t('chat.effort.title')"
       @click="toggle"
     >
       <span class="inline-flex h-3 items-end gap-0.5" aria-hidden="true">
@@ -117,10 +120,10 @@ onBeforeUnmount(() => {
       v-if="open"
       class="absolute bottom-[calc(100%+10px)] left-1/2 z-[var(--z-popup)] w-[220px] -translate-x-1/2 rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] px-3.5 pt-3 pb-2.5 shadow-[var(--shadow-menu)]"
       role="dialog"
-      aria-label="思考强度"
+      :aria-label="t('chat.effort.title')"
     >
       <div class="mb-2.5 flex items-center justify-between">
-        <span class="text-[12px] font-semibold text-[var(--color-txt-strong)]">思考强度</span>
+        <span class="text-[12px] font-semibold text-[var(--color-txt-strong)]">{{ t("chat.effort.title") }}</span>
         <span class="text-[12px] font-semibold text-[var(--color-accent)]">{{ label }}</span>
       </div>
       <SliderRange
@@ -128,7 +131,7 @@ onBeforeUnmount(() => {
         :min="0"
         :max="sliderMax"
         :step="1"
-        aria-label="思考强度"
+        :aria-label="t('chat.effort.title')"
         :aria-valuetext="label"
         @update:model-value="onInput"
       />

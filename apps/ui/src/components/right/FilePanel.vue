@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FileCode, FolderOpen, RefreshCw, Save } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import {
@@ -45,6 +46,7 @@ import type { WorkspaceFile } from "@zen/shared";
 import type { FileTreeNode as FileNode } from "@/components/right/panel-nodes";
 import type { FileTreeAction } from "./file-tree-ops";
 
+const { t } = useI18n();
 const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
 const rightPanel = useRightPanelStore();
@@ -270,8 +272,8 @@ watch(
 
 /** 内部剪贴板缓冲：右键「复制」后供「粘贴」使用 */
 const copyBuffer = ref<{ path: string; isDir: boolean } | null>(null);
-/** 「在 Finder/资源管理器中显示」文案（platformInfo 按平台给出） */
-const showInFolderLabel = ref("在文件管理器中显示");
+/** 「在 Finder/资源管理器中显示」文案：platformInfo 按平台给出，未返回前回退语言包 */
+const showInFolderLabel = ref("");
 const renameTarget = ref<{ path: string; name: string } | null>(null);
 const renamePending = ref(false);
 const deleteTarget = ref<{ path: string; name: string; isDir: boolean } | null>(null);
@@ -299,7 +301,7 @@ async function copyTextToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    toast.err("复制到剪贴板失败");
+    toast.err(t("panels.copyClipboardFailed"));
   }
 }
 
@@ -310,7 +312,7 @@ async function openWithSystemApp(node: FileNode) {
   }
   const result = await zen.shell.openPath(absPathOf(node.path)).catch(ipcFallback);
   if (!result.ok) {
-    toast.err(result.error ?? "打开失败");
+    toast.err(result.error ?? t("panels.openFailed"));
   }
 }
 
@@ -321,7 +323,7 @@ async function revealInFolder(node: FileNode) {
   }
   const result = await zen.shell.showInFolder(absPathOf(node.path)).catch(ipcFallback);
   if (!result.ok) {
-    toast.err(result.error ?? "显示文件位置失败");
+    toast.err(result.error ?? t("panels.revealFailed"));
   }
 }
 
@@ -334,7 +336,7 @@ async function pasteInto(destDirRel: string) {
   }
   const result = await zen.workspace.copy(root, buffer.path, destDirRel).catch(ipcFallback);
   if (!result.ok) {
-    toast.err(result.error ?? "粘贴失败");
+    toast.err(result.error ?? t("panels.pasteFailed"));
     return;
   }
   await load();
@@ -392,7 +394,7 @@ async function confirmRename(newName: string) {
   const result = await zen.workspace.renameEntry(root, target.path, newName).catch(ipcFallback);
   renamePending.value = false;
   if (!result.ok) {
-    toast.err(result.error ?? "重命名失败");
+    toast.err(result.error ?? t("panels.renameFailed"));
     return;
   }
   const nextRel = joinRelPath(parentDirPath(target.path), newName);
@@ -417,7 +419,7 @@ async function confirmDelete() {
   const result = await zen.workspace.trash(root, target.path).catch(ipcFallback);
   deletePending.value = false;
   if (!result.ok) {
-    toast.err(result.error ?? "删除失败");
+    toast.err(result.error ?? t("panels.deleteFailed"));
     return;
   }
   if (isPathUnder(selected.value, target.path)) {
@@ -439,10 +441,16 @@ async function confirmDelete() {
         <span
           class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
         >
-          工作区文件
+          {{ t("panels.workspaceFiles") }}
         </span>
         <span class="flex-none text-[10px] text-[var(--color-dim)]">{{ fileCount }}</span>
-        <Button variant="ghost" size="icon-xs" aria-label="刷新文件列表" title="刷新" @click="load">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          :aria-label="t('panels.refreshFileList')"
+          :title="t('panels.refresh')"
+          @click="load"
+        >
           <RefreshCw :class="loading ? 'animate-spin' : ''" />
         </Button>
       </div>
@@ -450,23 +458,23 @@ async function confirmDelete() {
         v-model="query"
         variant="ghost"
         class="h-7 w-full flex-none rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-2 text-[12px] md:text-[12px] text-[var(--color-txt-strong)] outline-none placeholder:text-[var(--color-composer-placeholder)] focus-visible:border-ring"
-        placeholder="筛选文件"
+        :placeholder="t('panels.filterFiles')"
       />
       <ContextMenu>
         <!-- 树空白处右键 = 粘贴到工作区根（无缓冲时禁用）；行内右键由 FileTreeNode 自带菜单处理 -->
         <ContextMenuTrigger as-child>
           <div class="flex min-h-0 flex-1 flex-col">
             <p v-if="!treeRoot" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
-              公共区未绑定目录
+              {{ t("panels.workspaceUnbound") }}
             </p>
             <p
               v-else-if="loading && !files.length"
               class="m-0 px-1 text-[12px] text-[var(--color-dim)]"
             >
-              读取中…
+              {{ t("panels.loading") }}
             </p>
             <p v-else-if="!tree.length" class="m-0 px-1 text-[12px] text-[var(--color-dim)]">
-              {{ query ? "无匹配文件" : "空目录" }}
+              {{ query ? t("panels.noMatchFiles") : t("panels.emptyDir") }}
             </p>
             <div v-else class="min-h-0 flex-1 overflow-auto">
               <FileTreeNode
@@ -476,7 +484,7 @@ async function confirmDelete() {
                 :expanded="expanded"
                 :selected="selected"
                 :can-paste="!!copyBuffer"
-                :show-in-folder-label="showInFolderLabel"
+                :show-in-folder-label="showInFolderLabel || t('panels.showInFolder')"
                 @toggle="toggle"
                 @action="onTreeAction"
               />
@@ -485,7 +493,7 @@ async function confirmDelete() {
         </ContextMenuTrigger>
         <ContextMenuContent class="min-w-44">
           <ContextMenuItem :disabled="!copyBuffer" @select="copyBuffer && pasteInto('')">
-            粘贴
+            {{ t("panels.paste") }}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -508,7 +516,7 @@ async function confirmDelete() {
             :disabled="viewerSaving"
             @click="revertViewer"
           >
-            放弃
+            {{ t("panels.discard") }}
           </Button>
           <Button
             size="sm"
@@ -516,7 +524,7 @@ async function confirmDelete() {
             :disabled="viewerSaving"
             @click="saveViewer"
           >
-            <Save :size="12" data-icon="inline-start" />保存
+            <Save :size="12" data-icon="inline-start" />{{ t("panels.save") }}
           </Button>
         </template>
       </div>
@@ -525,14 +533,16 @@ async function confirmDelete() {
         class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]"
       >
         <FileCode class="size-5" aria-hidden="true" />
-        <p class="m-0 text-[12px]">在左侧选择文件，可直接编辑保存</p>
+        <p class="m-0 text-[12px]">{{ t("panels.selectFileHint") }}</p>
       </div>
       <div
         v-else-if="selectedIsDir"
         class="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-dim)]"
       >
         <FolderOpen class="size-5" aria-hidden="true" />
-        <p class="m-0 max-w-full truncate px-2 text-[12px]">目录：{{ selected }}</p>
+        <p class="m-0 max-w-full truncate px-2 text-[12px]">
+          {{ t("panels.dirLabel", { path: selected }) }}
+        </p>
       </div>
       <FileViewer
         v-else
@@ -556,9 +566,16 @@ async function confirmDelete() {
     />
     <ConfirmDialog
       :open="!!deleteTarget"
-      :title="deleteTarget ? `删除${deleteTarget.isDir ? '目录' : '文件'}「${deleteTarget.name}」？` : ''"
-      :description="deleteTarget ? `将「${deleteTarget.path}」移入系统废纸篓，可从废纸篓中恢复。` : ''"
-      confirm-label="移入废纸篓"
+      :title="
+        deleteTarget
+          ? t(
+              deleteTarget.isDir ? 'panels.deleteDirTitle' : 'panels.deleteFileTitle',
+              { name: deleteTarget.name },
+            )
+          : ''
+      "
+      :description="deleteTarget ? t('panels.deleteDesc', { path: deleteTarget.path }) : ''"
+      :confirm-label="t('panels.moveToTrash')"
       :pending="deletePending"
       @update:open="(open) => !open && (deleteTarget = null)"
       @confirm="confirmDelete"

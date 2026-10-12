@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 
 import type { BrowserHistoryItem } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 const HISTORY_KEY = "zen.browser.history";
 const HISTORY_LIMIT = 50;
 
@@ -77,7 +79,7 @@ export function createBrowserHistory(options: BrowserHistoryOptions) {
   function clearHistory() {
     history.value = [];
     saveHistory([]);
-    panelNote.value = "已清空浏览历史";
+    panelNote.value = i18n.global.t("app.browserHistory.cleared");
   }
 
   return { history, suggestions, pushHistory, removeHistory, clearHistory };

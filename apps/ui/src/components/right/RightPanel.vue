@@ -2,6 +2,7 @@
 import GraphPanel from "@/components/right/GitGraph.vue";
 import { Bot, Check, FolderOpen, GitGraph, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import type { Component } from "vue";
 
 import AgentsPanel from "@/components/right/AgentsPanel.vue";
@@ -21,6 +22,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { PANEL_TITLES, useRightPanelStore, type RightPanelKind } from "@/stores/right-panel";
 import { cn } from "@/lib/utils";
 
+const { t } = useI18n();
 const layoutStore = useLayoutStore();
 const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
@@ -53,7 +55,7 @@ function tabCls(id: string) {
 <template>
   <aside
     class="flex h-full min-w-0 flex-col border-l border-[var(--color-line-soft)] bg-transparent"
-    aria-label="工具面板"
+    :aria-label="t('panels.panelAria')"
   >
     <!-- 头行：Tab 与折叠开关同级 -->
     <header
@@ -80,7 +82,7 @@ function tabCls(id: string) {
             variant="ghost"
             size="icon-xs"
             class="ml-0.5 size-4 flex-none rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-            aria-label="关闭标签"
+            :aria-label="t('panels.closeTab')"
             @click.stop="rightPanel.closeTab(tab.id)"
           >
             <X class="size-3" />
@@ -95,8 +97,8 @@ function tabCls(id: string) {
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="打开面板"
-              title="打开面板"
+              :aria-label="t('panels.openPanel')"
+              :title="t('panels.openPanel')"
             >
               <Plus />
             </Button>
@@ -122,8 +124,8 @@ function tabCls(id: string) {
           variant="ghost"
           size="icon-xs"
           class="bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
-          aria-label="收起面板"
-          title="收起面板"
+          :aria-label="t('panels.collapsePanel')"
+          :title="t('panels.collapsePanel')"
           @click="layoutStore.toggleRight()"
         >
           <PanelRight />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowUpToLine, Pencil, X, Zap } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 
@@ -18,6 +19,8 @@ defineEmits<{
   remove: [id: string];
   insert: [id: string];
 }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
@@ -25,7 +28,7 @@ defineEmits<{
   <div
     v-if="items.length"
     class="mb-1.5 flex flex-col gap-0.5"
-    aria-label="插入消息队列"
+    :aria-label="t('chat.queued.label')"
   >
     <div
       v-for="(item, index) in items"
@@ -44,8 +47,8 @@ defineEmits<{
         size="icon-xs"
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-accent)]"
         :disabled="insertDisabled"
-        :title="insertDisabled ? '插入执行中' : '插入执行：打断当前任务，优先执行这条，完成后原任务自动继续'"
-        :aria-label="insertDisabled ? '插入执行中' : '插入执行'"
+        :title="insertDisabled ? t('chat.queued.inserting') : t('chat.queued.insertTitle')"
+        :aria-label="insertDisabled ? t('chat.queued.inserting') : t('chat.queued.insert')"
         @click="$emit('insert', item.id)"
       >
         <Zap class="size-3" />
@@ -55,8 +58,8 @@ defineEmits<{
         size="icon-xs"
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
         :disabled="index === 0"
-        :title="index === 0 ? '已在队首' : '插队：下一步执行'"
-        :aria-label="index === 0 ? '已在队首' : '插队'"
+        :title="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promoteTitle')"
+        :aria-label="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promote')"
         @click="$emit('promote', item.id)"
       >
         <ArrowUpToLine class="size-3" />
@@ -65,8 +68,8 @@ defineEmits<{
         variant="ghost"
         size="icon-xs"
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-        title="编辑：放回输入框"
-        aria-label="编辑插入消息"
+        :title="t('chat.queued.editTitle')"
+        :aria-label="t('chat.queued.edit')"
         @click="$emit('edit', item.id)"
       >
         <Pencil class="size-3" />
@@ -75,8 +78,8 @@ defineEmits<{
         variant="ghost"
         size="icon-xs"
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-        title="删除"
-        aria-label="删除插入消息"
+        :title="t('common.delete')"
+        :aria-label="t('chat.queued.remove')"
         @click="$emit('remove', item.id)"
       >
         <X class="size-3" />

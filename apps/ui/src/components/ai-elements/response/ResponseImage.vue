@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { localPathFromMarker } from "@/components/ai-elements/response/local-file-links";
 import { cachedLocalImage } from "@/components/ai-elements/response/local-image-cache";
@@ -14,6 +15,8 @@ const props = defineProps<{
   alt?: string;
   title?: string;
 }>();
+
+const { t } = useI18n();
 
 const isLocal = computed(() => !!localPathFromMarker(props.src));
 /** 本地图片解析出的 data URL（未取回时为 null → 显示占位） */
@@ -33,7 +36,7 @@ const resolvedSrc = computed(() => (isLocal.value ? localDataUrl.value : props.s
     v-else-if="isLocal"
     class="zen-local-image-loading"
     role="status"
-  >加载图片…</span>
+  >{{ t("chat.loadingImage") }}</span>
 </template>
 
 <style scoped>

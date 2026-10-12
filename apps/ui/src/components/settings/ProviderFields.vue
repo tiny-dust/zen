@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+
 import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,6 +14,8 @@ import {
 import { PROVIDER_PROTOCOLS } from "@zen/shared";
 
 import type { ProviderProtocol } from "@zen/shared";
+
+const { t } = useI18n();
 
 const name = defineModel<string>("name", { required: true });
 const protocol = defineModel<ProviderProtocol>("protocol", { required: true });
@@ -28,10 +32,10 @@ defineProps<{
 <template>
   <div class="flex flex-col pb-2 pt-0.5">
     <div class="field-row">
-      <FieldLabel class="field-row-label font-normal">消息协议</FieldLabel>
+      <FieldLabel class="field-row-label font-normal">{{ t("settings.models.protocol") }}</FieldLabel>
       <Select v-model="protocol">
         <SelectTrigger size="sm" class="h-8 w-full text-[13px]">
-          <SelectValue placeholder="选择协议" />
+          <SelectValue :placeholder="t('settings.models.protocolPlaceholder')" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
@@ -43,12 +47,12 @@ defineProps<{
       </Select>
     </div>
     <div class="field-row">
-      <FieldLabel class="field-row-label font-normal" for="provider-name">名称</FieldLabel>
+      <FieldLabel class="field-row-label font-normal" for="provider-name">{{ t("settings.models.name") }}</FieldLabel>
       <Input
         id="provider-name"
         v-model="name"
         class="h-8 text-[13px]"
-        placeholder="OpenAI / DeepSeek / 本地"
+        :placeholder="t('settings.models.namePlaceholder')"
         required
       />
     </div>
@@ -63,13 +67,13 @@ defineProps<{
       />
     </div>
     <div class="field-row">
-      <FieldLabel class="field-row-label font-normal" for="provider-key">API 密钥</FieldLabel>
+      <FieldLabel class="field-row-label font-normal" for="provider-key">{{ t("settings.models.apiKey") }}</FieldLabel>
       <Input
         id="provider-key"
         v-model="apiKey"
         type="password"
         class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
-        :placeholder="editMode ? `${apiKeyMask || '••••'}（留空保持不变）` : 'sk-...'"
+        :placeholder="editMode ? t('settings.models.apiKeyKeep', { mask: apiKeyMask || '••••' }) : 'sk-...'"
         :required="!editMode"
       />
     </div>
@@ -79,7 +83,7 @@ defineProps<{
         id="provider-ua"
         v-model="userAgent"
         class="h-8 font-[family-name:var(--font-mono)] text-[12px]"
-        placeholder="留空则使用 zen-desktop"
+        :placeholder="t('settings.models.userAgentPlaceholder')"
       />
     </div>
   </div>

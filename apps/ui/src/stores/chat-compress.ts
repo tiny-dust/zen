@@ -5,6 +5,7 @@ import type { ChatMessage, ChatTurn } from "@zen/shared";
 
 import { buildHistory, collectTouchedFiles, collectUploads, compressHistory } from "@/stores/chat-types";
 import { useSessionInfoStore } from "@/stores/session-info";
+import { i18n } from "@/locales";
 
 /** 压缩域的依赖：消息与状态由 chat store 持有 */
 export interface CompressionDomainOptions {
@@ -49,7 +50,7 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
    */
   function insertCompactCard(summary: string, compactedCount: number): void {
     const zen = window.zen;
-    const label = `上下文已压缩 · 已折叠 ${compactedCount} 条更早消息`;
+    const label = i18n.global.t("app.compress.compactedLabel", { n: compactedCount });
     const lastCard = findCompactCard();
     if (lastCard) {
       const prev = lastCard.meta as { output?: string } | undefined;
@@ -115,7 +116,7 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
     if (compression.compressed) {
       // 折叠成功即进入会话级压缩模式，后续发送保持短历史
       forceCompress.value = true;
-      statusText.value = "已压缩上下文 · Agent 思考中…";
+      statusText.value = i18n.global.t("app.compress.compressedThinking");
       if (compression.summary) {
         insertCompactCard(compression.summary, compression.compactedCount);
       }

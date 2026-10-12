@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Bell, Info, PanelLeft, PanelRight, Plus, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 
 import OpenWithButton from "@/components/topbar/OpenWithButton.vue";
 import WindowControls from "@/components/topbar/WindowControls.vue";
@@ -17,6 +18,7 @@ defineProps<{
 const chatStore = useChatStore();
 const layoutStore = useLayoutStore();
 const terminalStore = useTerminalStore();
+const { t } = useI18n();
 const { sessionName } = storeToRefs(chatStore);
 const { leftCollapsed, rightCollapsed, bottomCollapsed } = storeToRefs(layoutStore);
 
@@ -47,8 +49,8 @@ function toggleButtonClass(active: boolean) {
           variant="ghost"
           size="icon-sm"
           :class="toggleButtonClass(false)"
-          aria-label="侧栏"
-          title="侧栏"
+          :aria-label="t('shell.sidebar')"
+          :title="t('shell.sidebar')"
           @click="layoutStore.toggleLeft()"
         >
           <PanelLeft />
@@ -57,8 +59,8 @@ function toggleButtonClass(active: boolean) {
           variant="ghost"
           size="icon-sm"
           :class="toggleButtonClass(false)"
-          aria-label="通知"
-          title="通知"
+          :aria-label="t('shell.notifications')"
+          :title="t('shell.notifications')"
         >
           <Bell />
         </Button>
@@ -76,8 +78,8 @@ function toggleButtonClass(active: boolean) {
         variant="ghost"
         size="icon-sm"
         :class="toggleButtonClass(false)"
-        aria-label="新对话"
-        title="新对话"
+        :aria-label="t('shell.newChat')"
+        :title="t('shell.newChat')"
         @click="chatStore.newTask()"
       >
         <Plus />
@@ -86,8 +88,8 @@ function toggleButtonClass(active: boolean) {
         variant="ghost"
         size="icon-sm"
         :class="toggleButtonClass(false)"
-        aria-label="会话信息"
-        title="会话信息"
+        :aria-label="t('shell.sessionInfo')"
+        :title="t('shell.sessionInfo')"
         @click="isWide ? layoutStore.toggleSession() : layoutStore.toggleInfo()"
       >
         <Info />
@@ -96,8 +98,8 @@ function toggleButtonClass(active: boolean) {
         variant="ghost"
         size="icon-sm"
         :class="toggleButtonClass(!bottomCollapsed)"
-        aria-label="终端"
-        title="终端"
+        :aria-label="t('shell.terminal')"
+        :title="t('shell.terminal')"
         @click="toggleBottomPanel"
       >
         <SquareTerminal />
@@ -107,8 +109,8 @@ function toggleButtonClass(active: boolean) {
         variant="ghost"
         size="icon-sm"
         :class="toggleButtonClass(false)"
-        aria-label="右侧面板"
-        title="右侧面板"
+        :aria-label="t('shell.rightPanel')"
+        :title="t('shell.rightPanel')"
         @click="layoutStore.toggleRight()"
       >
         <PanelRight />

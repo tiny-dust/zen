@@ -2,6 +2,7 @@
   import { Cable, ChevronDown, FolderClosed, Plus, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onMounted, ref } from "vue";
+  import { useI18n } from "vue-i18n";
 
   import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
   import McpDialog from "@/components/sidebar/McpDialog.vue";
@@ -27,6 +28,8 @@
   const { sessionId } = storeToRefs(chatStore);
   const { groups } = storeToRefs(workspaceStore);
 
+  const { t } = useI18n();
+
   const skillsOpen = ref(false);
   const mcpOpen = ref(false);
   const pendingSessionDelete = ref<SessionRecord | null>(null);
@@ -35,7 +38,7 @@
   const renameDraft = ref("");
   const pendingWorkspaceDelete = ref<WorkspaceGroup | null>(null);
   /** 「在文件管理器中显示」按平台文案（Windows 资源管理器 / Linux 文件管理器） */
-  const showInFolderLabel = ref("在 Finder 中显示");
+  const showInFolderLabel = ref(t("sidebar.showInFinder"));
 
   onMounted(async () => {
     const info = window.zen ? await window.zen.shell.platformInfo() : null;
@@ -177,7 +180,7 @@
 
 <template>
   <aside class="relative flex h-full justify-between min-w-0 flex-col overflow-hidden bg-[var(--color-side)]"
-    aria-label="侧边栏">
+    :aria-label="t('sidebar.sidebar')">
     <header
       class="flex h-[var(--titlebar-h)] flex-none items-center gap-0.5 px-1.5 select-none [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]">
       <span class="w-[var(--titlebar-lead)] flex-none" aria-hidden="true" />
@@ -186,7 +189,7 @@
         <!-- 常驻入口收进头行图标位（Cursor 式）：点击打开弹窗 -->
         <div class="ml-auto flex items-center gap-0.5">
           <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            aria-label="技能" title="技能" @click="skillsOpen = true">
+            :aria-label="t('sidebar.skills')" :title="t('sidebar.skills')" @click="skillsOpen = true">
             <Sparkles class="size-4" aria-hidden="true" />
           </Button>
           <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
@@ -217,19 +220,19 @@
               class="group/zone flex h-8 items-center gap-2 rounded-[var(--radius-sm)] pr-1 transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
               <Button variant="ghost"
                 class="h-full flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent"
-                :aria-expanded="workspacesZoneOpen" aria-label="工作区" @click="toggleWorkspacesZone">
+                :aria-expanded="workspacesZoneOpen" :aria-label="t('sidebar.workspaces')" @click="toggleWorkspacesZone">
                 <span class="flex size-5 flex-none items-center justify-center rounded-md bg-[var(--color-side-hover)]"
                   aria-hidden="true">
                   <FolderClosed class="size-4 text-[var(--color-mut)]" />
                 </span>
                 <span class="min-w-0 flex-1 truncate font-semibold text-[var(--color-txt-strong)]">
-                  工作区
+                  {{ t("sidebar.workspaces") }}
                 </span>
               </Button>
               <!-- 悬浮快捷操作：新建工作区 -->
               <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-dim)] opacity-0 transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/zone:opacity-100 dark:hover:text-[var(--color-txt-strong)]"
-                aria-label="新建工作区" title="新建工作区" @click.stop="workspaceStore.create()">
+                :aria-label="t('sidebar.newWorkspace')" :title="t('sidebar.newWorkspace')" @click.stop="workspaceStore.create()">
                 <Plus class="size-3.5" aria-hidden="true" />
               </Button>
               <ChevronDown
@@ -241,7 +244,7 @@
           <!-- 目录列表：左侧竖线导轨 + 目录行（可折叠）+ 目录内会话 -->
           <div v-if="workspacesZoneOpen" class="ml-2 mt-0.5 flex flex-col gap-0.5  pl-1">
             <p v-if="!workspaceGroups.length" class="px-2 py-1 text-[12px] text-[var(--color-dim)]">
-              暂无工作区，点击上方 + 绑定目录
+              {{ t("sidebar.noWorkspaces") }}
             </p>
             <ProjectSessionGroup v-for="group in workspaceGroups" :key="group.id" :group="group"
               :sessions="sessionsOf(group)" :open="groupOpen(group.id)"
@@ -261,8 +264,8 @@
       <UserBlock />
     </div>
   </aside>
-  <ConfirmDialog :open="!!pendingSessionDelete" :title="`删除会话「${pendingSessionDelete?.title ?? ''}」？`"
-    description="会话的消息与记录会被一并删除，操作不可撤销。" confirm-label="删除会话" cancel-label="保留"
+  <ConfirmDialog :open="!!pendingSessionDelete" :title="t('sidebar.deleteSessionTitle', { title: pendingSessionDelete?.title ?? '' })"
+    :description="t('sidebar.deleteSessionDesc')" :confirm-label="t('sidebar.deleteSession')" :cancel-label="t('sidebar.keep')"
     @update:open="pendingSessionDelete = null" @confirm="onDeleteSession" />
 
   <!-- 工作区右键：重命名（只改侧栏显示名，不动磁盘目录） -->
@@ -271,22 +274,22 @@
       class="w-[min(380px,calc(100vw-48px))] gap-2 border border-[var(--color-line)] bg-[var(--color-popover)] p-4 shadow-[var(--shadow-pop)]"
       :show-close-button="false">
       <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
-        重命名工作区
+        {{ t("sidebar.renameWorkspace") }}
       </DialogTitle>
       <DialogDescription class="text-[12px] text-[var(--color-mut)]">
-        只改侧栏显示名，不影响磁盘目录。
+        {{ t("sidebar.renameWorkspaceDesc") }}
       </DialogDescription>
-      <Input v-model="renameDraft" aria-label="工作区名称" @keydown.enter="commitRenameWorkspace" />
+      <Input v-model="renameDraft" :aria-label="t('sidebar.workspaceNameLabel')" @keydown.enter="commitRenameWorkspace" />
       <DialogFooter class="mt-1 flex justify-end gap-1.5">
-        <Button variant="ghost" size="sm" @click="renamingWorkspace = null">取消</Button>
-        <Button size="sm" @click="commitRenameWorkspace">保存</Button>
+        <Button variant="ghost" size="sm" @click="renamingWorkspace = null">{{ t("common.cancel") }}</Button>
+        <Button size="sm" @click="commitRenameWorkspace">{{ t("common.save") }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
 
   <!-- 工作区右键：删除（落库级联，需要二次确认） -->
-  <ConfirmDialog :open="!!pendingWorkspaceDelete" :title="`删除工作区「${pendingWorkspaceDelete?.name ?? ''}」？`"
-    description="仅从 Zen 移除该目录（磁盘文件不受影响）；其下的会话与消息会一并删除，不可恢复。" confirm-label="删除工作区" cancel-label="保留"
+  <ConfirmDialog :open="!!pendingWorkspaceDelete" :title="t('sidebar.deleteWorkspaceTitle', { name: pendingWorkspaceDelete?.name ?? '' })"
+    :description="t('sidebar.deleteWorkspaceDesc')" :confirm-label="t('sidebar.deleteWorkspace')" :cancel-label="t('sidebar.keep')"
     @update:open="pendingWorkspaceDelete = null" @confirm="onDeleteWorkspace" />
 
   <SkillsDialog v-model:open="skillsOpen" />

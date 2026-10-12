@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import type { AppIconId } from "@zen/shared";
 
@@ -8,6 +9,8 @@ const props = defineProps<{
   size?: number;
   customPath?: string | null;
 }>();
+
+const { t } = useI18n();
 
 const sizeStyle = computed(() => ({
   width: `${props.size ?? 48}px`,
@@ -24,7 +27,7 @@ const assetSrc = computed(() => {
 });
 
 const label = computed(() => {
-  return props.id === "custom-preview" || props.id === "custom" ? "自定义图标" : "Zen";
+  return props.id === "custom-preview" || props.id === "custom" ? t("shell.customIcon") : "Zen";
 });
 </script>
 

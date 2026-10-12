@@ -11,6 +11,7 @@ import {
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import {
   Attachment,
@@ -40,6 +41,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { ReasoningEffort } from "@zen/shared";
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const {
   input,
@@ -107,9 +109,7 @@ const isCompactBar = computed(() => {
 
 /** 运行中输入框不再禁用：发送即插入队列，占位文案说明当前行为 */
 const composerPlaceholder = computed(() =>
-  isRunning.value
-    ? "Agent 运行中：输入内容按 Enter 插入队列，当前任务结束后自动执行"
-    : "描述任务，/ 调用技能，# 引用 MCP 工具；标注页面元素会以 tag 插入，悬浮可看明细",
+  isRunning.value ? t("chat.placeholderRunning") : t("chat.placeholderIdle"),
 );
 
 const allowedEfforts = computed(() => {
@@ -278,7 +278,7 @@ function removeAttachment(id: string) {
           <span class="shrink-0 text-[10px] text-[var(--color-dim)]">
             {{ formatSize(att.size) }}
           </span>
-          <AttachmentRemove label="移除附件" class="hover:bg-transparent!" />
+          <AttachmentRemove :label="t('chat.removeAttachment')" class="hover:bg-transparent!" />
         </Attachment>
       </Attachments>
 
@@ -295,19 +295,19 @@ function removeAttachment(id: string) {
         @drop="onDrop"
         @paste="onPaste"
       >
-        <label class="sr-only" for="chat-input">消息输入</label>
+        <label class="sr-only" for="chat-input">{{ t("chat.messageInput") }}</label>
         <!-- 编辑插入（分叉）提示：发送后从被编辑消息处替换其后旧分支 -->
         <div
           v-if="editAnchorId"
           class="mb-1.5 flex items-center gap-2 rounded-lg bg-[var(--color-menu-active)] px-2 py-1 text-[11px] text-[var(--color-txt)]"
         >
-          <span class="min-w-0 flex-1 truncate">插入对话：发送后将从该消息处分叉，其后旧内容被替换</span>
+          <span class="min-w-0 flex-1 truncate">{{ t("chat.insertEditHint") }}</span>
           <Button
             variant="ghost"
             size="icon-xs"
             class="flex-none rounded-md text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-            aria-label="取消插入编辑"
-            title="取消"
+            :aria-label="t('chat.cancelInsertEdit')"
+            :title="t('common.cancel')"
             @click="chatStore.cancelEdit()"
           >
             <X class="size-3" />
@@ -344,8 +344,8 @@ function removeAttachment(id: string) {
               variant="ghost"
               size="icon-sm"
               class="flex-none text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-              aria-label="添加文件"
-              title="添加文件（也可直接粘贴文件/图像）"
+              :aria-label="t('chat.addFile')"
+              :title="t('chat.addFileTitle')"
               @click="openFilePicker"
             >
               <Plus class="size-4" />
@@ -367,7 +367,7 @@ function removeAttachment(id: string) {
               "
               :title="chatStore.contextUsageTitle"
               role="status"
-              aria-label="上下文用量"
+              :aria-label="t('chat.contextUsage')"
             >
               <Gauge class="size-3.5" aria-hidden="true" />
               <span>{{ chatStore.contextUsage }}%</span>
@@ -384,8 +384,8 @@ function removeAttachment(id: string) {
               v-if="isRunning || isPaused"
               variant="ghost"
               class="flex size-[30px] items-center justify-center rounded-full bg-[var(--color-send-empty)] text-[var(--color-send-fg)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="isPaused ? '继续' : '停止'"
-              :title="isPaused ? '继续' : '停止'"
+              :aria-label="isPaused ? t('chat.resume') : t('chat.stop')"
+              :title="isPaused ? t('chat.resume') : t('chat.stop')"
               @click="isPaused ? chatStore.resume() : chatStore.cancel()"
             >
               <Play v-if="isPaused" class="size-4" />
@@ -401,7 +401,7 @@ function removeAttachment(id: string) {
                   : 'bg-[var(--color-send-empty)] text-[var(--color-send-fg)]'
               "
               :disabled="!canSend"
-              aria-label="发送"
+              :aria-label="t('chat.send')"
               @click="chatStore.send()"
             >
               <ArrowUp class="size-4" />
@@ -413,14 +413,14 @@ function removeAttachment(id: string) {
       <div
         class="mt-1.5 flex h-4 items-center justify-center text-[11px] text-[var(--color-dim)]"
       >
-        内容由 AI 生成，请注意核实
+        {{ t("chat.aiDisclaimer") }}
       </div>
 
       <div
         v-if="triggers.open.value"
         class="absolute inset-x-0 bottom-[calc(100%+6px)] z-20 max-h-[260px] overflow-auto rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] p-1.5 shadow-[var(--shadow-menu)]"
         role="listbox"
-        aria-label="触发建议"
+        :aria-label="t('chat.triggerSuggestions')"
       >
         <Button
           v-for="(item, index) in triggers.items.value"
@@ -459,14 +459,14 @@ function removeAttachment(id: string) {
             v-if="item.uploaded"
             class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] leading-4 text-[var(--color-dim)]"
           >
-            已上传
+            {{ t("chat.uploaded") }}
           </span>
           <span v-if="item.icon === 'skill'" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
             {{ item.desc }}
           </span>
         </Button>
         <div v-if="!triggers.items.value.length" class="px-2.5 py-2 text-[12px] text-[var(--color-mut)]">
-          {{ triggers.kind.value === "mcp" ? "没有运行中的 MCP 服务（侧栏 MCP 弹窗可配置）" : "无匹配项" }}
+          {{ triggers.kind.value === "mcp" ? t("chat.noMcpRunning") : t("chat.noMatch") }}
         </div>
       </div>
     </div>

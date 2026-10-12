@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FolderTree, List, RefreshCw } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
@@ -14,6 +15,7 @@ import type { ChangeNode } from "@/components/right/panel-nodes";
 
 type ViewMode = "tree" | "flat";
 
+const { t } = useI18n();
 const gitStore = useGitStore();
 onMounted(() => gitStore.startStatusWatch());
 onUnmounted(() => gitStore.stopStatusWatch());
@@ -108,7 +110,7 @@ watch(
       <span
         class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
       >
-        变更文件
+        {{ t("panels.changedFiles") }}
       </span>
       <span class="flex-none font-[family-name:var(--font-mono)] text-[11px]">
         <span class="text-[var(--color-add)]">+{{ gitStore.totalAdd }}</span>
@@ -117,8 +119,8 @@ watch(
       <Button
         variant="ghost"
         size="icon-xs"
-        :aria-label="viewMode === 'flat' ? '切换目录树' : '切换平铺'"
-        :title="viewMode === 'flat' ? '目录树' : '平铺'"
+        :aria-label="viewMode === 'flat' ? t('panels.switchToTree') : t('panels.switchToFlat')"
+        :title="viewMode === 'flat' ? t('panels.tree') : t('panels.flat')"
         @click="viewMode = viewMode === 'flat' ? 'tree' : 'flat'"
       >
         <FolderTree v-if="viewMode === 'flat'" />
@@ -127,8 +129,8 @@ watch(
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="刷新变更"
-        title="刷新"
+        :aria-label="t('panels.refreshChanges')"
+        :title="t('panels.refresh')"
         @click="gitStore.refreshStatus()"
       >
         <RefreshCw :class="gitStore.loading ? 'animate-spin' : ''" />
@@ -141,7 +143,7 @@ watch(
         :style="{ width: `${splitPct}%` }"
       >
         <p v-if="!files.length" class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]">
-          {{ gitStore.loading ? "读取中…" : "没有变更" }}
+          {{ gitStore.loading ? t("panels.loading") : t("panels.noChanges") }}
         </p>
 
         <template v-else-if="viewMode === 'flat'">
@@ -203,20 +205,20 @@ watch(
           v-if="!gitStore.selectedPath"
           class="m-0 flex flex-1 items-center justify-center text-[12px] text-[var(--color-dim)]"
         >
-          选择文件查看 diff
+          {{ t("panels.selectFileForDiff") }}
         </p>
         <p
           v-else-if="gitStore.diffLoading"
           class="m-0 flex flex-1 items-center justify-center text-[12px] text-[var(--color-dim)]"
         >
-          读取 diff…
+          {{ t("panels.loadingDiff") }}
         </p>
         <DiffView v-else-if="gitStore.diff" :diff="gitStore.diff" />
         <p
           v-else
           class="m-0 flex flex-1 items-center justify-center text-[12px] text-[var(--color-dim)]"
         >
-          无变更内容
+          {{ t("panels.noDiffContent") }}
         </p>
       </div>
     </div>

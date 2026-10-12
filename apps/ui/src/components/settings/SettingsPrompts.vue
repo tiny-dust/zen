@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import type { PromptPreset, PromptViewVersion } from "@zen/shared";
  * 提示词配置：内置预设可切换 中 / 英 / 提炼版（推荐）预览；
  * 选择预设即写入 agent 设置，下一次会话使用。
  */
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const { settings, presets } = storeToRefs(agentStore);
 const previewId = ref("");
@@ -24,9 +26,9 @@ const activePreset = computed(
 
 const activePresetName = computed(() => {
   if (settings.value.prompt.presetId === "custom") {
-    return "自定义";
+    return t("settings.prompts.customName");
   }
-  return activePreset.value?.name ?? "Zen 默认";
+  return activePreset.value?.name ?? t("settings.prompts.zenDefaultName");
 });
 
 const previewPreset = computed(() => {
@@ -43,20 +45,20 @@ const availableVersions = computed(() => {
   }
   const list: Array<{ id: PromptViewVersion; label: string }> = [];
   if (versions.zh) {
-    list.push({ id: "zh", label: "中" });
+    list.push({ id: "zh", label: t("settings.prompts.versionZh") });
   }
   if (versions.en) {
-    list.push({ id: "en", label: "英" });
+    list.push({ id: "en", label: t("settings.prompts.versionEn") });
   }
   if (versions.distilled) {
-    list.push({ id: "distilled", label: "提炼版（推荐）" });
+    list.push({ id: "distilled", label: t("settings.prompts.versionDistilled") });
   }
   return list;
 });
 
 const previewText = computed(() => {
   if (previewId.value === "custom") {
-    return settings.value.prompt.customText || "（尚未填写自定义提示词）";
+    return settings.value.prompt.customText || t("settings.prompts.customEmpty");
   }
   const preset = previewPreset.value;
   if (!preset?.versions) {
@@ -79,12 +81,12 @@ const previewChars = computed(() => previewText.value.length.toLocaleString());
 
 const versionNote = computed(() => {
   if (viewVersion.value === "distilled") {
-    return "运行时默认注入提炼版";
+    return t("settings.prompts.versionNoteDistilled");
   }
   if (viewVersion.value === "en") {
-    return "完整英文原文（对照用；选用预设仍默认提炼版）";
+    return t("settings.prompts.versionNoteEn");
   }
-  return "完整中文版（对照用；选用预设仍默认提炼版）";
+  return t("settings.prompts.versionNoteZh");
 });
 
 function selectPreset(id: string) {
@@ -150,16 +152,11 @@ watch(
   <div class="flex flex-col gap-5">
     <section class="flex flex-col gap-2.5">
       <div class="flex items-center gap-2">
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">系统提示词</h3>
-        <Badge variant="secondary">当前：{{ activePresetName }}</Badge>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.prompts.title") }}</h3>
+        <Badge variant="secondary">{{ t("settings.prompts.currentBadge", { name: activePresetName }) }}</Badge>
       </div>
       <p class="m-0 text-[12px] text-[var(--color-mut)]">
-        「提炼版」为运行时默认注入；「中 / 英」为完整原文或完整中文版，供对照阅读。
-        调研见
-        <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/agent-system-prompts.md</code>
-        ，原文存
-        <code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">apps/desktop/src/main/prompt-texts/</code>
-        。
+        {{ t("settings.prompts.descA") }}<code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">docs/research/agent-system-prompts.md</code>{{ t("settings.prompts.descB") }}<code class="rounded bg-[var(--color-chip-bg)] px-1 py-0.5 font-[family-name:var(--font-mono)] text-[11px]">apps/desktop/src/main/prompt-texts/</code>{{ t("settings.prompts.descC") }}
       </p>
       <div class="grid gap-2 sm:grid-cols-2">
         <Button
@@ -184,14 +181,14 @@ watch(
               class="bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]!"
               variant="secondary"
             >
-              含完整原文
+              {{ t("settings.prompts.fullOriginalBadge") }}
             </Badge>
           </div>
           <p class="m-0 mt-1 text-[11px] leading-snug text-[var(--color-mut)]">
             {{ preset.description }}
           </p>
           <p class="m-0 mt-1 truncate text-[10px] text-[var(--color-dim)]">
-            来源：{{ preset.origin }}
+            {{ t("settings.prompts.originPrefix", { origin: preset.origin }) }}
           </p>
         </Button>
         <Button
@@ -205,9 +202,9 @@ watch(
           :aria-pressed="settings.prompt.presetId === 'custom'"
           @click="selectPreset('custom')"
         >
-          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">自定义</span>
+          <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.prompts.customName") }}</span>
           <p class="m-0 mt-1 text-[11px] text-[var(--color-mut)]">
-            完全按你的规则约束 Agent 的行为与输出。
+            {{ t("settings.prompts.customDesc") }}
           </p>
         </Button>
       </div>
@@ -218,9 +215,9 @@ watch(
         class="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-[var(--color-txt-strong)]"
       >
         <h3 class="m-0">
-          {{ settings.prompt.presetId === 'custom' ? '编辑自定义提示词' : '预览' }}
+          {{ settings.prompt.presetId === 'custom' ? t('settings.prompts.editCustom') : t('settings.prompts.preview') }}
         </h3>
-        <span class="text-[11px] font-normal text-[var(--color-dim)]">{{ previewChars }} 字符</span>
+        <span class="text-[11px] font-normal text-[var(--color-dim)]">{{ t("settings.prompts.charsCount", { count: previewChars }) }}</span>
         <div class="ml-auto flex items-center gap-1">
           <Button
             v-for="ver in availableVersions"
@@ -241,21 +238,21 @@ watch(
             v-if="previewId !== 'custom' && previewText"
             variant="outline"
             class="h-auto ml-1 rounded-md border-[var(--color-line)] bg-transparent px-2 py-0.5 text-[11px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-mut)] dark:hover:bg-[var(--color-menu-hover)]"
-            title="把当前预览全文写入自定义提示词并立即生效"
+            :title="t('settings.prompts.applyAsCustomTitle')"
             @click="applyPreviewAsCustom"
           >
-            用此版本
+            {{ t("settings.prompts.applyAsCustom") }}
           </Button>
         </div>
       </div>
       <p class="m-0 text-[11px] text-[var(--color-mut)]">
-        {{ versionNote }}。Zen 另会自动附加工作目录、平台、日期、可用技能与 MCP 清单。
+        {{ versionNote }}。{{ t("settings.prompts.autoAppendNote") }}
       </p>
       <Textarea
         v-if="settings.prompt.presetId === 'custom'"
         :model-value="settings.prompt.customText"
         class="min-h-[260px] rounded-xl border-[var(--color-line)] bg-[var(--color-np-btn-bg)] text-[12px] leading-relaxed"
-        placeholder="你是…（描述身份、代码修改规范、工具使用规则、输出风格等）"
+        :placeholder="t('settings.prompts.customPlaceholder')"
         @input="onCustomInput"
       />
       <pre

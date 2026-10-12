@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { watch } from "node:fs";
+import type { FSWatcher } from "node:fs";
+import { basename } from "node:path";
 
 import { ipcMain } from "electron";
 
@@ -10,13 +13,15 @@ import type {
   LarkBridgeSettings,
   LarkLoginEvent,
   LarkProjectSummary,
+  LarkQuickCommand,
   LarkSessionState,
   LarkSessionSummary,
   LarkStatus,
 } from "@zen/shared";
 import { DEFAULT_LARK_BRIDGE_SETTINGS } from "@zen/shared";
 
-import { saveAgentSettings } from "../zen-dir";
+import { initZenDir, loadAgentSettings, saveAgentSettings, zenConfigFile, zenRoot } from "../zen-dir";
+import { currentLocale, mainT } from "../i18n";
 import { getSession, listWorkspaceGroups } from "../workspace-db";
 import { invalidateLarkAuthCache, peekLarkAuthSnapshot, readLarkAuthSnapshot } from "./auth";
 import { invalidateLarkCliPathCache, npmExecutionEnv, resolveLarkCliPath, resolveNpmPath } from "./cli";
@@ -38,6 +43,10 @@ let gateway: LarkGateway | null = null;
 let broadcastFn: ((channel: string, payload: unknown) => void) | null = null;
 let lastSettings: LarkBridgeSettings = { ...DEFAULT_LARK_BRIDGE_SETTINGS };
 let sessionStateOf: (sessionId: string) => SessionRunState | null = () => null;
+let configWatcher: FSWatcher | null = null;
+let configWatchTimer: NodeJS.Timeout | null = null;
+/** 网关锁被其他实例占用时的接管重试定时器（持锁实例退出后自动接管） */
+let lockRetryTimer: NodeJS.Timeout | null = null;
 
 export interface LarkIpcDeps {
   /** 答案写回：遍历主进程 sessions Map 调 session.resolveAsk */
@@ -98,6 +107,86 @@ function broadcastLarkChanged(): void {
   broadcastFn?.("lark:changed", toLarkStatus(peekLarkAuthSnapshot()));
 }
 
+/**
+ * 跨实例设置同步：安装版与 dev 实例共享 ~/.zen/config.json，但各跑各的网关——
+ * agent:settings-changed 只在进程内广播，A 实例关掉桥接不会停掉 B 实例的网关
+ * （历史上「设置关不掉飞书桥接」即此因）。这里监听 config.json 变更（300ms 防抖）：
+ * larkBridge 与本实例已应用状态不一致 → 重新同步网关并广播给渲染层；
+ * 一致（本实例自己写的）→ 跳过，避免与 syncLarkGatewayWithSettings 互相触发死循环。
+ */
+function watchConfigForCrossInstanceSync(): void {
+  configWatcher?.close();
+  const fileName = basename(zenConfigFile());
+  try {
+    // 监听目录而非文件本身：config.json 可能被重建（rename），目录 watch 不丢事件
+    configWatcher = watch(zenRoot(), (_event, name) => {
+      if (name !== fileName) {
+        return;
+      }
+      if (configWatchTimer) {
+        clearTimeout(configWatchTimer);
+      }
+      configWatchTimer = setTimeout(() => {
+        configWatchTimer = null;
+        void (async () => {
+          const fresh = await loadAgentSettings();
+          if (JSON.stringify(fresh.larkBridge) === JSON.stringify(lastSettings)) {
+            return;
+          }
+          await syncLarkGatewayWithSettings(fresh);
+        })();
+      }, 300);
+    });
+    configWatcher.on("error", () => {
+      // 目录被删等异常：放弃监听（下次 registerLarkIpc 重建）
+      configWatcher?.close();
+      configWatcher = null;
+    });
+  } catch {
+    // ~/.zen 尚未初始化（registerLarkIpc 先于 initZenDir 执行）：就绪后再挂监听
+    configWatcher = null;
+    void initZenDir()
+      .then(() => watchConfigForCrossInstanceSync())
+      .catch(() => undefined);
+  }
+}
+
+/**
+ * 网关锁接管重试：锁被其他实例占用时（lockBlocked），每 30s 重试 start——
+ * 持锁实例退出后锁文件变为陈旧（bridge-lock 心跳判定），本实例自动接管；
+ * 抢到锁或桥接被关闭即停表。start 本身幂等（ready 态直接返回）。
+ */
+function scheduleLockRetry(): void {
+  if (lockRetryTimer) {
+    return;
+  }
+  lockRetryTimer = setInterval(() => {
+    if (!gateway || !lastSettings.enabled) {
+      stopLockRetry();
+      return;
+    }
+    void gateway
+      .start({
+        allowedOpenId: lastSettings.allowedOpenId,
+        quickCommands: lastSettings.quickCommands ?? [],
+      })
+      .then(() => {
+        if (!gateway?.snapshot().lockBlocked) {
+          stopLockRetry();
+        }
+      })
+      .catch(() => undefined);
+  }, 30_000);
+  lockRetryTimer.unref?.();
+}
+
+function stopLockRetry(): void {
+  if (lockRetryTimer) {
+    clearInterval(lockRetryTimer);
+    lockRetryTimer = null;
+  }
+}
+
 export function registerLarkIpc(
   broadcast: (channel: string, payload: unknown) => void,
   deps: LarkIpcDeps = { resolveAsk: () => false },
@@ -109,28 +198,32 @@ export function registerLarkIpc(
     resolveAsk: deps.resolveAsk,
     onStateChange: () => broadcastLarkChanged(),
     listProjects: listProjectSummaries,
+    saveQuickCommands: persistQuickCommands,
     startChat: async (workspacePath, message) => {
       if (!deps.startChat) {
-        return { ok: false, error: "未装配会话启动能力" };
+        return { ok: false, error: mainT(await currentLocale(), "lark.ipc.noStartChat") };
       }
       const result = await deps.startChat(workspacePath, message);
       if (result.ok && result.sessionId) {
-        gateway?.trackSession(result.sessionId, result.title ?? "Zen 会话");
+        const locale = await currentLocale();
+        gateway?.trackSession(result.sessionId, result.title ?? mainT(locale, "lark.sessionFallback"));
       }
       return result;
     },
     continueChat: async (sessionId, message) => {
       if (!deps.continueChat) {
-        return { ok: false, error: "未装配会话续聊能力" };
+        return { ok: false, error: mainT(await currentLocale(), "lark.ipc.noContinueChat") };
       }
       const result = await deps.continueChat(sessionId, message);
       if (result.ok && result.sessionId) {
-        gateway?.trackSession(result.sessionId, result.title ?? "Zen 会话");
+        const locale = await currentLocale();
+        gateway?.trackSession(result.sessionId, result.title ?? mainT(locale, "lark.sessionFallback"));
       }
       return result;
     },
     finalAssistantReply: lastAssistantReply,
   });
+  watchConfigForCrossInstanceSync();
 
   ipcMain.handle("lark:status", async (_event, refresh?: boolean): Promise<LarkStatus> => {
     if (refresh) {
@@ -144,9 +237,10 @@ export function registerLarkIpc(
     if (installInFlight) {
       return installInFlight;
     }
+    const locale = await currentLocale();
     const npmPath = resolveNpmPath();
     if (!npmPath) {
-      return { ok: false, error: "未找到 npm，请先安装 Node.js 或将 npm 加入 PATH" };
+      return { ok: false, error: mainT(locale, "lark.ipc.npmNotFound") };
     }
     installInFlight = execFileAsync(npmPath, ["install", "--global", LARK_CLI_PACKAGE], {
       timeout: 120_000,
@@ -159,13 +253,13 @@ export function registerLarkIpc(
         invalidateLarkCliPathCache();
         invalidateLarkAuthCache();
         if (!resolveLarkCliPath()) {
-          return { ok: false, error: "安装完成，但未在本机找到 lark-cli，请点击重新检查" };
+          return { ok: false, error: mainT(locale, "lark.ipc.cliStillMissing") };
         }
         return { ok: true };
       })
       .catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : String(error);
-        return { ok: false, error: `安装 lark-cli 失败：${detail}` };
+        return { ok: false, error: mainT(locale, "lark.ipc.installFailed", { detail }) };
       })
       .finally(() => {
         installInFlight = null;
@@ -186,8 +280,28 @@ export function registerLarkIpc(
 
   // 设置页「发送测试问询卡片」：验证卡片按钮回调链路（假 askId，写回回「该问询已失效」为预期）
   ipcMain.handle("lark:test-ask-card", async (): Promise<{ ok: boolean; error?: string }> => {
-    return gateway?.sendTestAskCard() ?? { ok: false, error: "飞书网关未初始化" };
+    return (
+      gateway?.sendTestAskCard() ?? {
+        ok: false,
+        error: mainT(await currentLocale(), "lark.ipc.gatewayNotReady"),
+      }
+    );
   });
+}
+
+/**
+ * 飞书内「添加/删除快捷命令」的落库实现：刷新读盘（跨实例防覆盖）→
+ * 合并 quickCommands → 保存 → 广播设置变更（所有实例的网关实时拿到新清单；
+ * agent:set-settings 广播不触发（不经过该 IPC），手动补一次）。
+ */
+async function persistQuickCommands(commands: LarkQuickCommand[]): Promise<void> {
+  const fresh = await loadAgentSettings();
+  const next = await saveAgentSettings({
+    larkBridge: { ...fresh.larkBridge, quickCommands: commands },
+  });
+  lastSettings = next.larkBridge;
+  broadcastFn?.("agent:settings-changed", next);
+  broadcastLarkChanged();
 }
 
 /** agent 流事件喂给网关：ask_user 推送、ask_resolved 移除、done 清理 */
@@ -196,8 +310,8 @@ export function notifyLarkEvent(event: AgentStreamEvent): void {
     return;
   }
   if (event.type === "ask_user") {
-    // emitTo 侧 sessionId 已统一为父会话；标题查工作区库，查不到用兜底文案
-    const title = getSession(event.sessionId)?.session.title ?? "Zen 会话";
+    // emitTo 侧 sessionId 已统一为父会话；标题查工作区库，查不到传空串由网关按 locale 兜底
+    const title = getSession(event.sessionId)?.session.title ?? "";
     gateway.pushAsk(event.question, event.sessionId, title);
     return;
   }
@@ -233,12 +347,21 @@ export async function syncLarkGatewayWithSettings(settings: AgentSettings): Prom
     }
   }
   if (lastSettings.enabled) {
-    void gateway.start({
-      allowedOpenId: lastSettings.allowedOpenId,
-      quickCommands: lastSettings.quickCommands ?? [],
-    });
+    void gateway
+      .start({
+        allowedOpenId: lastSettings.allowedOpenId,
+        quickCommands: lastSettings.quickCommands ?? [],
+      })
+      .then(() => {
+        // 锁被其他实例占用：挂 30s 重试，持锁实例退出后自动接管
+        if (gateway?.snapshot().lockBlocked) {
+          scheduleLockRetry();
+        }
+      })
+      .catch(() => undefined);
   } else {
     gateway.stop();
+    stopLockRetry();
   }
   broadcastLarkChanged();
 }
@@ -246,6 +369,13 @@ export async function syncLarkGatewayWithSettings(settings: AgentSettings): Prom
 /** will-quit 收尾：停掉事件网关、杀掉残留登录轮询进程并解除模块引用 */
 export function shutdownLark(): void {
   shutdownLarkLogin();
+  if (configWatchTimer) {
+    clearTimeout(configWatchTimer);
+    configWatchTimer = null;
+  }
+  configWatcher?.close();
+  configWatcher = null;
+  stopLockRetry();
   gateway?.stop();
   gateway = null;
   broadcastFn = null;

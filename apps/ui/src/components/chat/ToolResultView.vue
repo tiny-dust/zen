@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import DiffView from "@/components/right/DiffView.vue";
 import { ansiToSpans, hasAnsi } from "./ansi";
@@ -9,6 +10,7 @@ import { codeLines } from "./tool-result";
 import type { ToolResult } from "./tool-result";
 
 const props = defineProps<{ result: ToolResult }>();
+const { t } = useI18n();
 const lines = computed(() => props.result.kind === "code" ? codeLines(props.result.text) : []);
 const diff = computed(() => props.result.kind === "diff" ? toolFileDiff(props.result.before, props.result.after) : null);
 const replacementLines = computed(() => props.result.kind === "replacement" ? [
@@ -27,26 +29,26 @@ const terminalSpans = computed(() => {
 <template>
   <div class="tool-result" :data-kind="result.kind">
     <template v-if="result.kind === 'terminal'">
-      <pre v-if="terminalSpans" class="tool-output" aria-label="终端输出"><template
+      <pre v-if="terminalSpans" class="tool-output" :aria-label="t('chat.tool.terminalOutput')"><template
           v-for="(span, index) in terminalSpans"
           :key="index"
         ><span :class="span.cls" :style="span.style">{{ span.text }}</span></template></pre>
-      <pre v-else-if="result.text" class="tool-output" aria-label="终端输出">{{ result.text }}</pre>
-      <p v-else class="tool-result-note">无终端输出</p>
+      <pre v-else-if="result.text" class="tool-output" :aria-label="t('chat.tool.terminalOutput')">{{ result.text }}</pre>
+      <p v-else class="tool-result-note">{{ t("chat.tool.noTerminalOutput") }}</p>
       <pre v-if="result.error" class="tool-output tool-result-error">{{ result.error }}</pre>
       <div v-if="result.exitCode != null" class="tool-result-footer" :class="{ 'tool-result-error': result.exitCode !== 0 }">
-        退出码 {{ result.exitCode }}
+        {{ t("chat.tool.exitCode", { code: result.exitCode }) }}
       </div>
     </template>
     <template v-else-if="result.kind === 'code'">
       <p v-if="result.note" class="tool-result-note">{{ result.note }}</p>
-      <div v-if="lines.length" class="tool-code" role="figure" aria-label="文件代码">
+      <div v-if="lines.length" class="tool-code" role="figure" :aria-label="t('chat.tool.fileCode')">
         <div v-for="(line, index) in lines" :key="index" class="tool-code-line">
           <span class="tool-line-number" aria-hidden="true">{{ index + 1 }}</span>
           <pre>{{ line || '\u200b' }}</pre>
         </div>
       </div>
-      <p v-else class="tool-result-note">空文件</p>
+      <p v-else class="tool-result-note">{{ t("chat.tool.emptyFile") }}</p>
     </template>
     <template v-else-if="diff">
       <div v-if="diff.patch" class="tool-diff-result">
@@ -56,11 +58,11 @@ const terminalSpans = computed(() => {
         </div>
         <DiffView :diff="diff.patch" />
       </div>
-      <p v-else class="tool-result-note">文件内容未变化</p>
+      <p v-else class="tool-result-note">{{ t("chat.tool.fileUnchanged") }}</p>
     </template>
     <template v-else-if="result.kind === 'replacement'">
-      <p class="tool-result-note">替换 {{ result.replacements }} 处（历史记录未保存行号与上下文）</p>
-      <div class="tool-code" role="figure" aria-label="替换代码片段">
+      <p class="tool-result-note">{{ t("chat.tool.replacementSummary", { n: result.replacements }) }}</p>
+      <div class="tool-code" role="figure" :aria-label="t('chat.tool.replacementSnippet')">
         <div v-for="(line, index) in replacementLines" :key="index" class="tool-code-line" :data-change="line.kind">
           <span class="tool-line-number" aria-hidden="true">{{ line.kind === 'add' ? '+' : '-' }}</span>
           <pre>{{ line.text || '\u200b' }}</pre>
@@ -68,7 +70,7 @@ const terminalSpans = computed(() => {
       </div>
     </template>
     <pre v-else-if="result.kind === 'text' && result.text" class="tool-output">{{ result.text }}</pre>
-    <p v-else class="tool-result-note">无输出</p>
+    <p v-else class="tool-result-note">{{ t("chat.tool.noOutput") }}</p>
   </div>
 </template>
 

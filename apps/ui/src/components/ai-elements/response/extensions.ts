@@ -2,7 +2,7 @@ import { code } from "@stream-markdown/code";
 import { createJavaScriptRegexEngine } from "shiki";
 import { ref } from "vue";
 
-import type { BuiltinTheme } from "shiki";
+import type { BuiltinTheme, BundledLanguage, BundledTheme, CodeToTokensOptions } from "shiki";
 import type { ExtensionOverrides } from "vue-stream-markdown";
 
 // 常用语言集，避免加载全部语法包
@@ -71,11 +71,14 @@ export const compactCodeOptions = {
   maxHeight: 420,
 } as const;
 
-/** Shiki 代码高亮扩展：深浅主题成对配置（渲染器按当前暗色取用），JS 正则引擎免去 wasm 依赖 */
+/** Shiki 代码高亮扩展：深浅主题成对配置（渲染器按当前暗色取用），JS 正则引擎免去 wasm 依赖。
+ *  defaultColor: false 让 token 同时产出 --shiki-light / --shiki-dark 两套 CSS 变量，
+ *  深浅切换由 styles.css 按 .dark 取用——否则浅色侧变量缺失会整体退灰。 */
 export const streamMarkdownExtensions: ExtensionOverrides = {
   code: code({
     theme: () => codeThemePair(),
     engine: () => createJavaScriptRegexEngine({ forgiving: true }),
     langs: () => LANGS as never,
+    codeToTokenOptions: () => ({ defaultColor: false }) as CodeToTokensOptions<BundledLanguage, BundledTheme>,
   }),
 };

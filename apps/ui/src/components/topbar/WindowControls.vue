@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { Copy, Minus, Square, X } from "@lucide/vue";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
+import { useAppTheme } from "@/composables/useAppTheme";
 import { cn } from "@/lib/utils";
 
 type Platform = "darwin" | "win32" | "linux";
 
+const { t } = useI18n();
 const api = window.zen?.window ?? null;
 
 const platform = ref<Platform | null>(null);
@@ -53,6 +56,15 @@ function btnCls(kind: "default" | "close") {
 }
 
 const glyphCls = computed(() => (variant.value === "windows" ? "size-3" : "size-3.5"));
+
+// 主题切换后 token 已换值，原生 caption 叠加配色需要重新同步（仅 win32 生效）
+const { isDark } = useAppTheme();
+watch(isDark, async () => {
+  if (platform.value === "win32" && nativeOverlay.value) {
+    await nextTick();
+    syncNativeOverlayColors();
+  }
+});
 
 function minimize() {
   void api?.minimize();
@@ -173,13 +185,13 @@ onBeforeUnmount(() => {
     ref="rootEl"
     :class="rootCls"
     role="group"
-    aria-label="窗口控制"
+    :aria-label="t('shell.windowControls')"
   >
     <Button
       variant="ghost"
       :class="btnCls('default')"
-      aria-label="最小化"
-      title="最小化"
+      :aria-label="t('shell.minimize')"
+      :title="t('shell.minimize')"
       @click="minimize"
     >
       <Minus :class="glyphCls" />
@@ -187,8 +199,8 @@ onBeforeUnmount(() => {
     <Button
       variant="ghost"
       :class="btnCls('default')"
-      :aria-label="maximized ? '还原' : '最大化'"
-      :title="maximized ? '还原' : '最大化'"
+      :aria-label="maximized ? t('shell.restore') : t('shell.maximize')"
+      :title="maximized ? t('shell.restore') : t('shell.maximize')"
       @click="toggleMaximize"
     >
       <component :is="maximized ? Copy : Square" :class="glyphCls" />
@@ -196,8 +208,8 @@ onBeforeUnmount(() => {
     <Button
       variant="ghost"
       :class="btnCls('close')"
-      aria-label="关闭"
-      title="关闭"
+      :aria-label="t('common.close')"
+      :title="t('common.close')"
       @click="closeWindow"
     >
       <X :class="glyphCls" />

@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 
 import type { AgentStreamEvent, ToolCallState, ToolProgressEvent } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 export type AgentProcessStatus = ToolCallState | "running";
 
 /** Agent runTerminal 调起的一次终端进程（悬浮信息卡「进程」节） */
@@ -22,14 +24,54 @@ export const PROCESS_STATUS_META: Record<
   AgentProcessStatus,
   { label: string; cls: string }
 > = {
-  "input-streaming": { label: "准备中", cls: "text-[var(--color-mut)]" },
-  "awaiting-approval": { label: "待审批", cls: "text-[var(--color-mut)]" },
-  running: { label: "运行中", cls: "text-[var(--color-accent)]" },
-  ok: { label: "完成", cls: "text-[var(--color-ok,#3d9a6a)]" },
-  error: { label: "失败", cls: "text-[var(--color-err,#c45c5c)]" },
-  denied: { label: "已拒绝", cls: "text-[var(--color-dim)]" },
-  cancelled: { label: "已取消", cls: "text-[var(--color-dim)]" },
-  interrupted: { label: "已中断", cls: "text-[var(--color-dim)]" },
+  "input-streaming": {
+    get label() {
+      return i18n.global.t("app.processes.status.preparing");
+    },
+    cls: "text-[var(--color-mut)]",
+  },
+  "awaiting-approval": {
+    get label() {
+      return i18n.global.t("app.processes.status.awaitingApproval");
+    },
+    cls: "text-[var(--color-mut)]",
+  },
+  running: {
+    get label() {
+      return i18n.global.t("app.processes.status.running");
+    },
+    cls: "text-[var(--color-accent)]",
+  },
+  ok: {
+    get label() {
+      return i18n.global.t("app.processes.status.ok");
+    },
+    cls: "text-[var(--color-ok,#3d9a6a)]",
+  },
+  error: {
+    get label() {
+      return i18n.global.t("app.processes.status.error");
+    },
+    cls: "text-[var(--color-err,#c45c5c)]",
+  },
+  denied: {
+    get label() {
+      return i18n.global.t("app.processes.status.denied");
+    },
+    cls: "text-[var(--color-dim)]",
+  },
+  cancelled: {
+    get label() {
+      return i18n.global.t("app.processes.status.cancelled");
+    },
+    cls: "text-[var(--color-dim)]",
+  },
+  interrupted: {
+    get label() {
+      return i18n.global.t("app.processes.status.interrupted");
+    },
+    cls: "text-[var(--color-dim)]",
+  },
 };
 
 function commandOf(args: unknown): string {

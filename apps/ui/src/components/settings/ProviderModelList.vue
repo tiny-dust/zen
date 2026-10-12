@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { Pencil, Plus, RefreshCw, Search, Trash2 } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
@@ -27,6 +28,8 @@ const emit = defineEmits<{
   refresh: [];
   add: [];
 }>();
+
+const { t } = useI18n();
 
 const query = ref("");
 
@@ -65,17 +68,17 @@ function onSelect(model: ProviderModel) {
   <section class="flex min-w-0 flex-col gap-2 pt-2.5 pb-1">
     <div class="flex items-center justify-between gap-2">
       <span class="text-[12px] text-[var(--color-txt-strong)]">
-        模型 · {{ enabledCount }}/{{ models.length }}
+        {{ t("settings.models.modelCount", { enabled: enabledCount, total: models.length }) }}
       </span>
       <div class="flex items-center gap-1">
         <Button variant="outline" size="sm" @click="emit('add')">
           <Plus data-icon="inline-start" />
-          添加模型
+          {{ t("settings.models.addModel") }}
         </Button>
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="刷新模型"
+          :aria-label="t('settings.models.refreshModelsAria')"
           :disabled="fetching"
           @click="emit('refresh')"
         >
@@ -92,7 +95,7 @@ function onSelect(model: ProviderModel) {
       <Input
         v-model="query"
         class="h-8 pl-7 text-[12px]"
-        placeholder="搜索模型名称或 ID"
+        :placeholder="t('settings.models.searchModelPlaceholder')"
       />
     </div>
 
@@ -112,7 +115,7 @@ function onSelect(model: ProviderModel) {
             v-if="model.custom"
             class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
           >
-            自定义
+            {{ t("settings.models.customTag") }}
           </span>
           <span
             v-if="model.id !== model.name"
@@ -125,15 +128,15 @@ function onSelect(model: ProviderModel) {
         <Switch
           class="shrink-0 scale-90"
           :model-value="model.enabled"
-          aria-label="启用模型"
+          :aria-label="t('settings.models.enableModelAria')"
           @update:model-value="(next) => emit('toggleEnabled', model, next === true)"
         />
         <Button
           variant="ghost"
           size="icon-sm"
           class="shrink-0 text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-          aria-label="编辑模型"
-          title="编辑模型"
+          :aria-label="t('settings.models.editModel')"
+          :title="t('settings.models.editModel')"
           @click="emit('edit', model)"
         >
           <Pencil class="size-3.5" />
@@ -144,14 +147,14 @@ function onSelect(model: ProviderModel) {
           variant="ghost"
           size="icon-sm"
           class="shrink-0 text-[var(--color-mut)] hover:text-[var(--color-err)]"
-          aria-label="删除模型"
-          title="删除模型"
+          :aria-label="t('settings.models.deleteModel')"
+          :title="t('settings.models.deleteModel')"
           @click="emit('remove', model)"
         >
           <Trash2 class="size-3.5" />
         </Button>
       </li>
     </ul>
-    <p v-else class="m-0 p-3 text-center text-[12px] text-[var(--color-mut)]">无匹配模型</p>
+    <p v-else class="m-0 p-3 text-center text-[12px] text-[var(--color-mut)]">{{ t("settings.models.noMatch") }}</p>
   </section>
 </template>

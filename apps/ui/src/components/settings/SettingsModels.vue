@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { Plus } from "@lucide/vue";
 import { storeToRefs } from "pinia";
+import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
@@ -21,6 +22,7 @@ import type {
 
 type Mode = "view" | "add";
 
+const { t } = useI18n();
 const modelsStore = useModelsStore();
 const { providers, activeProvider, activeProviderId, selection, error, fetching } =
   storeToRefs(modelsStore);
@@ -36,8 +38,10 @@ const providerRemoveDesc = computed(() => {
   if (!provider) {
     return "";
   }
-  const tail = provider.models.length ? `及其 ${provider.models.length} 个模型` : "";
-  return `将从本地数据库移除「${provider.name}」${tail}，操作不可撤销。`;
+  const tail = provider.models.length
+    ? t("settings.models.removeProviderTail", { n: provider.models.length })
+    : "";
+  return t("settings.models.removeProviderDesc", { name: provider.name, tail });
 });
 
 function startAdd() {
@@ -184,10 +188,10 @@ async function confirmRemoveModel() {
 
 <template>
   <section class="grid items-start gap-3.5 grid-cols-[208px_minmax(0,1fr)] max-[720px]:grid-cols-[minmax(0,1fr)]">
-    <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" aria-label="供应商列表">
+    <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" :aria-label="t('settings.models.providerListAria')">
       <div class="flex h-[var(--panel-head-h)] items-center justify-between gap-1.5 border-b border-[var(--color-line)] px-[5px] pl-2.5">
-        <span class="text-[12px] text-[var(--color-mut)]">供应商</span>
-        <Button variant="ghost" size="icon-sm" aria-label="添加供应商" title="添加供应商" @click="startAdd">
+        <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
+        <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
           <Plus />
         </Button>
       </div>
@@ -206,7 +210,7 @@ async function confirmRemoveModel() {
             {{ provider.models.filter((m) => m.enabled).length }}/{{ provider.models.length }}
           </span>
         </Button>
-        <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">暂无供应商</p>
+        <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">{{ t("settings.models.noProviders") }}</p>
       </div>
     </aside>
 
@@ -239,16 +243,16 @@ async function confirmRemoveModel() {
 
       <div v-else class="min-w-0 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)] p-3.5">
         <p class="m-0 px-2 py-2.5 text-[12px] text-[var(--color-mut)]">
-          还没有供应商。点击左侧「+」新建一个，填写连接信息后即可拉取模型列表。
+          {{ t("settings.models.emptyHint") }}
         </p>
       </div>
     </div>
 
     <ConfirmDialog
       :open="providerToRemove"
-      title="删除供应商？"
+      :title="t('settings.models.removeProviderTitle')"
       :description="providerRemoveDesc"
-      confirm-label="删除供应商"
+      :confirm-label="t('settings.models.removeProviderConfirm')"
       :pending="removing"
       @update:open="providerToRemove = $event"
       @confirm="confirmRemoveProvider"
@@ -256,9 +260,9 @@ async function confirmRemoveModel() {
 
     <ConfirmDialog
       :open="!!modelToRemove"
-      :title="`删除模型「${modelToRemove?.name ?? ''}」？`"
-      description="将从该供应商移除此自定义模型，操作不可撤销。"
-      confirm-label="删除模型"
+      :title="t('settings.models.removeModelTitle', { name: modelToRemove?.name ?? '' })"
+      :description="t('settings.models.removeModelDesc')"
+      :confirm-label="t('settings.models.removeModelConfirm')"
       :pending="removingModel"
       @update:open="(value) => { if (!value) modelToRemove = null; }"
       @confirm="confirmRemoveModel"

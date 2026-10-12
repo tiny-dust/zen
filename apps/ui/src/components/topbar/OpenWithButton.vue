@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, FolderOpen } from "@lucide/vue";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +17,7 @@ import type { DesktopOpener } from "@/types/zen-api";
 
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
+const { t } = useI18n();
 
 const openers = ref<DesktopOpener[]>([]);
 const busyId = ref("");
@@ -55,7 +57,7 @@ async function openWith(id: string) {
         :title="workdir"
       >
         <FolderOpen class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-        <span>打开位置</span>
+        <span>{{ t("shell.openLocation") }}</span>
         <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
       </Button>
     </DropdownMenuTrigger>
@@ -82,7 +84,7 @@ async function openWith(id: string) {
         <span>{{ item.label }}</span>
       </DropdownMenuItem>
       <DropdownMenuItem v-if="!openers.length" disabled>
-        未检测到可用应用
+        {{ t("shell.noOpeners") }}
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>

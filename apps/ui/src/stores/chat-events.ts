@@ -25,6 +25,7 @@ import { useGitStore } from "@/stores/git";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
 import { useSkillUsageStore } from "@/stores/skill-usage";
+import { i18n } from "@/locales";
 
 /**
  * 流事件处理的会话状态与回调：由 chat store 注入，事件网关只依赖这个窄接口。
@@ -339,10 +340,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
           toolName: event.request.toolName,
           prompt:
             event.request.reason ??
-            `需要审批工具调用：${toolDisplay(event.request.toolName, event.request.input).label}`,
+            i18n.global.t("app.chat.approvalNeeded", {
+              label: toolDisplay(event.request.toolName, event.request.input).label,
+            }),
           input: event.request.input,
         };
-        ctx.statusText.value = "等待工具审批";
+        ctx.statusText.value = i18n.global.t("app.chat.waitingApproval");
         sessionStatusStore.set(ctx.sessionId.value, "needs_action");
         playNotifySound("needsAction");
         break;
@@ -350,7 +353,9 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (ctx.pendingApproval.value?.approvalId === event.approvalId) {
           ctx.pendingApproval.value = null;
         }
-        ctx.statusText.value = event.approved ? "已批准，等待执行" : "已拒绝";
+        ctx.statusText.value = event.approved
+          ? i18n.global.t("app.chat.approvedWaiting")
+          : i18n.global.t("app.chat.rejected");
         resumeStatusIfIdle();
         break;
       case "ask_user": {
@@ -360,8 +365,8 @@ export function createChatEventGateway(ctx: ChatEventContext) {
           ctx.pendingAsks.value = [...ctx.pendingAsks.value, question];
         }
         ctx.statusText.value = question.agentName
-          ? `${question.agentName} 等待你的回答`
-          : "等待你的回答";
+          ? i18n.global.t("app.chat.waitingAnswerWithAgent", { name: question.agentName })
+          : i18n.global.t("app.chat.waitingAnswer");
         sessionStatusStore.set(ctx.sessionId.value, "needs_action");
         playNotifySound("needsAction");
         break;
@@ -375,10 +380,10 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.status.value = event.status;
         if (event.status === "paused") {
           ctx.isPaused.value = true;
-          ctx.statusText.value = "已暂停";
+          ctx.statusText.value = i18n.global.t("app.chat.paused");
         } else if (event.status === "awaiting-approval") {
           ctx.isPaused.value = false;
-          ctx.statusText.value = "等待工具审批";
+          ctx.statusText.value = i18n.global.t("app.chat.waitingApproval");
         } else {
           ctx.isPaused.value = false;
         }
@@ -419,7 +424,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.isPaused.value = false;
         ctx.status.value = "thinking";
         ctx.phase.value = "thinking";
-        ctx.statusText.value = "插入执行中…";
+        ctx.statusText.value = i18n.global.t("app.chat.insertRunning");
         break;
       case "original_resumed":
         // 插入 run 完成，原 run 从 checkpoint 恢复：回到正常 running 语义。
@@ -428,7 +433,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         breakAssistantBubble = true;
         ctx.isPaused.value = false;
         ctx.status.value = "thinking";
-        ctx.statusText.value = "已恢复原任务，继续执行…";
+        ctx.statusText.value = i18n.global.t("app.chat.originalResumed");
         break;
       case "done": {
         // 插入 run 的终态：不是会话结束——不置 idle、不播音、不触发队列续发，
@@ -436,7 +441,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (event.phase === "insert") {
           ctx.isPaused.value = false;
           ctx.pendingApproval.value = null;
-          ctx.statusText.value = "插入执行完成，准备恢复原任务…";
+          ctx.statusText.value = i18n.global.t("app.chat.insertDone");
           break;
         }
         const message = ensureAssistantMessage();
@@ -449,12 +454,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.pendingAsks.value = [];
         ctx.statusText.value =
           reason === "cancelled"
-            ? "已取消"
+            ? i18n.global.t("app.chat.cancelled")
             : reason === "max_steps"
-              ? "已达到步骤上限"
+              ? i18n.global.t("app.chat.stepLimitReached")
               : reason === "error"
-                ? (ctx.lastError.value || "运行失败")
-                : "已完成";
+                ? (ctx.lastError.value || i18n.global.t("app.chat.runFailed"))
+                : i18n.global.t("app.chat.completed");
         sessionStatusStore.set(ctx.sessionId.value, reason === "error" ? "error" : "done");
         playNotifySound(reason === "error" ? "error" : "done");
         if (!ctx.usedUpdateTasks.value && reason === "stop") {
@@ -519,7 +524,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
 
   function dismissApproval(): void {
     ctx.pendingApproval.value = null;
-    ctx.statusText.value = "审批提示已收起";
+    ctx.statusText.value = i18n.global.t("app.chat.approvalDismissed");
   }
 
   return { handleStreamEvent, approve, submitAsk, dismissApproval };

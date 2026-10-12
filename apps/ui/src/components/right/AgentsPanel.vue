@@ -2,6 +2,7 @@
 import { Bot, MessageCircleQuestion, RotateCcw, SquareTerminal } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Response } from "@/components/ai-elements/response";
@@ -18,6 +19,7 @@ import type { AgentTranscriptEntry, ChatMessagePart, ToolCallState } from "@zen/
  */
 const agentsStore = useAgentsStore();
 const { nodes, selected, selectedId, running, limit } = storeToRefs(agentsStore);
+const { t } = useI18n();
 
 /** 未选中或选中项已消失时自动落到首个活跃节点（否则第一个） */
 watch(
@@ -161,9 +163,9 @@ const segments = computed<Segment[]>(() => {
 function kindLabel(row: Row): string {
   switch (row.kind) {
     case "result":
-      return "结果";
+      return t("panels.resultLabel");
     case "error":
-      return "错误";
+      return t("panels.errorLabel");
     default:
       return "";
   }
@@ -186,13 +188,13 @@ async function onRetry() {
   retryError.value = "";
   const result = await agentsStore.retry(node);
   if (!result.ok) {
-    retryError.value = result.error || "重试失败";
+    retryError.value = result.error || t("panels.retryFailed");
   }
 }
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-2" aria-label="Agent 消息">
+  <div class="flex h-full min-h-0 flex-col gap-2" :aria-label="t('panels.agentMessages')">
     <!-- 顶部：选中 Agent 状态 + 紧凑切换条（替代原二级列表，点击直达消息流） -->
     <div class="flex flex-none items-center gap-2 px-1 text-[12px] text-[var(--color-mut)]">
       <Bot class="size-3.5" aria-hidden="true" />
@@ -206,26 +208,26 @@ async function onRetry() {
         v-if="selected && canRetry"
         type="button"
         class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[11px] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
-        aria-label="重试子 Agent"
+        :aria-label="t('panels.retryAgent')"
         @click="onRetry"
       >
         <RotateCcw class="size-3" aria-hidden="true" />
-        重试
+        {{ t("panels.retry") }}
       </button>
       <span class="ml-auto flex-none tabular-nums text-[11px] text-[var(--color-dim)]">
-        并发 {{ running }}/{{ limit }}
+        {{ t("panels.concurrency", { running, limit }) }}
       </span>
     </div>
 
     <p v-if="retryError" class="m-0 px-1 text-[11px] text-[var(--color-danger-fg)]" role="alert">
-      重试失败：{{ retryError }}
+      {{ t("panels.retryFailedWith", { message: retryError }) }}
     </p>
 
     <div
       v-if="nodes.length > 1"
       class="flex flex-none gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
       role="tablist"
-      aria-label="切换子 Agent"
+      :aria-label="t('panels.switchAgent')"
     >
       <button
         v-for="node in nodes"
@@ -254,10 +256,10 @@ async function onRetry() {
     <!-- 全宽消息流：与主信息流同构（markdown 正文 / 思考块 / 工具卡 / 右对齐问询气泡） -->
     <div
       class="min-h-0 flex-1 overflow-auto px-1"
-      aria-label="Agent 消息流"
+      :aria-label="t('panels.agentTranscript')"
     >
       <p v-if="!selected" class="m-0 px-1 py-3 text-[12px] text-[var(--color-dim)]">
-        暂无子 Agent 消息。
+        {{ t("panels.noAgentMessages") }}
       </p>
       <div v-else class="mx-auto flex w-full flex-col gap-4">
         <template v-for="seg in segments" :key="seg.key">
@@ -321,7 +323,7 @@ async function onRetry() {
           class="m-0 flex items-center gap-1 text-[11px] text-[var(--color-mut)]"
         >
           <SquareTerminal class="size-3" aria-hidden="true" />
-          占用终端资源
+          {{ t("panels.busyTerminal") }}
         </p>
       </div>
     </div>

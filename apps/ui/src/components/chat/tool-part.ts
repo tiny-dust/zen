@@ -26,6 +26,8 @@ import {
 } from "@lucide/vue";
 import type { Component } from "vue";
 
+import { i18n } from "@/locales";
+
 import type { ChatMessagePart, ToolCallState } from "@zen/shared";
 
 export type ToolPart = Extract<ChatMessagePart, { type: "tool" }>;
@@ -62,134 +64,135 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
     case "runTerminal":
       return {
         icon: SquareTerminal,
-        label: "执行终端",
+        label: i18n.global.t("chat.tool.runTerminal"),
         target: { kind: "text", text: argText(args, ["command"]) },
       };
     case "writeFile":
       return {
         icon: FilePen,
-        label: "写入文件",
+        label: i18n.global.t("chat.tool.writeFile"),
         target: { kind: "file", text: argText(args, ["path", "file_path"]) },
       };
     case "editFile":
       return {
         icon: FilePen,
-        label: "编辑文件",
+        label: i18n.global.t("chat.tool.editFile"),
         target: { kind: "file", text: argText(args, ["path", "file_path"]) },
       };
     case "readFile":
       return {
         icon: FileText,
-        label: "读取文件",
+        label: i18n.global.t("chat.tool.readFile"),
         target: { kind: "file", text: argText(args, ["path", "file_path"]) },
       };
     case "listDir":
       return {
         icon: FolderOpen,
-        label: "浏览目录",
+        label: i18n.global.t("chat.tool.listDir"),
         target: { kind: "dir", text: argText(args, ["path", "dir"]) || "." },
       };
     case "searchFiles":
       return {
         icon: FileSearch,
-        label: "搜索文件",
+        label: i18n.global.t("chat.tool.searchFiles"),
         target: { kind: "text", text: argText(args, ["pattern", "query"]) },
       };
     case "webSearch":
       return {
         icon: Globe,
-        label: "网络搜索",
+        label: i18n.global.t("chat.tool.webSearch"),
         target: { kind: "text", text: argText(args, ["query", "search"]) },
       };
     // 内置浏览器工具（impeccable live 走查等会话）
     case "browserStatus":
-      return { icon: AppWindow, label: "查看浏览器状态" };
+      return { icon: AppWindow, label: i18n.global.t("chat.tool.browserStatus") };
     case "browserOpen":
       return {
         icon: Globe,
-        label: "打开页面",
+        label: i18n.global.t("chat.tool.browserOpen"),
         target: { kind: "text", text: argText(args, ["url"]) },
       };
     case "browserSnapshot":
-      return { icon: ScanText, label: "截取页面结构" };
+      return { icon: ScanText, label: i18n.global.t("chat.tool.browserSnapshot") };
     case "browserExtract":
-      return { icon: ScanSearch, label: "提取页面元素" };
+      return { icon: ScanSearch, label: i18n.global.t("chat.tool.browserExtract") };
     case "browserClick":
       return {
         icon: MousePointerClick,
-        label: "点击元素",
+        label: i18n.global.t("chat.tool.browserClick"),
         target: { kind: "text", text: argText(args, ["selector"]) },
       };
     case "browserType":
       return {
         icon: TextCursorInput,
-        label: "输入文本",
+        label: i18n.global.t("chat.tool.browserType"),
         target: { kind: "text", text: argText(args, ["selector"]) },
       };
     case "browserConsole":
-      return { icon: Terminal, label: "读取控制台" };
+      return { icon: Terminal, label: i18n.global.t("chat.tool.browserConsole") };
     case "browserPerformance":
-      return { icon: Gauge, label: "性能分析" };
+      return { icon: Gauge, label: i18n.global.t("chat.tool.browserPerformance") };
     case "browserScreenshot":
-      return { icon: Camera, label: "页面截图" };
+      return { icon: Camera, label: i18n.global.t("chat.tool.browserScreenshot") };
     case "browserEvaluate":
       return {
         icon: SquareCode,
-        label: "执行脚本",
+        label: i18n.global.t("chat.tool.browserEvaluate"),
         target: { kind: "text", text: argText(args, ["expression"]) },
       };
     case "loadSkill":
       return {
         icon: Sparkles,
-        label: "加载技能",
+        label: i18n.global.t("chat.tool.loadSkill"),
         target: { kind: "text", text: argText(args, ["skillId", "skill_id"]) },
       };
     case "updateTasks":
-      return { icon: ListTodo, label: "更新任务清单" };
+      return { icon: ListTodo, label: i18n.global.t("chat.tool.updateTasks") };
     case "askUser":
-      return { icon: HelpCircle, label: "询问用户" };
+      return { icon: HelpCircle, label: i18n.global.t("chat.tool.askUser") };
     case "contextCompact":
       // 时间线由 ContextCompactCard 专用渲染（不走 ToolCallRow）；此处仅兜底图标文案
-      return { icon: FoldVertical, label: "上下文已压缩" };
+      return { icon: FoldVertical, label: i18n.global.t("chat.tool.contextCompact") };
     // 多 Agent 协作工具（multi-agent buildTools）
     case "spawnAgent":
-      return { icon: Bot, label: "派发子任务" };
+      return { icon: Bot, label: i18n.global.t("chat.tool.spawnAgent") };
     case "listAgents":
-      return { icon: ListTodo, label: "查看子任务" };
+      return { icon: ListTodo, label: i18n.global.t("chat.tool.listAgents") };
     case "waitForAgents":
-      return { icon: Hourglass, label: "等待子任务" };
+      return { icon: Hourglass, label: i18n.global.t("chat.tool.waitForAgents") };
     case "collectAgentResults":
-      return { icon: Inbox, label: "汇总子任务结果" };
+      return { icon: Inbox, label: i18n.global.t("chat.tool.collectAgentResults") };
     default:
       if (toolName.startsWith("mcp.")) {
-        return { icon: Plug, label: `MCP · ${toolName.slice(4)}` };
+        return { icon: Plug, label: i18n.global.t("chat.tool.mcpTool", { name: toolName.slice(4) }) };
       }
       // 展示统一中文：未映射的工具名是内部标识符，不直接外显
-      return { icon: Wrench, label: "调用工具" };
+      return { icon: Wrench, label: i18n.global.t("chat.tool.genericTool") };
   }
 }
 
 /** 工具状态词：新 tool part 与旧 role=tool 卡片共用 */
 export function toolStateLabel(state: ToolCallState | undefined, percent?: number): string {
+  const { t } = i18n.global;
   switch (state) {
     case "input-streaming":
-      return "准备参数";
+      return t("chat.tool.state.preparing");
     case "awaiting-approval":
-      return "待审批";
+      return t("chat.tool.state.awaitingApproval");
     case "running":
-      return percent == null ? "执行中" : `${Math.round(percent)}%`;
+      return percent == null ? t("chat.tool.state.running") : `${Math.round(percent)}%`;
     case "ok":
-      return "完成";
+      return t("chat.tool.state.ok");
     case "denied":
-      return "已拒绝";
+      return t("chat.tool.state.denied");
     case "error":
-      return "失败";
+      return t("chat.tool.state.error");
     case "cancelled":
-      return "已取消";
+      return t("chat.tool.state.cancelled");
     case "interrupted":
-      return "已中断";
+      return t("chat.tool.state.interrupted");
     default:
-      return "未知";
+      return t("chat.tool.state.unknown");
   }
 }
 
@@ -201,20 +204,21 @@ export function toolStatusLine(input: {
   summary?: string;
 }): string {
   const { state, message, error, summary } = input;
+  const { t } = i18n.global;
   if (state === "input-streaming") {
-    return message || "正在准备参数";
+    return message || t("chat.tool.status.preparing");
   }
   if (state === "awaiting-approval") {
-    return message || "等待审批";
+    return message || t("chat.tool.status.awaitingApproval");
   }
   if (state === "running") {
-    return message || "正在调用工具";
+    return message || t("chat.tool.status.running");
   }
   if (state === "cancelled") {
-    return error || message || "已取消，未完成";
+    return error || message || t("chat.tool.status.cancelled");
   }
   if (state === "interrupted") {
-    return error || message || "已中断，未完成";
+    return error || message || t("chat.tool.status.interrupted");
   }
-  return error || summary || (state === "ok" ? "已完成" : "未执行");
+  return error || summary || (state === "ok" ? t("chat.tool.status.ok") : t("chat.tool.status.notRun"));
 }

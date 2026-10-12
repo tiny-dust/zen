@@ -17,6 +17,12 @@ export interface GitHubUser {
 
 export type AppIconId = "zen-ink" | "zen-mint" | "zen-ember" | "zen-mono" | "custom";
 
+/** 界面主题：system = 跟随操作系统深浅色 */
+export type ThemeMode = "dark" | "light" | "system";
+
+/** 界面语言 */
+export type AppLocale = "zh-CN" | "en-US";
+
 /** 左下角/资料页展示哪个账户的身份：auto = GitHub 优先、无 GitHub 用飞书 */
 export type DisplayAccount = "auto" | "github" | "lark";
 
@@ -36,12 +42,22 @@ export interface AppSettings {
   updateFeedUrl: string | null;
   /** 代码高亮主题（对话消息列表与预览），对应 UI 侧 CODE_THEMES 目录里的 id */
   codeTheme: string;
+  /** 界面主题（system = 跟随操作系统） */
+  theme: ThemeMode;
+  /** 界面语言 */
+  locale: AppLocale;
   /** 左下角/资料页展示哪个账户的身份 */
   displayAccount: DisplayAccount;
 }
 
 /** 默认代码主题：GitHub 深浅成对 */
 export const DEFAULT_CODE_THEME = "github";
+
+/** 默认界面主题：深色（项目既有默认） */
+export const DEFAULT_THEME: ThemeMode = "dark";
+
+/** 默认界面语言：简体中文 */
+export const DEFAULT_LOCALE: AppLocale = "zh-CN";
 
 /** 更新源默认值：updates-server.mjs 的端口需与此保持一致 */
 export const DEFAULT_UPDATE_FEED_URL = "http://127.0.0.1:8899";

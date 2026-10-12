@@ -15,6 +15,7 @@ import {
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ const browserStore = useBrowserStore();
 const layoutStore = useLayoutStore();
 const rightPanel = useRightPanelStore();
 const settingsStore = useSettingsStore();
+const { t } = useI18n();
 const {
   status,
   urlInput,
@@ -79,8 +81,8 @@ async function saveSettings() {
   });
   settingsOpen.value = false;
   browserStore.panelNote = uaDraft.value.trim()
-    ? "浏览器设置已保存（UA / 缩放即时生效）"
-    : "浏览器设置已保存（恢复默认 UA）";
+    ? t("panels.settingsSaved")
+    : t("panels.settingsSavedDefault");
 }
 
 /** 画中画切换：悬浮中 → 返回面板；后台运行 → 重新悬浮；否则进入悬浮 */
@@ -258,8 +260,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :disabled="!isRunning || !status.canGoBack"
-          title="后退"
-          aria-label="后退"
+          :title="t('panels.back')"
+          :aria-label="t('panels.back')"
           @click="browserStore.goBack()"
         >
           <ChevronLeft />
@@ -268,8 +270,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :disabled="!isRunning || !status.canGoForward"
-          title="前进"
-          aria-label="前进"
+          :title="t('panels.forward')"
+          :aria-label="t('panels.forward')"
           @click="browserStore.goForward()"
         >
           <ChevronRight />
@@ -278,8 +280,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :disabled="busy || showHome"
-          title="刷新"
-          aria-label="刷新"
+          :title="t('panels.refresh')"
+          :aria-label="t('panels.refresh')"
           @click="browserStore.reloadPage()"
         >
           <RotateCw :class="busy ? 'animate-spin' : ''" />
@@ -298,10 +300,10 @@ watch(
               v-model="urlInput"
               variant="ghost"
               class="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 font-[family-name:var(--font-mono)] text-[12px] md:text-[12px] text-[var(--color-txt)] outline-none placeholder:text-[var(--color-dim)] focus-visible:border-[var(--ring)] [-webkit-app-region:no-drag]"
-              placeholder="输入网址或关键词，Enter 打开"
+              :placeholder="t('panels.urlPlaceholder')"
               spellcheck="false"
               autocomplete="off"
-              aria-label="地址栏"
+              :aria-label="t('panels.urlBar')"
               @focus="onFocusUrl"
               @blur="onBlurUrl"
               @keydown="onUrlKeydown"
@@ -311,8 +313,8 @@ watch(
               variant="ghost"
               size="icon-sm"
               class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
-              aria-label="打开地址"
-              title="打开"
+              :aria-label="t('panels.openAddress')"
+              :title="t('panels.open')"
               :disabled="busy"
               @mousedown.prevent
             >
@@ -352,8 +354,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :class="isPip ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : ''"
-          title="画中画悬浮展示（再次点击返回面板）"
-          aria-label="画中画"
+          :title="t('panels.pipTitle')"
+          :aria-label="t('panels.pip')"
           @click="togglePip()"
         >
           <PictureInPicture2 />
@@ -362,8 +364,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :class="settingsOpen ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : ''"
-          title="浏览器设置（User-Agent / 尺寸）"
-          aria-label="浏览器设置"
+          :title="t('panels.browserSettingsTitle')"
+          :aria-label="t('panels.browserSettings')"
           @click="openSettings()"
         >
           <Settings2 />
@@ -371,8 +373,8 @@ watch(
         <Button
           variant="ghost"
           size="icon-xs"
-          title="在系统浏览器中打开"
-          aria-label="在系统浏览器中打开"
+          :title="t('panels.openInSystemBrowser')"
+          :aria-label="t('panels.openInSystemBrowser')"
           :disabled="showHome && !urlInput"
           @click="browserStore.openInSystemBrowser()"
         >
@@ -387,8 +389,8 @@ watch(
               : ''
           "
           :disabled="busy || showHome"
-          title="标注页面元素并插入 AI 输入框"
-          aria-label="标注"
+          :title="t('panels.annotateTitle')"
+          :aria-label="t('panels.annotate')"
           @click="annotating ? browserStore.stopAnnotate() : browserStore.startAnnotate()"
         >
           <Crosshair />
@@ -397,8 +399,8 @@ watch(
           variant="ghost"
           size="icon-xs"
           :disabled="busy || showHome"
-          title="截图并插入 AI 输入框"
-          aria-label="截图"
+          :title="t('panels.screenshotTitle')"
+          :aria-label="t('panels.screenshot')"
           @click="browserStore.takeScreenshot()"
         >
           <Camera />
@@ -406,8 +408,8 @@ watch(
         <Button
           variant="ghost"
           size="icon-xs"
-          title="新标签页（浏览历史）"
-          aria-label="新标签页"
+          :title="t('panels.newTabTitle')"
+          :aria-label="t('panels.newTab')"
           @click="browserStore.openNewTab()"
         >
           <History />
@@ -421,9 +423,13 @@ watch(
         v-if="settingsOpen"
         class="absolute top-full right-0 z-[var(--z-popup)] mt-1 w-72 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] p-2.5 shadow-[var(--shadow-menu)]"
       >
-        <div class="mb-1 text-[12px] font-medium text-[var(--color-txt-strong)]">浏览器设置</div>
+        <div class="mb-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
+          {{ t("panels.browserSettings") }}
+        </div>
         <label class="mb-2 block">
-          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">User-Agent（留空用默认）</span>
+          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">
+            {{ t("panels.uaLabel") }}
+          </span>
           <Input
             v-model="uaDraft"
             variant="ghost"
@@ -435,7 +441,9 @@ watch(
           />
         </label>
         <label class="mb-2 block">
-          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">页面尺寸（缩放，作用于内容渲染）</span>
+          <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">
+            {{ t("panels.zoomLabel") }}
+          </span>
           <select
             v-model.number="zoomDraft"
             class="h-7 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
@@ -444,7 +452,7 @@ watch(
             <option :value="67">67%</option>
             <option :value="80">80%</option>
             <option :value="90">90%</option>
-            <option :value="100">100%（默认）</option>
+            <option :value="100">{{ t("panels.zoomDefault") }}</option>
             <option :value="110">110%</option>
             <option :value="125">125%</option>
             <option :value="150">150%</option>
@@ -454,10 +462,10 @@ watch(
         </label>
         <div class="flex items-center justify-end gap-1">
           <Button variant="ghost" size="xs" class="font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]" @click="settingsOpen = false">
-            取消
+            {{ t("panels.cancel") }}
           </Button>
           <Button size="xs" class="font-normal text-[11px] md:text-[11px]" @click="saveSettings()">
-            保存
+            {{ t("panels.save") }}
           </Button>
         </div>
       </div>
@@ -465,7 +473,9 @@ watch(
 
     <div class="flex flex-none items-center gap-2 text-[11px] text-[var(--color-dim)]">
       <span class="truncate font-[family-name:var(--font-mono)]">{{ kernelLabel }}</span>
-      <span v-if="annotating" class="flex-none text-[var(--color-accent)]">标注中</span>
+      <span v-if="annotating" class="flex-none text-[var(--color-accent)]">
+        {{ t("panels.annotating") }}
+      </span>
       <span class="min-w-0 flex-1 truncate">{{ panelNote }}</span>
       <Button
         v-if="history.length"
@@ -474,7 +484,7 @@ watch(
         class="h-auto flex-none px-0 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)] hover:bg-transparent! hover:text-[var(--color-txt)]"
         @click="browserStore.clearHistory()"
       >
-        清空历史
+        {{ t("panels.clearHistory") }}
       </Button>
     </div>
 
@@ -488,14 +498,14 @@ watch(
       class="flex flex-none items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2 py-1 text-[11px] text-[var(--color-dim)]"
     >
       <PictureInPicture2 class="size-3.5 flex-none" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">浏览器页面在后台运行（画中画已关闭）</span>
+      <span class="min-w-0 flex-1 truncate">{{ t("panels.pipHiddenNote") }}</span>
       <Button
         variant="ghost"
         size="xs"
         class="h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-accent)]"
         @click="browserStore.enterPip()"
       >
-        恢复画中画
+        {{ t("panels.restorePip") }}
       </Button>
       <Button
         variant="ghost"
@@ -503,7 +513,7 @@ watch(
         class="h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]"
         @click="browserStore.exitPip()"
       >
-        回到面板
+        {{ t("panels.backToPanel") }}
       </Button>
     </div>
 
@@ -514,10 +524,10 @@ watch(
     >
       <div class="mb-2 flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
         <Search class="size-3.5" aria-hidden="true" />
-        历史链接
+        {{ t("panels.historyLinks") }}
       </div>
       <div v-if="!formattedHistory.length" class="px-1 py-6 text-center text-[12px] text-[var(--color-dim)]">
-        暂无历史。在上方地址栏输入 URL 打开页面后，这里会记录访问过的链接。
+        {{ t("panels.noHistory") }}
       </div>
       <ul v-else class="m-0 flex list-none flex-col gap-0.5 p-0">
         <li v-for="item in formattedHistory" :key="item.url">
@@ -545,7 +555,7 @@ watch(
               variant="ghost"
               size="icon-sm"
               class="flex-none text-[var(--color-dim)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-del)]"
-              aria-label="删除该历史"
+              :aria-label="t('panels.deleteHistoryItem')"
               @click="browserStore.removeHistory(item.url)"
             >
               <X class="size-3.5" />
@@ -568,7 +578,7 @@ watch(
       class="flex-none rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2 py-1.5"
       :title="formatElementDetail(lastPicked)"
     >
-      <div class="text-[11px] text-[var(--color-dim)]">最近标注（已插入输入框）</div>
+      <div class="text-[11px] text-[var(--color-dim)]">{{ t("panels.lastPickedLabel") }}</div>
       <div class="flex min-w-0 items-center gap-1.5">
         <Globe class="size-3.5 flex-none text-[var(--color-accent)]" aria-hidden="true" />
         <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">

@@ -16,6 +16,7 @@ import { createBrowserHistory } from "@/stores/browser-history";
 import { buildPageContextText, emptyStatus, normalizeBrowserUrl } from "@/stores/browser-utils";
 import { useLayoutStore } from "@/stores/layout";
 import { useRightPanelStore } from "@/stores/right-panel";
+import { i18n } from "@/locales";
 
 export { normalizeBrowserUrl };
 
@@ -50,13 +51,13 @@ export const useBrowserStore = defineStore("browser", () => {
     if (status.value.electronVersion || status.value.chromeVersion) {
       return `Electron ${status.value.electronVersion} · Chromium ${status.value.chromeVersion}`;
     }
-    return "内嵌 Chromium";
+    return i18n.global.t("app.browser.embeddedChromium");
   });
 
   function bindEvents() {
     const zen = window.zen;
     if (!zen?.browser) {
-      panelNote.value = "浏览器 IPC 未就绪：请完全退出后重新 pnpm dev（主进程/preload 需重启）";
+      panelNote.value = i18n.global.t("app.browser.ipcNotReadyFull");
       return () => undefined;
     }
     const offStatus = zen.browser.onStatus((next) => {
@@ -93,7 +94,7 @@ export const useBrowserStore = defineStore("browser", () => {
   function insertElementAtCaret(ref: BrowserElementRef) {
     const chat = useChatStore();
     const mark = chat.insertBrowserElement(ref);
-    panelNote.value = `已插入元素标签「${mark.label}」`;
+    panelNote.value = i18n.global.t("app.browser.elementTagInserted", { label: mark.label });
     lastPicked.value = ref;
   }
 
@@ -108,7 +109,7 @@ export const useBrowserStore = defineStore("browser", () => {
   async function onAgentBrowserTool(toolName: string, args: unknown) {
     ensurePanelVisible();
     const record = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
-    panelNote.value = `Agent 正在使用 ${toolName}`;
+    panelNote.value = i18n.global.t("app.browser.agentUsingTool", { name: toolName });
     if (toolName === "browserOpen" && typeof record.url === "string" && record.url.trim()) {
       await openUrl(record.url.trim());
       return;
@@ -131,26 +132,26 @@ export const useBrowserStore = defineStore("browser", () => {
   async function ensureRunning() {
     const zen = window.zen?.browser;
     if (!zen) {
-      panelNote.value = "浏览器 IPC 未就绪：请完全退出后重新 pnpm dev";
+      panelNote.value = i18n.global.t("app.browser.ipcNotReady");
       return status.value;
     }
     busy.value = true;
-    panelNote.value = "正在启动内嵌浏览器…";
+    panelNote.value = i18n.global.t("app.browser.starting");
     try {
       // 渲染层再套一层超时，防止主进程 handler 卡死导致 UI 永久 loading
       const statusPromise = zen.ensureRunning();
       const timeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("启动内嵌浏览器超时（12s）")), 12_000);
+        setTimeout(() => reject(new Error(i18n.global.t("app.browser.startTimeout"))), 12_000);
       });
       status.value = await Promise.race([statusPromise, timeout]);
       if (status.value.error) {
         panelNote.value = status.value.error;
       } else if (status.value.state === "running") {
-        panelNote.value = "内嵌浏览器已就绪";
+        panelNote.value = i18n.global.t("app.browser.ready");
       }
       return status.value;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "启动内嵌浏览器失败";
+      const message = error instanceof Error ? error.message : i18n.global.t("app.browser.startFailed");
       panelNote.value = message;
       status.value = { ...status.value, state: "error", error: message };
       return status.value;
@@ -183,25 +184,25 @@ export const useBrowserStore = defineStore("browser", () => {
   async function openUrl(url?: string) {
     const zen = window.zen?.browser;
     if (!zen) {
-      panelNote.value = "浏览器 IPC 未就绪：请完全退出后重新 pnpm dev";
+      panelNote.value = i18n.global.t("app.browser.ipcNotReady");
       return;
     }
     const normalized = normalizeBrowserUrl(url ?? urlInput.value);
     if (!normalized) {
       showHome.value = true;
       await syncBoundsHost();
-      panelNote.value = "请输入地址";
+      panelNote.value = i18n.global.t("app.browser.enterAddress");
       return;
     }
     urlInput.value = normalized;
     ensurePanelVisible();
     busy.value = true;
-    panelNote.value = `正在打开 ${normalized}…`;
+    panelNote.value = i18n.global.t("app.browser.openingUrl", { url: normalized });
     agentNavLock.value = true;
     try {
       const runStatus = await ensureRunning();
       if (runStatus.state === "error") {
-        panelNote.value = runStatus.error || "内嵌浏览器启动失败";
+        panelNote.value = runStatus.error || i18n.global.t("app.browser.launchFailed");
         return;
       }
       showHome.value = false;
@@ -213,11 +214,11 @@ export const useBrowserStore = defineStore("browser", () => {
       const result = await Promise.race([
         zen.open(normalized),
         new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("打开页面超时（15s）")), 15_000);
+          setTimeout(() => reject(new Error(i18n.global.t("app.browser.openPageTimeout"))), 15_000);
         }),
       ]);
       if (!result.ok) {
-        panelNote.value = result.error || "打开失败";
+        panelNote.value = result.error || i18n.global.t("app.browser.openFailed");
         return;
       }
       urlInput.value = result.url;
@@ -228,7 +229,7 @@ export const useBrowserStore = defineStore("browser", () => {
         error: undefined,
       };
       pushHistory(result.url, result.title);
-      panelNote.value = `已打开：${result.title || result.url}`;
+      panelNote.value = i18n.global.t("app.browser.opened", { title: result.title || result.url });
       await nextTick();
       await pushBoundsNow();
       // 再拉一次诊断，便于排查「打开了但看不见」
@@ -237,11 +238,14 @@ export const useBrowserStore = defineStore("browser", () => {
         const visible = debug.viewVisible === true;
         const bounds = debug.viewBounds as { width?: number; height?: number } | null;
         if (!visible || (bounds && (bounds.width || 0) < 2)) {
-          panelNote.value = `${panelNote.value}｜视图未显示 bounds=${JSON.stringify(bounds)} visible=${String(debug.viewVisible)}`;
+          panelNote.value = `${panelNote.value}｜${i18n.global.t("app.browser.viewNotVisible", {
+            bounds: JSON.stringify(bounds),
+            visible: String(debug.viewVisible),
+          })}`;
         }
       }
     } catch (error) {
-      panelNote.value = error instanceof Error ? error.message : "打开地址失败";
+      panelNote.value = error instanceof Error ? error.message : i18n.global.t("app.browser.openAddressFailed");
     } finally {
       agentNavLock.value = false;
       busy.value = false;
@@ -320,7 +324,7 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     const result = await zen.goBack();
     if (!result.ok) {
-      panelNote.value = result.error || "无法后退";
+      panelNote.value = result.error || i18n.global.t("app.browser.cannotGoBack");
       return;
     }
     urlInput.value = result.url || urlInput.value;
@@ -334,7 +338,7 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     const result = await zen.goForward();
     if (!result.ok) {
-      panelNote.value = result.error || "无法前进";
+      panelNote.value = result.error || i18n.global.t("app.browser.cannotGoForward");
       return;
     }
     urlInput.value = result.url || urlInput.value;
@@ -348,7 +352,7 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     const result = await zen.reload(ignoreCache);
     if (!result.ok) {
-      panelNote.value = result.error || "刷新失败";
+      panelNote.value = result.error || i18n.global.t("app.browser.reloadFailed");
     }
   }
 
@@ -360,10 +364,10 @@ export const useBrowserStore = defineStore("browser", () => {
     // 显式「在系统浏览器中打开」仍走系统；其余链接一律应用内
     const result = await zen.openExternal(status.value.url || urlInput.value);
     if (!result.ok) {
-      panelNote.value = result.error || "无法在系统浏览器打开";
+      panelNote.value = result.error || i18n.global.t("app.browser.cannotOpenExternal");
       return;
     }
-    panelNote.value = "已在系统浏览器打开";
+    panelNote.value = i18n.global.t("app.browser.openedInSystemBrowser");
   }
 
   async function startAnnotate() {
@@ -373,17 +377,17 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     await ensureRunning();
     if (showHome.value) {
-      panelNote.value = "请先打开页面再标注";
+      panelNote.value = i18n.global.t("app.browser.openPageBeforeAnnotate");
       return;
     }
     const result = await zen.pickStart();
     if (!result.ok) {
-      panelNote.value = result.error || "无法启动标注";
+      panelNote.value = result.error || i18n.global.t("app.browser.cannotStartAnnotate");
       return;
     }
     annotating.value = true;
     status.value = { ...status.value, picking: true };
-    panelNote.value = "标注中：在页面上点击元素，插入到 AI 输入框光标处；Esc 取消";
+    panelNote.value = i18n.global.t("app.browser.annotatingHint");
   }
 
   async function stopAnnotate() {
@@ -400,20 +404,20 @@ export const useBrowserStore = defineStore("browser", () => {
   async function takeScreenshot() {
     const zen = window.zen?.browser;
     if (!zen || showHome.value) {
-      panelNote.value = "请先打开页面再截图";
+      panelNote.value = i18n.global.t("app.browser.openPageBeforeScreenshot");
       return;
     }
     busy.value = true;
     try {
       const result = await zen.screenshot();
       if (!result.ok || !result.path) {
-        panelNote.value = result.error || "截图失败";
+        panelNote.value = result.error || i18n.global.t("app.browser.screenshotFailed");
         return;
       }
       lastScreenshotPath.value = result.path;
       const chat = useChatStore();
       chat.insertAtComposerCaret(`[浏览器截图] ${result.path}`);
-      panelNote.value = `截图已保存并插入输入框：${result.path}`;
+      panelNote.value = i18n.global.t("app.browser.screenshotSaved", { path: result.path });
     } finally {
       busy.value = false;
     }
@@ -462,7 +466,7 @@ export const useBrowserStore = defineStore("browser", () => {
     }
     const chat = useChatStore();
     chat.insertAtComposerCaret(buildPageContextText(extract));
-    panelNote.value = "页面结构已插入输入框光标处";
+    panelNote.value = i18n.global.t("app.browser.structureInserted");
   }
 
   function openHistoryItem(item: BrowserHistoryItem) {
@@ -505,7 +509,7 @@ export const useBrowserStore = defineStore("browser", () => {
       return;
     }
     status.value = await zen.pipEnter();
-    panelNote.value = status.value.pip ? "已进入画中画悬浮窗" : panelNote.value;
+    panelNote.value = status.value.pip ? i18n.global.t("app.browser.pipEntered") : panelNote.value;
   }
 
   /** 退出画中画：视图放回浏览器面板（floating/hidden → off，随后面板 bounds 推送接管） */
@@ -517,7 +521,7 @@ export const useBrowserStore = defineStore("browser", () => {
     status.value = await zen.pipExit();
     // 面板重新接管视图
     await pushBoundsNow();
-    panelNote.value = status.value.pipHidden ? "浏览器页面在后台运行" : "";
+    panelNote.value = status.value.pipHidden ? i18n.global.t("app.browser.pipRunningInBackground") : "";
   }
 
   /** 关闭画中画悬浮窗（页面转入后台运行，面板暂不接管） */
@@ -527,7 +531,7 @@ export const useBrowserStore = defineStore("browser", () => {
       return;
     }
     status.value = await zen.pipHide();
-    panelNote.value = "画中画已关闭，浏览器页面在后台运行";
+    panelNote.value = i18n.global.t("app.browser.pipClosed");
   }
 
   watch(showHome, () => {
