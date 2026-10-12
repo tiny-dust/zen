@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Brain, FolderOpen, Plus, RefreshCw, ShieldCheck, TriangleAlert, X } from "@lucide/vue";
+import { Brain, FolderOpen, Globe, Plus, RefreshCw, ShieldCheck, TriangleAlert, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
@@ -9,11 +9,12 @@ import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-import type { MemoryScope, MemorySnapshot } from "@zen/shared";
+import type { MemoryScope, MemorySnapshot, WebSearchApiProviderId, WebSearchStatus } from "@zen/shared";
 import type { PermissionMode, SandboxMode } from "@zen/shared";
 import { PERMISSION_MODES } from "@zen/shared";
 
@@ -54,6 +55,79 @@ async function rebuild() {
   rebuildBusy.value = false;
 }
 
+// ---------- 网络搜索：供应商 API Key（key 只写不读回，状态仅存组件本地） ----------
+const WEB_SEARCH_PROVIDERS: WebSearchApiProviderId[] = ["tavily", "bocha", "serper"];
+
+const webSearchApi = window.zen?.agent;
+const webSearchStatus = ref<WebSearchStatus | null>(null);
+const webSearchKeys = reactive<Record<WebSearchApiProviderId, string>>({
+  tavily: "",
+  bocha: "",
+  serper: "",
+});
+const webSearchBusy = ref<WebSearchApiProviderId | null>(null);
+const webSearchError = ref("");
+
+function webSearchPlaceholder(provider: WebSearchApiProviderId): string {
+  const status = webSearchStatus.value?.[provider];
+  if (!status?.configured) {
+    return t("settings.agent.webSearchNotConfigured");
+  }
+  return status.masked ?? t("settings.agent.webSearchConfigured");
+}
+
+async function loadWebSearchStatus() {
+  if (!webSearchApi) {
+    return;
+  }
+  try {
+    webSearchStatus.value = await webSearchApi.webSearchStatus();
+  } catch {
+    // 拉取失败保持未配置态；保存/清除失败在节内提示
+  }
+}
+
+async function saveWebSearchKey(provider: WebSearchApiProviderId) {
+  // key 不回读，草稿非空即视为新输入；成功后清空，blur 与回车重复触发时自然短路
+  const value = webSearchKeys[provider].trim();
+  if (!value || webSearchBusy.value) {
+    return;
+  }
+  if (!webSearchApi) {
+    webSearchError.value = t("settings.agent.webSearchUnavailable");
+    return;
+  }
+  webSearchBusy.value = provider;
+  webSearchError.value = "";
+  try {
+    webSearchStatus.value = await webSearchApi.setWebSearchKey(provider, value);
+    webSearchKeys[provider] = "";
+  } catch (error) {
+    webSearchError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    webSearchBusy.value = null;
+  }
+}
+
+async function clearWebSearchKey(provider: WebSearchApiProviderId) {
+  if (webSearchBusy.value) {
+    return;
+  }
+  if (!webSearchApi) {
+    webSearchError.value = t("settings.agent.webSearchUnavailable");
+    return;
+  }
+  webSearchBusy.value = provider;
+  webSearchError.value = "";
+  try {
+    webSearchStatus.value = await webSearchApi.setWebSearchKey(provider, null);
+  } catch (error) {
+    webSearchError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    webSearchBusy.value = null;
+  }
+}
+
 // ---------- 记忆：设备环境快照 + 备注（Agent updateMemory / 手动维护共用） ----------
 const memory = ref<MemorySnapshot | null>(null);
 const memoryBusy = ref(false);
@@ -76,6 +150,7 @@ async function loadMemory() {
 
 onMounted(() => {
   void loadMemory();
+  void loadWebSearchStatus();
 });
 
 async function addNote(scope: MemoryScope) {
@@ -211,6 +286,51 @@ function formatTime(ms: number): string {
       </p>
       <p v-if="chatStore.appInfo" class="m-0 text-[11px] text-[var(--color-dim)]">
         {{ t("settings.agent.sandboxTip") }}
+      </p>
+    </section>
+
+    <!-- 网络搜索：供应商 API Key（未配置时走免登录抓取） -->
+    <section class="flex flex-col gap-2.5">
+      <div class="flex items-center gap-2">
+        <Globe :size="15" class="text-[var(--color-mut)]" />
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.webSearchTitle") }}</h3>
+      </div>
+      <p class="m-0 text-[12px] text-[var(--color-mut)]">
+        {{ t("settings.agent.webSearchDesc") }}
+      </p>
+      <div class="flex flex-col">
+        <div v-for="provider in WEB_SEARCH_PROVIDERS" :key="provider" class="field-row">
+          <Label :for="`websearch-${provider}`" class="field-row-label font-normal">
+            {{ t(`settings.agent.webSearchProvider.${provider}`) }}
+          </Label>
+          <div class="flex items-center gap-2">
+            <Input
+              :id="`websearch-${provider}`"
+              v-model="webSearchKeys[provider]"
+              type="password"
+              autocomplete="off"
+              class="h-8 flex-1 text-[12px]"
+              :placeholder="webSearchPlaceholder(provider)"
+              :aria-label="t('settings.agent.webSearchKeyAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
+              @blur="saveWebSearchKey(provider)"
+              @keydown.enter.prevent="saveWebSearchKey(provider)"
+            />
+            <Button
+              v-if="webSearchStatus?.[provider]?.configured"
+              variant="ghost"
+              size="icon-sm"
+              class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="t('settings.agent.webSearchClearAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
+              :disabled="webSearchBusy === provider"
+              @click="clearWebSearchKey(provider)"
+            >
+              <X :size="14" />
+            </Button>
+          </div>
+        </div>
+      </div>
+      <p v-if="webSearchError" class="m-0 text-[11px] text-[var(--color-err)]">
+        {{ webSearchError }}
       </p>
     </section>
 

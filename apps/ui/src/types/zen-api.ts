@@ -62,6 +62,8 @@ import type {
   ToolApprovalDecision,
   UpdateStatusInfo,
   UpdateModelInput,
+  WebSearchApiProviderId,
+  WebSearchStatus,
   WorkspaceFile,
   Workspace,
   WorkspaceGroup,
@@ -155,8 +157,6 @@ export interface ZenApi {
   settings: {
     get(): Promise<AppSettings>;
     set(partial: Partial<AppSettings>): Promise<AppSettings>;
-    pickIcon(): Promise<AppSettings>;
-    applyIcon(): Promise<AppSettings>;
     onChanged(handler: (settings: AppSettings) => void): () => void;
   };
   updates: {
@@ -216,6 +216,13 @@ export interface ZenApi {
     promptPresets(): Promise<PromptPreset[]>;
     sandboxDir(): Promise<string>;
     rebuildSandbox(projectPath: string): Promise<{ ok: boolean; dir?: string; error?: string }>;
+    /** 网络搜索供应商 Key 配置状态（masked 为脱敏预览，仅设置页展示用） */
+    webSearchStatus(): Promise<WebSearchStatus>;
+    /** 保存/清除供应商 Key（null 或空串清除）；返回保存后的最新状态 */
+    setWebSearchKey(
+      provider: WebSearchApiProviderId,
+      key: string | null,
+    ): Promise<WebSearchStatus>;
     onSettingsChanged(handler: (settings: AgentSettings) => void): () => void;
     onEvent(handler: (event: AgentStreamEvent) => void): () => void;
   };

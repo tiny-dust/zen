@@ -5,7 +5,7 @@ import { setCodeThemeId } from "@/components/ai-elements/response/extensions";
 import { useAppTheme } from "@/composables/useAppTheme";
 import { setAppLocale } from "@/locales";
 
-import type { AppIconId, AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
+import type { AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
 import {
   DEFAULT_CODE_THEME,
   DEFAULT_LOCALE,
@@ -16,8 +16,6 @@ import {
 } from "@zen/shared";
 
 const fallbackSettings: AppSettings = {
-  iconId: "zen-ink",
-  customIconPath: null,
   shortcuts: DEFAULT_SHORTCUTS.map((item) => ({ ...item })),
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
@@ -136,26 +134,6 @@ export const useSettingsStore = defineStore("settings", () => {
     };
   }
 
-  async function setIcon(iconId: Exclude<AppIconId, "custom">) {
-    const zen = window.zen;
-    if (!zen) {
-      return;
-    }
-    settings.value = await zen.settings.set({
-      iconId,
-      customIconPath: null,
-    });
-    await zen.settings.applyIcon();
-  }
-
-  async function pickCustomIcon() {
-    const zen = window.zen;
-    if (!zen) {
-      return;
-    }
-    settings.value = await zen.settings.pickIcon();
-  }
-
   async function setFeedUrl(url: string | null) {
     const zen = window.zen;
     if (!zen) {
@@ -226,8 +204,6 @@ export const useSettingsStore = defineStore("settings", () => {
     closeSettings,
     syncFromHash,
     bootstrap,
-    setIcon,
-    pickCustomIcon,
     setFeedUrl,
     setCodeTheme,
     setTheme,

@@ -110,8 +110,6 @@ export default {
     fileTooLarge: "文件过大，仅展示前 512KB。",
     unsupportedPreview: "该文件类型暂不支持预览（{size}）。",
     cannotReadFile: "无法读取该文件。",
-    // 应用图标
-    customIcon: "自定义图标",
     // 顶栏
     sidebar: "侧栏",
     notifications: "通知",
@@ -236,8 +234,6 @@ export default {
     fileTooLarge: "File is large; only the first 512KB is shown.",
     unsupportedPreview: "This file type can't be previewed ({size}).",
     cannotReadFile: "Can't read this file.",
-    // App icon
-    customIcon: "Custom icon",
     // Titlebar
     sidebar: "Sidebar",
     notifications: "Notifications",

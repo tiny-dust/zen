@@ -103,6 +103,12 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
         label: i18n.global.t("chat.tool.webSearch"),
         target: { kind: "text", text: argText(args, ["query", "search"]) },
       };
+    case "webFetch":
+      return {
+        icon: Globe,
+        label: i18n.global.t("chat.tool.webFetch"),
+        target: { kind: "text", text: argText(args, ["url"]) },
+      };
     // 内置浏览器工具（impeccable live 走查等会话）
     case "browserStatus":
       return { icon: AppWindow, label: i18n.global.t("chat.tool.browserStatus") };

@@ -3,7 +3,6 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
-import AppIcon from "@/components/base/AppIcon.vue";
 import { Response } from "@/components/ai-elements/response";
 import { CODE_THEMES } from "@/components/ai-elements/response/extensions";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import { useSettingsStore } from "@/stores/settings";
-import { BUILTIN_APP_ICONS } from "@zen/shared";
 
 import type { AppLocale, ThemeMode, UpdateStatusInfo } from "@zen/shared";
 
@@ -276,49 +274,6 @@ async function downloadUpdate() {
         <p class="m-0 text-[11px] text-[var(--color-dim)]">
           {{ t("settings.codeTheme.hint") }}
         </p>
-      </CardContent>
-    </Card>
-  </section>
-
-  <section class="flex flex-col">
-    <h3 class="settings-section-title">{{ t("settings.icon.title") }}</h3>
-    <Card size="sm" class="settings-card">
-      <CardContent class="flex flex-col gap-3 p-4">
-        <p class="mb-0 text-[12px] text-[var(--color-mut)]">{{ t("settings.icon.hint") }}</p>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2.5">
-          <Button
-            v-for="item in BUILTIN_APP_ICONS"
-            :key="item.id"
-            variant="ghost"
-            class="h-auto flex flex-col items-center gap-2 whitespace-normal rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
-            :class="settings.iconId === item.id ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
-            @click="settingsStore.setIcon(item.id)"
-          >
-            <AppIcon :id="item.id" :size="40" />
-            <span>{{ t(`settings.icon.${item.id}`) }}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            class="h-auto flex flex-col items-center gap-2 whitespace-normal rounded-[10px] border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2 py-3 text-[12px] font-normal text-[var(--color-mut)] transition-colors hover:border-[var(--color-btn-border)] hover:text-[var(--color-txt)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
-            :class="settings.iconId === 'custom' ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] text-[var(--color-txt-strong)] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]' : ''"
-            @click="settingsStore.pickCustomIcon()"
-          >
-            <AppIcon
-              id="custom-preview"
-              :size="40"
-              :custom-path="settings.customIconPath"
-            />
-            <span>{{ t("settings.icon.custom") }}</span>
-          </Button>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          class="w-fit"
-          @click="settingsStore.pickCustomIcon()"
-        >
-          {{ t("settings.icon.upload") }}
-        </Button>
       </CardContent>
     </Card>
   </section>
