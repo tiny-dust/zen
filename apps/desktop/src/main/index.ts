@@ -31,7 +31,7 @@ import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
 import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
-import { registerWindowControlsIpc } from "./window-controls";
+import { registerWindowControlsIpc, registerTitleBarOverlayThemeSync, titleBarOverlayOptions } from "./window-controls";
 import { appendMessage, getSession, getWorkspace } from "./workspace-db";
 
 import type { AgentSession } from "@zen/agent-core";
@@ -65,9 +65,10 @@ function createWindow(): BrowserWindow {
     titleBarStyle: "hidden",
     // 交通灯在 38px 标题栏内垂直居中（--titlebar-h / --titlebar-lead 与之一致）
     trafficLightPosition: { x: 12, y: 13 },
-    // Windows/Linux 均为 frameless + 渲染层首帧自绘三键（WindowControls.vue）。
-    // 不用 Windows 原生 titleBarOverlay：其可见性检测在挂载期有竞态，
-    // 且动态渲染的拖拽区 no-drag 子区域不被 Chromium 登记，自绘键会全部失效。
+    // Windows/Linux：原生 titleBarOverlay 三键（系统自绘，点击不走渲染层拖拽区）。
+    // 自绘三键在 Linux/Windows 会被后登记的 drag 矩形盖住导致点击被吞，故弃用。
+    // 主题切换由 registerTitleBarOverlayThemeSync 重放配色。
+    ...(process.platform !== "darwin" ? { titleBarOverlay: titleBarOverlayOptions() } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: true,
@@ -370,6 +371,7 @@ app.whenReady().then(() => {
   registerTerminalIpc(broadcast);
   registerMemoryIpc();
   registerWindowControlsIpc();
+  registerTitleBarOverlayThemeSync();
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));

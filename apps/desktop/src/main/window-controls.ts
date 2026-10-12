@@ -1,28 +1,50 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 
 /**
- * 窗口控制：最小化 / 最大化 / 还原 / 关闭 + 最大化状态同步。
+ * 窗口控制（Windows/Linux）：原生 titleBarOverlay 三键 + Linux 双击最大化兜底。
  *
- * macOS 由系统红绿灯处理；Windows/Linux 由渲染层自绘三键走这些 IPC。
- * 渲染层的三键必须首帧渲染（preload 的 window.getPlatform 同步给平台），
- * 否则拖拽区的 no-drag 子区域不会被 Chromium 登记，点击全被吞掉。
+ * 三平台窗口 chrome 全部交给系统：macOS 红绿灯（titleBarStyle: hidden），
+ * Windows/Linux 用 titleBarOverlay 原生叠加键（createWindow 注入）。
+ * 原生按钮的点击在系统层处理，不经过渲染层，天然不受
+ * -webkit-app-region 拖拽区登记时序影响（自绘三键在 Linux/Windows
+ * 会被后登记的 drag 矩形盖住，点击被吞）。
+ *
+ * Linux frameless 的 drag region 双击最大化系统不处理（Electron 已知行为，
+ * GNOME/KDE 均如此），渲染层用 window:toggle-maximize 兜底。
  */
 
-const hookedWindows = new WeakSet<BrowserWindow>();
+/** 叠加键高度：与渲染层 --titlebar-h 一致 */
+const OVERLAY_HEIGHT = 38;
 
-/** 窗口 maximize/unmaximize 时向渲染层推送最新状态 */
-function hookWindow(window: BrowserWindow): void {
-  if (hookedWindows.has(window)) {
+/** 按当前主题取叠加键配色（与 styles.css 的 --color-bg / --color-topbar-icon 对齐） */
+export function titleBarOverlayOptions(): Electron.TitleBarOverlay {
+  const dark = nativeTheme.shouldUseDarkColors;
+  return {
+    color: dark ? "#181818" : "#fffefd",
+    symbolColor: dark ? "#f4f4f5" : "#151c13",
+    height: OVERLAY_HEIGHT,
+  };
+}
+
+/** 把当前主题的叠加键配色同步到窗口（主题切换时重放） */
+export function syncTitleBarOverlay(window: BrowserWindow): void {
+  if (window.isDestroyed() || process.platform === "darwin") {
     return;
   }
-  hookedWindows.add(window);
-  const emit = () => {
-    if (!window.isDestroyed()) {
-      window.webContents.send("window:maximized-changed", window.isMaximized());
+  try {
+    window.setTitleBarOverlay(titleBarOverlayOptions());
+  } catch {
+    // 窗口构造早期个别平台可能暂不接受 setTitleBarOverlay，忽略（构造参数已带首帧近似）
+  }
+}
+
+/** 主题变化（含设置里的 theme 档切换联动 nativeTheme）时刷新全部窗口的叠加键配色 */
+export function registerTitleBarOverlayThemeSync(): void {
+  nativeTheme.on("updated", () => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      syncTitleBarOverlay(window);
     }
-  };
-  window.on("maximize", emit);
-  window.on("unmaximize", emit);
+  });
 }
 
 function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
@@ -30,26 +52,11 @@ function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | nu
   if (!window || window.isDestroyed()) {
     return null;
   }
-  hookWindow(window);
   return window;
 }
 
 export function registerWindowControlsIpc(): void {
-  ipcMain.handle("window:minimize", (event) => {
-    windowFromEvent(event)?.minimize();
-    return { ok: true };
-  });
-
-  ipcMain.handle("window:maximize", (event) => {
-    windowFromEvent(event)?.maximize();
-    return { ok: true };
-  });
-
-  ipcMain.handle("window:restore", (event) => {
-    windowFromEvent(event)?.unmaximize();
-    return { ok: true };
-  });
-
+  // Linux 双击拖拽区最大化-还原兜底（渲染层 WindowControls 调用）
   ipcMain.handle("window:toggle-maximize", (event) => {
     const window = windowFromEvent(event);
     if (!window) {
@@ -61,14 +68,5 @@ export function registerWindowControlsIpc(): void {
       window.maximize();
     }
     return { ok: true, maximized: window.isMaximized() };
-  });
-
-  ipcMain.handle("window:close", (event) => {
-    windowFromEvent(event)?.close();
-    return { ok: true };
-  });
-
-  ipcMain.handle("window:is-maximized", (event) => {
-    return windowFromEvent(event)?.isMaximized() ?? false;
   });
 }
