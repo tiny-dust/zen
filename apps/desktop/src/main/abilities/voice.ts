@@ -4,6 +4,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import type { WebContents } from "electron";
+
 import type {
   AbilityProbe,
   VoiceStartResult,
@@ -24,26 +26,31 @@ const execFileAsync = promisify(execFile);
 
 /**
  * 语音输入（ASR）：start 开录、stop 停录并转写。三平台：
- * - macOS：Swift 小工具（AVAudioRecorder 录音 + SFSpeechRecognizer 本地识别），
- *   SIGINT 停录后同进程转写，结果打印到 stdout；swiftc 不可用时降级为不可用。
- * - Windows：Windows PowerShell + System.Speech SpeechRecognitionEngine 循环识别，
- *   增量结果写入文本文件；stop 杀进程后读文件。
- * - Linux：arecord 录 wav + whisper CLI 转写；两者缺一即不可用。
+ * - macOS：Swift 小工具（AVAudioEngine 流式录音 + SFSpeechRecognizer 实时识别，
+ *   支持 on-device 模型），识别与录音并行，SIGINT 只收尾——停录后 final 即时返回；
+ *   partial 结果实时落盘，主进程轮询推送渲染层做实时字幕；swiftc 不可用时降级不可用。
+ * - Windows：PowerShell + System.Speech SpeechRecognitionEngine 循环识别，
+ *   增量结果写入文本文件（同样支持实时字幕）；stop 杀进程后读文件。
+ * - Linux：arecord 录 wav + whisper CLI 转写（批处理，无 partial）；两者缺一即不可用。
  * 所有外部命令均为 execFile/spawn 数组参数，无 shell 拼接。
  */
 
 const VOICE_SWIFT_SOURCE = `import AVFoundation
 import Speech
 
-// 参数：<output.wav> <result.txt> <pid.txt>
+// 参数：<result.txt> <partial.txt> <pid.txt>
+// 流式识别：AVAudioEngine 边录边喂 SFSpeechAudioBufferRecognitionRequest，
+// 识别与录音并行进行——SIGINT 只做 endAudio() 收尾，final 结果几乎即时返回
+// （旧实现录完再把整段音频从头重算一遍，停录后还要等一整轮识别）。
+// 支持 on-device 模型时启用 requiresOnDeviceRecognition（本机推理，无网络往返）。
 // 经 open(LaunchServices) 启动的 .app bundle：stdout/stderr 不回传主进程，
 // 识别结果与错误一律写 result 文件（错误以 "ERROR:" 前缀），pid 写 pid 文件供停录信号。
 let args = CommandLine.arguments
 guard args.count == 4 else {
     exit(64)
 }
-let outputURL = URL(fileURLWithPath: args[1])
-let resultPath = args[2]
+let resultPath = args[1]
+let partialPath = args[2]
 let pidPath = args[3]
 
 func fail(_ message: String) -> Never {
@@ -76,52 +83,69 @@ guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
     fail("speech recognizer unavailable")
 }
 
-let settings: [String: Any] = [
-    AVFormatIDKey: kAudioFormatLinearPCM,
-    AVSampleRateKey: 16000.0,
-    AVNumberOfChannelsKey: 1,
-    AVLinearPCMBitDepthKey: 16,
-    AVLinearPCMIsFloatKey: false,
-    AVLinearPCMIsBigEndianKey: false,
-]
-let recorder: AVAudioRecorder
-do {
-    recorder = try AVAudioRecorder(url: outputURL, settings: settings)
-} catch {
-    fail("recorder init failed: \\(error)")
+let engine = AVAudioEngine()
+let request = SFSpeechAudioBufferRecognitionRequest()
+request.shouldReportPartialResults = true
+// 本机模型：离线、无网络延迟（Apple Silicon 较快）；不支持则回退服务器识别
+if recognizer.supportsOnDeviceRecognition {
+    request.requiresOnDeviceRecognition = true
 }
-guard recorder.record() else {
-    fail("record failed (microphone permission denied?)")
-}
-
-_ = stopped.wait(timeout: .now() + 300)
-recorder.stop()
-sigintSource.cancel()
-
-// 停录后本地识别，结果写 result 文件
-let request = SFSpeechURLRecognitionRequest(url: outputURL)
-request.shouldReportPartialResults = false
 if #available(macOS 13.0, *) {
     request.addsPunctuation = true
 }
-let recognized = DispatchSemaphore(value: 0)
+
+let inputNode = engine.inputNode
+let recordingFormat = inputNode.outputFormat(forBus: 0)
+guard recordingFormat.channelCount > 0 else {
+    fail("no audio input channel")
+}
+inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
+    request.append(buffer)
+}
+engine.prepare()
+do {
+    try engine.start()
+} catch {
+    fail("audio engine start failed (microphone permission denied?): \\(error)")
+}
+
+// final 等待：识别已并行进行，endAudio 后真实语音的 final 通常 <1s（分档收尾见下）
+let finished = DispatchSemaphore(value: 0)
 var bestText = ""
+var lastPartial = ""
 var recError: String?
-recognizer.recognitionTask(with: request) { result, error in
+let task = recognizer.recognitionTask(with: request) { result, error in
     if let result = result {
         bestText = result.bestTranscription.formattedString
+        // partial 落盘（非原子写保持 inode，主进程轮询同一文件即可）
+        if bestText != lastPartial {
+            lastPartial = bestText
+            try? bestText.write(toFile: partialPath, atomically: false, encoding: .utf8)
+        }
         if result.isFinal {
-            recognized.signal()
+            finished.signal()
         }
-    } else {
-        if let error = error {
-            recError = String(describing: error)
-        }
-        recognized.signal()
+    } else if let error = error {
+        recError = String(describing: error)
+        finished.signal()
     }
 }
-_ = recognized.wait(timeout: .now() + 30)
-if let recError = recError {
+
+_ = stopped.wait(timeout: .now() + 300)
+// SIGINT：停输入 → endAudio 触发 final → 等收尾
+engine.inputNode.removeTap(onBus: 0)
+engine.stop()
+request.endAudio()
+
+// 分档收尾：识别已并行进行，真实语音的 final 通常 <1s；
+// 静音/无语音时 on-device 识别器不给 final（实测），快速返回空结果
+let finalizeTimeout: Double = bestText.isEmpty ? 1.2 : 3.0
+if finished.wait(timeout: .now() + finalizeTimeout) == .timedOut {
+    // 超时兜底：识别器未给 final，用当前 bestText
+    task.cancel()
+}
+sigintSource.cancel()
+if let recError = recError, bestText.isEmpty {
     fail("recognition error: \\(recError)")
 }
 try? bestText.write(toFile: resultPath, atomically: true, encoding: .utf8)
@@ -177,13 +201,21 @@ const VOICE_SWIFT_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 interface VoiceSession {
   kind: "swift" | "powershell" | "whisper";
   child: ChildProcess;
-  /** swift/whisper：wav 路径；powershell：识别结果 txt 路径 */
+  /** powershell/whisper：增量结果或 wav 路径 */
   capturePath: string;
   /** whisper 转写输出目录（Linux） */
   whisperDir?: string;
   /** macOS open 模式：识别结果文件 / zen-voice 进程 pid 文件 */
   resultPath?: string;
   pidPath?: string;
+  /** partial 结果文件（swift 专属；powershell 复用 capturePath） */
+  partialPath?: string;
+  /** 渲染层接收 voice:partial 推送的窗口（录音发起者） */
+  sender?: WebContents;
+  /** partial 轮询句柄（stop 时清理） */
+  pollTimer?: ReturnType<typeof setInterval>;
+  /** stop 后要清理的临时文件（含目录） */
+  tempPaths: string[];
   stdout: string;
   stderr: string;
 }
@@ -201,15 +233,21 @@ async function ensurePs1Script(): Promise<string> {
 
 export class VoiceService {
   private session: VoiceSession | null = null;
+  /** probe 结果缓存：checkTools 要 spawn 4 个 which，每次 start 都探测太浪费 */
+  private probeCache: AbilityProbe | null = null;
 
   async probe(): Promise<AbilityProbe> {
+    if (this.probeCache) {
+      return this.probeCache;
+    }
     const tools = await checkTools(["swiftc", "powershell", "arecord", "whisper"]);
     // swiftc 即「Swift 工具可编译」标志（真编产物在 start 时 ensure）
     const availability: ToolAvailability = { ...tools, swift: tools["swiftc"] === true };
-    return resolveVoiceBackend(process.platform, availability);
+    this.probeCache = resolveVoiceBackend(process.platform, availability);
+    return this.probeCache;
   }
 
-  async start(): Promise<VoiceStartResult> {
+  async start(sender?: WebContents): Promise<VoiceStartResult> {
     if (this.session) {
       return { ok: false, error: "已有进行中的录音" };
     }
@@ -233,17 +271,22 @@ export class VoiceService {
         if (!bundlePath.endsWith(".app")) {
           return { ok: false, error: "语音工具 bundle 路径异常" };
         }
-        const capturePath = join(dir, `${id}.wav`);
         const resultPath = join(dir, `${id}.txt`);
+        const partialPath = join(dir, `${id}.partial`);
         const pidPath = join(dir, `${id}.pid`);
         const child = spawn(
           "open",
-          ["-n", "-W", bundlePath, "--args", capturePath, resultPath, pidPath],
+          ["-n", "-W", bundlePath, "--args", resultPath, partialPath, pidPath],
           { stdio: ["ignore", "ignore", "ignore"] },
         );
-        this.session = this.track(child, "swift", capturePath);
-        this.session.resultPath = resultPath;
-        this.session.pidPath = pidPath;
+        this.session = this.track(child, "swift", partialPath, {
+          resultPath,
+          partialPath,
+          pidPath,
+          sender,
+          tempPaths: [resultPath, partialPath, pidPath],
+        });
+        this.watchPartial(this.session);
         return { ok: true };
       }
       if (process.platform === "win32") {
@@ -263,17 +306,26 @@ export class VoiceService {
           ],
           { stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
         );
-        this.session = this.track(child, "powershell", capturePath);
+        this.session = this.track(child, "powershell", capturePath, {
+          partialPath: capturePath,
+          sender,
+          tempPaths: [capturePath],
+        });
+        this.watchPartial(this.session);
         return { ok: true };
       }
-      // Linux：arecord 录音，stop 后 whisper 转写
+      // Linux：arecord 录音，stop 后 whisper 转写（批处理，无 partial 可推）
       const capturePath = join(dir, `${id}.wav`);
       const arecord = buildArecordCommand(capturePath);
       const child = spawn(arecord.command, arecord.args, {
         stdio: ["ignore", "ignore", "pipe"],
       });
       const whisperDir = join(dir, `${id}-out`);
-      this.session = this.track(child, "whisper", capturePath, whisperDir);
+      this.session = this.track(child, "whisper", capturePath, {
+        whisperDir,
+        sender,
+        tempPaths: [capturePath, whisperDir],
+      });
       return { ok: true };
     } catch (error) {
       this.session = null;
@@ -287,6 +339,10 @@ export class VoiceService {
       return { ok: false, error: "没有进行中的录音" };
     }
     this.session = null;
+    if (session.pollTimer) {
+      clearInterval(session.pollTimer);
+      session.pollTimer = undefined;
+    }
     try {
       if (session.kind === "swift") {
         return await this.stopSwift(session);
@@ -297,13 +353,17 @@ export class VoiceService {
       return await this.stopWhisper(session);
     } finally {
       // 清理临时文件（识别结果已读出；失败不阻塞）
-      const cleanup = session.whisperDir ?? session.capturePath;
-      await rm(cleanup, { recursive: true, force: true }).catch(() => undefined);
+      await Promise.all(
+        session.tempPaths.map((p) => rm(p, { recursive: true, force: true }).catch(() => undefined)),
+      );
     }
   }
 
   /** 应用退出兜底：杀掉遗留录音进程 */
   shutdown(): void {
+    if (this.session?.pollTimer) {
+      clearInterval(this.session.pollTimer);
+    }
     this.session?.child.kill();
     this.session = null;
   }
@@ -312,15 +372,16 @@ export class VoiceService {
     child: ChildProcess,
     kind: VoiceSession["kind"],
     capturePath: string,
-    whisperDir?: string,
+    extra: Partial<VoiceSession> = {},
   ): VoiceSession {
     const session: VoiceSession = {
       kind,
       child,
       capturePath,
-      whisperDir,
+      tempPaths: [],
       stdout: "",
       stderr: "",
+      ...extra,
     };
     child.stdout?.on("data", (chunk: Buffer) => {
       session.stdout += chunk.toString("utf8");
@@ -336,8 +397,35 @@ export class VoiceService {
   }
 
   /**
-   * macOS：open 启动的 zen-voice app —— 读 pid 文件 → SIGINT 停录转写 →
+   * partial 实时字幕：录音期间轮询 partial 文件（250ms，识别器只在文本变化时落盘），
+   * 变化即推给发起录音的渲染层窗口。文件轮询比 fs.watch 稳（非原子写不会换 inode）。
+   */
+  private watchPartial(session: VoiceSession): void {
+    if (!session.partialPath || !session.sender) {
+      return;
+    }
+    let lastText = "";
+    session.pollTimer = setInterval(() => {
+      void readFile(session.partialPath!, "utf8")
+        .then((raw) => {
+          const text = raw.trim();
+          if (text !== lastText) {
+            lastText = text;
+            if (!session.sender?.isDestroyed()) {
+              session.sender?.send("voice:partial", text);
+            }
+          }
+        })
+        .catch(() => {
+          // 文件尚未创建（还没识别出内容）：静默跳过
+        });
+    }, 250);
+  }
+
+  /**
+   * macOS：open 启动的 zen-voice app —— 读 pid 文件 → SIGINT 停录收尾 →
    * 等 open(-W) 进程退出 → 读 result 文件（ERROR: 前缀 = 失败）。
+   * 工具内部分档收尾（静音 1.2s / 有语音 3s），5s 兜底足够。
    */
   private async stopSwift(session: VoiceSession): Promise<VoiceTranscribeResult> {
     if (!session.resultPath || !session.pidPath) {
@@ -351,7 +439,7 @@ export class VoiceService {
     } catch {
       // pid 文件缺失/进程已退出：继续等 open 退出并读结果
     }
-    await waitExit(session.child, 45_000);
+    await waitExit(session.child, 5_000);
     try {
       const text = (await readFile(session.resultPath, "utf8")).trim();
       if (text.startsWith("ERROR:")) {

@@ -158,6 +158,7 @@ const {
   supported: voiceSupported,
   recording: voiceRecording,
   transcribing: voiceTranscribing,
+  partialText: voicePartial,
   toggle: toggleVoice,
 } = useVoiceInput();
 
@@ -338,6 +339,28 @@ function removeAttachment(id: string) {
         >
           <X :size="13" />
         </Button>
+      </div>
+
+      <!-- 语音实时字幕：录音期间识别器 partial 结果实时上屏，说完即所见 -->
+      <div
+        v-if="voiceRecording"
+        class="mb-2 flex min-h-[34px] items-center gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_6%,transparent)] px-3 py-2 text-[13px] text-[var(--color-txt)]"
+        role="status"
+        :aria-label="t('system-abilities.voice.listening')"
+      >
+        <span class="relative flex size-2.5 flex-none">
+          <span class="absolute inline-flex size-full animate-ping rounded-full bg-[var(--color-accent)] opacity-60" />
+          <span class="relative inline-flex size-2.5 rounded-full bg-[var(--color-accent)]" />
+        </span>
+        <span class="min-w-0 flex-1 break-words text-[var(--color-txt)]">
+          {{ voicePartial || t("system-abilities.voice.listening") }}
+        </span>
+        <span
+          v-if="voiceTranscribing"
+          class="flex-none text-[11px] text-[var(--color-mut)]"
+        >
+          {{ t("system-abilities.voice.transcribing") }}
+        </span>
       </div>
 
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->

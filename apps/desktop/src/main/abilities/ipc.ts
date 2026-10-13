@@ -25,7 +25,8 @@ export function registerSystemAbilitiesIpc(): void {
   registerFeatureProbe("cua", async () => (await cua.status()).supported);
 
   ipcMain.handle("voice:probe", () => voice.probe());
-  ipcMain.handle("voice:start", () => voice.start());
+  // sender 透传：partial 实时字幕通过 voice:partial 推回发起录音的窗口
+  ipcMain.handle("voice:start", (event) => voice.start(event.sender));
   ipcMain.handle("voice:stop", () => voice.stop());
 
   ipcMain.handle("tts:probe", () => tts.probe());

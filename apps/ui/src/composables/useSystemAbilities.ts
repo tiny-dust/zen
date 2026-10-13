@@ -43,6 +43,20 @@ function ensureProbe(
 }
 
 /** 语音输入（点击开始 → 再点结束 → 转写文本回填输入框） */
+const voicePartialText = ref("");
+let voicePartialUnsub: (() => void) | null = null;
+
+/** partial 订阅懒接线：只在首次录音时订阅一次，模块级共享给所有调用方 */
+function ensureVoicePartialSubscription(): void {
+  if (voicePartialUnsub) {
+    return;
+  }
+  voicePartialUnsub =
+    window.zen?.voice?.onPartial?.((text) => {
+      voicePartialText.value = text;
+    }) ?? null;
+}
+
 export function useVoiceInput() {
   const supported = ref(false);
   const recording = ref(false);
@@ -63,6 +77,8 @@ export function useVoiceInput() {
         throw new Error(started?.error ?? "无法开始录音");
       }
       recording.value = true;
+      voicePartialText.value = "";
+      ensureVoicePartialSubscription();
       return null;
     }
     recording.value = false;
@@ -79,10 +95,11 @@ export function useVoiceInput() {
       return text;
     } finally {
       transcribing.value = false;
+      voicePartialText.value = "";
     }
   }
 
-  return { supported, recording, transcribing, toggle };
+  return { supported, recording, transcribing, partialText: voicePartialText, toggle };
 }
 
 /** TTS 播报（助手消息「朗读」/「停止」） */

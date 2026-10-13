@@ -20,6 +20,16 @@ export const systemAbilitiesApi = {
     stop(): Promise<VoiceTranscribeResult> {
       return ipcRenderer.invoke("voice:stop");
     },
+    /** 录音期间实时中间结果（partial 字幕）；返回取消订阅函数 */
+    onPartial(handler: (text: string) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, text: string) => {
+        handler(text);
+      };
+      ipcRenderer.on("voice:partial", listener);
+      return () => {
+        ipcRenderer.removeListener("voice:partial", listener);
+      };
+    },
   },
   tts: {
     probe(): Promise<AbilityProbe> {

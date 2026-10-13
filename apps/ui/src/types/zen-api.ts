@@ -461,6 +461,8 @@ export interface ZenApi {
     probe(): Promise<AbilityProbe>;
     start(): Promise<VoiceStartResult>;
     stop(): Promise<VoiceTranscribeResult>;
+    /** 录音期间实时中间结果（partial 字幕）；返回取消订阅函数 */
+    onPartial(handler: (text: string) => void): () => void;
   };
   /** TTS 播报：助手消息「朗读」；stop 打断当前播报 */
   tts: {

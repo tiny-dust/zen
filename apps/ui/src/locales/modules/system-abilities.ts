@@ -9,6 +9,7 @@ export default {
       stop: "结束并转写",
       stopTitle: "点击结束录音并转写为文字",
       transcribing: "转写中…",
+      listening: "正在聆听…",
       transcribeFailed: "语音识别失败",
       emptyResult: "没有识别到内容",
       micDenied: "语音需要麦克风与语音识别授权。到系统设置 → 隐私与安全性中允许 Zen。",
@@ -39,6 +40,7 @@ export default {
       stop: "Stop & transcribe",
       stopTitle: "Click to stop recording and transcribe to text",
       transcribing: "Transcribing…",
+      listening: "Listening…",
       transcribeFailed: "Voice recognition failed",
       emptyResult: "Nothing recognized",
       micDenied:
