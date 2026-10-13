@@ -258,6 +258,13 @@ export default {
       rebuildOk: "已重建，下次会话生效",
       rebuildFailed: "重建失败",
       sandboxTip: "提示：隔离区不会复制 node_modules、.git 等生成物；需要时在会话里让 Agent 重新安装依赖。",
+      cuaTitle: "桌面自动化（CUA）",
+      cuaEnable: "允许 Agent 控制鼠标键盘",
+      cuaDesc:
+        "开启后 Agent 可注册 cua.* 工具（移动/点击鼠标、敲击键盘、读取屏幕），用于操作无 API 的桌面软件。默认关闭。",
+      cuaWarning:
+        "高风险：开启后 Agent 可在无需逐次确认的情况下操作你的电脑。请仅在必要时开启，并在用完后及时关闭。",
+      cuaOpenAccessibility: "打开系统辅助功能授权",
       memoryTitle: "记忆",
       memoryDesc:
         "每次会话自动带上设备环境与用户习惯，Agent 不必重复探测路径和命令；也可以在对话里让它「记住……」。",
@@ -710,6 +717,13 @@ export default {
       rebuildFailed: "Rebuild failed",
       sandboxTip:
         "Tip: the sandbox doesn't copy node_modules, .git, and other generated files; ask the Agent in chat to reinstall dependencies if needed.",
+      cuaTitle: "Desktop Automation (CUA)",
+      cuaEnable: "Allow the Agent to control mouse & keyboard",
+      cuaDesc:
+        "When enabled, the Agent registers cua.* tools (move/click the mouse, type keys, read the screen) to operate desktop apps without APIs. Off by default.",
+      cuaWarning:
+        "High risk: once enabled, the Agent can operate your computer without per-action confirmation. Enable only when necessary and turn it off afterwards.",
+      cuaOpenAccessibility: "Open Accessibility authorization",
       memoryTitle: "Memory",
       memoryDesc:
         "Device environment and user habits are attached to every session, so the Agent doesn't re-probe paths and commands. You can also ask it to “remember …” in chat.",

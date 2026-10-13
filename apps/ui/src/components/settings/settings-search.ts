@@ -59,6 +59,12 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     titleKey: "settings.agent.sandboxTitle",
     keywords: ["sandbox isolate worktree 隔离区 沙箱 副本 rebuild 重建"],
   },
+  {
+    tab: "permissions",
+    sectionId: "set-agent-cua",
+    titleKey: "settings.agent.cuaTitle",
+    keywords: ["cua desktop automation mouse keyboard accessibility 桌面自动化 鼠标 键盘 辅助功能 屏幕操作"],
+  },
   // Agent 能力
   {
     tab: "agent",

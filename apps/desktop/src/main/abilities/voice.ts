@@ -111,7 +111,8 @@ print(bestText)
 exit(0)
 `;
 
-const VOICE_PS1 = `param([string]$Out)
+// Windows 语音识别脚本（导出供 scripts-static.test.ts 静态校验；运行时落盘为 zen-voice-rec.ps1）
+export const VOICE_PS1 = `param([string]$Out)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Speech
 $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine

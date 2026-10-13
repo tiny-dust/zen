@@ -20,7 +20,8 @@ import { checkTools, ps1ScriptPath } from "./tool-probe";
  * 全部 execFile/spawn 数组参数；festival 从 stdin 喂文本。
  */
 
-const TTS_PS1 = `param([string]$Text, [int]$Rate = 0, [string]$Voice = "")
+// Windows TTS 脚本（导出供 scripts-static.test.ts 静态校验；运行时落盘为 zen-tts.ps1）
+export const TTS_PS1 = `param([string]$Text, [int]$Rate = 0, [string]$Voice = "")
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Speech
 $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer

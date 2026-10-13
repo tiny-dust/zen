@@ -97,7 +97,8 @@ default:
 exit(0)
 `;
 
-const CUA_PS1 = `param([string]$Action, [int]$X = -1, [int]$Y = -1, [string]$Seq = "")
+// Windows 桌面自动化脚本（导出供 scripts-static.test.ts 静态校验；运行时落盘为 zen-cua.ps1）
+export const CUA_PS1 = `param([string]$Action, [int]$X = -1, [int]$Y = -1, [string]$Seq = "")
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

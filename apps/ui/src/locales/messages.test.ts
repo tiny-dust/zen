@@ -37,6 +37,27 @@ describe("locales/messages", () => {
     expect(en).toEqual(zh);
   });
 
+  it("语言包非空，且模块不得自我嵌套命名空间", () => {
+    // 防回归：模块文件以文件名为命名空间注册，若内部又多包一层同名命名空间
+    // （如 mcpapps.ts 导出 {mcpapps: {...}}），键会落错层级且现有断言无法发现
+    // （真实发生过：组件渲染出裸键名）。此处直接断言每个命名空间下不存在同名子对象。
+    for (const locale of ["zh-CN", "en-US"]) {
+      const messages = messagesOf(locale);
+      const namespaces = Object.keys(messages);
+      expect(namespaces.length, `locale=${locale}`).toBeGreaterThan(0);
+      for (const ns of namespaces) {
+        const nested = (messages[ns] ?? {}) as Record<string, unknown>;
+        const selfNamed = nested[ns];
+        if (selfNamed != null && typeof selfNamed === "object") {
+          expect(
+            selfNamed,
+            `locale=${locale} 命名空间 ${ns} 下存在同名子对象（疑似模块内多包了一层命名空间）`,
+          ).toBeUndefined();
+        }
+      }
+    }
+  });
+
   it("所有 zh-CN 消息可被 vue-i18n 编译且不等于键名", () => {
     const zh = messagesOf("zh-CN");
     for (const key of flatten(zh)) {

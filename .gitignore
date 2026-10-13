@@ -9,6 +9,8 @@ release/
 !.env.example
 coverage/
 .vite/
+# 误在根目录落盘的 vite 构建产物（构建应只输出到 dist/）
+/index-*.js
 *.tsbuildinfo
 .coder/
 artifacts/

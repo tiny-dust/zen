@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AppWindow, Check, Copy, CornerDownLeft } from "@lucide/vue";
+import { AppWindow, Check, Copy, CornerDownLeft, Send } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -10,8 +10,9 @@ import { useChatStore } from "@/stores/chat";
  * MCP Apps 交互视图（SEP-1865）：MCP 工具结果里的 HTML 资源。
  * 安全：sandbox 只开 allow-scripts（唯一源，无 same-origin/表单/弹窗/导航），
  * 注入 CSP 禁止一切远程加载（default-src 'none'），不加载任意外链。
- * 桥：iframe 内 UI 可 postMessage({ type: 'zen:mcp', payload }) 回传交互事件；
- * 渲染层按 event.source 校验来源，第一版提供「复制 / 插入对话」两种回传方式。
+ * 桥：iframe 内 UI 可 postMessage({ type: 'zen:mcp', payload, auto? }) 回传交互事件；
+ * 渲染层按 event.source 校验来源，提供「复制 / 插入对话 / 发送给 Agent」三种回传方式，
+ * auto=true 的事件额外自动作为用户消息发送给当前会话的 Agent。
  */
 const props = defineProps<{
   html: string;
@@ -27,6 +28,8 @@ interface McpAppEvent {
   id: number;
   at: number;
   payload: unknown;
+  /** 事件是否已回传给 Agent（auto 自动发送或手动「发送给 Agent」） */
+  sent: boolean;
 }
 
 const events = ref<McpAppEvent[]>([]);
@@ -50,6 +53,14 @@ const srcdoc = computed(() => {
   return SRCDOC_HEAD + html;
 });
 
+function payloadJson(payload: unknown): string {
+  try {
+    return JSON.stringify(payload ?? null, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 function onMessage(event: MessageEvent) {
   // 只认本组件 iframe 发来的消息：沙箱 iframe 的 origin 是 null，用 source 比对
   if (!frameEl.value || event.source !== frameEl.value.contentWindow) {
@@ -59,8 +70,14 @@ function onMessage(event: MessageEvent) {
   if (typeof data !== "object" || data === null || (data as { type?: unknown }).type !== "zen:mcp") {
     return;
   }
+  const auto = (data as { auto?: unknown }).auto === true;
   eventSeq += 1;
-  events.value = [...events.value.slice(-4), { id: eventSeq, at: Date.now(), payload: (data as { payload?: unknown }).payload }];
+  const entry: McpAppEvent = { id: eventSeq, at: Date.now(), payload: (data as { payload?: unknown }).payload, sent: auto };
+  events.value = [...events.value.slice(-4), entry];
+  // auto：应用显式要求自动回传，立即作为用户消息发送给当前会话的 Agent
+  if (auto) {
+    void sendEventToAgent(entry);
+  }
 }
 
 onMounted(() => {
@@ -71,16 +88,14 @@ onBeforeUnmount(() => {
   window.removeEventListener("message", onMessage);
 });
 
+const latestEvent = computed(() => events.value[events.value.length - 1]);
+
 const latestPayloadJson = computed(() => {
-  const latest = events.value[events.value.length - 1];
+  const latest = latestEvent.value;
   if (!latest) {
     return "";
   }
-  try {
-    return JSON.stringify(latest.payload ?? null, null, 2);
-  } catch {
-    return String(latest.payload);
-  }
+  return payloadJson(latest.payload);
 });
 
 async function copyLatestEvent() {
@@ -106,6 +121,21 @@ function sendLatestToChat() {
   chatStore.insertAtComposerCaret(`[MCP App 交互事件] ${latestPayloadJson.value}`);
   document.getElementById("chat-input")?.focus();
 }
+
+/** 发送给 Agent：把交互事件作为用户消息立即发送（沿用插入对话的文本格式） */
+async function sendEventToAgent(entry: McpAppEvent) {
+  await chatStore.send(`[MCP App 交互事件] ${payloadJson(entry.payload)}`);
+  entry.sent = true;
+}
+
+/** 手动「发送给 Agent」：立即发送最近一次交互事件 */
+function sendLatestToAgent() {
+  const latest = latestEvent.value;
+  if (!latest) {
+    return;
+  }
+  void sendEventToAgent(latest);
+}
 </script>
 
 <template>
@@ -121,6 +151,7 @@ function sendLatestToChat() {
     <div v-if="events.length" class="mcp-app-footer">
       <span class="mcp-app-event-label" :title="latestPayloadJson">
         {{ t("mcpapps.eventReceived") }}（{{ events.length }}）
+        <span v-if="latestEvent?.sent" class="mcp-app-sent-tag">{{ t("mcpapps.sentToAgent") }}</span>
       </span>
       <span class="mcp-app-actions">
         <Button
@@ -143,6 +174,16 @@ function sendLatestToChat() {
           @click="sendLatestToChat"
         >
           <CornerDownLeft class="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="rounded-md hover:text-[var(--color-txt-strong)]"
+          :aria-label="t('mcpapps.sendToAgent')"
+          :title="t('mcpapps.sendToAgentTitle')"
+          @click="sendLatestToAgent"
+        >
+          <Send class="size-3.5" />
         </Button>
       </span>
     </div>
@@ -209,6 +250,16 @@ function sendLatestToChat() {
 
 .mcp-app-footer-hint {
   color: var(--color-dim);
+}
+
+/* auto 事件的「已回传」标记：提示用户结果已自动发给 Agent */
+.mcp-app-sent-tag {
+  flex: none;
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+  color: var(--color-txt-strong);
 }
 
 .mcp-app-actions {

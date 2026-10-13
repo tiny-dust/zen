@@ -61,7 +61,8 @@ print(text)
 exit(0)
 `;
 
-const OCR_PS1 = `param([string]$Image)
+// Windows OCR 脚本（导出供 scripts-static.test.ts 静态校验；运行时落盘为 zen-ocr.ps1）
+export const OCR_PS1 = `param([string]$Image)
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 

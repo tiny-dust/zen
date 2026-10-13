@@ -9,6 +9,11 @@
  *   zen-cli list
  *   zen-cli ask <workspacePath> <message...>   # workspacePath 可传 - 表示公共区
  *   zen-cli open <sessionId>
+ *
+ * 分发：安装包内位于 <安装目录>/resources/cli/zen-cli.mjs
+ * （macOS：Zen.app/Contents/Resources/cli/zen-cli.mjs）。
+ * 本地开发可用仓库内 `pnpm --filter @zen/desktop cli:link` 注册到 PATH；
+ * 生产环境可 alias：alias zen-cli="node /Applications/Zen.app/Contents/Resources/cli/zen-cli.mjs"
  */
 
 import { createConnection } from "node:net";

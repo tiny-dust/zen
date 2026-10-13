@@ -243,7 +243,11 @@ export function startCliServer(
     void (async () => {
       try {
         await mkdir(dirname(cliSocketFile()), { recursive: true });
-        await writeFile(cliSocketFile(), JSON.stringify(socketInfo, null, 2), "utf8");
+        // 0600：token 仅本用户可读（默认 0644 会暴露给同机其它本地用户）
+        await writeFile(cliSocketFile(), JSON.stringify(socketInfo, null, 2), {
+          encoding: "utf8",
+          mode: 0o600,
+        });
       } catch (error) {
         console.warn("[cli] cli-socket.json 写入失败:", error);
       }

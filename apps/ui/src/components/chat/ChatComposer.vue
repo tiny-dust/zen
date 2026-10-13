@@ -8,6 +8,7 @@ import {
   Plus,
   Sparkles,
   Square,
+  TriangleAlert,
   Wrench,
   X,
 } from "@lucide/vue";
@@ -160,6 +161,18 @@ const {
   toggle: toggleVoice,
 } = useVoiceInput();
 
+/** macOS 麦克风/语音识别授权被拒的特征文案（Swift 工具 stderr 透传） */
+const MIC_PERMISSION_DENIED = /microphone permission|speech recognizer|permission denied|麦克风|权限/i;
+/** 权限引导横幅：关闭后本次会话内不再弹（重新触发错误会再展示） */
+const voicePermHint = ref(false);
+
+/** macOS 麦克风授权面板深链（TCC Privacy_Microphone；语音识别在同面板相邻项） */
+function openMicSettings() {
+  void window.zen?.app.openExternal(
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+  );
+}
+
 async function onMicClick() {
   try {
     const text = await toggleVoice();
@@ -168,10 +181,14 @@ async function onMicClick() {
       editorRef.value?.focus();
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    // macOS 权限被拒（麦克风 / 语音识别）：展示授权引导横幅而不是只报错
+    if (MIC_PERMISSION_DENIED.test(message)) {
+      voicePermHint.value = true;
+      return;
+    }
     chatStore.statusText =
-      error instanceof Error && error.message !== "EMPTY"
-        ? error.message
-        : t("system-abilities.voice.emptyResult");
+      message && message !== "EMPTY" ? message : t("system-abilities.voice.emptyResult");
   }
 }
 
@@ -301,6 +318,27 @@ function removeAttachment(id: string) {
 
       <!-- 本会话调用感知：Agent 用了哪些技能 / MCP 服务，弹出动效 tag -->
       <SkillUsageTags />
+
+      <!-- 语音授权引导（macOS 拒绝麦克风/识别授权时）：报错旁直接给系统设置入口 -->
+      <div
+        v-if="voicePermHint"
+        class="mb-2 flex items-center gap-2 rounded-xl border border-[color-mix(in_srgb,var(--color-warn,#d97709)_35%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-warn,#d97709)_10%,transparent)] px-3 py-2 text-[12px] text-[var(--color-mut)]"
+      >
+        <TriangleAlert :size="14" class="flex-none text-[var(--color-warn,#d97709)]" />
+        <span class="min-w-0 flex-1">{{ t("system-abilities.voice.micDenied") }}</span>
+        <Button variant="outline" size="sm" class="flex-none" @click="openMicSettings">
+          {{ t("system-abilities.voice.openSettings") }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="flex-none rounded-md hover:text-[var(--color-txt-strong)]"
+          :aria-label="t('common.close')"
+          @click="voicePermHint = false"
+        >
+          <X :size="13" />
+        </Button>
+      </div>
 
       <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
       <Attachments v-if="attachments.length" variant="inline" class="mb-2">

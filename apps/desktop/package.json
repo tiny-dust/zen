@@ -17,6 +17,12 @@
     "files": [
       "out/**"
     ],
+    "extraResources": [
+      {
+        "from": "src/cli/zen-cli.mjs",
+        "to": "cli/zen-cli.mjs"
+      }
+    ],
     "afterSign": "scripts/mac-after-sign.mjs",
     "mac": {
       "target": [
