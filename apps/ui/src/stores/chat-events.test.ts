@@ -33,6 +33,8 @@ function contextOf(): ChatEventContext {
     currentStep: ref<number | null>(null),
     lastInputTokens: ref<number | null>(null),
     lastOutputTokens: ref<number | null>(null),
+    lastCachedInputTokens: ref<number | null>(null),
+    sessionTotalTokens: ref(0),
     pendingApproval: ref<PendingApproval | null>(null),
     pendingAsks: ref<AskUserQuestionEvent[]>([]),
     stashedAsks: new Map<string, AskUserQuestionEvent[]>(),

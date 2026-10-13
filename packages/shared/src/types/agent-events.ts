@@ -148,7 +148,14 @@ export type AgentStreamEvent =
     }
   | { type: "status"; sessionId: string; status: AgentRunStatus }
   | { type: "step_start"; sessionId: string; step: number }
-  | { type: "usage"; sessionId: string; inputTokens: number; outputTokens: number }
+  | {
+      type: "usage";
+      sessionId: string;
+      inputTokens: number;
+      outputTokens: number;
+      /** 缓存命中的输入 tokens（Anthropic cacheRead / OpenAI cached）：供应商不支持时缺省 */
+      cachedInputTokens?: number;
+    }
   | {
       type: "tasks_updated";
       sessionId: string;

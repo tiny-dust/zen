@@ -5,7 +5,6 @@ import {
   CircleCheck,
   Download,
   ExternalLink,
-  Gauge,
   GitBranch,
   GitPullRequestArrow,
   Info,
@@ -18,7 +17,6 @@ import { useI18n } from "vue-i18n";
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 import { openAppLink } from "@/lib/browser-element";
 import { useGitStore } from "@/stores/git";
@@ -37,11 +35,7 @@ const branchPos = ref({ top: 0, left: 0, width: 0 });
 const open = ref(true);
 
 const branch = computed(() => gitStore.branch || chatStore.branch);
-const contextUsage = computed(() => chatStore.contextUsage);
-const lastRequestUsage = computed(() => chatStore.lastRequestUsage);
-const estimatedUsage = computed(() => chatStore.estimatedUsage);
-/** 悬浮说明：区分「上次请求输入」与「估算当前」（chat store 共用逻辑） */
-const contextTitle = computed(() => chatStore.contextUsageTitle);
+/* 上下文用量与压缩焦点已迁移到输入框底栏的 ContextUsagePicker 弹层 */
 
 const prLabel = computed(() => {
   const pr = gitStore.pullRequest;
@@ -153,33 +147,6 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
     <SessionSectionHead :icon="Info" :title="t('shell.envInfo')" :open="open" @toggle="open = !open" />
 
     <div v-if="open" class="mt-1 flex flex-col">
-      <div
-        v-if="contextUsage != null"
-        class="flex min-h-8 items-center gap-2 px-[5px] text-[13px] text-[var(--color-txt)]"
-        :title="contextTitle"
-      >
-        <Gauge :class="envIconCls" aria-hidden="true" />
-        <span class="min-w-0 flex-1">{{ t("shell.context") }}</span>
-        <span
-          class="flex-none font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
-        >
-          <template v-if="lastRequestUsage != null && estimatedUsage != null">
-            {{ lastRequestUsage }}% · {{ t("shell.estimatedPercent", { n: estimatedUsage }) }}
-          </template>
-          <template v-else-if="lastRequestUsage != null">{{ lastRequestUsage }}%</template>
-          <template v-else>{{ t("shell.estimatedPercent", { n: estimatedUsage }) }}</template>
-        </span>
-      </div>
-
-      <!-- 压缩焦点：随下一次自动压缩消费 -->
-      <Input
-        v-model="chatStore.compressFocus"
-        variant="ghost"
-        class="h-7 pl-[27px] pr-1 text-[12px] md:text-[12px] text-[var(--color-txt)] placeholder:text-[var(--color-mut)]"
-        :placeholder="t('shell.compressFocusPlaceholder')"
-        :title="t('shell.compressFocusTitle')"
-      />
-
       <!-- 变更文件 -->
       <Button
         variant="ghost"

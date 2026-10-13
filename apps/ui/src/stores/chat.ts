@@ -108,6 +108,10 @@ export const useChatStore = defineStore("chat", () => {
   const repo = ref("");
   const lastInputTokens = ref<number | null>(null);
   const lastOutputTokens = ref<number | null>(null);
+  /** 最近一次请求的缓存命中输入 tokens（供应商不上报时为 null，与 0% 区分） */
+  const lastCachedInputTokens = ref<number | null>(null);
+  /** 本会话累计消耗 tokens（每次 usage 事件的 input+output 累加，切会话归零） */
+  const sessionTotalTokens = ref(0);
   const currentStep = ref<number | null>(null);
   const lastDoneReason = ref<AgentDoneReason | null>(null);
   const runSummary = ref<ChatRunSummary | null>(null);
@@ -397,6 +401,16 @@ export const useChatStore = defineStore("chat", () => {
     return parts.join("\n");
   });
 
+  /** 缓存命中率（%）：缓存命中的输入 / 上次请求总输入；供应商不上报时为 null */
+  const cacheHitRate = computed(() => {
+    const input = lastInputTokens.value;
+    const cached = lastCachedInputTokens.value;
+    if (input == null || input <= 0 || cached == null) {
+      return null;
+    }
+    return Math.min(100, Math.round((cached / input) * 1000) / 10);
+  });
+
   // ---------- 历史压缩域：发送前折叠 / 摘要卡 ----------
   const compressionDomain = createCompressionDomain({
     messages,
@@ -482,6 +496,8 @@ export const useChatStore = defineStore("chat", () => {
     currentStep,
     lastInputTokens,
     lastOutputTokens,
+    lastCachedInputTokens,
+    sessionTotalTokens,
     pendingApproval,
     pendingAsks,
     stashedAsks,
@@ -891,6 +907,8 @@ export const useChatStore = defineStore("chat", () => {
     lastError.value = "";
     lastInputTokens.value = null;
     lastOutputTokens.value = null;
+    lastCachedInputTokens.value = null;
+    sessionTotalTokens.value = 0;
     currentStep.value = null;
     lastDoneReason.value = null;
     runSummary.value = null;
@@ -1228,11 +1246,15 @@ export const useChatStore = defineStore("chat", () => {
     repo,
     contextUsage,
     contextUsageTitle,
+    contextWindowTokens,
     lastRequestUsage,
     estimatedUsage,
     estimatedInputTokens,
     lastInputTokens,
     lastOutputTokens,
+    lastCachedInputTokens,
+    sessionTotalTokens,
+    cacheHitRate,
     currentStep,
     lastDoneReason,
     runSummary,

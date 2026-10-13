@@ -2,7 +2,6 @@
 import {
   ArrowUp,
   Check,
-  Gauge,
   Mic,
   Play,
   Plus,
@@ -33,6 +32,7 @@ import SessionModePicker from "@/components/chat/SessionModePicker.vue";
 import PromptPicker from "@/components/chat/PromptPicker.vue";
 import WorkspacePicker from "@/components/chat/WorkspacePicker.vue";
 import ComposerBranchPicker from "@/components/chat/ComposerBranchPicker.vue";
+import ContextUsagePicker from "@/components/chat/ContextUsagePicker.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
@@ -435,110 +435,106 @@ function removeAttachment(id: string) {
           @click="triggers.evaluate"
         />
 
-        <div
-          ref="bottomBarEl"
-          class="mt-2 flex items-center justify-between gap-2"
-        >
-          <div class="flex min-w-0 items-center gap-1">
-            <input ref="fileInputEl" type="file" multiple class="hidden" @change="onPickFiles" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class="flex-none text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="t('chat.addFile')"
-              :title="t('chat.addFileTitle')"
-              @click="openFilePicker"
-            >
-              <Plus class="size-4 text-[var(--composer-ic-file)]" />
-            </Button>
-            <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
-            <Button
-              v-if="voiceSupported"
-              variant="ghost"
-              size="icon-sm"
-              class="flex-none transition-colors"
-              :class="
-                voiceRecording
-                  ? 'text-[var(--color-accent)] hover:text-[var(--color-accent)]'
-                  : 'text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]'
-              "
-              :disabled="voiceTranscribing"
-              :aria-label="voiceRecording ? t('system-abilities.voice.stop') : t('system-abilities.voice.start')"
-              :title="voiceRecording ? t('system-abilities.voice.stopTitle') : t('system-abilities.voice.startTitle')"
-              @click="onMicClick"
-            >
-              <Square v-if="voiceRecording" class="size-3.5" />
-              <Mic v-else class="size-4 text-[var(--composer-ic-voice)]" />
-            </Button>
-            <WorkspacePicker :compact="isCompactBar" />
-            <PromptPicker :compact="isCompactBar" />
-            <ComposerBranchPicker :compact="isCompactBar" />
-            <SessionModePicker :compact="isCompactBar" />
+        <!-- 底栏两行：第一行动作（附件/语音/分支/模式 + 档位/模型/发送），
+             追加第二栏放会话信息胶囊（工作区/提示词/上下文/权限） -->
+        <div ref="bottomBarEl" class="mt-2 flex flex-col gap-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex min-w-0 items-center gap-1">
+              <input ref="fileInputEl" type="file" multiple class="hidden" @change="onPickFiles" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="flex-none text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="t('chat.addFile')"
+                :title="t('chat.addFileTitle')"
+                @click="openFilePicker"
+              >
+                <Plus class="size-4 text-[var(--composer-ic-file)]" />
+              </Button>
+              <PromptPicker :compact="isCompactBar" />
+              <SessionModePicker :compact="isCompactBar" />
+            </div>
+
+            <div class="flex flex-none items-center gap-1">
+              <EffortSlider
+                v-if="selectedSupportsReasoning && !isCompactBar"
+                v-model="effort"
+                :allowed="allowedEfforts"
+              />
+              <ModelPicker :compact="isCompactBar" />
+              <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
+              <Button
+                v-if="voiceSupported"
+                variant="ghost"
+                size="icon-sm"
+                class="flex-none transition-colors"
+                :class="
+                  voiceRecording
+                    ? 'text-[var(--color-accent)] hover:text-[var(--color-accent)]'
+                    : 'text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]'
+                "
+                :disabled="voiceTranscribing"
+                :aria-label="voiceRecording ? t('system-abilities.voice.stop') : t('system-abilities.voice.start')"
+                :title="voiceRecording ? t('system-abilities.voice.stopTitle') : t('system-abilities.voice.startTitle')"
+                @click="onMicClick"
+              >
+                <Square v-if="voiceRecording" class="size-3.5" />
+                <Mic v-else class="size-4 text-[var(--composer-ic-voice)]" />
+              </Button>
+              <!-- 计划模式批准：以「批准执行」消息继续，main 侧切回互动模式 -->
+              <Button
+                v-if="showPlanApproval"
+                variant="ghost"
+                class="h-7 items-center gap-1 rounded-lg px-2 text-[11px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="t('session-mode.sessionMode.plan.approve')"
+                :title="t('session-mode.sessionMode.plan.approveTitle')"
+                @click="chatStore.approvePlan()"
+              >
+                <Check class="size-3.5" aria-hidden="true" />
+                {{ t("session-mode.sessionMode.plan.approve") }}
+              </Button>
+              <!-- 发送按钮位即运行状态位：运行中变停止，暂停时变继续 -->
+              <Button
+                v-if="isRunning || isPaused"
+                variant="ghost"
+                class="flex size-[30px] items-center justify-center rounded-full bg-[var(--color-send-empty)] text-[var(--color-send-fg)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="isPaused ? t('chat.resume') : t('chat.stop')"
+                :title="isPaused ? t('chat.resume') : t('chat.stop')"
+                @click="isPaused ? chatStore.resume() : chatStore.cancel()"
+              >
+                <Play v-if="isPaused" class="size-4" />
+                <Square v-else class="size-3.5" />
+              </Button>
+              <Button
+                v-else
+                variant="ghost"
+                class="flex size-[30px] items-center justify-center rounded-full disabled:opacity-45"
+                :class="
+                  canSend
+                    ? 'bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90'
+                    : 'bg-[var(--color-send-empty)] text-[var(--color-send-fg)]'
+                "
+                :disabled="!canSend"
+                :aria-label="t('chat.send')"
+                @click="chatStore.send()"
+              >
+                <ArrowUp class="size-4" />
+              </Button>
+            </div>
           </div>
 
-          <div class="flex flex-none items-center gap-1">
-            <!-- 上下文用量：真实 usage 优先、本地估算兜底；悬浮看两种口径明细 -->
-            <div
-              v-if="chatStore.contextUsage != null"
-              class="flex flex-none items-center gap-1 px-1 font-[family-name:var(--font-mono)] text-[11px]"
-              :class="
-                (chatStore.contextUsage ?? 0) >= 80
-                  ? 'text-[var(--color-err)]'
-                  : 'text-[var(--color-mut)]'
-              "
-              :title="chatStore.contextUsageTitle"
-              role="status"
-              :aria-label="t('chat.contextUsage')"
-            >
-              <Gauge class="size-3.5" aria-hidden="true" />
-              <span>{{ chatStore.contextUsage }}%</span>
+          <!-- 追加一栏：左侧 工作区/分支，右侧 权限/上下文 -->
+          <div
+            class="flex min-w-0 flex-wrap items-center justify-between gap-1 border-t border-[var(--color-line-soft)] pt-1.5"
+          >
+            <div class="flex min-w-0 items-center gap-1">
+              <WorkspacePicker :compact="isCompactBar" />
+              <ComposerBranchPicker :compact="isCompactBar" />
             </div>
-            <EffortSlider
-              v-if="selectedSupportsReasoning && !isCompactBar"
-              v-model="effort"
-              :allowed="allowedEfforts"
-            />
-            <ModelPicker :compact="isCompactBar" />
-            <PermissionPicker :compact="isCompactBar" />
-            <!-- 计划模式批准：以「批准执行」消息继续，main 侧切回互动模式 -->
-            <Button
-              v-if="showPlanApproval"
-              variant="ghost"
-              class="h-7 items-center gap-1 rounded-lg px-2 text-[11px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="t('session-mode.sessionMode.plan.approve')"
-              :title="t('session-mode.sessionMode.plan.approveTitle')"
-              @click="chatStore.approvePlan()"
-            >
-              <Check class="size-3.5" aria-hidden="true" />
-              {{ t("session-mode.sessionMode.plan.approve") }}
-            </Button>
-            <!-- 发送按钮位即运行状态位：运行中变停止，暂停时变继续 -->
-            <Button
-              v-if="isRunning || isPaused"
-              variant="ghost"
-              class="flex size-[30px] items-center justify-center rounded-full bg-[var(--color-send-empty)] text-[var(--color-send-fg)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
-              :aria-label="isPaused ? t('chat.resume') : t('chat.stop')"
-              :title="isPaused ? t('chat.resume') : t('chat.stop')"
-              @click="isPaused ? chatStore.resume() : chatStore.cancel()"
-            >
-              <Play v-if="isPaused" class="size-4" />
-              <Square v-else class="size-3.5" />
-            </Button>
-            <Button
-              v-else
-              variant="ghost"
-              class="flex size-[30px] items-center justify-center rounded-full disabled:opacity-45"
-              :class="
-                canSend
-                  ? 'bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90'
-                  : 'bg-[var(--color-send-empty)] text-[var(--color-send-fg)]'
-              "
-              :disabled="!canSend"
-              :aria-label="t('chat.send')"
-              @click="chatStore.send()"
-            >
-              <ArrowUp class="size-4" />
-            </Button>
+            <div class="flex flex-none items-center gap-1">
+              <PermissionPicker :compact="isCompactBar" />
+              <ContextUsagePicker :compact="isCompactBar" />
+            </div>
           </div>
         </div>
       </div>

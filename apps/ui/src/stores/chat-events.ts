@@ -46,6 +46,10 @@ export interface ChatEventContext {
   currentStep: Ref<number | null>;
   lastInputTokens: Ref<number | null>;
   lastOutputTokens: Ref<number | null>;
+  /** 最近一次请求的缓存命中输入 tokens（供应商不上报时为 null） */
+  lastCachedInputTokens: Ref<number | null>;
+  /** 本会话累计消耗 tokens（usage 事件累加，切会话归零） */
+  sessionTotalTokens: Ref<number>;
   pendingApproval: Ref<PendingApproval | null>;
   /** askUser 挂起队列（多问询并发，按 askId 独立应答） */
   pendingAsks: Ref<AskUserQuestionEvent[]>;
@@ -441,6 +445,11 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (outputTokens != null && outputTokens > 0) {
           ctx.lastOutputTokens.value = outputTokens;
         }
+        // 会话累计消耗：每次上报的 input+output 都计入（含工具循环的每步请求）
+        ctx.sessionTotalTokens.value += Math.max(0, inputTokens ?? 0) + Math.max(0, outputTokens ?? 0);
+        // 缓存命中：协议新字段（cachedInputTokens）；未上报时清空，不残留上一请求的值
+        ctx.lastCachedInputTokens.value =
+          "cachedInputTokens" in event ? (event.cachedInputTokens ?? null) : null;
         break;
       }
       case "insert_started":

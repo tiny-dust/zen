@@ -79,11 +79,30 @@ export function errorMessage(value: unknown): string {
   return "Agent 执行失败";
 }
 
-/** AI SDK finish-step 的 usage（token 数可能为 undefined/null） */
-export function usageFromPart(part: unknown): { inputTokens: number; outputTokens: number } | null {
+/**
+ * AI SDK finish-step 的 usage（token 数可能为 undefined/null）。
+ * cachedInputTokens 取 AI SDK 标准 inputTokenDetails.cacheReadTokens；
+ * 旧版 provider 走 providerMetadata.anthropic.cacheReadInputTokens 兜底。
+ */
+export function usageFromPart(part: unknown): {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+} | null {
   const p = part as {
-    usage?: { inputTokens?: number | null; outputTokens?: number | null };
-    totalUsage?: { inputTokens?: number | null; outputTokens?: number | null };
+    usage?: {
+      inputTokens?: number | null;
+      outputTokens?: number | null;
+      inputTokenDetails?: { cacheReadTokens?: number | null };
+    };
+    totalUsage?: {
+      inputTokens?: number | null;
+      outputTokens?: number | null;
+      inputTokenDetails?: { cacheReadTokens?: number | null };
+    };
+    providerMetadata?: {
+      anthropic?: { cacheReadInputTokens?: number | null };
+    };
   };
   // 单步缺字段时回退到 totalUsage，避免把缺失值当 0 上报
   const inputTokens = p.usage?.inputTokens ?? p.totalUsage?.inputTokens ?? null;
@@ -91,5 +110,17 @@ export function usageFromPart(part: unknown): { inputTokens: number; outputToken
   if (inputTokens == null && outputTokens == null) {
     return null;
   }
-  return { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 };
+  const cached =
+    p.usage?.inputTokenDetails?.cacheReadTokens ??
+    p.totalUsage?.inputTokenDetails?.cacheReadTokens ??
+    p.providerMetadata?.anthropic?.cacheReadInputTokens ??
+    null;
+  const usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number } = {
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+  };
+  if (cached != null && cached > 0) {
+    usage.cachedInputTokens = cached;
+  }
+  return usage;
 }

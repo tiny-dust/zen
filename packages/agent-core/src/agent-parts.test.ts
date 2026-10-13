@@ -87,6 +87,38 @@ describe("part 解析", () => {
     expect(usageFromPart({})).toBeNull();
   });
 
+  it("usageFromPart 提取缓存命中 tokens（标准字段优先，providerMetadata 兜底）", () => {
+    // AI SDK 标准 inputTokenDetails.cacheReadTokens
+    expect(
+      usageFromPart({
+        usage: { inputTokens: 1000, outputTokens: 5, inputTokenDetails: { cacheReadTokens: 996 } },
+      }),
+    ).toEqual({ inputTokens: 1000, outputTokens: 5, cachedInputTokens: 996 });
+    // 单步缺 usage 时从 totalUsage 的 inputTokenDetails 回退
+    expect(
+      usageFromPart({
+        totalUsage: { inputTokens: 200, inputTokenDetails: { cacheReadTokens: 150 } },
+      }),
+    ).toEqual({ inputTokens: 200, outputTokens: 0, cachedInputTokens: 150 });
+    // 旧版 provider 只在 providerMetadata 里报 anthropic.cacheReadInputTokens
+    expect(
+      usageFromPart({
+        usage: { inputTokens: 300, outputTokens: 1 },
+        providerMetadata: { anthropic: { cacheReadInputTokens: 280 } },
+      }),
+    ).toEqual({ inputTokens: 300, outputTokens: 1, cachedInputTokens: 280 });
+    // 无缓存数据时不带字段（UI 据此区分「未上报」与「0%」）
+    expect(usageFromPart({ usage: { inputTokens: 10, outputTokens: 2 } })).toEqual({
+      inputTokens: 10,
+      outputTokens: 2,
+    });
+    expect(
+      usageFromPart({
+        usage: { inputTokens: 10, outputTokens: 2, inputTokenDetails: { cacheReadTokens: 0 } },
+      }),
+    ).not.toHaveProperty("cachedInputTokens");
+  });
+
   it("uuidLike 生成互不相同的短 id；MAX_RUN_STEPS 为正整数", () => {
     const ids = new Set(Array.from({ length: 200 }, () => uuidLike()));
     expect(ids.size).toBe(200);
