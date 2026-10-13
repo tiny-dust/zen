@@ -58,16 +58,38 @@ function ensureTable(): void {
   `);
 }
 
+/**
+ * 解析入库的 schedule JSON；读取时把旧版结构归一到当前形状：
+ * - 旧 interval（intervalMinutes）→ { every, unit: "minute" }
+ * - 旧 daily（dailyTime）→ { time }
+ * 脏数据回落到不会到期的结构（every=0）。
+ */
 function parseSchedule(json: string): ScheduledTask["schedule"] {
   try {
-    const parsed = JSON.parse(json) as ScheduledTask["schedule"];
-    if (parsed && typeof parsed === "object" && (parsed.kind === "interval" || parsed.kind === "daily")) {
-      return parsed;
+    const parsed = JSON.parse(json) as Record<string, unknown> & { kind?: string };
+    if (!parsed || typeof parsed !== "object" || typeof parsed.kind !== "string") {
+      throw new Error("invalid schedule");
+    }
+    if (parsed.kind === "interval") {
+      if (Number.isInteger(parsed.intervalMinutes)) {
+        return { kind: "interval", every: parsed.intervalMinutes as number, unit: "minute" };
+      }
+      return {
+        kind: "interval",
+        every: parsed.every as number | undefined,
+        unit: parsed.unit as "second" | "minute" | "hour" | "day" | "month" | undefined,
+      };
+    }
+    if (parsed.kind === "daily" && typeof parsed.dailyTime === "string") {
+      return { kind: "daily", time: parsed.dailyTime };
+    }
+    if (["daily", "monthly", "once", "window"].includes(parsed.kind)) {
+      return parsed as unknown as ScheduledTask["schedule"];
     }
   } catch {
     // 脏数据回落到不会到期的结构
   }
-  return { kind: "interval", intervalMinutes: 0 };
+  return { kind: "interval", every: 0, unit: "minute" };
 }
 
 function toTask(row: TaskRow): ScheduledTask {
@@ -336,6 +358,12 @@ async function executeTask(task: ScheduledTask): Promise<void> {
     void notify(task.name, false, summary);
   } finally {
     runningIds.delete(task.id);
+    // 单次任务触发后自动停用（无论成败）；lastRunAt 已能防重放，这里让列表状态直观
+    if (task.schedule.kind === "once") {
+      getDb()
+        .prepare("UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?")
+        .run(Date.now(), task.id);
+    }
     pushTasks();
   }
 }
@@ -349,7 +377,7 @@ function tick(): void {
   }
 }
 
-/** 启动调度循环（幂等）：每分钟 tick；启动后 3 秒先补跑一次（错过的 daily 任务） */
+/** 启动调度循环（幂等）：每秒 tick（支持秒级 interval；DB 查询为微秒级小表，开销可忽略）；启动后 3 秒先补跑一次 */
 export function startScheduler(
   broadcastFn: SchedulerBroadcast,
   agentSessions: Map<string, AgentSession>,
@@ -361,7 +389,7 @@ export function startScheduler(
   }
   ensureTable();
   setTimeout(() => tick(), 3_000).unref?.();
-  tickTimer = setInterval(() => tick(), 60_000);
+  tickTimer = setInterval(() => tick(), 1_000);
   tickTimer.unref?.();
 }
 

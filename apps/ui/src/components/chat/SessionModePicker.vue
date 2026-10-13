@@ -50,7 +50,7 @@ const currentIcon = computed(() => MODE_META[sessionMode.value].icon);
         :aria-label="t('session-mode.sessionMode.pickerAria')"
         :title="t('session-mode.sessionMode.pickerTitle', { label: modeLabel(sessionMode) })"
       >
-        <component :is="currentIcon" :size="16" class="flex-none" />
+        <component :is="currentIcon" :size="16" class="flex-none text-[var(--composer-ic-mode)]" />
         <span v-if="!compact" class="text-[11px] font-normal">{{ modeLabel(sessionMode) }}</span>
       </Button>
     </DropdownMenuTrigger>

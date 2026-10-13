@@ -8,6 +8,8 @@ export interface FeatureCatalogEntry {
   name: string;
   /** 兜底描述（i18n 缺失时使用） */
   description: string;
+  /** 兜底使用说明（可用时展示「如何使用」；i18n 缺失时使用） */
+  usage: string;
   /** 分类键（渲染层映射 i18n 标签，如 input / multimodal / automation） */
   category: string;
   /** 支持的平台列表；空数组表示全平台 */

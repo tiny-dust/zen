@@ -39,6 +39,16 @@ ICNS_DST="$APP/Contents/Resources/electron.icns"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Zen Dev" "$PLIST" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Zen Dev" "$PLIST"
 
+# TCC 隐私声明：语音识别/麦克风授权弹窗归责到宿主 app，宿主 plist 缺 key 时
+# 子进程（zen-voice 等 Swift 工具）会被 __TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__ 直接 SIGABRT
+ensure_plist_key() {
+  local key="$1" value="$2"
+  /usr/libexec/PlistBuddy -c "Set :${key} ${value}" "$PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :${key} string ${value}" "$PLIST"
+}
+ensure_plist_key NSMicrophoneUsageDescription "Zen 需要使用麦克风进行语音输入识别"
+ensure_plist_key NSSpeechRecognitionUsageDescription "Zen 需要语音识别权限将语音转为文字"
+
 # 终端直接 exec 的进程，Dock 会回退显示可执行文件名：把可执行文件改名 Zen Dev
 if [ -f "$APP/Contents/MacOS/Electron" ]; then
   mv "$APP/Contents/MacOS/Electron" "$APP/Contents/MacOS/Zen Dev"

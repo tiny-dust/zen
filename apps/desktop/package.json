@@ -29,7 +29,11 @@
         "dmg",
         "zip"
       ],
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Zen 需要使用麦克风进行语音输入识别",
+        "NSSpeechRecognitionUsageDescription": "Zen 需要语音识别权限将语音转为文字"
+      }
     },
     "win": {
       "target": [

@@ -1,10 +1,33 @@
-/** 定时任务调度：先支持 interval（每 N 分钟）与 daily（每日 HH:mm），结构上预留 RRULE 扩展位 */
+/** 调度单位（interval 类任务的循环周期单位） */
+export type ScheduleUnit = "second" | "minute" | "hour" | "day" | "month";
+
+/**
+ * 定时任务调度：
+ * - interval：每 N 个单位循环（秒/分/时/天/月）
+ * - daily：每天固定时刻
+ * - monthly：每月几号固定时刻（当月不足该日取当月最后一天，如 31 → 2 月 28/29 日）
+ * - once：指定日期时间执行一次（触发后自动停用）
+ * - window：每天指定时间范围内每 N 分钟循环
+ * 结构上仍预留 RRULE 扩展位（RFC 5545；当前版本不解析，仅透传保存）。
+ */
 export interface ScheduledTaskSchedule {
-  kind: "interval" | "daily";
-  /** interval：间隔分钟数（>=1） */
-  intervalMinutes?: number;
-  /** daily：每日触发时刻 "HH:mm"（本地时区，24 小时制） */
-  dailyTime?: string;
+  kind: "interval" | "daily" | "monthly" | "once" | "window";
+  /** interval：循环间隔数值（>=1） */
+  every?: number;
+  /** interval：循环单位 */
+  unit?: ScheduleUnit;
+  /** daily / monthly：触发时刻 "HH:mm"（本地时区，24 小时制） */
+  time?: string;
+  /** monthly：每月几号（1-31） */
+  day?: number;
+  /** once：触发时间戳（ms，本地时区） */
+  at?: number;
+  /** window：每日范围起点 "HH:mm" */
+  startTime?: string;
+  /** window：每日范围终点 "HH:mm"（须晚于起点，不支持跨零点） */
+  endTime?: string;
+  /** window：范围内循环间隔分钟数（>=1） */
+  everyMinutes?: number;
   /** RRULE 扩展位（RFC 5545；当前版本不解析，仅透传保存） */
   rrule?: string;
 }

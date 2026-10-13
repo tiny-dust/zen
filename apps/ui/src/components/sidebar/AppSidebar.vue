@@ -190,27 +190,54 @@
       <span class="w-[var(--titlebar-lead)] flex-none" aria-hidden="true" />
       <div class="flex min-w-0 flex-1 items-center gap-2 px-1">
         <span class="text-[14px] font-semibold tracking-tight text-[var(--color-txt-strong)]">Zen</span>
-        <!-- 常驻入口收进头行图标位（Cursor 式）：点击打开弹窗 -->
-        <div class="ml-auto flex items-center gap-0.5">
-          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :aria-label="t('sidebar.skills')" :title="t('sidebar.skills')" @click="skillsOpen = true">
-            <Sparkles class="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            aria-label="MCP" title="MCP" @click="mcpOpen = true">
-            <Cable class="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :aria-label="t('scheduler.entry')" :title="t('scheduler.entry')" @click="schedulerOpen = true">
-            <CalendarClock class="size-4" aria-hidden="true" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :aria-label="t('features.entry')" :title="t('features.entry')" @click="featuresOpen = true">
-            <Blocks class="size-4" aria-hidden="true" />
-          </Button>
-        </div>
       </div>
     </header>
+
+    <!-- 常驻入口：会话列表上方，竖排小卡片（每个独占一行） -->
+    <nav class="flex flex-none flex-col gap-1 px-2.5 pb-0.5 pt-2" :aria-label="t('sidebar.tools')">
+      <button type="button"
+        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+        @click="skillsOpen = true">
+        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
+          aria-hidden="true">
+          <Sparkles class="size-3.5 text-[var(--color-mut)]" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
+          {{ t("sidebar.skills") }}
+        </span>
+      </button>
+      <button type="button"
+        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+        @click="mcpOpen = true">
+        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
+          aria-hidden="true">
+          <Cable class="size-3.5 text-[var(--color-mut)]" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">MCP</span>
+      </button>
+      <button type="button"
+        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+        @click="schedulerOpen = true">
+        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
+          aria-hidden="true">
+          <CalendarClock class="size-3.5 text-[var(--color-mut)]" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
+          {{ t("scheduler.entry") }}
+        </span>
+      </button>
+      <button type="button"
+        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+        @click="featuresOpen = true">
+        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
+          aria-hidden="true">
+          <Blocks class="size-3.5 text-[var(--color-mut)]" />
+        </span>
+        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
+          {{ t("features.entry") }}
+        </span>
+      </button>
+    </nav>
 
     <!-- 会话分区：公共区 / 工作区（单层滚动容器，区块头可折叠） -->
     <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0 pb-2 pt-2 my-2">

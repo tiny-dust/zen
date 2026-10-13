@@ -79,6 +79,12 @@ function hintOf(entry: FeatureStatus): string {
     ? t("features.unsupportedPlatformHint")
     : t("features.notInstalledHint");
 }
+
+function usageOf(entry: FeatureStatus): string {
+  return te(`features.catalog.${entry.id}.usage`)
+    ? t(`features.catalog.${entry.id}.usage`)
+    : entry.usage;
+}
 </script>
 
 <template>
@@ -136,6 +142,10 @@ function hintOf(entry: FeatureStatus): string {
                 </Badge>
               </div>
               <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">{{ descOf(entry) }}</p>
+              <p v-if="entry.available" class="m-0 mt-1 text-[11px] text-[var(--color-txt)]">
+                <span class="text-[var(--color-dim)]">{{ t("features.usageLabel") }}</span>
+                {{ usageOf(entry) }}
+              </p>
               <p v-if="!entry.available" class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]">
                 {{ hintOf(entry) }}
               </p>

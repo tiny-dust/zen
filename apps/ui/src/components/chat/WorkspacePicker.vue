@@ -63,9 +63,9 @@ async function onCreateWorkspace() {
       >
         <Globe
           v-if="sessionWorkspaceId === workspaceStore.COMMON_ID"
-          class="size-4 flex-none"
+          class="size-4 flex-none text-[var(--composer-ic-workspace)]"
         />
-        <FolderOpen v-else class="size-4 flex-none" />
+        <FolderOpen v-else class="size-4 flex-none text-[var(--composer-ic-workspace)]" />
         <span v-if="!compact" class="truncate text-[11px] font-normal">{{ currentName }}</span>
       </Button>
     </DropdownMenuTrigger>

@@ -426,7 +426,7 @@ function removeAttachment(id: string) {
               :title="t('chat.addFileTitle')"
               @click="openFilePicker"
             >
-              <Plus class="size-4" />
+              <Plus class="size-4 text-[var(--composer-ic-file)]" />
             </Button>
             <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
             <Button
@@ -445,7 +445,7 @@ function removeAttachment(id: string) {
               @click="onMicClick"
             >
               <Square v-if="voiceRecording" class="size-3.5" />
-              <Mic v-else class="size-4" />
+              <Mic v-else class="size-4 text-[var(--composer-ic-voice)]" />
             </Button>
             <WorkspacePicker :compact="isCompactBar" />
             <PromptPicker :compact="isCompactBar" />

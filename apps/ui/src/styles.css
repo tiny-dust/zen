@@ -145,6 +145,16 @@
   --color-composer-placeholder: #151c1399;
   --color-composer-tray-bg: var(--color-sunken);
 
+  /* Composer 底栏功能色：每个入口一个可辨识的色相（图标配色，非交互态色） */
+  --composer-ic-file: #059669;
+  --composer-ic-voice: #e11d48;
+  --composer-ic-workspace: #2563eb;
+  --composer-ic-prompt: #7c3aed;
+  --composer-ic-branch: #0891b2;
+  --composer-ic-mode: #c026d3;
+  --composer-ic-model: #4f46e5;
+  --composer-ic-perm: #d97706;
+
   --color-txt: #151c13cc;
   --color-txt-strong: #151c13;
   /* mut/dim 保持 dim < mut < txt 的层级，同时全部满足 WCAG AA（≥4.5:1） */
@@ -278,6 +288,16 @@
   --color-composer-fg: #a0a0a0;
   --color-composer-placeholder: #a0a0a099;
   --color-composer-tray-bg: #151515;
+
+  /* Composer 底栏功能色（暗色：提亮一档保持对比） */
+  --composer-ic-file: #34d399;
+  --composer-ic-voice: #fb7185;
+  --composer-ic-workspace: #60a5fa;
+  --composer-ic-prompt: #a78bfa;
+  --composer-ic-branch: #22d3ee;
+  --composer-ic-mode: #e879f9;
+  --composer-ic-model: #818cf8;
+  --composer-ic-perm: #fbbf24;
 
   --color-txt: #f4f4f5;
   --color-txt-strong: #fff;

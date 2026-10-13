@@ -12,9 +12,11 @@ export default {
     statusUnsupportedPlatform: "平台不支持",
     notInstalledHint: "该能力尚未在本机安装，安装后会自动亮起",
     unsupportedPlatformHint: "当前操作系统不支持该能力",
+    usageLabel: "如何使用：",
     loadFailed: "目录加载失败：{error}",
     category: {
       input: "输入",
+      output: "输出",
       multimodal: "多模态",
       automation: "自动化",
     },
@@ -22,14 +24,22 @@ export default {
       voice: {
         name: "语音输入",
         desc: "对话输入框语音转文字，支持长按说话与实时转写",
+        usage: "输入框底部麦克风按钮：点击开始/停止录音，识别结果自动填入输入框",
+      },
+      tts: {
+        name: "语音播报",
+        desc: "把助手回复朗读出来，长回复可随时停止",
+        usage: "助手消息气泡右下角的喇叭按钮：点击朗读 / 再次点击停止",
       },
       ocr: {
         name: "屏幕文字识别",
         desc: "截图与屏幕区域文字识别（OCR），识别结果直接进入对话",
+        usage: "发送图片后，消息气泡附件上的「识别文字」按钮：识别结果插入输入框",
       },
       cua: {
         name: "电脑操作（CUA）",
         desc: "Agent 直接观察并操作屏幕上的应用（点击/输入/滚动）",
+        usage: "设置 → 权限 → 桌面自动化开启后，对话里直接让 Agent 操作屏幕（高危能力，默认关闭）",
       },
     },
     exportHtml: "导出会话 HTML",
@@ -49,9 +59,11 @@ export default {
     statusUnsupportedPlatform: "Unsupported platform",
     notInstalledHint: "This capability is not installed on this machine yet; it lights up automatically after installation",
     unsupportedPlatformHint: "This capability is not supported on your operating system",
+    usageLabel: "How to use: ",
     loadFailed: "Failed to load catalog: {error}",
     category: {
       input: "Input",
+      output: "Output",
       multimodal: "Multimodal",
       automation: "Automation",
     },
@@ -59,14 +71,22 @@ export default {
       voice: {
         name: "Voice input",
         desc: "Speech-to-text in the composer, with push-to-talk and live transcription",
+        usage: "Mic button at the bottom of the composer: click to start/stop recording; the transcript fills the input automatically",
+      },
+      tts: {
+        name: "Text to speech",
+        desc: "Read assistant replies aloud; stop anytime on long replies",
+        usage: "Speaker button on the bottom-right of an assistant message: click to read aloud, click again to stop",
       },
       ocr: {
         name: "Screen OCR",
         desc: "Recognize text from screenshots and screen regions; results go straight into the chat",
+        usage: "After sending an image, use the \"Recognize text\" button on the attachment; the result goes into the composer",
       },
       cua: {
         name: "Computer use (CUA)",
         desc: "The Agent observes and operates on-screen apps directly (click/type/scroll)",
+        usage: "Enable it in Settings → Permissions → Computer Use, then just ask the Agent to operate the screen (high-risk, off by default)",
       },
     },
     exportHtml: "Export session HTML",

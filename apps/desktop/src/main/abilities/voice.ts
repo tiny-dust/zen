@@ -35,33 +35,46 @@ const execFileAsync = promisify(execFile);
 const VOICE_SWIFT_SOURCE = `import AVFoundation
 import Speech
 
+// 参数：<output.wav> <result.txt> <pid.txt>
+// 经 open(LaunchServices) 启动的 .app bundle：stdout/stderr 不回传主进程，
+// 识别结果与错误一律写 result 文件（错误以 "ERROR:" 前缀），pid 写 pid 文件供停录信号。
 let args = CommandLine.arguments
-guard args.count == 2 else {
-    FileHandle.standardError.write("usage: zen-voice <output.wav>\\n".data(using: .utf8)!)
+guard args.count == 4 else {
     exit(64)
 }
 let outputURL = URL(fileURLWithPath: args[1])
+let resultPath = args[2]
+let pidPath = args[3]
 
 func fail(_ message: String) -> Never {
-    FileHandle.standardError.write((message + "\\n").data(using: .utf8)!)
+    try? ("ERROR:" + message).write(toFile: resultPath, atomically: true, encoding: .utf8)
     exit(1)
 }
 
-// 语音识别授权（同步等待）
+try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: pidPath, atomically: true, encoding: .utf8)
+
+// SIGINT → 停止等待/录音；handler 必须在授权等待前注册（授权弹窗期间被停才能优雅退出）
+signal(SIGINT, SIG_IGN)
+let stopped = DispatchSemaphore(value: 0)
+let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: DispatchQueue.global())
+var interrupted = false
+sigintSource.setEventHandler {
+    interrupted = true
+    stopped.signal()
+}
+sigintSource.resume()
+
+// 语音识别授权（同步等待；bundle Info.plist 带 NSSpeechRecognitionUsageDescription）
 let authDone = DispatchSemaphore(value: 0)
 SFSpeechRecognizer.requestAuthorization { _ in authDone.signal() }
-authDone.wait()
+_ = authDone.wait(timeout: .now() + 300)
+if interrupted {
+    fail("授权等待被中断")
+}
 
 guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
     fail("speech recognizer unavailable")
 }
-
-// SIGINT → 停止录音并转写；signal source 放全局队列（主线程即将阻塞等待）
-signal(SIGINT, SIG_IGN)
-let stopped = DispatchSemaphore(value: 0)
-let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: DispatchQueue.global())
-sigintSource.setEventHandler { stopped.signal() }
-sigintSource.resume()
 
 let settings: [String: Any] = [
     AVFormatIDKey: kAudioFormatLinearPCM,
@@ -85,7 +98,7 @@ _ = stopped.wait(timeout: .now() + 300)
 recorder.stop()
 sigintSource.cancel()
 
-// 停录后本地识别，结果打到 stdout（main 进程读取）
+// 停录后本地识别，结果写 result 文件
 let request = SFSpeechURLRecognitionRequest(url: outputURL)
 request.shouldReportPartialResults = false
 if #available(macOS 13.0, *) {
@@ -93,6 +106,7 @@ if #available(macOS 13.0, *) {
 }
 let recognized = DispatchSemaphore(value: 0)
 var bestText = ""
+var recError: String?
 recognizer.recognitionTask(with: request) { result, error in
     if let result = result {
         bestText = result.bestTranscription.formattedString
@@ -101,13 +115,16 @@ recognizer.recognitionTask(with: request) { result, error in
         }
     } else {
         if let error = error {
-            FileHandle.standardError.write("recognition error: \\(error)\\n".data(using: .utf8)!)
+            recError = String(describing: error)
         }
         recognized.signal()
     }
 }
-_ = recognized.wait(timeout: .now() + 60)
-print(bestText)
+_ = recognized.wait(timeout: .now() + 30)
+if let recError = recError {
+    fail("recognition error: \\(recError)")
+}
+try? bestText.write(toFile: resultPath, atomically: true, encoding: .utf8)
 exit(0)
 `;
 
@@ -130,6 +147,32 @@ try {
 }
 `;
 
+/**
+ * zen-voice 的嵌入式 Info.plist：macOS TCC 要求访问麦克风/语音识别前声明 usage
+ * description，裸二进制缺失声明会被 __TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__ 直接
+ * SIGABRT（无任何输出，只在 DiagnosticReports 留崩溃记录）。
+ * CFBundleExecutable/CFBundlePackageType 必须齐全，否则 LaunchServices 找不到
+ * 可执行文件（open 报 "its executable is missing"，codesign 会把 Info.plist
+ * 误认成可执行文件）。
+ */
+const VOICE_SWIFT_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>dev.zen.voice</string>
+  <key>CFBundleName</key><string>zen-voice</string>
+  <key>CFBundleDisplayName</key><string>Zen Voice</string>
+  <key>CFBundleExecutable</key><string>zen-voice</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Zen 需要使用麦克风进行语音输入识别</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Zen 需要语音识别权限将语音转为文字</string>
+</dict>
+</plist>
+`;
+
 /** 活跃录音会话（一次只允许一路） */
 interface VoiceSession {
   kind: "swift" | "powershell" | "whisper";
@@ -138,6 +181,9 @@ interface VoiceSession {
   capturePath: string;
   /** whisper 转写输出目录（Linux） */
   whisperDir?: string;
+  /** macOS open 模式：识别结果文件 / zen-voice 进程 pid 文件 */
+  resultPath?: string;
+  pidPath?: string;
   stdout: string;
   stderr: string;
 }
@@ -176,13 +222,28 @@ export class VoiceService {
     await mkdir(dir, { recursive: true });
     try {
       if (process.platform === "darwin") {
-        const bin = await ensureSwiftTool("zen-voice", VOICE_SWIFT_SOURCE);
+        const bin = await ensureSwiftTool("zen-voice", VOICE_SWIFT_SOURCE, VOICE_SWIFT_PLIST);
         if (!bin) {
           return { ok: false, error: "Swift 语音工具编译失败" };
         }
+        // TCC 按「责任进程」查 Info.plist：直接 spawn bundle 可执行会归责到本进程
+        // （dev 下 Electron 被 node 托管，责任链上的 app 无语音声明 → SIGABRT）。
+        // 经 open(LaunchServices) 启动则责任链干净，bundle 自身的 plist 生效。
+        const bundlePath = bin.slice(0, bin.indexOf("/Contents/MacOS/"));
+        if (!bundlePath.endsWith(".app")) {
+          return { ok: false, error: "语音工具 bundle 路径异常" };
+        }
         const capturePath = join(dir, `${id}.wav`);
-        const child = spawn(bin, [capturePath], { stdio: ["ignore", "pipe", "pipe"] });
+        const resultPath = join(dir, `${id}.txt`);
+        const pidPath = join(dir, `${id}.pid`);
+        const child = spawn(
+          "open",
+          ["-n", "-W", bundlePath, "--args", capturePath, resultPath, pidPath],
+          { stdio: ["ignore", "ignore", "ignore"] },
+        );
         this.session = this.track(child, "swift", capturePath);
+        this.session.resultPath = resultPath;
+        this.session.pidPath = pidPath;
         return { ok: true };
       }
       if (process.platform === "win32") {
@@ -274,15 +335,32 @@ export class VoiceService {
     return session;
   }
 
-  /** macOS：SIGINT 停录 → 同进程完成转写 → stdout 即识别文本 */
+  /**
+   * macOS：open 启动的 zen-voice app —— 读 pid 文件 → SIGINT 停录转写 →
+   * 等 open(-W) 进程退出 → 读 result 文件（ERROR: 前缀 = 失败）。
+   */
   private async stopSwift(session: VoiceSession): Promise<VoiceTranscribeResult> {
-    session.child.kill("SIGINT");
-    const exit = await waitExit(session.child, 90_000);
-    const text = session.stdout.trim();
-    if (!exit.ok) {
-      return { ok: false, error: session.stderr.trim() || "语音识别失败" };
+    if (!session.resultPath || !session.pidPath) {
+      return { ok: false, error: "录音会话状态异常" };
     }
-    return { ok: true, text };
+    try {
+      const pid = Number.parseInt((await readFile(session.pidPath, "utf8")).trim(), 10);
+      if (Number.isInteger(pid)) {
+        process.kill(pid, "SIGINT");
+      }
+    } catch {
+      // pid 文件缺失/进程已退出：继续等 open 退出并读结果
+    }
+    await waitExit(session.child, 45_000);
+    try {
+      const text = (await readFile(session.resultPath, "utf8")).trim();
+      if (text.startsWith("ERROR:")) {
+        return { ok: false, error: text.slice("ERROR:".length).trim() || "语音识别失败" };
+      }
+      return { ok: true, text };
+    } catch {
+      return { ok: false, error: "语音识别失败" };
+    }
   }
 
   /** Windows：杀 PowerShell 进程 → 读增量识别结果文件 */

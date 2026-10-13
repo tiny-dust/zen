@@ -16,20 +16,33 @@ const execFileAsync = promisify(execFile);
  * 仅 macOS 可用；其它平台 ensureSwiftTool 恒返回 null（安全降级）。
  */
 
-/** Swift 工具二进制名：`<name>-<sourceHash8>`，源码变化即换名重编 */
-export function swiftBinaryName(name: string, source: string): string {
-  return `${name}-${createHash("sha1").update(source).digest("hex").slice(0, 8)}`;
+/** Swift 工具二进制名：`<name>-<sourceHash8>`，源码/plist 变化即换名重编，不会用到旧产物 */
+export function swiftBinaryName(name: string, source: string, plist?: string): string {
+  return `${name}-${createHash("sha1").update(source).update("\0").update(plist ?? "").digest("hex").slice(0, 8)}`;
 }
 
-export function swiftToolPaths(cacheRoot: string, name: string, source: string): {
+export function swiftToolPaths(
+  cacheRoot: string,
+  name: string,
+  source: string,
+  plist?: string,
+): {
   bin: string;
   src: string;
+  plist: string | null;
+  bundle: string | null;
 } {
   const binDir = join(cacheRoot, "bin");
   const srcDir = join(cacheRoot, "src");
+  const base = swiftBinaryName(name, source, plist);
+  // 带 plist 的工具产出 .app bundle：macOS TCC 只认 bundle 的 Info.plist，
+  // CLI 裸二进制（含 Mach-O 内嵌 plist 段）访问麦克风/语音识别会被直接 SIGABRT
+  const bundle = plist ? join(binDir, `${base}.app`) : null;
   return {
-    bin: join(binDir, swiftBinaryName(name, source)),
-    src: join(srcDir, `${swiftBinaryName(name, source)}.swift`),
+    bin: bundle ? join(bundle, "Contents", "MacOS", name) : join(binDir, base),
+    src: join(srcDir, `${base}.swift`),
+    plist: plist ? join(bundle!, "Contents", "Info.plist") : null,
+    bundle,
   };
 }
 
@@ -54,20 +67,30 @@ export function defaultSwiftCacheRoot(): string {
 /**
  * 确保 Swift 工具可用，返回二进制绝对路径；不可用（非 macOS / swiftc 缺失 /
  * 编译失败）返回 null。产物与源码都落在 cacheRoot 下的 bin/ 与 src/。
+ * plist：可选的 Info.plist 内容——嵌入二进制 __TEXT,__info_plist 段，
+ * 访问麦克风/语音识别等 TCC 管控资源时缺 usage description 会被系统直接 SIGABRT。
  */
-export function ensureSwiftTool(name: string, source: string): Promise<string | null> {
+export function ensureSwiftTool(name: string, source: string, plist?: string): Promise<string | null> {
   if (process.platform !== "darwin") {
     return Promise.resolve(null);
   }
   const cacheRoot = defaultSwiftCacheRoot();
-  const { bin, src } = swiftToolPaths(cacheRoot, name, source);
-  const existing = inflight.get(bin) ?? compile(name, source, bin, src);
+  const { bin, src, plist: plistPath, bundle } = swiftToolPaths(cacheRoot, name, source, plist);
+  const existing = inflight.get(bin) ?? compile(name, source, bin, src, plist ?? null, plistPath, bundle);
   inflight.set(bin, existing);
   existing.finally(() => inflight.delete(bin)).catch(() => undefined);
   return existing;
 }
 
-async function compile(name: string, source: string, bin: string, src: string): Promise<string | null> {
+async function compile(
+  name: string,
+  source: string,
+  bin: string,
+  src: string,
+  plist: string | null,
+  plistPath: string | null,
+  bundle: string | null,
+): Promise<string | null> {
   if (failedTools.has(name)) {
     return null;
   }
@@ -80,6 +103,14 @@ async function compile(name: string, source: string, bin: string, src: string): 
     await mkdir(binDir, { recursive: true });
     await mkdir(srcDir, { recursive: true });
     await writeFile(src, source, "utf8");
+    if (plist && plistPath && bundle) {
+      // bundle 模式：Info.plist 落 Contents/、可执行落 Contents/MacOS/，ad-hoc 签名
+      await mkdir(join(bundle, "Contents", "MacOS"), { recursive: true });
+      await writeFile(plistPath, plist, "utf8");
+      await execFileAsync("swiftc", ["-o", bin, src], { timeout: 120_000 });
+      await execFileAsync("codesign", ["--force", "--sign", "-", bundle], { timeout: 30_000 });
+      return bin;
+    }
     await execFileAsync("swiftc", ["-o", bin, src], { timeout: 120_000 });
     return bin;
   } catch {

@@ -136,7 +136,7 @@ function openPromptSettings() {
           :preset-id="activePromptId"
           :name="activePromptName"
           :size="16"
-          class="flex-none"
+          class="flex-none text-[var(--composer-ic-prompt)]"
         />
         <span v-if="!compact" class="truncate text-[11px] font-normal">{{ activePromptName }}</span>
       </Button>

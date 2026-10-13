@@ -4,6 +4,7 @@ import type { LocaleModule } from "../index";
 export default {
   "zh-CN": {
     sidebar: "侧边栏",
+    tools: "快捷入口",
     skills: "技能",
     workspaces: "工作区",
     newWorkspace: "新建工作区",
@@ -174,6 +175,7 @@ export default {
   },
   "en-US": {
     sidebar: "Sidebar",
+    tools: "Quick access",
     skills: "Skills",
     workspaces: "Workspaces",
     newWorkspace: "New workspace",
