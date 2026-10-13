@@ -5,6 +5,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import { DateField, TimeField } from "@/components/scheduler";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -419,58 +420,29 @@ function lastRunLabel(task: ScheduledTask): string {
                 </SelectContent>
               </Select>
             </div>
-            <Input
+            <TimeField
               v-else-if="form.kind === 'daily'"
               v-model="form.time"
-              type="time"
-              class="h-8 text-[12px]"
               :aria-label="t('scheduler.time')"
             />
-            <div v-else-if="form.kind === 'monthly'" class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-              <Input
-                v-model="form.day"
-                type="number"
-                min="1"
-                max="31"
-                step="1"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.dayOfMonth')"
-                :placeholder="t('scheduler.dayOfMonth')"
-              />
-              <Input
-                v-model="form.time"
-                type="time"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.time')"
-              />
+            <div v-else-if="form.kind === 'monthly'" class="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] gap-2">
+              <Select v-model="form.day">
+                <SelectTrigger class="h-8 text-[12px]" :aria-label="t('scheduler.dayOfMonth')">
+                  <SelectValue :placeholder="t('scheduler.dayOfMonth')" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="d in 31" :key="d" :value="String(d)">{{ d }}</SelectItem>
+                </SelectContent>
+              </Select>
+              <TimeField v-model="form.time" :aria-label="t('scheduler.time')" />
             </div>
             <div v-else-if="form.kind === 'once'" class="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-2">
-              <Input
-                v-model="form.date"
-                type="date"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.onceDate')"
-              />
-              <Input
-                v-model="form.time"
-                type="time"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.onceTime')"
-              />
+              <DateField v-model="form.date" :aria-label="t('scheduler.onceDate')" />
+              <TimeField v-model="form.time" :aria-label="t('scheduler.onceTime')" />
             </div>
-            <div v-else class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2">
-              <Input
-                v-model="form.startTime"
-                type="time"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.windowStart')"
-              />
-              <Input
-                v-model="form.endTime"
-                type="time"
-                class="h-8 text-[12px]"
-                :aria-label="t('scheduler.windowEnd')"
-              />
+            <div v-else class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.7fr)] gap-2">
+              <TimeField v-model="form.startTime" :aria-label="t('scheduler.windowStart')" />
+              <TimeField v-model="form.endTime" :aria-label="t('scheduler.windowEnd')" />
               <Input
                 v-model="form.everyMinutes"
                 type="number"

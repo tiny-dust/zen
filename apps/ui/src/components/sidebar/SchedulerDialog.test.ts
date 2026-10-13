@@ -78,6 +78,7 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
               <button type="button" data-set="second" @click="$emit('update:modelValue', 'second')">second</button>
               <button type="button" data-set="minute" @click="$emit('update:modelValue', 'minute')">minute</button>
               <button type="button" data-set="hour" @click="$emit('update:modelValue', 'hour')">hour</button>
+              <button type="button" data-set="15" @click="$emit('update:modelValue', '15')">15</button>
             </div>
           `,
         },
@@ -85,6 +86,32 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
         SelectValue: true,
         SelectContent: true,
         SelectItem: true,
+        // TimeField/DateField 桩：保持 input + aria-label 语义（真实组件为 Select/日历组合，
+        // 自身的拆合逻辑由 SchedulerFields.test.ts 覆盖）
+        TimeField: {
+          props: ["modelValue", "ariaLabel"],
+          emits: ["update:modelValue"],
+          template: `
+            <input
+              type="text"
+              :aria-label="ariaLabel"
+              :value="modelValue"
+              @input="$emit('update:modelValue', $event.target.value)"
+            />
+          `,
+        },
+        DateField: {
+          props: ["modelValue", "ariaLabel"],
+          emits: ["update:modelValue"],
+          template: `
+            <input
+              type="text"
+              :aria-label="ariaLabel"
+              :value="modelValue"
+              @input="$emit('update:modelValue', $event.target.value)"
+            />
+          `,
+        },
       },
       renderStubDefaultSlot: true,
     },
@@ -194,22 +221,20 @@ describe("SchedulerDialog 调度表单", () => {
     wrapper.unmount();
   });
 
-  it("monthly 校验：几号越界提示，合法则提交 day+time", async () => {
+  it("monthly：几号 Select（1-31）+ 时刻，提交 day+time", async () => {
     const wrapper = await mountDialog();
     await inputByLabel(wrapper, "名称").setValue("月报");
     await inputByLabel(wrapper, "指令").setValue("汇总");
     await setSelect(wrapper, "interval", "monthly");
 
-    await inputByLabel(wrapper, "每月几号").setValue("32");
-    await submit(wrapper);
-    expect(wrapper.text()).toContain("几号需为 1-31 的整数");
-    expect(create).not.toHaveBeenCalled();
-
-    await inputByLabel(wrapper, "每月几号").setValue("1");
+    // 几号由 Select 提供选项（1-31），UI 无法再产生越界值；当前值为 1
+    const daySelect = wrapper.findAll(".select-stub").find((item) => item.attributes("data-value") === "1");
+    expect(daySelect).toBeTruthy();
+    await setSelect(wrapper, "1", "15");
     await inputByLabel(wrapper, "时刻").setValue("09:30");
     await submit(wrapper);
     expect(create.mock.calls[0]?.[0]).toMatchObject({
-      schedule: { kind: "monthly", day: 1, time: "09:30" },
+      schedule: { kind: "monthly", day: 15, time: "09:30" },
     });
     wrapper.unmount();
   });
