@@ -1,4 +1,4 @@
-import type { PromptPreset } from "@zen/shared";
+import type { PromptPreset, PromptViewVersion } from "@zen/shared";
 
 import { mainT } from "./i18n";
 import type { MainLocale } from "./i18n";
@@ -249,11 +249,21 @@ export function resolvePromptText(settings: AgentSettingsLike): string {
     return custom || ZEN_DISTILLED;
   }
   const preset = PROMPT_PRESETS.find((item) => item.id === settings.prompt.presetId);
-  return preset?.text || ZEN_DISTILLED;
+  if (!preset) {
+    return ZEN_DISTILLED;
+  }
+  // 用户选择的注入版本（提炼版 / 完整中文版 / 完整英文原文）；
+  // 该版本缺失时回落到预设默认 text（如 MiMo 无提炼版、DimAgent 默认中文）
+  const version = settings.prompt.version ?? "distilled";
+  const picked = preset.versions?.[version];
+  if (picked) {
+    return picked;
+  }
+  return preset.text || ZEN_DISTILLED;
 }
 
 interface AgentSettingsLike {
-  prompt: { presetId: string; customText: string };
+  prompt: { presetId: string; customText: string; version?: PromptViewVersion };
 }
 
 /** 设置页展示用：按界面语言返回 name/description 已本地化的预设副本（origin 为来源引用，保持原样） */

@@ -189,7 +189,7 @@ function resetLark() {
 </script>
 
 <template>
-  <section class="flex flex-col">
+  <section id="set-profile" class="flex flex-col scroll-mt-2">
     <Card v-if="auth.loggedIn && user" size="sm" class="settings-card">
       <CardContent class="flex flex-col gap-4 p-4">
         <div class="flex items-start gap-3.5">

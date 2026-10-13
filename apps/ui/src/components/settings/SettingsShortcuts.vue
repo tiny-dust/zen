@@ -6,25 +6,12 @@ import { normalizeShortcutKey } from "@zen/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Kbd } from "@/components/ui/kbd";
+import { shortcutKeyLabel, shortcutKeyParts } from "@/lib/shortcut-display";
 import { useSettingsStore } from "@/stores/settings";
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const { settings } = storeToRefs(settingsStore);
-
-/** 按键符号化展示：修饰键/回车用 macOS 符号，其余键原样 */
-const KBD_SYMBOLS: Record<string, string> = {
-  Cmd: "⌘",
-  Ctrl: "⌃",
-  Alt: "⌥",
-  Shift: "⇧",
-  Enter: "↵",
-};
-
-/** "Shift+Cmd+P" → ["Shift", "Cmd", "P"]，逐个 Kbd 展示 */
-function keyParts(key: string): string[] {
-  return key.split("+").filter(Boolean);
-}
 
 function onCaptureKey(event: KeyboardEvent, id: string) {
   event.preventDefault();
@@ -54,7 +41,7 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
 </script>
 
 <template>
-  <section class="flex flex-col">
+  <section id="set-shortcuts" class="flex flex-col scroll-mt-2">
     <Card size="sm" class="settings-card">
       <CardContent class="p-0">
         <div class="flex flex-col text-[12px]">
@@ -82,8 +69,8 @@ function onCaptureKey(event: KeyboardEvent, id: string) {
               :aria-label="t('settings.shortcut.key')"
               @keydown="onCaptureKey($event, item.id)"
             >
-              <Kbd v-for="part in keyParts(item.key)" :key="part">
-                {{ KBD_SYMBOLS[part] ?? part }}
+              <Kbd v-for="part in shortcutKeyParts(item.key)" :key="part">
+                {{ shortcutKeyLabel(part) }}
               </Kbd>
             </Button>
           </div>

@@ -156,7 +156,7 @@ function removeQuickCommand(id: string) {
 
 <template>
   <!-- 飞书桥接：本机 lark-cli 网关（启停与 allowedOpenId 由主进程托管） -->
-  <section class="flex flex-col gap-2.5">
+  <section id="set-lark-bridge" class="flex flex-col gap-2.5 scroll-mt-2">
     <div class="flex items-center gap-2">
       <Bot :size="15" class="text-[var(--color-mut)]" />
       <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.lark.bridgeTitle") }}</h3>

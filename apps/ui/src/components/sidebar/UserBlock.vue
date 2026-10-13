@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import FeishuLogo from "@/components/brand/FeishuLogo.vue";
 import GithubMark from "@/components/brand/GithubMark.vue";
+import { Kbd } from "@/components/ui/kbd";
+import { shortcutDisplayParts } from "@/lib/shortcut-display";
 import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
@@ -265,6 +267,14 @@ function openSettings() {
   settingsStore.openSettings("general");
 }
 
+/** 设置入口的快捷键提示：读真实绑定（用户可改键），逐键用 Kbd 展示 */
+const settingsShortcutParts = computed(() => {
+  const binding = settingsStore.settings.shortcuts.find(
+    (item) => item.command === "workbench.action.openSettings",
+  );
+  return binding ? shortcutDisplayParts(binding.key) : [];
+});
+
 function openProfile() {
   settingsStore.openSettings("profile");
 }
@@ -377,7 +387,9 @@ const accountRowCls =
           <DropdownMenuItem :class="menuItemCls" @select="openSettings">
             <Settings class="size-[15px] flex-none text-[var(--color-mut)]" />
             <span>{{ t("sidebar.user.settings") }}</span>
-            <DropdownMenuShortcut>⌘,</DropdownMenuShortcut>
+            <DropdownMenuShortcut class="gap-1">
+              <Kbd v-for="part in settingsShortcutParts" :key="part">{{ part }}</Kbd>
+            </DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem :class="menuItemCls" @select="openProfile">
             <HelpCircle class="size-[15px] flex-none text-[var(--color-mut)]" />

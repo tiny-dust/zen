@@ -584,6 +584,13 @@
     color: var(--color-txt-strong);
   }
 
+  /* 设置搜索命中后的小节高亮：只做底色反馈，随时间淡出（focus-001：不做粗圈） */
+  .settings-hit {
+    transition: background-color 1.2s ease-out;
+    background-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    border-radius: 10px;
+  }
+
   .settings-hint {
     margin: 0 0 12px;
     font-size: 12px;

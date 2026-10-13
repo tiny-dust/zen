@@ -92,15 +92,26 @@ const versionNote = computed(() => {
 function selectPreset(id: string) {
   previewId.value = id;
   const preset = presets.value.find((item) => item.id === id);
-  viewVersion.value = preset?.defaultView ?? "distilled";
-  if (id === "custom") {
-    void agentStore.updateSettings({
-      prompt: { presetId: "custom", customText: settings.value.prompt.customText },
-    });
+  // 切换预设时注入版本回落到该预设的推荐视图（用户可再切 中/英/提炼版）
+  const version = id === "custom" ? "distilled" : (preset?.defaultView ?? "distilled");
+  viewVersion.value = version;
+  void agentStore.updateSettings({
+    prompt: { presetId: id, customText: settings.value.prompt.customText, version },
+  });
+}
+
+/** 版本切换同时决定预览与会话实际注入的文本（自定义提示词无版本概念） */
+function selectVersion(ver: PromptViewVersion) {
+  viewVersion.value = ver;
+  if (settings.value.prompt.presetId === "custom") {
     return;
   }
   void agentStore.updateSettings({
-    prompt: { presetId: id, customText: settings.value.prompt.customText },
+    prompt: {
+      presetId: settings.value.prompt.presetId,
+      customText: settings.value.prompt.customText,
+      version: ver,
+    },
   });
 }
 
@@ -142,7 +153,7 @@ watch(
   (id) => {
     previewId.value = id;
     const preset = presets.value.find((item) => item.id === id) as PromptPreset | undefined;
-    viewVersion.value = preset?.defaultView ?? "distilled";
+    viewVersion.value = settings.value.prompt.version ?? preset?.defaultView ?? "distilled";
   },
   { immediate: true },
 );
@@ -150,7 +161,7 @@ watch(
 
 <template>
   <div class="flex flex-col gap-5">
-    <section class="flex flex-col gap-2.5">
+    <section id="set-prompts-presets" class="flex flex-col gap-2.5 scroll-mt-2">
       <div class="flex items-center gap-2">
         <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.prompts.title") }}</h3>
         <Badge variant="secondary">{{ t("settings.prompts.currentBadge", { name: activePresetName }) }}</Badge>
@@ -230,7 +241,7 @@ watch(
                 : 'border-[var(--color-line)] text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
             :aria-pressed="viewVersion === ver.id"
-            @click="viewVersion = ver.id"
+            @click="selectVersion(ver.id)"
           >
             {{ ver.label }}
           </Button>

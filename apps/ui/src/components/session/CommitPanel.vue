@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
+import { shortcutDisplayParts } from "@/lib/shortcut-display";
 
 const emit = defineEmits<{
   close: [];
@@ -182,6 +183,10 @@ const rowCls = cn(
   "flex w-full items-center justify-start gap-2 rounded-[var(--radius-sm)] px-2 py-[7px] text-left text-[13px] text-[var(--color-txt)]",
   "hover:bg-[var(--color-menu-hover)] disabled:pointer-events-none disabled:opacity-40",
 );
+
+/** 快捷键展示与 onKeydown 的实际监听（metaKey||ctrlKey + Enter）保持一致，符号随平台 */
+const commitKeys = shortcutDisplayParts("Cmd+Enter");
+const commitPushKeys = shortcutDisplayParts("Shift+Cmd+Enter");
 </script>
 
 <template>
@@ -310,8 +315,7 @@ const rowCls = cn(
         <ArrowRight v-else class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
         <span class="flex-1">{{ t("shell.commit") }}</span>
         <KbdGroup class="flex-none">
-          <Kbd>⌘</Kbd>
-          <Kbd>↵</Kbd>
+          <Kbd v-for="part in commitKeys" :key="part">{{ part }}</Kbd>
         </KbdGroup>
       </Button>
       <Button
@@ -333,9 +337,7 @@ const rowCls = cn(
         />
         <span class="flex-1">{{ t("shell.commitAndPush") }}</span>
         <KbdGroup class="flex-none">
-          <Kbd>⇧</Kbd>
-          <Kbd>⌘</Kbd>
-          <Kbd>↵</Kbd>
+          <Kbd v-for="part in commitPushKeys" :key="part">{{ part }}</Kbd>
         </KbdGroup>
       </Button>
       <Button

@@ -5,6 +5,7 @@
 
 import type { LarkBridgeSettings } from "./lark";
 import { DEFAULT_LARK_BRIDGE_SETTINGS } from "./lark";
+import type { PromptViewVersion } from "./prompts";
 
 /** 权限模式：默认（全部确认）/ 智能（按风险分级）/ 完全访问（全部放行） */
 export type PermissionMode = "default" | "smart" | "full";
@@ -36,6 +37,8 @@ export interface PromptSelection {
   presetId: string;
   /** presetId === "custom" 时的自定义系统提示词 */
   customText: string;
+  /** 运行时注入的版本：提炼版（默认）/ 完整中文版 / 完整英文原文；仅对内置预设生效 */
+  version?: PromptViewVersion;
 }
 
 export interface AgentSettings {
@@ -59,7 +62,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   sandboxMode: "direct",
   sandboxRoot: null,
   skillExtraPaths: [],
-  prompt: { presetId: "zen-default", customText: "" },
+  prompt: { presetId: "zen-default", customText: "", version: "distilled" },
   syncEnabled: false,
   syncRepo: null,
   larkBridge: DEFAULT_LARK_BRIDGE_SETTINGS,

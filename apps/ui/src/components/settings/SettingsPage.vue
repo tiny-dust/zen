@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Bot, Boxes, Keyboard, MessageSquare, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Keyboard, MessageSquare, Search, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
@@ -11,6 +11,7 @@ import SettingsModels from "@/components/settings/SettingsModels.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
+import { searchSettings } from "@/components/settings/settings-search";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -23,6 +24,8 @@ const settingsStore = useSettingsStore();
 const { settingsOpen, activeTab } = storeToRefs(settingsStore);
 
 const search = ref("");
+/** 面板滚动容器：搜索命中后把小节滚进可视区 */
+const paneScroll = ref<HTMLElement | null>(null);
 
 const navGroups = computed(() => [
   {
@@ -49,37 +52,29 @@ const navGroups = computed(() => [
   },
 ]);
 
-const filteredGroups = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  if (!q) {
-    return navGroups.value;
-  }
-  return navGroups.value
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => item.label.toLowerCase().includes(q)),
-    }))
-    .filter((group) => group.items.length > 0);
-});
+/** 命中的设置项列表（tab 名 + 小节名 + 关键词匹配） */
+const searchResults = computed(() =>
+  searchSettings(search.value, (key) => t(key)),
+);
 
-const paneTitle = computed(() => {
-  switch (activeTab.value) {
-    case "models":
-      return t("settings.nav.models");
-    case "profile":
-      return t("settings.nav.profile");
-    case "shortcuts":
-      return t("settings.nav.shortcuts");
-    case "agent":
-      return t("settings.nav.agent");
-    case "lark":
-      return t("settings.nav.lark");
-    case "prompts":
-      return t("settings.nav.prompts");
-    default:
-      return t("settings.nav.general");
-  }
-});
+const searching = computed(() => search.value.trim().length > 0);
+
+function tabLabel(tab: SettingsTab): string {
+  const map: Record<SettingsTab, string> = {
+    general: t("settings.nav.general"),
+    shortcuts: t("settings.nav.shortcuts"),
+    agent: t("settings.nav.agent"),
+    lark: t("settings.nav.lark"),
+    prompts: t("settings.nav.prompts"),
+    profile: t("settings.nav.profile"),
+    models: t("settings.nav.models"),
+    skills: t("settings.nav.general"),
+    mcp: t("settings.nav.general"),
+  };
+  return map[tab];
+}
+
+const paneTitle = computed(() => tabLabel(activeTab.value));
 
 /** 每个面板的说明只在这里写一次，子面板不再重复标题与描述 */
 const paneDesc = computed(() => {
@@ -109,9 +104,32 @@ function selectTab(next: SettingsTab) {
   }
 }
 
+/** 搜索命中跳转：切 tab → 滚到小节锚点 → 底色短暂高亮（只做颜色反馈） */
+async function jumpToResult(entry: { tab: SettingsTab; sectionId?: string }) {
+  selectTab(entry.tab);
+  search.value = "";
+  if (!entry.sectionId) {
+    return;
+  }
+  await nextTick();
+  // 等面板内容挂载完成再定位；找不到锚点静默降级为只切 tab
+  requestAnimationFrame(() => {
+    const el = document.getElementById(entry.sectionId!);
+    if (!el) {
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.classList.add("settings-hit");
+    window.setTimeout(() => el.classList.remove("settings-hit"), 1600);
+  });
+}
+
 watch(
   () => settingsOpen.value,
   (open) => {
+    if (!open) {
+      search.value = "";
+    }
     if (!open && window.location.hash.startsWith("#settings")) {
       history.replaceState(null, "", window.location.pathname + window.location.search);
     }
@@ -143,8 +161,37 @@ watch(
         />
 
         <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <div class="flex flex-col gap-3.5 py-0.5 pb-3">
-            <div v-for="group in filteredGroups" :key="group.title">
+          <!-- 搜索中：设置项命中列表（点击直达对应小节） -->
+          <div v-if="searching" class="flex flex-col gap-0.5 py-0.5 pb-3">
+            <div class="flex items-center gap-1.5 px-2.5 pb-1.5 text-[11px] text-[var(--color-dim)]">
+              <Search class="size-3" aria-hidden="true" />
+              {{ t("settings.nav.searchResults", { count: searchResults.length }) }}
+            </div>
+            <Button
+              v-for="entry in searchResults"
+              :key="`${entry.tab}-${entry.sectionId ?? 'page'}`"
+              variant="ghost"
+              class="flex min-h-9 w-full flex-row items-start justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+              @click="jumpToResult(entry)"
+            >
+              <span class="flex min-w-0 flex-1 flex-col items-start">
+                <span class="w-full truncate text-[12px] text-[var(--color-txt-strong)]">{{ entry.title }}</span>
+                <span class="w-full truncate text-[11px] text-[var(--color-mut)]">
+                  {{ tabLabel(entry.tab) }}
+                </span>
+              </span>
+            </Button>
+            <p
+              v-if="!searchResults.length"
+              class="m-0 px-2.5 py-2 text-[12px] text-[var(--color-dim)]"
+            >
+              {{ t("settings.nav.searchEmpty") }}
+            </p>
+          </div>
+
+          <!-- 平时：分组导航 -->
+          <div v-else class="flex flex-col gap-3.5 py-0.5 pb-3">
+            <div v-for="group in navGroups" :key="group.title">
               <div class="px-2.5 pb-1.5 text-[11px] text-[var(--color-dim)]">
                 {{ group.title }}
               </div>
@@ -169,6 +216,7 @@ watch(
       </aside>
 
       <main
+        ref="paneScroll"
         class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--color-settings-content)]"
       >
         <header class="flex flex-none items-start justify-between gap-3 px-[18px] pb-2.5 pt-3">

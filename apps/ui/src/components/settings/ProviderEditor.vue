@@ -4,16 +4,17 @@ import { storeToRefs } from "pinia";
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
-import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import CatalogModelPicker from "@/components/settings/CatalogModelPicker.vue";
 import EditorModelList from "@/components/settings/EditorModelList.vue";
 import FetchedModelList from "@/components/settings/FetchedModelList.vue";
+import ModelFormDialog from "@/components/settings/ModelFormDialog.vue";
 import ProviderFields from "@/components/settings/ProviderFields.vue";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { toPlain } from "@/lib/utils";
 import { useModelsStore } from "@/stores/models";
 
 import type {
+  CatalogModel,
   FetchModelsResult,
   ProviderModel,
   ProviderProtocol,
@@ -41,19 +42,21 @@ const form = reactive({
 const pendingModels = ref<ProviderModel[]>([]);
 const fetched = ref<FetchModelsResult | null>(null);
 const checkedIds = ref<Set<string>>(new Set());
-const showManualAdd = ref(false);
-const manualForm = reactive({ id: "", name: "" });
 
 const canLoadModels = computed(() => Boolean(form.baseUrl.trim() && form.apiKey.trim()));
 const fetchedRows = computed(() => fetched.value?.models ?? []);
 const knownIds = computed(() => new Set(pendingModels.value.map((item) => item.id)));
 
+/** 添加模型与已有供应商（ProviderDetail）同一交互：目录选择 → 模型表单弹窗 */
+const showPicker = ref(false);
+const showForm = ref(false);
+const formTemplate = ref<CatalogModel | null>(null);
+const formPresetId = ref("");
+const formProviderLabel = computed(() => form.name.trim() || t("settings.models.addTitle"));
+
 function resetFetchState() {
   fetched.value = null;
   checkedIds.value = new Set();
-  showManualAdd.value = false;
-  manualForm.id = "";
-  manualForm.name = "";
 }
 
 function toggleChecked(id: string, next: boolean) {
@@ -111,20 +114,46 @@ function onAddChecked() {
   resetFetchState();
 }
 
-function onManualAdd() {
-  const modelId = manualForm.id.trim();
-  if (!modelId || knownIds.value.has(modelId)) {
+function openPicker() {
+  formTemplate.value = null;
+  formPresetId.value = "";
+  showPicker.value = true;
+}
+
+function onPickCustom(prefillId: string) {
+  showPicker.value = false;
+  formTemplate.value = null;
+  formPresetId.value = prefillId;
+  showForm.value = true;
+}
+
+function onPickTemplate(model: CatalogModel) {
+  showPicker.value = false;
+  formTemplate.value = model;
+  formPresetId.value = "";
+  showForm.value = true;
+}
+
+function onSaveModel(payload: {
+  id: string;
+  name: string;
+  custom: boolean;
+  capabilities?: ProviderModel["capabilities"];
+}) {
+  if (knownIds.value.has(payload.id)) {
     return;
   }
   pendingModels.value.push({
-    id: modelId,
-    name: manualForm.name.trim() || modelId,
+    id: payload.id,
+    name: payload.name,
     enabled: true,
-    custom: true,
+    custom: payload.custom,
+    capabilities: payload.capabilities,
   });
-  manualForm.id = "";
-  manualForm.name = "";
-  showManualAdd.value = false;
+}
+
+function askRemoveModel(model: ProviderModel) {
+  pendingModels.value = pendingModels.value.filter((item) => item.id !== model.id);
 }
 
 async function onSave() {
@@ -154,29 +183,6 @@ async function onSave() {
   } finally {
     saving.value = false;
   }
-}
-
-const modelToRemove = ref<ProviderModel | null>(null);
-const removing = ref(false);
-
-const modelRemoveDesc = computed(() => {
-  const model = modelToRemove.value;
-  return model ? t("settings.models.removePendingDesc", { name: model.name }) : "";
-});
-
-function askRemoveModel(model: ProviderModel) {
-  pendingModels.value = pendingModels.value.filter((item) => item.id !== model.id);
-}
-
-function onModelDialogOpen(next: boolean) {
-  if (!next) {
-    modelToRemove.value = null;
-  }
-}
-
-async function confirmRemoveModel() {
-  removing.value = false;
-  modelToRemove.value = null;
 }
 </script>
 
@@ -215,37 +221,14 @@ async function confirmRemoveModel() {
         <RefreshCw data-icon="inline-start" />
         {{ fetching ? t("settings.models.refreshing") : t("settings.models.refreshModels") }}
       </Button>
-      <Button variant="outline" size="sm" @click="showManualAdd = !showManualAdd">
+      <Button variant="outline" size="sm" @click="openPicker">
         <Plus data-icon="inline-start" />
-        {{ t("settings.models.manualAdd") }}
+        {{ t("settings.models.addModel") }}
       </Button>
       <span v-if="!canLoadModels" class="text-[11px] text-[var(--color-dim)]">
         {{ t("settings.models.needBaseUrlKeyHint") }}
       </span>
     </div>
-
-    <form
-      v-if="showManualAdd"
-      class="mx-3.5 mb-2.5 flex items-center gap-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-np-btn-bg)] px-2.5 py-2"
-      @submit.prevent="onManualAdd"
-    >
-      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-id">ID</label>
-      <Input
-        id="manual-id"
-        v-model="manualForm.id"
-        class="h-7 flex-1 border-0 bg-transparent text-[12px]"
-        placeholder="gpt-4o / VW2TTQCH/deepseek-v4-flash"
-        required
-      />
-      <label class="shrink-0 text-[11px] text-[var(--color-mut)]" for="manual-name">{{ t("settings.models.name") }}</label>
-      <Input
-        id="manual-name"
-        v-model="manualForm.name"
-        class="h-7 flex-1 border-0 bg-transparent text-[12px]"
-        :placeholder="t('settings.models.nameOptionalPlaceholder')"
-      />
-      <Button type="submit" size="sm">{{ t("settings.models.add") }}</Button>
-    </form>
 
     <FetchedModelList
       v-if="fetchedRows.length"
@@ -260,14 +243,19 @@ async function confirmRemoveModel() {
 
     <EditorModelList :models="pendingModels" :edit-mode="false" @remove="askRemoveModel" />
 
-    <ConfirmDialog
-      :open="modelToRemove !== null"
-      :title="t('settings.models.removePendingTitle')"
-      :description="modelRemoveDesc"
-      :confirm-label="t('settings.models.remove')"
-      :pending="removing"
-      @update:open="onModelDialogOpen"
-      @confirm="confirmRemoveModel"
+    <CatalogModelPicker
+      v-model:open="showPicker"
+      :known-ids="knownIds"
+      @pick-custom="onPickCustom"
+      @pick-template="onPickTemplate"
+    />
+
+    <ModelFormDialog
+      v-model:open="showForm"
+      :provider-name="formProviderLabel"
+      :template="formTemplate"
+      :preset-id="formPresetId"
+      @save="onSaveModel"
     />
   </div>
 </template>
