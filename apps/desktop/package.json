@@ -5,6 +5,9 @@
   "productName": "Zen",
   "desktopName": "zen.desktop",
   "main": "out/main/index.js",
+  "bin": {
+    "zen-cli": "./src/cli/zen-cli.mjs"
+  },
   "build": {
     "appId": "com.zen.desktop",
     "productName": "Zen",
@@ -56,6 +59,7 @@
     "updates:serve": "node scripts/updates-server.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "brand:dev": "bash scripts/brand-dev-app.sh",
+    "cli:link": "npm link",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

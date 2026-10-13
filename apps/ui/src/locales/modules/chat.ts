@@ -157,6 +157,10 @@ export default {
       style: "系统提示词风格",
       customHint: "使用设置页中的自定义提示词",
       goSettings: "前往设置 · 提示词",
+      version: "注入版本",
+      versionZh: "完整中文版",
+      versionEn: "完整英文版",
+      versionDistilled: "提炼版（推荐）",
     },
 
     /* 运行目录 / 分支 / 权限 */
@@ -405,6 +409,10 @@ export default {
       style: "System prompt style",
       customHint: "Use your custom prompt from Settings",
       goSettings: "Settings · Prompts",
+      version: "Injected version",
+      versionZh: "Full Chinese",
+      versionEn: "Full English",
+      versionDistilled: "Distilled (recommended)",
     },
 
     /* Workspace / branch / permission */

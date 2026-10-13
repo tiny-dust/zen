@@ -21,6 +21,7 @@ import type { ToolSet } from "ai";
 import type {
   AgentStreamEvent,
   AskUserQuestionEvent,
+  McpAppToolOutput,
   TaskItem,
 } from "@zen/shared";
 import type { ResourceLock } from "./resource-lock";
@@ -565,6 +566,58 @@ export function buildToolSet(
     });
   }
 
+  // CUA 桌面自动化（desktop 注入 cuaBridge 时注册；权限系统按 exec 风险逐次确认）
+  const cuaBridge = config.cuaBridge;
+  if (cuaBridge) {
+    toolSet.cuaStatus = tool({
+      description:
+        "Check desktop automation availability (backend: macOS CGEvent tool / Windows PowerShell / Linux xdotool).",
+      inputSchema: z.object({}),
+      execute: async () => cuaBridge.status(),
+    });
+    toolSet.cuaScreenSize = tool({
+      description:
+        "Get the primary display size in DIP pixels. Use before computing mouse coordinates.",
+      inputSchema: z.object({}),
+      execute: async () => cuaBridge.screenSize(),
+    });
+    toolSet.cuaMouseMove = tool({
+      description: "Move the mouse cursor to (x, y) on the primary display.",
+      inputSchema: z.object({
+        x: z.number().describe("X coordinate"),
+        y: z.number().describe("Y coordinate"),
+      }),
+      execute: async ({ x, y }) => cuaBridge.mouseMove(x, y),
+    });
+    toolSet.cuaMouseClick = tool({
+      description:
+        "Click the mouse. Defaults to left button at the current position; pass x/y to move first.",
+      inputSchema: z.object({
+        button: z.enum(["left", "right", "middle"]).optional().describe("Default left"),
+        x: z.number().optional(),
+        y: z.number().optional(),
+      }),
+      execute: async ({ button, x, y }) => cuaBridge.mouseClick(button, x, y),
+    });
+    toolSet.cuaKeyboardType = tool({
+      description: "Type a text string at the current keyboard focus.",
+      inputSchema: z.object({ text: z.string() }),
+      execute: async ({ text }) => cuaBridge.keyboardType(text),
+    });
+    toolSet.cuaKey = tool({
+      description:
+        'Press a key or hotkey, e.g. "enter", "tab", "esc", "ctrl+c", "cmd+shift+3".',
+      inputSchema: z.object({
+        key: z
+          .string()
+          .describe(
+            'Key name, optionally with modifiers joined by "+": ctrl/alt/shift/cmd(meta/win) + key name.',
+          ),
+      }),
+      execute: async ({ key }) => cuaBridge.keyboardKey(key),
+    });
+  }
+
   // MCP 工具动态桥接：mcp.<server>.<tool>
   for (const bridge of config.mcpTools ?? []) {
     const toolName = `mcp.${bridge.serverName}.${bridge.name}`;
@@ -578,6 +631,11 @@ export function buildToolSet(
         const result = await callMcpTool(bridge.serverName, bridge.name, input);
         if (!result.ok) {
           throw new Error(result.error ?? "MCP tool failed");
+        }
+        // MCP Apps（SEP-1865）：结果带 HTML 资源时返回 { output, html } 对象，
+        // 渲染层据此用沙箱 iframe 展示交互 UI；output 字段仍是给模型看的文本
+        if (result.html) {
+          return { output: result.text, html: capMcpAppHtml(result.html) } satisfies McpAppToolOutput;
         }
         return result.text;
       },
@@ -612,8 +670,18 @@ async function importMcpRuntime(): Promise<{
     serverName: string,
     toolName: string,
     args: unknown,
-  ): Promise<{ ok: boolean; text: string; error?: string }>;
+  ): Promise<{ ok: boolean; text: string; error?: string; html?: string }>;
 }> {
   const mod = await import("./mcp-runtime");
   return mod.importMcpRuntime();
+}
+
+/** MCP Apps HTML 上限：超长 UI 截断（事件/持久化都不会被巨幅 HTML 撑爆） */
+const MAX_MCP_APP_HTML_CHARS = 100_000;
+
+function capMcpAppHtml(html: string): string {
+  if (html.length <= MAX_MCP_APP_HTML_CHARS) {
+    return html;
+  }
+  return `${html.slice(0, MAX_MCP_APP_HTML_CHARS)}\n<!-- zen: MCP App HTML 超长已截断（原始 ${html.length} 字符） -->`;
 }

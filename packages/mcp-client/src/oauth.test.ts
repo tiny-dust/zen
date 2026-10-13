@@ -101,8 +101,9 @@ beforeEach(async () => {
     }
     if (req.url === "/auth/v1/oauth/clients/register" && req.method === "POST") {
       const payload = JSON.parse(body) as Record<string, unknown>;
-      expect(payload.redirect_uris).toHaveLength(1);
-      expect(String(payload.redirect_uris[0])).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+      const redirectUris = payload.redirect_uris as string[];
+      expect(redirectUris).toHaveLength(1);
+      expect(redirectUris[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
       json(res, { client_id: "reg-123", client_secret: "sec-456" });
       return;
     }

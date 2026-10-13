@@ -46,7 +46,9 @@ export function riskForTool(toolName: string): ToolRisk {
     toolName === "browserConsole" ||
     toolName === "browserPerformance" ||
     toolName === "browserScreenshot" ||
-    toolName === "browserStatus"
+    toolName === "browserStatus" ||
+    toolName === "cuaStatus" ||
+    toolName === "cuaScreenSize"
   ) {
     return "read";
   }

@@ -1,10 +1,15 @@
 import type { McpServerConfig, McpToolInfo } from "@zen/shared";
 
-/** tools/call 结果：文本内容拼接（MCP content blocks 里的 text）+ 错误 */
+/** tools/call 结果：文本内容拼接（MCP content blocks 里的 text）+ 错误 + MCP Apps HTML 资源 */
 export interface McpCallResult {
   ok: boolean;
   text: string;
   error?: string;
+  /**
+   * MCP Apps（SEP-1865）：工具结果里的交互式 HTML 资源——
+   * content 里 type=resource 且 mimeType 为 text/html 的块，或顶层 _meta.ui 声明。
+   */
+  html?: string;
 }
 
 /** JSON-RPC 2.0 消息（请求/响应/通知共用） */
@@ -33,6 +38,41 @@ export interface McpClient {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/** HTML 类 MIME（text/html 或形如 application/xhtml+xml 的 +html 变体） */
+function isHtmlMime(mimeType: string | undefined): boolean {
+  return typeof mimeType === "string" && /text\/html|\+html/i.test(mimeType);
+}
+
+/**
+ * MCP Apps：从 tools/call 结果里提取交互式 HTML。
+ * 两处来源：content 里 type=resource 且 mimeType 为 HTML 的块（resource.text）；顶层 _meta.ui 声明
+ * （字符串直取，或 { html } 对象）。取第一个命中的非空结果。
+ */
+function mcpAppHtml(result: {
+  content?: Array<{ type: string; resource?: { mimeType?: string; text?: string } }>;
+  _meta?: { ui?: unknown };
+}): string | undefined {
+  for (const block of result.content ?? []) {
+    if (block?.type === "resource" && isHtmlMime(block.resource?.mimeType)) {
+      const text = block.resource?.text;
+      if (typeof text === "string" && text.trim()) {
+        return text;
+      }
+    }
+  }
+  const ui = result._meta?.ui;
+  if (typeof ui === "string" && ui.trim()) {
+    return ui;
+  }
+  if (ui && typeof ui === "object") {
+    const html = (ui as { html?: unknown }).html;
+    if (typeof html === "string" && html.trim()) {
+      return html;
+    }
+  }
+  return undefined;
+}
 
 /**
  * JSON-RPC 公共底座：id 分配、pending 表、超时与结果分发。
@@ -133,12 +173,25 @@ export abstract class McpBaseClient implements McpClient {
       const result = (await this.request("tools/call", {
         name: toolName,
         arguments: args ?? {},
-      })) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+      })) as {
+        content?: Array<{
+          type: string;
+          text?: string;
+          resource?: { mimeType?: string; text?: string };
+        }>;
+        isError?: boolean;
+        _meta?: { ui?: unknown };
+      };
       const text = (result.content ?? [])
         .filter((block) => block.type === "text" && block.text)
         .map((block) => block.text)
         .join("\n");
-      return { ok: result.isError !== true, text, error: result.isError ? text : undefined };
+      return {
+        ok: result.isError !== true,
+        text,
+        error: result.isError ? text : undefined,
+        html: mcpAppHtml(result),
+      };
     } catch (error) {
       return { ok: false, text: "", error: error instanceof Error ? error.message : String(error) };
     }

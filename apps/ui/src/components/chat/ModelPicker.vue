@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, History, Search } from "@lucide/vue";
+import { Check, History, Search, Sparkles } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -19,7 +19,7 @@ const props = defineProps<{
 const { t } = useI18n();
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
-const { providers } = storeToRefs(modelsStore);
+const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
 // 会话级模型覆盖优先：切换模型只影响当前会话
 const { effectiveSelection, effectiveModel } = storeToRefs(chatStore);
 
@@ -88,8 +88,34 @@ function itemKey(providerId: string, modelId: string) {
 }
 
 function isSelected(providerId: string, modelId: string) {
+  // 自动路由模式下唯一选中态挂在「自动」项上（zen-001：同屏不出现两个勾）
+  if (autoRoute.value) {
+    return false;
+  }
   return selectedKey.value === itemKey(providerId, modelId);
 }
+
+/** 上次路由理由：规则 id → i18n 文本，多规则以「；」拼接 */
+const routingReason = computed(() => {
+  const routing = lastRouting.value;
+  if (!routing?.rules.length) {
+    return "";
+  }
+  return routing.rules
+    .map((rule) => t(`modelRouting.rule.${rule}`))
+    .filter(Boolean)
+    .join("；");
+});
+
+/** 触发按钮 title：自动模式下展示「自动模式 + 当前生效模型 + 上次理由」 */
+const triggerTitle = computed(() => {
+  const modelName =
+    effectiveModel.value?.model.name || effectiveModel.value?.provider.name || t("chat.model.noModel");
+  if (!autoRoute.value) {
+    return modelName;
+  }
+  return t("modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("modelRouting.autoSubtitle") });
+});
 
 function railClass(id: string | "recent") {
   return classes(
@@ -99,10 +125,19 @@ function railClass(id: string | "recent") {
 }
 
 async function pick(providerId: string, modelId: string) {
+  // 手动选具体模型即退出自动路由
+  modelsStore.setAutoRoute(false);
   // 会话级覆盖：只改当前会话，不影响其它会话的模型选择
   await chatStore.setSessionModel(providerId, modelId);
   const key = itemKey(providerId, modelId);
   recentKeys.value = [key, ...recentKeys.value.filter((k) => k !== key)].slice(0, 8);
+  open.value = false;
+}
+
+/** 选中「自动（推荐）」：清掉会话级覆盖，每次发送前由 chat store 按请求特征路由 */
+async function pickAuto() {
+  modelsStore.setAutoRoute(true);
+  await chatStore.setSessionModel(null, null);
   open.value = false;
 }
 
@@ -159,7 +194,7 @@ watch(providers, () => {
       class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
-      :title="effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel')"
+      :title="triggerTitle"
       :aria-label="t('chat.model.label', { name: effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') })"
       @click="toggleOpen"
     >
@@ -167,6 +202,9 @@ watch(providers, () => {
         :vendor="effectiveModel?.provider.name || effectiveModel?.model.id"
         :size="compact ? 16 : 16"
       />
+      <span v-if="!compact && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
+        <Sparkles class="size-3" aria-hidden="true" />
+      </span>
       <span v-if="!compact" class="truncate font-medium">{{ effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') }}</span>
       <svg
         v-if="!compact"
@@ -238,6 +276,41 @@ watch(providers, () => {
           </nav>
 
           <div class="overflow-auto p-1.5">
+            <!-- 自动（推荐）：置顶常驻（搜索时隐藏，避免混入过滤结果） -->
+            <div v-if="!query.trim()" class="mb-1 border-b border-[var(--color-line-soft)] pb-1">
+              <Button
+                variant="ghost"
+                class="flex min-h-[40px] w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
+                :class="
+                  autoRoute
+                    ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
+                    : 'text-[var(--color-txt)]'
+                "
+                :aria-label="t('modelRouting.autoAria')"
+                @click="pickAuto"
+              >
+                <Check
+                  class="size-3.5 shrink-0 text-[var(--color-accent)]"
+                  :class="autoRoute ? '' : 'invisible'"
+                  aria-hidden="true"
+                />
+                <Sparkles class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+                <span class="flex min-w-0 flex-col">
+                  <span class="truncate">{{ t("modelRouting.auto") }}</span>
+                  <span class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                    {{ lastRouting ? t("modelRouting.routedTo", { model: lastRouting.modelName }) : t("modelRouting.autoSubtitle") }}
+                  </span>
+                </span>
+              </Button>
+              <!-- 上次路由理由（简短）：仅自动模式下有记录时展示 -->
+              <p
+                v-if="autoRoute && routingReason"
+                class="m-0 px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[var(--color-mut)]"
+                :title="routingReason"
+              >
+                {{ t("modelRouting.reasonPrefix") }}：{{ routingReason }}
+              </p>
+            </div>
             <Button
               v-for="item in filtered"
               :key="itemKey(item.providerId, item.model.id)"

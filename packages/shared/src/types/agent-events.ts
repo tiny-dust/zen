@@ -201,6 +201,6 @@ export type AgentStreamEvent =
    * 渲染层据此切到「插入 run 进行中」语义，插入 run 的 done（phase=insert）
    * 不应被当作整个会话结束。
    */
-  | { type: "insert_started"; sessionId: string; text: string }
+  | { type: "insert_started"; sessionId: string; text: string; steer?: boolean }
   /** 插入 run 结束后原 run 从 checkpoint 恢复：渲染层回到正常 running 语义 */
   | { type: "original_resumed"; sessionId: string };

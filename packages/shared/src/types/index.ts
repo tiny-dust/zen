@@ -14,4 +14,8 @@ export * from "./user";
 export * from "./workspace";
 export * from "./memory";
 export * from "./checkpoints";
+export * from "./scheduler";
 export * from "./id";
+export * from "./session-mode";
+export * from "./feature";
+export * from "./system-abilities";

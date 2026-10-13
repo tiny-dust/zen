@@ -19,21 +19,22 @@ export interface SettingsIndexEntry {
 }
 
 export const SETTINGS_INDEX: SettingsIndexEntry[] = [
-  // 常规
-  {
-    tab: "general",
-    sectionId: "set-general-appearance",
-    titleKey: "settings.general.appearance",
-    keywords: ["theme appearance dark light 主题 外观 深色 浅色", "language locale 语言 中文 english"],
-  },
+  // 通用
   {
     tab: "general",
     sectionId: "set-general-update",
     titleKey: "settings.update.title",
     keywords: ["update upgrade version feed 更新 升级 版本 检查更新"],
   },
+  // 外观
   {
-    tab: "general",
+    tab: "appearance",
+    sectionId: "set-general-appearance",
+    titleKey: "settings.general.appearance",
+    keywords: ["theme appearance dark light 主题 外观 深色 浅色", "language locale 语言 中文 english"],
+  },
+  {
+    tab: "appearance",
     sectionId: "set-general-code-theme",
     titleKey: "settings.codeTheme.title",
     keywords: ["code theme highlight shiki 代码主题 高亮"],
@@ -42,22 +43,23 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   {
     tab: "shortcuts",
     titleKey: "settings.nav.shortcuts",
-    keywords: ["shortcut keybinding hotkey 快捷键 键盘 改键"],
+    keywords: ["shortcut keybinding hotkey 快捷键 键盘 改键 global 全局"],
   },
-  // Agent 与权限
+  // 权限
   {
-    tab: "agent",
+    tab: "permissions",
     sectionId: "set-agent-permission",
     titleKey: "settings.agent.permissionTitle",
     descKey: "settings.agent.permissionDesc",
     keywords: ["permission approval mode 权限 审批 确认 放行 full access 完全访问"],
   },
   {
-    tab: "agent",
+    tab: "permissions",
     sectionId: "set-agent-sandbox",
     titleKey: "settings.agent.sandboxTitle",
     keywords: ["sandbox isolate worktree 隔离区 沙箱 副本 rebuild 重建"],
   },
+  // Agent 能力
   {
     tab: "agent",
     sectionId: "set-agent-websearch",

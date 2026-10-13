@@ -5,16 +5,19 @@ import { appApi } from "./app";
 import { authApi } from "./auth";
 import { browserApi } from "./browser";
 import { cacheApi } from "./cache";
+import { featureApi } from "./feature";
 import { gitApi } from "./git";
 import { larkApi } from "./lark";
 import { mcpApi } from "./mcp";
 import { memoryApi } from "./memory";
 import { modelsApi } from "./models";
 import { sessionApi } from "./session";
+import { schedulerApi } from "./scheduler";
 import { settingsApi } from "./settings";
 import { servicesApi } from "./services";
 import { skillsApi } from "./skills";
 import { syncApi } from "./sync";
+import { systemAbilitiesApi } from "./system-abilities";
 import { terminalApi } from "./terminal";
 import { updatesApi } from "./updates";
 import { workspaceApi } from "./workspace";
@@ -45,6 +48,9 @@ const zen = {
   ...browserApi,
   ...terminalApi,
   ...servicesApi,
+  ...schedulerApi,
+  ...featureApi,
+  ...systemAbilitiesApi,
 };
 
 contextBridge.exposeInMainWorld("zen", zen);

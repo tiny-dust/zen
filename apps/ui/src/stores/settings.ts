@@ -26,6 +26,8 @@ const fallbackSettings: AppSettings = {
 
 export type SettingsTab =
   | "general"
+  | "appearance"
+  | "permissions"
   | "profile"
   | "models"
   | "shortcuts"
@@ -58,6 +60,8 @@ export const useSettingsStore = defineStore("settings", () => {
     const tab = (parts[1] || "general") as SettingsTab;
     const allowed: SettingsTab[] = [
       "general",
+      "appearance",
+      "permissions",
       "profile",
       "models",
       "shortcuts",
@@ -187,6 +191,18 @@ export const useSettingsStore = defineStore("settings", () => {
     settings.value = await zen.settings.set({ shortcuts });
   }
 
+  /** 切换某快捷键的系统全局注册（仅白名单命令允许开启） */
+  async function setShortcutGlobal(id: string, on: boolean) {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    const shortcuts: ShortcutBinding[] = settings.value.shortcuts.map((item) =>
+      item.id === id ? { ...item, global: on || undefined } : item,
+    );
+    settings.value = await zen.settings.set({ shortcuts: JSON.parse(JSON.stringify(shortcuts)) });
+  }
+
   /** 切换左下角/资料页展示的账户身份（持久化） */
   async function setDisplayAccount(value: DisplayAccount) {
     const zen = window.zen;
@@ -209,6 +225,7 @@ export const useSettingsStore = defineStore("settings", () => {
     setTheme,
     setLocale,
     updateShortcut,
+    setShortcutGlobal,
     setDisplayAccount,
   };
 });

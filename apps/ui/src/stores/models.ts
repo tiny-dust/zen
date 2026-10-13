@@ -7,6 +7,9 @@ import type {
   CatalogVendor,
   FetchModelsResult,
   ModelCapabilities,
+  ModelRoutingCandidate,
+  ModelRoutingDecision,
+  ModelRoutingRuleId,
   PreviewModelsInput,
   ProviderInput,
   ProviderSummary,
@@ -17,6 +20,18 @@ import type {
 import { toPlain } from "@/lib/utils";
 import type { ModelSelectionState } from "@/types/zen-api";
 import { i18n } from "@/locales";
+
+/** 自动路由开关的 localStorage 键（与主题首帧镜像同风格，跨会话保留） */
+const AUTO_ROUTE_STORAGE_KEY = "zen.model.autoRoute";
+
+/** 上次路由结果（models store 展示层用；不含打分细节） */
+export interface LastModelRouting {
+  providerId: string;
+  modelId: string;
+  /** 展示名（找不到模型时回落 id） */
+  modelName: string;
+  rules: ModelRoutingRuleId[];
+}
 
 export const useModelsStore = defineStore("models", () => {
   const providers = ref<ProviderSummary[]>([]);
@@ -29,6 +44,50 @@ export const useModelsStore = defineStore("models", () => {
   const catalogModels = ref<CatalogModel[]>([]);
   const refreshingCatalog = ref(false);
   const catalogUpdatedAt = ref(0);
+
+  // ---------- 模型自动路由：开关（localStorage 持久化） + 上次路由结果 ----------
+  const autoRoute = ref(false);
+  const lastRouting = ref<LastModelRouting | null>(null);
+  try {
+    autoRoute.value = window.localStorage.getItem(AUTO_ROUTE_STORAGE_KEY) === "1";
+  } catch {
+    // localStorage 不可用（隐私模式等）：仅内存态
+  }
+
+  /** 路由候选：全部已启用模型（含能力），传给 shared 的 routeModel 纯函数 */
+  const routingCandidates = computed<ModelRoutingCandidate[]>(() =>
+    enabledModels.value.map(({ provider, model }) => ({
+      providerId: provider.id,
+      modelId: model.id,
+      name: model.name,
+      capabilities: model.capabilities,
+    })),
+  );
+
+  /** 开/关自动路由；关闭时清掉上次理由（避免展示过期信息） */
+  function setAutoRoute(enabled: boolean) {
+    autoRoute.value = enabled;
+    if (!enabled) {
+      lastRouting.value = null;
+    }
+    try {
+      window.localStorage.setItem(AUTO_ROUTE_STORAGE_KEY, enabled ? "1" : "0");
+    } catch {
+      // 写失败不影响本会话内存态
+    }
+  }
+
+  /** 记录一次路由结果（chat store 发送前调用），供 ModelPicker 展示模型 + 理由 */
+  function noteRouting(decision: ModelRoutingDecision) {
+    const found = findEnabledModel(decision.providerId, decision.modelId);
+    lastRouting.value = {
+      providerId: decision.providerId,
+      modelId: decision.modelId,
+      modelName: found?.model.name ?? decision.modelId,
+      rules: [...decision.rules],
+    };
+  }
+
 
   const activeProvider = computed(
     () => providers.value.find((p) => p.id === activeProviderId.value) || null,
@@ -325,6 +384,11 @@ export const useModelsStore = defineStore("models", () => {
     activeProvider,
     enabledModels,
     findEnabledModel,
+    autoRoute,
+    lastRouting,
+    routingCandidates,
+    setAutoRoute,
+    noteRouting,
     selectedLabel,
     selectedModel,
     selectedSupportsReasoning,

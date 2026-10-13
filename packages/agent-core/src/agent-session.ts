@@ -57,6 +57,21 @@ export function insertUserContent(text: string): string {
 }
 
 /**
+ * 转向（steer）消息的模型侧包装：与插入执行共用「暂停 → 注入 → 恢复」机制，
+ * 但语义是调整任务方向而不是插队办事——已完成的成果尽量复用，未完成的工作按新方向推进。
+ */
+export function steerUserContent(text: string): string {
+  return [
+    "【用户转向 · 最高优先级】用户在任务执行过程中发来了新的指示，要求调整当前任务的方向。",
+    "请停止当前方向上多余的动作，结合新指示与已有上下文重新评估接下来的执行路径：已完成的成果尽量复用、不要推倒重来，未完成的工作按新方向继续推进，并在回复开头简要说明方向调整点。",
+    "",
+    "-----",
+    "",
+    text,
+  ].join("\n");
+}
+
+/**
  * 子会话面板侧信道事件改写：把子 Agent 的 tasks_updated / reference_found
  * 改挂到父会话（sessionId=父），并打上 agent 标识供 UI 区分来源。
  * 返回 null 表示不是面板侧信道事件（调用方按原路径处理，一字不动）。
@@ -647,8 +662,13 @@ export class AgentSession {
    * 插入执行：打断当前 run（保留 checkpoint）→ 追加最高优先级插入消息 →
    * 执行插入 run → 结束后自动从断点恢复原 run。
    * main 侧应先 canInsert() 校验并落库用户消息，再 fire-and-forget 调用本方法。
+   * options.steer=true 时为「转向」语义（调整任务方向），事件带 steer 标识。
    */
-  async insert(text: string): Promise<{ ok: boolean; error?: string }> {
+  async insert(
+    text: string,
+    options: { steer?: boolean } = {},
+  ): Promise<{ ok: boolean; error?: string }> {
+    const steer = options.steer === true;
     const guard = this.canInsert();
     if (!guard.ok) {
       return guard;
@@ -661,10 +681,18 @@ export class AgentSession {
         return { ok: false, error: "会话已取消" };
       }
     }
-    // 2. 追加插入消息（模型侧带最高优先级指令，原始文本保留）
-    this.messages.push({ role: "user", content: insertUserContent(text) });
+    // 2. 追加插入/转向消息（模型侧带最高优先级指令，原始文本保留）
+    this.messages.push({
+      role: "user",
+      content: steer ? steerUserContent(text) : insertUserContent(text),
+    });
     this.inserting = true;
-    this.config.emit({ type: "insert_started", sessionId: this.sessionId, text });
+    this.config.emit({
+      type: "insert_started",
+      sessionId: this.sessionId,
+      text,
+      ...(steer ? { steer: true } : {}),
+    });
     // 3. 执行插入 run：正常流式 emit 各类事件
     this.overflowRetried = false;
     this.lastInputTokens = null;

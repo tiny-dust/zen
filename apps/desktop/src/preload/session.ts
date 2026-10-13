@@ -1,6 +1,6 @@
 import { ipcRenderer } from "electron";
 
-import type { ChatMessage, SessionRecord } from "@zen/shared";
+import type { ChatMessage, SessionMode, SessionRecord } from "@zen/shared";
 
 export const sessionApi = {
   session: {
@@ -13,6 +13,10 @@ export const sessionApi = {
     /** 会话级模型覆盖；null 表示跟随全局默认模型 */
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void> {
       return ipcRenderer.invoke("session:set-model", id, providerId, modelId);
+    },
+    /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
+    setMode(id: string, mode: SessionMode): Promise<void> {
+      return ipcRenderer.invoke("session:set-mode", id, mode);
     },
     open(
       id: string,
@@ -51,6 +55,22 @@ export const sessionApi = {
     },
     remove(id: string): Promise<void> {
       return ipcRenderer.invoke("session:delete", id);
+    },
+    /** 会话分享导出：主进程弹保存框并写自包含 HTML；取消返回 { ok, canceled } */
+    exportHtml(
+      id: string,
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
+      return ipcRenderer.invoke("session:export-html", id);
+    },
+    /** CLI `zen-cli open <sessionId>`：主进程广播请求，渲染层切到目标会话 */
+    onOpenRequest(handler: (sessionId: string) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, sessionId: string) => {
+        handler(sessionId);
+      };
+      ipcRenderer.on("session:open-request", listener);
+      return () => {
+        ipcRenderer.removeListener("session:open-request", listener);
+      };
     },
   },
 };

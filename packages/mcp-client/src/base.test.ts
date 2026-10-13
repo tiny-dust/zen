@@ -25,6 +25,14 @@ class TestClient extends McpBaseClient {
     return this.lastError;
   }
 
+  get authChallenge(): string | null {
+    return null;
+  }
+
+  get requiresAuth(): boolean {
+    return false;
+  }
+
   async connect(): Promise<void> {
     this.connectedFlag = true;
   }
@@ -222,6 +230,54 @@ describe("McpBaseClient listTools / callTool", () => {
       text: "",
       error: "MCP tools/call: server exploded",
     });
+  });
+
+  it("callTool 提取 MCP Apps HTML：resource 块（text/html）优先，_meta.ui 兜底", async () => {
+    const client = new TestClient(config());
+    const pending = client.callTool("render", {});
+    client.feed({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          { type: "text", text: "已生成交互视图" },
+          { type: "resource", resource: { mimeType: "text/html", text: "<button>hi</button>" } },
+          { type: "resource", resource: { mimeType: "text/plain", text: "纯文本资源" } },
+        ],
+      },
+    });
+    await expect(pending).resolves.toEqual({
+      ok: true,
+      text: "已生成交互视图",
+      error: undefined,
+      html: "<button>hi</button>",
+    });
+
+    const metaString = client.callTool("render", {});
+    client.feed({
+      jsonrpc: "2.0",
+      id: 2,
+      result: { content: [{ type: "text", text: "ok" }], _meta: { ui: "<p>meta</p>" } },
+    });
+    await expect(metaString).resolves.toMatchObject({ html: "<p>meta</p>" });
+
+    const metaObject = client.callTool("render", {});
+    client.feed({
+      jsonrpc: "2.0",
+      id: 3,
+      result: { _meta: { ui: { html: "<p>object</p>" } } },
+    });
+    await expect(metaObject).resolves.toMatchObject({ html: "<p>object</p>" });
+
+    const none = client.callTool("render", {});
+    client.feed({
+      jsonrpc: "2.0",
+      id: 4,
+      result: { content: [{ type: "text", text: "仅文本" }] },
+    });
+    const plain = await none;
+    expect(plain.ok).toBe(true);
+    expect(plain.html).toBeUndefined();
   });
 });
 

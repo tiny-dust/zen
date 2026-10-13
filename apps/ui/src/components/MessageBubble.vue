@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, Sparkles, TriangleAlert, Zap } from "@lucide/vue";
+import { AudioLines, Ban, Check, CircleAlert, Compass, Copy, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -17,6 +17,7 @@ import { groupMessageParts } from "@/components/chat/message-groups";
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Button } from "@/components/ui/button";
 import { formatElementDetail } from "@/lib/browser-element";
+import { useOcr, useTts } from "@/composables/useSystemAbilities";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
 import type { SelectedSkill } from "@/stores/chat-types";
@@ -93,6 +94,11 @@ const attachmentParts = computed(() => {
 /** 插入执行的用户消息：气泡上方加「已插入」徽标（打断原任务、高权重先执行） */
 const insertedBadge = computed(
   () => (props.message.meta as { inserted?: boolean } | undefined)?.inserted === true,
+);
+
+/** 转向的用户消息：气泡上方加「转向」徽标（调整任务方向、原任务自动恢复） */
+const steerBadge = computed(
+  () => (props.message.meta as { steer?: boolean } | undefined)?.steer === true,
 );
 
 const toolMeta = computed<ToolCallMessageMeta | null>(() => {
@@ -348,6 +354,41 @@ function editContent() {
   chatStore.startEditFrom(props.message);
   document.getElementById("chat-input")?.focus();
 }
+
+// TTS 朗读（平台不支持时按钮隐藏；speakingId 模块级共享，同一时刻只播一条）
+const { supported: ttsSupported, speakingId: ttsSpeakingId, toggle: toggleTts } = useTts();
+
+async function speakMessage() {
+  try {
+    await toggleTts(props.message.id, props.message.content);
+  } catch (error) {
+    chatStore.statusText =
+      error instanceof Error && error.message !== "EMPTY"
+        ? error.message
+        : t("system-abilities.tts.failed");
+  }
+}
+
+// OCR：图片附件「识别文字」，结果插入输入框光标处（平台不支持时隐藏）
+const { supported: ocrSupported, recognizing: ocrRecognizing, recognize: recognizeImage } = useOcr();
+
+const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
+
+function isImageAttachment(att: { name: string; path?: string }): boolean {
+  return IMAGE_ATTACHMENT_RE.test(att.path ?? "") || IMAGE_ATTACHMENT_RE.test(att.name);
+}
+
+async function ocrAttachment(path: string) {
+  try {
+    const text = await recognizeImage(path);
+    chatStore.insertAtComposerCaret(text);
+  } catch (error) {
+    chatStore.statusText =
+      error instanceof Error && error.message !== "EMPTY"
+        ? error.message
+        : t("system-abilities.ocr.emptyResult");
+  }
+}
 </script>
 
 <template>
@@ -364,6 +405,16 @@ function editContent() {
         >
           <Zap class="size-3" aria-hidden="true" />
           {{ t("chat.bubble.inserted") }}
+        </span>
+      </div>
+      <!-- 转向徽标：运行中插话调整任务方向，原任务已自动恢复 -->
+      <div v-if="steerBadge" class="mb-1.5 flex justify-end">
+        <span
+          class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]"
+          :title="t('session-mode.sessionMode.steer.badgeTitle')"
+        >
+          <Compass class="size-3" aria-hidden="true" />
+          {{ t("session-mode.sessionMode.steer.badge") }}
         </span>
       </div>
       <!-- 随消息发送的技能 / 页面元素 tag -->
@@ -398,7 +449,7 @@ function editContent() {
           >
             <FileLabel :path="seg.path ?? ''" class="max-w-[240px]" variant="link" />
           </button></template><template v-else>{{ seg.text }}</template></template></div>
-      <div v-if="attachmentParts.length" class="mt-2 flex max-w-full flex-wrap gap-x-3 gap-y-1">
+      <div v-if="attachmentParts.length" class="mt-2 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1">
         <template v-for="(att, index) in attachmentParts" :key="`${att.name}-${index}`">
           <Button
             v-if="att.path"
@@ -409,6 +460,19 @@ function editContent() {
             <FileLabel :path="att.path" :name="att.name" variant="link" />
           </Button>
           <FileLabel v-else :path="att.name" class="text-[12px]" />
+          <!-- 图片附件：识别文字并填入输入框（OCR 平台不支持时隐藏） -->
+          <Button
+            v-if="ocrSupported && att.path && isImageAttachment(att)"
+            variant="ghost"
+            size="icon-xs"
+            class="rounded-md text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+            :disabled="ocrRecognizing"
+            :aria-label="t('system-abilities.ocr.recognize')"
+            :title="ocrRecognizing ? t('system-abilities.ocr.recognizing') : t('system-abilities.ocr.recognizeTitle')"
+            @click="ocrAttachment(att.path ?? '')"
+          >
+            <ScanText class="size-3.5" />
+          </Button>
         </template>
       </div>
     </div>
@@ -575,6 +639,24 @@ function editContent() {
         @click="chatStore.retryFrom(message.id)"
       >
         <RefreshCw class="size-3.5" />
+      </Button>
+      <!-- 朗读：TTS 播报本条消息（平台不支持时隐藏；播放中变停止） -->
+      <Button
+        v-if="ttsSupported"
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md transition-colors"
+        :class="
+          ttsSpeakingId === message.id
+            ? 'text-[var(--color-accent)] hover:text-[var(--color-accent)]'
+            : 'hover:text-[var(--color-txt-strong)]'
+        "
+        :aria-label="ttsSpeakingId === message.id ? t('system-abilities.tts.stop') : t('system-abilities.tts.speak')"
+        :title="ttsSpeakingId === message.id ? t('system-abilities.tts.stopTitle') : t('system-abilities.tts.speakTitle')"
+        @click="speakMessage"
+      >
+        <AudioLines v-if="ttsSpeakingId === message.id" class="size-3.5" />
+        <Volume2 v-else class="size-3.5" />
       </Button>
       <!-- 异常终止后专用：保留历史续跑，与左侧「重试」（截断重跑）区分 -->
       <Button

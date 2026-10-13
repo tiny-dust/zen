@@ -3,11 +3,13 @@ import {
   ChevronDown,
   ChevronRight,
   CircleCheck,
+  Download,
   ExternalLink,
   Gauge,
   GitBranch,
   GitPullRequestArrow,
   Info,
+  LoaderCircle,
   RefreshCw,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
@@ -95,6 +97,34 @@ function toggleBranchPicker() {
     };
   }
   void gitStore.refreshBranches();
+}
+
+/** 会话分享导出：主进程渲染自包含 HTML 并弹保存框；结果行内反馈 */
+const exporting = ref(false);
+const exportFeedback = ref("");
+
+async function exportSessionHtml() {
+  const zen = window.zen;
+  const sessionId = chatStore.sessionId;
+  if (!zen?.session?.exportHtml || !sessionId || exporting.value) {
+    return;
+  }
+  exporting.value = true;
+  exportFeedback.value = t("features.exporting");
+  try {
+    const result = await zen.session.exportHtml(sessionId);
+    exportFeedback.value = result.canceled
+      ? t("features.exportCanceled")
+      : result.ok
+        ? t("features.exportDone", { path: result.path ?? "" })
+        : t("features.exportFailed", { error: result.error ?? "" });
+  } catch (error) {
+    exportFeedback.value = t("features.exportFailed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    exporting.value = false;
+  }
 }
 
 onMounted(() => {
@@ -251,6 +281,27 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
       </div>
       <p v-if="gitStore.feedback" class="m-0 pl-[27px] text-[11px] text-[var(--color-mut)]" role="status">
         {{ gitStore.feedback }}
+      </p>
+
+      <!-- 导出会话 HTML：保存弹窗由主进程弹出，结果行内反馈 -->
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
+        :class="actionCls"
+        :title="t('features.exportHtmlTitle')"
+        :disabled="exporting || !chatStore.sessionId"
+        @click="exportSessionHtml"
+      >
+        <LoaderCircle
+          v-if="exporting"
+          class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
+          aria-hidden="true"
+        />
+        <Download v-else :class="envIconCls" aria-hidden="true" />
+        <span class="min-w-0 flex-1">{{ t("features.exportHtml") }}</span>
+      </Button>
+      <p v-if="exportFeedback" class="m-0 pl-[27px] text-[11px] text-[var(--color-mut)]" role="status">
+        {{ exportFeedback }}
       </p>
     </div>
   </section>

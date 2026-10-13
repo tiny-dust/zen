@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog } from "electron";
 
-import type { OpenDialogOptions, OpenDialogReturnValue } from "electron";
+import type { OpenDialogOptions, OpenDialogReturnValue, SaveDialogOptions, SaveDialogReturnValue } from "electron";
 
 import { getBrowserService } from "./browser/service";
 
@@ -21,6 +21,22 @@ export async function showOpenDialogSafe(
     return parent
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
+  } finally {
+    restore();
+  }
+}
+
+/** 保存弹窗同款封装：显示期间压制内嵌浏览器视图，关闭后恢复 */
+export async function showSaveDialogSafe(
+  parent: BrowserWindow | null,
+  options: SaveDialogOptions,
+): Promise<SaveDialogReturnValue> {
+  const service = getBrowserService();
+  const restore = service.hideForDialog();
+  try {
+    return parent
+      ? await dialog.showSaveDialog(parent, options)
+      : await dialog.showSaveDialog(options);
   } finally {
     restore();
   }

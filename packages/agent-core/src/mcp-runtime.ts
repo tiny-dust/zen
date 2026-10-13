@@ -4,7 +4,13 @@ let mcpRuntimeLoader: (() => Promise<{
     serverName: string,
     toolName: string,
     args: unknown,
-  ): Promise<{ ok: boolean; text: string; error?: string }>;
+  ): Promise<{
+    ok: boolean;
+    text: string;
+    error?: string;
+    /** MCP Apps（SEP-1865）：工具结果里的交互式 HTML 资源 */
+    html?: string;
+  }>;
 }>) | null = null;
 
 export function registerMcpRuntime(
@@ -13,7 +19,13 @@ export function registerMcpRuntime(
       serverName: string,
       toolName: string,
       args: unknown,
-    ): Promise<{ ok: boolean; text: string; error?: string }>;
+    ): Promise<{
+      ok: boolean;
+      text: string;
+      error?: string;
+      /** MCP Apps（SEP-1865）：工具结果里的交互式 HTML 资源 */
+      html?: string;
+    }>;
   }>,
 ): void {
   mcpRuntimeLoader = loader;

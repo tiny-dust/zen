@@ -1,4 +1,5 @@
 import type {
+  AbilityProbe,
   AddModelInput,
   AgentRunRequest,
   AgentSettings,
@@ -6,6 +7,10 @@ import type {
   AppSettings,
   AskUserAnswer,
   AuthState,
+  OcrResult,
+  TtsSpeakOptions,
+  VoiceStartResult,
+  VoiceTranscribeResult,
   BrowserActionResult,
   BrowserConsoleEntry,
   BrowserElementRef,
@@ -51,6 +56,9 @@ import type {
   PtyDataEvent,
   PtyExitEvent,
   ReadFileResult,
+  ScheduledTask,
+  ScheduledTaskInput,
+  ScheduledTaskRunEvent,
   SessionRecord,
   SetModelsEnabledInput,
   AgentServiceInfo,
@@ -68,6 +76,7 @@ import type {
   Workspace,
   WorkspaceGroup,
 } from "@zen/shared";
+import type { SessionMode } from "@zen/shared";
 
 export interface AppInfo {
   workspaceRoot: string;
@@ -158,6 +167,7 @@ export interface ZenApi {
     get(): Promise<AppSettings>;
     set(partial: Partial<AppSettings>): Promise<AppSettings>;
     onChanged(handler: (settings: AppSettings) => void): () => void;
+    onGlobalCommand(handler: (command: string) => void): () => void;
   };
   updates: {
     check(): Promise<{ ok: boolean; error?: string }>;
@@ -194,6 +204,8 @@ export interface ZenApi {
     retrySubAgent(sessionId: string, agentId: string): Promise<{ ok: boolean; error?: string }>;
     /** 插入执行：打断当前 run（保留 checkpoint），插入消息优先执行后自动恢复原 run */
     insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }>;
+    /** 运行中转向：打断当前 run，新指示以最高权重先执行后按新方向恢复原任务 */
+    steer(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }>;
     resolveApproval(
       sessionId: string,
       decision: ToolApprovalDecision,
@@ -322,6 +334,8 @@ export interface ZenApi {
     setWorkspace(id: string, workspaceId: string | null): Promise<void>;
     /** 会话级模型覆盖；null 表示跟随全局默认模型 */
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void>;
+    /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
+    setMode(id: string, mode: SessionMode): Promise<void>;
     open(id: string): Promise<{
       session: SessionRecord;
       messages: ChatMessage[];
@@ -344,6 +358,12 @@ export interface ZenApi {
     pin(id: string, pinned: boolean): Promise<void>;
     archive(id: string, archived: boolean): Promise<void>;
     remove(id: string): Promise<void>;
+    /** 会话分享导出：主进程弹保存框并写自包含 HTML；取消返回 { ok, canceled } */
+    exportHtml(
+      id: string,
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    /** CLI `zen-cli open <sessionId>`：主进程广播请求，渲染层切到目标会话 */
+    onOpenRequest(handler: (sessionId: string) => void): () => void;
   };
   pathForFile(file: File): string;
   browser: {
@@ -416,5 +436,45 @@ export interface ZenApi {
     /** 设置页发送测试问询卡片（验证卡片按钮回调链路） */
     testAskCard(): Promise<{ ok: boolean; error?: string }>;
     onLoginEvent(handler: (event: LarkLoginEvent) => void): () => void;
+  };
+  /** 定时/计划任务：到点自动在目标工作区运行 agent 并通知 */
+  scheduler: {
+    list(): Promise<ScheduledTask[]>;
+    create(input: ScheduledTaskInput): Promise<ScheduledTask | { error: string }>;
+    update(
+      id: string,
+      patch: Partial<ScheduledTaskInput>,
+    ): Promise<ScheduledTask | null | { error: string }>;
+    remove(id: string): Promise<{ ok: boolean }>;
+    toggle(id: string, enabled: boolean): Promise<ScheduledTask | null>;
+    /** 立即执行一次（不看 enabled 与调度周期），运行状态走 onRunEvent */
+    runNow(id: string): Promise<{ ok: boolean; error?: string }>;
+    onChanged(handler: (tasks: ScheduledTask[]) => void): () => void;
+    onRunEvent(handler: (event: ScheduledTaskRunEvent) => void): () => void;
+  };
+  /** 可选功能目录（运行时分发）：目录 + probe 结果 */
+  features: {
+    list(): Promise<import("@zen/shared").FeatureCatalogResult>;
+  };
+  /** 语音输入（ASR）：点击开始/结束，转写文本回填输入框；probe 不支持时按钮隐藏 */
+  voice: {
+    probe(): Promise<AbilityProbe>;
+    start(): Promise<VoiceStartResult>;
+    stop(): Promise<VoiceTranscribeResult>;
+  };
+  /** TTS 播报：助手消息「朗读」；stop 打断当前播报 */
+  tts: {
+    probe(): Promise<AbilityProbe>;
+    speak(text: string, options?: TtsSpeakOptions): Promise<{ ok: boolean; error?: string }>;
+    stop(): Promise<{ ok: boolean }>;
+  };
+  /** OCR：图片附件「识别文字」，结果回填输入框 */
+  ocr: {
+    probe(): Promise<AbilityProbe>;
+    recognize(imagePath: string): Promise<OcrResult>;
+  };
+  /** CUA 桌面自动化：agent 工具域（cuaEnabled 总开关控制），此处仅 probe */
+  cua: {
+    probe(): Promise<AbilityProbe>;
   };
 }

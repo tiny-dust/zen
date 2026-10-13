@@ -82,6 +82,21 @@ describe("toolResult", () => {
       state: "error", summary: "完整…", output: { ok: false, exitCode: 1, output: "完整终端错误" },
     }))).toEqual({ kind: "terminal", text: "完整终端错误", exitCode: 1, error: undefined });
   });
+
+  it("routes MCP App HTML resources to the sandbox app view", () => {
+    expect(toolResult(part("mcp.gallery.search", {
+      output: { output: "找到 3 张图", html: "<button>click</button>" },
+    }))).toEqual({ kind: "app", html: "<button>click</button>", text: "找到 3 张图" });
+    // html 缺省/为空 → 不进 app 分支，仍按文本渲染
+    expect(toolResult(part("mcp.gallery.search", { output: { output: "纯文本" } })))
+      .toEqual({ kind: "text", text: "纯文本" });
+    expect(toolResult(part("mcp.gallery.search", { output: { output: "空 html", html: "" } })))
+      .toEqual({ kind: "text", text: "空 html" });
+    // 失败的 MCP 调用不展示交互 UI
+    expect(toolResult(part("mcp.gallery.search", {
+      state: "error", error: "server down", output: { output: "", html: "<p>x</p>" },
+    }))).toEqual({ kind: "text", text: "server down" });
+  });
 });
 
 describe("toolFileDiff", () => {

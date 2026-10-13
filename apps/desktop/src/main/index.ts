@@ -27,11 +27,16 @@ import { registerCacheIpc } from "./cache-ipc";
 import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
+import { startCliServer, stopCliServer } from "./cli-server";
+import { registerFeatureCatalogIpc } from "./feature-catalog";
 import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
+import { registerSchedulerIpc, shutdownScheduler } from "./scheduler-ipc";
 import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
 import { registerWindowControlsIpc, registerTitleBarOverlayThemeSync, titleBarOverlayOptions } from "./window-controls";
+import { registerSystemAbilitiesIpc, shutdownSystemAbilities } from "./abilities/ipc";
+import { unregisterAllGlobalShortcuts } from "./global-shortcuts";
 import { appendMessage, getSession, getWorkspace } from "./workspace-db";
 
 import type { AgentSession } from "@zen/agent-core";
@@ -241,6 +246,32 @@ function registerIpc(): void {
     },
   );
 
+  // 运行中转向（steer）：打断当前 run（保留 checkpoint），新指示以最高权重先执行，
+  // 完成后结合新方向自动恢复原任务；消息带 meta.steer 供气泡渲染「转向」标识。
+  // 前置校验失败（等审批/提问/并发插入/无运行中 run）直接拒绝，不落库。
+  ipcMain.handle("agent:steer", async (_event, sessionId: string, text: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return { ok: false, error: "session not running" };
+    }
+    if (typeof text !== "string" || !text.trim()) {
+      return { ok: false, error: "invalid steer request" };
+    }
+    const guard = session.canInsert();
+    if (!guard.ok) {
+      return guard;
+    }
+    appendMessage(sessionId, {
+      id: randomUUID(),
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+      meta: { steer: true },
+    });
+    void session.insert(text, { steer: true }).catch(() => undefined);
+    return { ok: true };
+  });
+
   ipcMain.handle(
     "agent:approval",
     async (_event, sessionId: string, decision: ToolApprovalDecision) => {
@@ -370,8 +401,16 @@ app.whenReady().then(() => {
   registerBrowserIpc(broadcast);
   registerTerminalIpc(broadcast);
   registerMemoryIpc();
+  // 系统能力四件套：语音输入 / TTS / OCR / CUA（probe 驱动 UI 显隐，平台不支持自动隐藏）
+  registerSystemAbilitiesIpc();
+  // 定时任务：IPC + 每分钟调度循环（含启动补跑错过的 daily 任务）
+  registerSchedulerIpc(broadcast, sessions);
   registerWindowControlsIpc();
   registerTitleBarOverlayThemeSync();
+  // 可选功能目录：feature:list 返回目录 + probe 结果
+  registerFeatureCatalogIpc();
+  // zen CLI：本地 TCP 服务（127.0.0.1 随机端口 + token 写 ~/.zen/cli-socket.json）
+  startCliServer(broadcast, sessions);
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
@@ -406,7 +445,13 @@ app.on("will-quit", () => {
   shutdownMcp();
   shutdownTerminalService();
   shutdownBrowserService();
+  shutdownSystemAbilities();
   shutdownLark();
+  shutdownScheduler();
+  unregisterAllGlobalShortcuts();
+  void stopCliServer().catch((error) => {
+    console.warn("[zen] CLI 服务清理失败:", error);
+  });
   void shutdownAgentServices().catch((error) => {
     console.warn("[zen] 长驻服务清理失败:", error);
   });

@@ -11,9 +11,10 @@ import type {
   ChatMessage,
   ChatRunSummary,
   ReasoningEffort,
+  SessionMode,
   SessionRecord,
 } from "@zen/shared";
-import { restoreRunSummaryFromMessages, uuidv7 } from "@zen/shared";
+import { restoreRunSummaryFromMessages, normalizeSessionMode, PLAN_APPROVAL_MESSAGE, routeModel, uuidv7 } from "@zen/shared";
 import { expandBrowserElementTokens } from "@/lib/browser-element";
 import { parseSessionDraft } from "@/lib/session-draft";
 import type { SessionDraftState } from "@/lib/session-draft";
@@ -62,6 +63,8 @@ export const useChatStore = defineStore("chat", () => {
   const effort = ref<ReasoningEffort>("off");
   /** 会话级模型覆盖；null = 跟随全局默认模型 */
   const sessionModel = ref<{ providerId: string; modelId: string } | null>(null);
+  /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
+  const sessionMode = ref<SessionMode>("interactive");
   const attachments = ref<ComposerAttachment[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
@@ -249,6 +252,57 @@ export const useChatStore = defineStore("chat", () => {
       }
       queue.queuedMessages.value = [item, ...queue.queuedMessages.value];
       lastError.value = result.error ?? i18n.global.t("app.chat.insertFailed");
+      statusText.value = lastError.value;
+    }
+  }
+
+  /**
+   * 运行中转向：把新消息以「转向」注入当前 run——打断 → 按新指示调整 → 自动恢复原任务。
+   * 注入被拒（等审批/提问/并发插入/主进程无此 run）时回退到队列，run 结束后按序续发。
+   */
+  async function steerRunning(text: string) {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    insertActive.value = true;
+    // 本地先展示（带「转向」徽标）；转向 run 的流事件会另起新助手气泡衔接在后面
+    const localMessage: ChatMessage = {
+      id: uuid(),
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+      meta: { steer: true },
+    };
+    appendMessage(localMessage);
+    status.value = "thinking";
+    phase.value = "thinking";
+    statusText.value = i18n.global.t("session-mode.sessionMode.steer.running");
+    sessionStatusStore.set(sessionId.value, "running");
+
+    // IPC 抛错与 {ok:false} 同路处理：insertActive 必须复位，否则 isRunning 永久为 true
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await zen.agent.steer(sessionId.value, text);
+    } catch (error) {
+      result = {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : i18n.global.t("session-mode.sessionMode.steer.failed"),
+      };
+    }
+    if (!result.ok) {
+      // 转向失败：消息退回队列不丢，气泡撤下，错误走 lastError
+      insertActive.value = false;
+      const index = messages.value.indexOf(localMessage);
+      if (index >= 0) {
+        messages.value.splice(index, 1);
+      }
+      queue.enqueue(text);
+      lastError.value =
+        result.error ?? i18n.global.t("session-mode.sessionMode.steer.failed");
       statusText.value = lastError.value;
     }
   }
@@ -564,11 +618,11 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /**
-   * 发送消息。overrideText 提供时（「继续」续跑）以该文本为消息内容：
+   * 发送消息。overrideText 提供时（「继续」续跑 / 计划批准）以该文本为消息内容：
    * 不读输入框草稿、不带附件/技能/元素标注、不清空任何 composer 状态，
    * 且保留全部历史（不截断分叉），让 Agent 读完之前的进度后接着做。
    */
-  async function send(overrideText?: string) {
+  async function send(overrideText?: string, options?: { approvePlan?: boolean }) {
     const continued = overrideText != null;
     const zen = window.zen;
     // 会话切换进行中（点了别的会话/新建但状态还没落定）：等切换完成再读当前会话，
@@ -581,14 +635,20 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen || (!text && !attachments.value.length)) {
       return;
     }
-    // 运行中不打断当前 run：消息插入队列，输入框顶部队列条可编辑/删除/插队
+    // 运行中不再排队等待：文本消息直接「转向」当前 run（打断 → 新指示 → 自动恢复）；
+    // 带附件（转向不支持附件）时回退原队列，run 结束后按序续发
     if (isRunning.value) {
-      if (text) {
-        queue.enqueue(text);
-        if (!continued) {
-          input.value = "";
+      if (!text) {
+        return;
+      }
+      if (!continued) {
+        input.value = "";
+        if (attachments.value.length) {
+          queue.enqueue(text);
+          return;
         }
       }
+      await steerRunning(text);
       return;
     }
     // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送；
@@ -623,6 +683,22 @@ export const useChatStore = defineStore("chat", () => {
           name: item.name,
           path: item.path,
         }));
+
+    // 模型自动路由：开启后按本次请求特征（文本/图片/上下文估算）选推荐模型。
+    // 仅改内存里的会话级覆盖（不落主进程 IPC），下次发送会重新路由
+    if (modelsStore.autoRoute && modelsStore.routingCandidates.length) {
+      const decision = routeModel(modelsStore.routingCandidates, {
+        text,
+        hasImages: attachmentRefs.length > 0 && attachments.value.some((item) => item.isImage),
+        // Agent 对话默认需要工具调用（模型未启用 toolCall 时路由函数会回退）
+        needsTools: true,
+        estimatedTokens: estimatedInputTokens.value,
+      });
+      if (decision) {
+        sessionModel.value = { providerId: decision.providerId, modelId: decision.modelId };
+        modelsStore.noteRouting(decision);
+      }
+    }
 
     // 技能已以内联 token（/skill:名称）写在正文里，随消息直接发给 Agent；
     // meta.skills 供气泡渲染 tag（正文展示时会隐藏 token）
@@ -728,6 +804,8 @@ export const useChatStore = defineStore("chat", () => {
         reasoningEffort: effort.value,
         attachments: attachmentRefs.length ? attachmentRefs : undefined,
         history: compression.turns,
+        // 计划模式批准标记：main 侧识别后把会话切回 interactive 再继续执行
+        approvePlan: options?.approvePlan === true ? true : undefined,
       });
     } catch (error) {
       result = {
@@ -839,6 +917,10 @@ export const useChatStore = defineStore("chat", () => {
           sessionModel.value.modelId,
         );
       }
+      // 未持久化阶段切过的会话模式同样补落库（interactive 是缺省，无需写）
+      if (sessionMode.value !== "interactive") {
+        await zen.session.setMode(sessionId.value, sessionMode.value);
+      }
     } catch (error) {
       lastError.value = i18n.global.t("app.chat.createSessionFailed", {
         error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
@@ -910,6 +992,7 @@ export const useChatStore = defineStore("chat", () => {
     resetRunState();
     sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = null;
+    sessionMode.value = "interactive";
 
     sessionWorkspaceId.value = target;
     workspaceStore.setActive(target);
@@ -983,6 +1066,8 @@ export const useChatStore = defineStore("chat", () => {
       found.session.modelProviderId && found.session.modelId
         ? { providerId: found.session.modelProviderId, modelId: found.session.modelId }
         : null;
+    // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
+    sessionMode.value = normalizeSessionMode(found.session.mode);
     // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容）；
     // 否则用数据库恢复，并清掉过期缓冲
     const bgStatus = sessionStatusStore.get(record.id);
@@ -1049,6 +1134,26 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /** 会话模式切换（interactive/plan/autopilot）；未持久化会话先记内存，首发补建时落库 */
+  async function setSessionMode(mode: SessionMode) {
+    if (mode === sessionMode.value) {
+      return;
+    }
+    sessionMode.value = mode;
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setMode(sessionId.value, mode);
+    }
+  }
+
+  /** 计划模式批准：以用户消息「批准执行」继续，main 侧识别后切回 interactive 并落库 */
+  async function approvePlan() {
+    if (sessionMode.value !== "plan" || isRunning.value) {
+      return;
+    }
+    await send(PLAN_APPROVAL_MESSAGE, { approvePlan: true });
+  }
+
   /** composer 底栏：把当前会话切到工作区目录或公共区（决定 agent 工作目录与侧栏分组） */
   async function setSessionWorkspace(workspaceId: string) {
     if (workspaceId === sessionWorkspaceId.value) {
@@ -1092,9 +1197,12 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     sessionModel,
+    sessionMode,
     effectiveSelection,
     effectiveModel,
     setSessionModel,
+    setSessionMode,
+    approvePlan,
     attachments,
     elementMarks,
     insertBrowserElement,

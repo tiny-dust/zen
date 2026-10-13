@@ -5,6 +5,7 @@ import type { ModelMessage } from "ai";
 import type {
   AgentStreamEvent,
   BrowserAgentBridge,
+  CuaAgentBridge,
   PermissionMode,
   ProviderProtocol,
   ReasoningEffort,
@@ -67,6 +68,8 @@ export interface AgentSessionConfig {
   mcpTools?: McpToolBridge[];
   /** 内嵌 WebContentsView + CDP 浏览器桥（desktop 注入；缺省时不注册 browser.* 工具） */
   browserBridge?: BrowserAgentBridge;
+  /** CUA 桌面自动化桥（desktop 注入，受 agent settings cuaEnabled 总开关控制；缺省不注册 cua.* 工具） */
+  cuaBridge?: CuaAgentBridge;
   /** 长驻服务桥（desktop 注入；runTerminal 进程组登记与收集，缺省不收集） */
   servicesBridge?: ServicesAgentBridge;
   /** 文件快照桥（main 注入）：writeFile/editFile 实际写入前备份原文件；失败不阻塞写入 */
@@ -148,6 +151,13 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
       `内置浏览器已接入（WebContentsView + CDP）。流程：browserOpen 打开 [页面元素] 里的 page= URL → browserClick/browserType 使用同一元素的 selector。` +
         `本地 dev server 若打开失败：依次改试 http://127.0.0.1:<port> 与 http://[::1]:<port>（IPv6-only 监听时 localhost 可能连不上）。` +
         `不要因一次 open 失败就放弃浏览器工具改去盲猜组件；先确认 URL 再定位代码。`,
+    );
+  }
+  if (config.cuaBridge) {
+    parts.push(
+      `CUA 桌面自动化已启用：cuaStatus/cuaScreenSize/cuaMouseMove/cuaMouseClick/cuaKeyboardType/cuaKey 可直接控制桌面（鼠标/键盘）。` +
+        `操作目标坐标先用 cuaScreenSize 了解屏幕范围；组合键写法 "ctrl+c"/"cmd+shift+3"。` +
+        `桌面操作影响系统全局状态，非明确要求不要连续盲点；失败时读 error 原因再重试。`,
     );
   }
   return parts.join("\n\n");

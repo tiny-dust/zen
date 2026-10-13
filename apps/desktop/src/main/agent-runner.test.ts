@@ -50,9 +50,11 @@ vi.mock("./workspace-db", () => ({
   getWorkspace: vi.fn(() => null),
   listWorkspaceGroups: vi.fn(() => []),
   saveTaskList: vi.fn(),
+  setSessionMode: vi.fn(),
 }));
 
 import { runAgentRequest } from "./agent-runner";
+import { setSessionMode } from "./workspace-db";
 
 describe("runAgentRequest 前置失败契约", () => {
   it("落库抛错返回 {ok:false} 而不是 reject", async () => {
@@ -80,5 +82,62 @@ describe("runAgentRequest 前置失败契约", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("session not found");
     state.sessionRecord = { session: { id: "s1" }, messages: [] };
+  });
+});
+
+describe("计划模式批准回落 interactive", () => {
+  it("plan 会话收到 approvePlan：先落库切回 interactive，run 正常继续", async () => {
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+
+    const result = await runAgentRequest(
+      {
+        sessionId: "s1",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "批准执行",
+        history: [],
+        approvePlan: true,
+      },
+      { sessions: new Map() },
+    );
+
+    // 无供应商配置 → mock agent 兜底跑通；批准动作的关键契约是落库切回 interactive
+    expect(result.ok).toBe(true);
+    expect(setSessionMode).toHaveBeenCalledWith("s1", "interactive");
+  });
+
+  it("手打「批准执行」开头的消息同样视为批准（approvePlan 省略）", async () => {
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+
+    const result = await runAgentRequest(
+      { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "批准执行，但先改一下登录页", history: [] },
+      { sessions: new Map() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(setSessionMode).toHaveBeenCalledWith("s1", "interactive");
+  });
+
+  it("plan 会话的计划反馈消息：保持 plan，不落库切换", async () => {
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+
+    const result = await runAgentRequest(
+      { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "第二步拆细一点", history: [] },
+      { sessions: new Map() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(setSessionMode).not.toHaveBeenCalledWith("s1", "interactive");
+  });
+
+  it("非 plan 会话即使带 approvePlan 也不落库切换", async () => {
+    state.sessionRecord = { session: { id: "s1", mode: "autopilot" }, messages: [] };
+
+    await runAgentRequest(
+      { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "批准执行", history: [], approvePlan: true },
+      { sessions: new Map() },
+    );
+
+    expect(setSessionMode).not.toHaveBeenCalled();
   });
 });

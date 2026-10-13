@@ -225,7 +225,7 @@ export async function callMcpTool(
   serverName: string,
   toolName: string,
   args: unknown,
-): Promise<{ ok: boolean; text: string; error?: string }> {
+): Promise<{ ok: boolean; text: string; error?: string; html?: string }> {
   const { servers } = await readMcpConfig();
   const config = servers.find((item) => item.enabled && item.name === serverName);
   if (!config) {

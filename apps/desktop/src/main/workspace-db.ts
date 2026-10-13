@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
-import { decodeChatMessageMeta, encodeChatMessageMeta, uuidv7 } from "@zen/shared";
+import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionMode, uuidv7 } from "@zen/shared";
 
 import { getDb } from "./model-db-connection";
 
-import type { ChatMessage, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
+import type { ChatMessage, SessionMode, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
 
 interface WorkspaceRow {
   id: string;
@@ -27,6 +27,7 @@ interface SessionRow {
   user_id: string | null;
   model_provider_id: string | null;
   model_id: string | null;
+  mode: string;
   created_at: number;
   updated_at: number;
 }
@@ -86,6 +87,7 @@ function toSession(row: SessionRow): SessionRecord {
     updatedAt: row.updated_at,
     modelProviderId: row.model_provider_id,
     modelId: row.model_id,
+    mode: normalizeSessionMode(row.mode),
   };
 }
 
@@ -203,6 +205,7 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     user_id: currentUserId ?? "",
     model_provider_id: null,
     model_id: null,
+    mode: "interactive",
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -237,6 +240,20 @@ export function setSessionModel(
       `UPDATE chat_sessions SET model_provider_id = ?, model_id = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`,
     )
     .run(providerId || null, modelId || null, Date.now(), id, ...ownerParams());
+}
+
+/** 会话模式切换（interactive/plan/autopilot）；非法值忽略，不落库 */
+export function setSessionMode(id: string, mode: SessionMode): void {
+  if (!isSessionModeValue(mode)) {
+    return;
+  }
+  getDb()
+    .prepare(`UPDATE chat_sessions SET mode = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
+    .run(mode, Date.now(), id, ...ownerParams());
+}
+
+function isSessionModeValue(value: unknown): value is SessionMode {
+  return value === "interactive" || value === "plan" || value === "autopilot";
 }
 
 export function getSession(id: string):

@@ -1,5 +1,7 @@
 import type { ToolPart } from "./tool-part";
 
+import { isMcpAppOutput } from "@zen/shared";
+
 import { i18n } from "@/locales";
 
 export type ToolResult =
@@ -7,7 +9,9 @@ export type ToolResult =
   | { kind: "code"; text: string; note?: string; path?: string }
   | { kind: "diff"; before: string; after: string; path?: string }
   | { kind: "replacement"; before: string; after: string; replacements: number; path?: string }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  /** MCP Apps（SEP-1865）：MCP 工具结果携带的交互式 HTML 资源（沙箱 iframe 渲染） */
+  | { kind: "app"; html: string; text: string };
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -81,6 +85,10 @@ export function toolResult(part: ToolPart): ToolResult | null {
     const text = executionText(part.output);
     const reason = isOutputSummary(error, text) ? undefined : error;
     return { kind: "text", text: [reason, text].filter(Boolean).join("\n\n") || i18n.global.t("chat.tool.incomplete") };
+  }
+  // MCP Apps：MCP 工具结果带 HTML 资源 → 沙箱 iframe 交互视图（其余文本走通用分支）
+  if (state === "ok" && part.toolName.startsWith("mcp.") && isMcpAppOutput(part.output)) {
+    return { kind: "app", html: part.output.html, text: part.output.output ?? "" };
   }
   if (part.toolName === "readFile" && (typeof part.output === "string" || typeof output?.content === "string")) {
     return { kind: "code", text: outputText(part.output) ?? "", path: argPath(part.args) };

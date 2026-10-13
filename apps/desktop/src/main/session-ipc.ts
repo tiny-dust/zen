@@ -1,9 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { writeFile } from "node:fs/promises";
 
-import type { ChatMessage } from "@zen/shared";
+import type { ChatMessage, SessionMode } from "@zen/shared";
+import { SESSION_MODES } from "@zen/shared";
 
-import { showOpenDialogSafe } from "./dialog-safe";
+import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
+import { renderSessionHtml } from "./session-export";
 import {
   appendMessage,
   createSession,
@@ -21,6 +24,7 @@ import {
   setSessionWorkspace,
   setWorkspaceArchived,
   setWorkspacePinned,
+  setSessionMode,
   trimMessagesFrom,
 } from "./workspace-db";
 
@@ -151,6 +155,17 @@ export function registerSessionIpc(): void {
     },
   );
 
+  // 会话模式切换（interactive/plan/autopilot）；非法值忽略，保持原模式
+  ipcMain.handle("session:set-mode", (_event, id: string, mode: string) => {
+    if (
+      typeof id === "string" &&
+      id.trim() &&
+      (SESSION_MODES as readonly string[]).includes(mode)
+    ) {
+      setSessionMode(id, mode as SessionMode);
+    }
+  });
+
   ipcMain.handle("session:open", (_event, id: string) => getSession(id) ?? null);
 
   // 渲染层自建消息落库（当前用于上下文压缩摘要卡）；会话不存在直接拒绝
@@ -220,5 +235,39 @@ export function registerSessionIpc(): void {
 
   ipcMain.handle("session:delete", (_event, id: string) => {
     deleteSession(id);
+  });
+
+  // 会话分享导出：渲染自包含单文件 HTML（深色 MiMo 风格），保存位置由系统保存弹窗选择
+  ipcMain.handle("session:export-html", async (event, sessionId: string) => {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      return { ok: false, error: "invalid session id" };
+    }
+    const record = getSession(sessionId);
+    if (!record) {
+      return { ok: false, error: "session not found" };
+    }
+    const html = renderSessionHtml({
+      session: record.session,
+      messages: record.messages,
+    });
+    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.html`.replace(
+      /[\\/:*?"<>|]/g,
+      "_",
+    );
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const result = await showSaveDialogSafe(parent, {
+      title: "导出会话 HTML",
+      defaultPath: defaultName,
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { ok: true, canceled: true };
+    }
+    try {
+      await writeFile(result.filePath, html, "utf8");
+      return { ok: true, path: result.filePath };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   });
 }

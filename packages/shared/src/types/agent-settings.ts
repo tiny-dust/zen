@@ -55,6 +55,8 @@ export interface AgentSettings {
   syncRepo: string | null;
   /** 飞书集成：bot 私信查询/问询回流 */
   larkBridge: LarkBridgeSettings;
+  /** CUA 桌面自动化（agent 的 cua.* 工具）总开关：默认关闭 */
+  cuaEnabled: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -66,6 +68,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   syncEnabled: false,
   syncRepo: null,
   larkBridge: DEFAULT_LARK_BRIDGE_SETTINGS,
+  cuaEnabled: false,
 };
 
 /** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */

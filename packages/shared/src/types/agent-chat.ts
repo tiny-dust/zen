@@ -312,4 +312,6 @@ export interface AgentRunRequest {
   reasoningEffort?: ReasoningEffort;
   attachments?: AttachmentRef[];
   history?: ChatTurn[];
+  /** 计划模式批准：main 侧识别后把会话切回 interactive 再继续执行 */
+  approvePlan?: boolean;
 }

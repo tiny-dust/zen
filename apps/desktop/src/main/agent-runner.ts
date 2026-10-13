@@ -5,6 +5,7 @@ import { AgentSession, runMockAgent } from "@zen/agent-core";
 
 import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
 import { getAgentServicesRegistry } from "./agent-services";
+import { getCuaService } from "./abilities/cua";
 import { getBrowserService } from "./browser/service";
 import { notifyLarkEvent } from "./lark/ipc";
 import { appendMemoryNote, readMemorySnapshot, renderMemoryContext } from "./memory";
@@ -25,10 +26,12 @@ import {
   getWorkspace,
   listWorkspaceGroups,
   saveTaskList,
+  setSessionMode,
 } from "./workspace-db";
+import { appendSessionModeDirective, resolveRunSessionMode } from "./session-mode";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
-import type { AgentRunRequest, AgentStreamEvent, ChatMessage, ChatTurn } from "@zen/shared";
+import type { AgentRunRequest, AgentStreamEvent, ChatMessage, ChatTurn, SessionMode } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
 /**
@@ -80,11 +83,19 @@ export async function runAgentRequest(
   }
   // 前置（查会话/落库/清旧 run）失败同样只走 {ok:false}：
   // 这里抛出会让 agent:run IPC reject，渲染层 send() 无兜底，运行态卡死
+  // 会话模式：前置块解析（plan 批准消息先落库切回 interactive），后续 AgentSession 组装要用
+  let runMode: SessionMode = "interactive";
   try {
     // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
-    if (!loadSessionRecord(request.sessionId)) {
+    const record = loadSessionRecord(request.sessionId);
+    if (!record) {
       return { ok: false, error: "session not found" };
     }
+    runMode = resolveRunSessionMode(
+      record.session.mode,
+      request,
+      (mode) => setSessionMode(request.sessionId, mode),
+    );
 
     // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
     ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
@@ -233,7 +244,12 @@ export async function runAgentRequest(
       reasoningEffort: request.reasoningEffort,
       reasoning: capabilities.reasoning === true,
       permissionMode: agentSettings.permissionMode,
-      systemPrompt: resolvePromptText(agentSettings),
+      // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）
+      systemPrompt: appendSessionModeDirective(
+        resolvePromptText(agentSettings),
+        runMode,
+        agentSettings.permissionMode,
+      ),
       // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
       memoryContext: await readMemorySnapshot()
         .then(renderMemoryContext)
@@ -249,6 +265,9 @@ export async function runAgentRequest(
       skillExtraPaths: agentSettings.skillExtraPaths,
       mcpTools,
       browserBridge: getBrowserService(),
+      // CUA 桌面自动化桥：agent settings cuaEnabled 总开关（默认 off）开启才注册 cua.* 工具；
+      // 权限系统把鼠标/键盘类 cua 工具按 exec 风险逐次确认
+      cuaBridge: agentSettings.cuaEnabled === true ? getCuaService().bridge() : undefined,
       // runTerminal 进程组跟踪：settle 后存活的 dev server 等收集为长驻服务（右栏「服务」）
       servicesBridge: getAgentServicesRegistry()?.bridge(),
       // 会话文件快照：写/改文件前把原文件备份进会话缓存目录（失败不阻塞写入）

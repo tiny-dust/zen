@@ -1,12 +1,14 @@
 <script setup lang="ts">
-  import { Cable, ChevronDown, FolderClosed, Plus, Sparkles } from "@lucide/vue";
+  import { Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, Plus, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onMounted, ref } from "vue";
   import { useI18n } from "vue-i18n";
 
   import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+  import FeaturesDialog from "@/components/sidebar/FeaturesDialog.vue";
   import McpDialog from "@/components/sidebar/McpDialog.vue";
   import ProjectSessionGroup from "@/components/sidebar/ProjectSessionGroup.vue";
+  import SchedulerDialog from "@/components/sidebar/SchedulerDialog.vue";
   import SkillsDialog from "@/components/sidebar/SkillsDialog.vue";
   import UserBlock from "@/components/sidebar/UserBlock.vue";
   import { Button } from "@/components/ui/button";
@@ -32,6 +34,8 @@
 
   const skillsOpen = ref(false);
   const mcpOpen = ref(false);
+  const schedulerOpen = ref(false);
+  const featuresOpen = ref(false);
   const pendingSessionDelete = ref<SessionRecord | null>(null);
   /** 工作区右键：重命名弹窗与删除确认 */
   const renamingWorkspace = ref<WorkspaceGroup | null>(null);
@@ -196,6 +200,14 @@
             aria-label="MCP" title="MCP" @click="mcpOpen = true">
             <Cable class="size-4" aria-hidden="true" />
           </Button>
+          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+            :aria-label="t('scheduler.entry')" :title="t('scheduler.entry')" @click="schedulerOpen = true">
+            <CalendarClock class="size-4" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+            :aria-label="t('features.entry')" :title="t('features.entry')" @click="featuresOpen = true">
+            <Blocks class="size-4" aria-hidden="true" />
+          </Button>
         </div>
       </div>
     </header>
@@ -294,4 +306,6 @@
 
   <SkillsDialog v-model:open="skillsOpen" />
   <McpDialog v-model:open="mcpOpen" />
+  <SchedulerDialog v-model:open="schedulerOpen" />
+  <FeaturesDialog v-model:open="featuresOpen" />
 </template>

@@ -18,6 +18,7 @@ import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppSettings, AuthState, GitHubUser } from "@zen/shared";
 import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME } from "@zen/shared";
 import { setCurrentUserId } from "./workspace-db";
+import { syncGlobalShortcuts } from "./global-shortcuts";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 /**
@@ -404,6 +405,8 @@ export function registerUserIpc(): void {
     if (partial.theme) {
       applyThemeMode(next.theme);
     }
+    // 快捷键变化即时同步系统全局注册表（含关闭 global 开关时的注销）
+    syncGlobalShortcuts(next.shortcuts);
     broadcast("settings:changed", next);
     return next;
   });
@@ -412,5 +415,7 @@ export function registerUserIpc(): void {
 export async function initUserState() {
   const settings = await loadSettings();
   applyThemeMode(settings.theme);
+  // 启动时恢复系统全局快捷键注册（含 global 开关的用户配置）
+  syncGlobalShortcuts(settings.shortcuts);
   return settings;
 }

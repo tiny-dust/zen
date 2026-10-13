@@ -30,6 +30,12 @@ export interface ShortcutBinding {
   command: string;
   key: string;
   when?: string;
+  /**
+   * 应用级（系统全局）注册：true 时主进程把该快捷键注册到 OS 全局快捷键表，
+   * 其它应用聚焦时也能触发（拉起 Zen 窗口并执行命令）。
+   * 仅 GLOBAL_SHORTCUT_COMMANDS 白名单内的命令允许开启。
+   */
+  global?: boolean;
 }
 
 export interface AppSettings {
@@ -210,3 +216,13 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "new-task", label: "新建任务", command: "zen.action.newTask", key: "Cmd+N" },
   { id: "send-message", label: "发送消息", command: "zen.chat.send", key: "Enter" },
 ];
+
+/**
+ * 允许注册为系统全局快捷键的命令白名单：
+ * 只收「拉起窗口就能执行」且已实现的动作；发送消息（裸 Enter）、面板切换这类
+ * 依赖应用内焦点的命令不进白名单，避免抢占系统级按键。
+ */
+export const GLOBAL_SHORTCUT_COMMANDS = new Set<string>([
+  "workbench.action.openSettings",
+  "zen.action.newTask",
+]);

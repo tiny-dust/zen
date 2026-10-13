@@ -207,6 +207,12 @@ function migrate(conn: Database.Database) {
     if (!sessionCols.some((col) => col.name === "model_id")) {
       conn.exec(`ALTER TABLE chat_sessions ADD COLUMN model_id TEXT`);
     }
+    // 会话模式（interactive/plan/autopilot）：缺省 interactive，旧数据向后兼容
+    if (!sessionCols.some((col) => col.name === "mode")) {
+      conn.exec(
+        `ALTER TABLE chat_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'interactive'`,
+      );
+    }
   }
 }
 

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import {
   ArrowUp,
+  Check,
   Gauge,
+  Mic,
   Play,
   Plus,
   Sparkles,
@@ -26,6 +28,7 @@ import AskUserCard from "@/components/chat/AskUserCard.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import PermissionPicker from "@/components/chat/PermissionPicker.vue";
+import SessionModePicker from "@/components/chat/SessionModePicker.vue";
 import PromptPicker from "@/components/chat/PromptPicker.vue";
 import WorkspacePicker from "@/components/chat/WorkspacePicker.vue";
 import ComposerBranchPicker from "@/components/chat/ComposerBranchPicker.vue";
@@ -35,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { useComposerFiles } from "@/composables/useComposerFiles";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useMediaQuery } from "@/composables/useMediaQuery";
+import { useVoiceInput } from "@/composables/useSystemAbilities";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -52,6 +56,7 @@ const {
   attachments,
   elementMarks,
   sessionWorkspaceId,
+  sessionMode,
   queuedMessages,
   editAnchorId,
 } = storeToRefs(chatStore);
@@ -107,9 +112,20 @@ const isCompactBar = computed(() => {
   return bottomBarWidth.value > 0 && bottomBarWidth.value < 720;
 });
 
-/** 运行中输入框不再禁用：发送即插入队列，占位文案说明当前行为 */
+/** 运行中输入框不再禁用：发送即转向当前 run（带附件回退队列），占位文案说明当前行为 */
 const composerPlaceholder = computed(() =>
-  isRunning.value ? t("chat.placeholderRunning") : t("chat.placeholderIdle"),
+  isRunning.value
+    ? t("session-mode.sessionMode.steer.placeholder")
+    : t("chat.placeholderIdle"),
+);
+
+/** 计划模式批准按钮：计划产出后（最后一条是 assistant）且空闲时显示 */
+const showPlanApproval = computed(
+  () =>
+    sessionMode.value === "plan" &&
+    !isRunning.value &&
+    !isPaused.value &&
+    chatStore.messages.at(-1)?.role === "assistant",
 );
 
 const allowedEfforts = computed(() => {
@@ -135,6 +151,29 @@ watch(allowedEfforts, (list) => {
 const editorRef = ref<InstanceType<typeof ComposerEditor> | null>(null);
 /** 悬浮引用 token 时高亮上方对应的附件 chip */
 const hoveredAttachmentId = ref<string | null>(null);
+
+// 语音输入（平台不支持时按钮隐藏；点击开始 → 再点结束 → 转写插入光标处）
+const {
+  supported: voiceSupported,
+  recording: voiceRecording,
+  transcribing: voiceTranscribing,
+  toggle: toggleVoice,
+} = useVoiceInput();
+
+async function onMicClick() {
+  try {
+    const text = await toggleVoice();
+    if (text) {
+      editorRef.value?.insertAtCaret(text);
+      editorRef.value?.focus();
+    }
+  } catch (error) {
+    chatStore.statusText =
+      error instanceof Error && error.message !== "EMPTY"
+        ? error.message
+        : t("system-abilities.voice.emptyResult");
+  }
+}
 
 // 文件进入通道（选择/粘贴/拖放）与附件 objectURL 生命周期拆到 composable
 const {
@@ -351,9 +390,29 @@ function removeAttachment(id: string) {
             >
               <Plus class="size-4" />
             </Button>
+            <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
+            <Button
+              v-if="voiceSupported"
+              variant="ghost"
+              size="icon-sm"
+              class="flex-none transition-colors"
+              :class="
+                voiceRecording
+                  ? 'text-[var(--color-accent)] hover:text-[var(--color-accent)]'
+                  : 'text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]'
+              "
+              :disabled="voiceTranscribing"
+              :aria-label="voiceRecording ? t('system-abilities.voice.stop') : t('system-abilities.voice.start')"
+              :title="voiceRecording ? t('system-abilities.voice.stopTitle') : t('system-abilities.voice.startTitle')"
+              @click="onMicClick"
+            >
+              <Square v-if="voiceRecording" class="size-3.5" />
+              <Mic v-else class="size-4" />
+            </Button>
             <WorkspacePicker :compact="isCompactBar" />
             <PromptPicker :compact="isCompactBar" />
             <ComposerBranchPicker :compact="isCompactBar" />
+            <SessionModePicker :compact="isCompactBar" />
           </div>
 
           <div class="flex flex-none items-center gap-1">
@@ -380,6 +439,18 @@ function removeAttachment(id: string) {
             />
             <ModelPicker :compact="isCompactBar" />
             <PermissionPicker :compact="isCompactBar" />
+            <!-- 计划模式批准：以「批准执行」消息继续，main 侧切回互动模式 -->
+            <Button
+              v-if="showPlanApproval"
+              variant="ghost"
+              class="h-7 items-center gap-1 rounded-lg px-2 text-[11px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="t('session-mode.sessionMode.plan.approve')"
+              :title="t('session-mode.sessionMode.plan.approveTitle')"
+              @click="chatStore.approvePlan()"
+            >
+              <Check class="size-3.5" aria-hidden="true" />
+              {{ t("session-mode.sessionMode.plan.approve") }}
+            </Button>
             <!-- 发送按钮位即运行状态位：运行中变停止，暂停时变继续 -->
             <Button
               v-if="isRunning || isPaused"

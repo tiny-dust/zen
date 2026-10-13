@@ -37,6 +37,10 @@ export const agentApi = {
     insert(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:insert", sessionId, text);
     },
+    /** 运行中转向：打断当前 run，新指示以最高权重先执行后自动恢复原任务 */
+    steer(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("agent:steer", sessionId, text);
+    },
     resolveApproval(
       sessionId: string,
       decision: ToolApprovalDecision,

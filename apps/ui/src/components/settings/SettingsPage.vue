@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Bot, Boxes, Keyboard, MessageSquare, Search, Settings2, Sparkles, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Keyboard, MessageSquare, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
+import SettingsAppearance from "@/components/settings/SettingsAppearance.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
 import SettingsLark from "@/components/settings/SettingsLark.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
+import SettingsPermissions from "@/components/settings/SettingsPermissions.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
@@ -32,6 +34,7 @@ const navGroups = computed(() => [
     title: t("settings.nav.groupPrefs"),
     items: [
       { id: "general" as const, label: t("settings.nav.general"), icon: Settings2 },
+      { id: "appearance" as const, label: t("settings.nav.appearance"), icon: Palette },
       { id: "shortcuts" as const, label: t("settings.nav.shortcuts"), icon: Keyboard },
     ],
   },
@@ -39,6 +42,7 @@ const navGroups = computed(() => [
     title: t("settings.nav.groupAgent"),
     items: [
       { id: "agent" as const, label: t("settings.nav.agent"), icon: Bot },
+      { id: "permissions" as const, label: t("settings.nav.permissions"), icon: ShieldCheck },
       { id: "lark" as const, label: t("settings.nav.lark"), icon: MessageSquare },
       { id: "prompts" as const, label: t("settings.nav.prompts"), icon: Sparkles },
     ],
@@ -62,8 +66,10 @@ const searching = computed(() => search.value.trim().length > 0);
 function tabLabel(tab: SettingsTab): string {
   const map: Record<SettingsTab, string> = {
     general: t("settings.nav.general"),
+    appearance: t("settings.nav.appearance"),
     shortcuts: t("settings.nav.shortcuts"),
     agent: t("settings.nav.agent"),
+    permissions: t("settings.nav.permissions"),
     lark: t("settings.nav.lark"),
     prompts: t("settings.nav.prompts"),
     profile: t("settings.nav.profile"),
@@ -85,8 +91,12 @@ const paneDesc = computed(() => {
       return t("settings.nav.descProfile");
     case "shortcuts":
       return t("settings.nav.descShortcuts");
+    case "appearance":
+      return t("settings.nav.descAppearance");
     case "agent":
       return t("settings.nav.descAgent");
+    case "permissions":
+      return t("settings.nav.descPermissions");
     case "lark":
       return t("settings.nav.descLark");
     case "prompts":
@@ -242,10 +252,12 @@ watch(
         <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
           <div class="flex flex-col gap-3.5 px-[18px] pb-5 pt-3.5">
             <SettingsGeneral v-if="activeTab === 'general'" />
+            <SettingsAppearance v-else-if="activeTab === 'appearance'" />
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsProfile v-else-if="activeTab === 'profile'" />
             <SettingsModels v-else-if="activeTab === 'models'" />
             <SettingsAgent v-else-if="activeTab === 'agent'" />
+            <SettingsPermissions v-else-if="activeTab === 'permissions'" />
             <SettingsLark v-else-if="activeTab === 'lark'" />
             <SettingsPrompts v-else-if="activeTab === 'prompts'" />
             <div

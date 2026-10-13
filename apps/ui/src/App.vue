@@ -52,36 +52,55 @@ let disposeAgent: (() => void) | undefined;
 useGlobalShortcuts({
   shortcuts: () => settingsStore.settings.shortcuts,
   onCommand: (command) => {
-    switch (command) {
-      case "zen.chat.send":
-        void chatStore.send();
-        break;
-      case "zen.action.newTask":
-        chatStore.newTask();
-        break;
-      case "workbench.action.openSettings":
-        settingsStore.openSettings();
-        break;
-      case "workbench.action.toggleSidebarVisibility":
-        layoutStore.toggleLeft();
-        break;
-      case "workbench.action.toggleInfoPanel":
-        layoutStore.toggleSession();
-        break;
-      case "workbench.action.toggleRightPanel":
-        layoutStore.toggleRight();
-        break;
-      case "workbench.action.terminal.toggleTerminal": {
-        const opening = layoutStore.bottomCollapsed;
-        layoutStore.toggleBottom();
-        if (opening) {
-          void useTerminalStore().ensureForWorkspace();
-        }
-        break;
-      }
-    }
+    void runWorkbenchCommand(command);
   },
 });
+
+/** 快捷键命令统一分发：应用内键监听与系统全局快捷键（主进程拉起窗口后回推）共用 */
+async function runWorkbenchCommand(command: string): Promise<void> {
+  switch (command) {
+    case "zen.chat.send":
+      void chatStore.send();
+      break;
+    case "zen.action.newTask":
+      chatStore.newTask();
+      break;
+    case "workbench.action.openSettings":
+      settingsStore.openSettings();
+      break;
+    case "workbench.action.toggleSidebarVisibility":
+      layoutStore.toggleLeft();
+      break;
+    case "workbench.action.toggleInfoPanel":
+      layoutStore.toggleSession();
+      break;
+    case "workbench.action.toggleRightPanel":
+      layoutStore.toggleRight();
+      break;
+    case "workbench.action.terminal.toggleTerminal": {
+      const opening = layoutStore.bottomCollapsed;
+      layoutStore.toggleBottom();
+      if (opening) {
+        void useTerminalStore().ensureForWorkspace();
+      }
+      break;
+    }
+  }
+}
+
+/** CLI open 请求落点：刷新侧栏数据后按 id 找到会话并切换（找不到则忽略） */
+async function openSessionFromCli(sessionId: string): Promise<void> {
+  const workspaceStore = useWorkspaceStore();
+  await workspaceStore.refresh();
+  for (const group of workspaceStore.groups) {
+    const record = group.sessions.find((item) => item.id === sessionId);
+    if (record) {
+      workspaceStore.setActive(group.id);
+      await chatStore.loadSession(record);
+      return;
+    }
+  }
+}
 
 onMounted(() => {
   disposeChat = chatStore.bootstrap();
@@ -89,6 +108,14 @@ onMounted(() => {
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
   disposeAgent = useAgentStore().bootstrap();
+  // 系统全局快捷键：主进程拉起窗口后回推命令，与应用内键监听共用同一分发
+  window.zen?.settings.onGlobalCommand((command) => {
+    void runWorkbenchCommand(command);
+  });
+  // CLI `zen-cli open <sessionId>`：主进程已聚焦窗口并广播请求，这里切到目标会话
+  window.zen?.session.onOpenRequest((sessionId) => {
+    void openSessionFromCli(sessionId);
+  });
   // 启动无条件落在对话页：清掉 hash 残留的设置入口，避免设置遮罩盖住主对话
   settingsStore.closeSettings();
   if (window.location.hash.startsWith("#settings")) {

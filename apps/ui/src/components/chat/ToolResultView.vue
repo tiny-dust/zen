@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DiffView from "@/components/right/DiffView.vue";
+import McpAppFrame from "./McpAppFrame.vue";
 import { ansiToSpans, hasAnsi } from "./ansi";
 import { toolFileDiff } from "./tool-file-diff";
 import { codeLines } from "./tool-result";
@@ -95,6 +96,12 @@ const terminalSpans = computed(() => {
         </div>
       </div>
     </template>
+    <!-- MCP Apps 交互视图：沙箱 iframe（组件自带容器，覆盖外层 mono 滚动壳） -->
+    <McpAppFrame
+      v-else-if="result.kind === 'app'"
+      :html="result.html"
+      :text="result.text || undefined"
+    />
     <pre v-else-if="result.kind === 'text' && result.text" class="tool-output">{{ result.text }}</pre>
     <p v-else class="tool-result-note">{{ t("chat.tool.noOutput") }}</p>
   </div>
@@ -115,6 +122,17 @@ const terminalSpans = computed(() => {
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.7;
+}
+
+/* MCP Apps 交互视图：容器/滚动由 McpAppFrame 自管，外层壳退化为透明包裹 */
+.tool-result[data-kind="app"] {
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans);
 }
 
 .tool-output {

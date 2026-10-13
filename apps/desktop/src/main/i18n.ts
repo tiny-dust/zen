@@ -218,6 +218,17 @@ const dict: Record<string, { "zh-CN": string; "en-US": string }> = {
     "en-US": "MCP server not found or not enabled: {name}",
   },
 
+  // ---------- 定时任务（scheduler.ts） ----------
+  "scheduler.noReply": { "zh-CN": "（无文本回复）", "en-US": "(no text reply)" },
+  "scheduler.notify.doneTitle": {
+    "zh-CN": "⏰ 定时任务「{name}」已完成",
+    "en-US": "⏰ Scheduled task \"{name}\" finished",
+  },
+  "scheduler.notify.errorTitle": {
+    "zh-CN": "⏰ 定时任务「{name}」运行失败",
+    "en-US": "⏰ Scheduled task \"{name}\" failed",
+  },
+
   // ---------- 飞书网关（lark/gateway.ts）：状态与相对时间 ----------
   "lark.state.idle": { "zh-CN": "空闲", "en-US": "Idle" },
   "lark.state.running": { "zh-CN": "运行中", "en-US": "Running" },

@@ -209,7 +209,10 @@ function protocolOptions() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex w-[min(1060px,calc(100vw-32px))] flex-col gap-3">
+    <DialogContent
+      data-large-panel="true"
+      class="flex w-[min(1060px,calc(100vw-32px))] max-w-none flex-col gap-3"
+    >
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <span>{{ initial ? t("settings.models.editModel") : t("settings.models.addModel") }}</span>
