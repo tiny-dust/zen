@@ -41,10 +41,10 @@ describe("buildInstructions", () => {
         }),
       ) ?? "";
 
-    expect(text).toContain("- mcp.lark.send: 发消息");
-    expect(text).toContain("- mcp.lark.bare:");
+    expect(text).toContain("- mcp__lark__send: 发消息");
+    expect(text).toContain("- mcp__lark__bare:");
     expect(text).toContain("主动调用规则");
-    expect(text).toContain("优先调用对应的 mcp.<server>.<tool> 完成");
+    expect(text).toContain("优先调用对应的 mcp__<server>__<tool> 完成");
     expect(text).toContain("不要静默吞掉");
     expect(text).toContain("「MCP 服务」弹窗");
     // 输入框 # 菜单插入的引用 token：Agent 要把 #mcp: 引用当成用户指名调用

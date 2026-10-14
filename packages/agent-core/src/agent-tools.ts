@@ -24,6 +24,7 @@ import type {
   McpAppToolOutput,
   TaskItem,
 } from "@zen/shared";
+import { MCP_TOOL_NAME_MAX, mcpToolWireName } from "@zen/shared";
 import type { ResourceLock } from "./resource-lock";
 import type { AgentSessionConfig } from "./agent-config";
 import { uuidLike } from "./agent-parts";
@@ -618,10 +619,18 @@ export function buildToolSet(
     });
   }
 
-  // MCP 工具动态桥接：mcp.<server>.<tool>
+  // MCP 工具动态桥接：mcp__<server>__<tool>（Anthropic 等协议要求工具名匹配
+  // ^[a-zA-Z0-9_-]+$，点号非法；描述里保留 [MCP server.tool] 原名供展示）
+  const usedMcpNames = new Set<string>();
   for (const bridge of config.mcpTools ?? []) {
-    const toolName = `mcp.${bridge.serverName}.${bridge.name}`;
-    toolSet[toolName] = tool({
+    let wireName = mcpToolWireName(bridge.serverName, bridge.name);
+    // 净化/截断可能撞名：序号后缀去重，避免后注册的静默覆盖前者
+    for (let seq = 2; usedMcpNames.has(wireName); seq += 1) {
+      const suffix = `_${seq}`;
+      wireName = wireName.slice(0, MCP_TOOL_NAME_MAX - suffix.length) + suffix;
+    }
+    usedMcpNames.add(wireName);
+    toolSet[wireName] = tool({
       description: bridge.description
         ? `[MCP ${bridge.serverName}.${bridge.name}] ${bridge.description}`
         : `[MCP ${bridge.serverName}.${bridge.name}] ${bridge.name}`,

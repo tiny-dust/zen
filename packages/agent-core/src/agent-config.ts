@@ -1,6 +1,7 @@
 import { multiAgentInstructions } from "./multi-agent-instructions";
 import type { ResourceLock } from "./resource-lock";
 
+import { mcpToolWireName } from "@zen/shared";
 import type { ModelMessage } from "ai";
 import type {
   AgentStreamEvent,
@@ -64,7 +65,7 @@ export interface AgentSessionConfig {
   skills?: AgentSkillHint[];
   /** loadSkill 校验用：与设置页一致的技能搜索路径 */
   skillExtraPaths?: string[];
-  /** 已启用 MCP server 的工具（动态桥接为 mcp.<server>.<tool>） */
+  /** 已启用 MCP server 的工具（动态桥接为 mcp__<server>__<tool>） */
   mcpTools?: McpToolBridge[];
   /** 内嵌 WebContentsView + CDP 浏览器桥（desktop 注入；缺省时不注册 browser.* 工具） */
   browserBridge?: BrowserAgentBridge;
@@ -117,17 +118,18 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
   }
   if (config.mcpTools?.length) {
     const lines = config.mcpTools
-      .map((bridge) => `- mcp.${bridge.serverName}.${bridge.name}: ${bridge.description ?? ""}`)
+      .map((bridge) => `- ${mcpToolWireName(bridge.serverName, bridge.name)}: ${bridge.description ?? ""}`)
       .join("\n");
     parts.push(
       `已连接的 MCP 工具（按任务主动调用，不要被动等用户点名）：\n${lines}\n` +
         `主动调用规则：\n` +
         `1. 当用户任务与某个 MCP 工具的用途/描述匹配时（尤其是飞书/Lark、日历、文档、邮件、任务等外部域操作），` +
-        `优先调用对应的 mcp.<server>.<tool> 完成，而不是用内置工具模拟、编造结果，或反问用户「要不要用某某」。\n` +
+        `优先调用对应的 mcp__<server>__<tool> 完成，而不是用内置工具模拟、编造结果，或反问用户「要不要用某某」。\n` +
         `2. 工具参数不明确时，先读该工具的描述与输入 schema 再调用；同一 server 有多个工具时选用途最贴合的那个。\n` +
         `3. 调用失败时把错误原文透出，并给出替代方案（换其它工具/让用户检查服务配置），不要静默吞掉。\n` +
         `4. 清单里没有能覆盖任务的 MCP 工具、而任务又明确需要外部系统时，提示用户到「MCP 服务」弹窗配置或启用对应服务。\n` +
-        `5. 用户消息里出现 #mcp:<server>.<tool> 形式的引用（输入框 # 菜单插入的 token）时，表示用户明确指名该工具，优先按引用调用它完成对应步骤。`,
+        `5. 用户消息里出现 #mcp:<server>.<tool> 形式的引用（输入框 # 菜单插入的 token）时，表示用户明确指名该工具` +
+        `（引用中的 server/tool 与工具名 mcp__<server>__<tool> 对应），优先按引用调用它完成对应步骤。`,
     );
   }
   if (config.multiAgent !== false) {

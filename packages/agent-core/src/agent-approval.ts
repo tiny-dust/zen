@@ -1,3 +1,5 @@
+import { isMcpToolName } from "@zen/shared";
+
 import type { PermissionMode, ToolRisk } from "@zen/shared";
 
 export type ApprovalVerdict = "allow" | "confirm";
@@ -52,7 +54,7 @@ export function riskForTool(toolName: string): ToolRisk {
   ) {
     return "read";
   }
-  if (toolName.startsWith("mcp.")) {
+  if (isMcpToolName(toolName)) {
     return "network";
   }
   return "exec";

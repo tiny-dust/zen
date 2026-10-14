@@ -522,7 +522,7 @@ describe("browser / mcp 工具桥接", () => {
     expect(tools.browserOpen).toBeUndefined();
   });
 
-  it("mcp.<server>.<tool> 延迟调用 MCP 运行时，失败抛错", async () => {
+  it("mcp__<server>__<tool> 延迟调用 MCP 运行时，失败抛错", async () => {
     registerMcpRuntime(async () => ({
       callMcpTool: async (serverName, toolName) =>
         serverName === "lark" && toolName === "ok"
@@ -536,9 +536,9 @@ describe("browser / mcp 工具桥接", () => {
       ],
     });
 
-    expect(tools["mcp.lark.ok"]).toBeTruthy();
-    await expect(execTool(tools["mcp.lark.ok"], { a: 1 })).resolves.toBe("mcp-done");
-    await expect(execTool(tools["mcp.lark.bad"], {})).rejects.toThrow("mcp 失败");
+    expect(tools["mcp__lark__ok"]).toBeTruthy();
+    await expect(execTool(tools["mcp__lark__ok"], { a: 1 })).resolves.toBe("mcp-done");
+    await expect(execTool(tools["mcp__lark__bad"], {})).rejects.toThrow("mcp 失败");
   });
 
   it("multiAgentTools 并入工具集", () => {

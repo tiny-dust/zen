@@ -43,7 +43,7 @@ describe("riskForTool", () => {
       "browserClick",
       "browserType",
       "browserEvaluate",
-      "mcp.lark.doc",
+      "mcp__lark__doc",
     ]) {
       expect(riskForTool(name)).toBe("network");
     }
@@ -74,7 +74,7 @@ describe("evaluateApproval", () => {
     expect(evaluateApproval("writeFile", "smart", { remembered: false })).toBe("allow");
     expect(evaluateApproval("editFile", "smart", { remembered: false })).toBe("allow");
     expect(evaluateApproval("browserOpen", "smart", { remembered: false })).toBe("confirm");
-    expect(evaluateApproval("mcp.lark.send", "smart", { remembered: false })).toBe("confirm");
+    expect(evaluateApproval("mcp__lark__send", "smart", { remembered: false })).toBe("confirm");
   });
 
   it("smart 模式只读终端命令放行，危险命令确认", () => {
