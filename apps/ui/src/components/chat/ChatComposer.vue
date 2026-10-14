@@ -113,10 +113,10 @@ const isCompactBar = computed(() => {
   return bottomBarWidth.value > 0 && bottomBarWidth.value < 720;
 });
 
-/** 运行中输入框不再禁用：发送即转向当前 run（带附件回退队列），占位文案说明当前行为 */
+/** 运行中输入框不再禁用：发送即插入队列（当前任务结束后自动执行），占位文案说明当前行为 */
 const composerPlaceholder = computed(() =>
   isRunning.value
-    ? t("session-mode.sessionMode.steer.placeholder")
+    ? t("chat.placeholderRunning")
     : t("chat.placeholderIdle"),
 );
 

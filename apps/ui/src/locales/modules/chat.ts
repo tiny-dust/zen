@@ -213,12 +213,14 @@ export default {
       inserting: "插入执行中",
       insert: "插入执行",
       insertTitle: "插入执行：打断当前任务，优先执行这条，完成后原任务自动继续",
+      insertNoAttachments: "带附件的消息不支持插入执行，按队列顺序自动发送",
       atHead: "已在队首",
       promote: "插队",
       promoteTitle: "插队：下一步执行",
       edit: "编辑插入消息",
       editTitle: "编辑：放回输入框",
       remove: "删除插入消息",
+      hint: "已加入队列，当前任务结束后自动执行",
     },
 
     /* 本会话技能/MCP 调用 tag */
@@ -488,12 +490,15 @@ export default {
       insert: "Insert now",
       insertTitle:
         "Insert now: interrupts the current task, runs this first, then resumes automatically",
+      insertNoAttachments:
+        "Messages with attachments can't be inserted mid-run; they send in queue order",
       atHead: "Already first",
       promote: "Move to front",
       promoteTitle: "Move to front: runs next",
       edit: "Edit queued message",
       editTitle: "Edit: back to composer",
       remove: "Delete queued message",
+      hint: "Queued — it will run automatically when the current task finishes",
     },
 
     /* Session skill/MCP usage tags */

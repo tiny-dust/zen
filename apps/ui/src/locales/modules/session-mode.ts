@@ -1,7 +1,7 @@
 import type { LocaleModule } from "../index";
 
 /**
- * 会话模式三档（interactive / plan / autopilot）与运行中转向（steer）文案。
+ * 会话模式三档（interactive / plan / autopilot）文案。
  * 键：sessionMode.*（命名空间即文件名 session-mode）。
  */
 export default {
@@ -28,14 +28,6 @@ export default {
         approve: "批准执行",
         approveTitle: "批准当前计划并开始执行，会话将回到互动模式",
       },
-      steer: {
-        badge: "转向",
-        badgeTitle: "该消息在任务执行过程中转向：Agent 已按新指示调整方向并继续原任务",
-        running: "按新指示转向中…",
-        resumed: "已按新指示调整，继续任务…",
-        failed: "转向失败",
-        placeholder: "Agent 运行中：输入内容按 Enter 直接转向当前任务",
-      },
     },
   },
   "en-US": {
@@ -60,14 +52,6 @@ export default {
       plan: {
         approve: "Approve plan",
         approveTitle: "Approve the plan and start executing; the session returns to interactive",
-      },
-      steer: {
-        badge: "Steer",
-        badgeTitle: "This message steered the running task: the agent adjusted direction and continued",
-        running: "Steering with the new instruction…",
-        resumed: "Direction adjusted, continuing the task…",
-        failed: "Steer failed",
-        placeholder: "Agent is running: press Enter to steer the current task",
       },
     },
   },

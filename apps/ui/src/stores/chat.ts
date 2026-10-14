@@ -204,7 +204,7 @@ export const useChatStore = defineStore("chat", () => {
   });
 
   // ---------- 插入消息队列：运行中入队，run 正常结束后按序续发 ----------
-  const queue = createMessageQueue({ input, isRunning, send });
+  const queue = createMessageQueue({ input, attachments, isRunning, send });
 
   /**
    * 插入执行进行中：原 run 已被打断（checkpoint 保留），插入 run 正在跑。
@@ -218,6 +218,10 @@ export const useChatStore = defineStore("chat", () => {
     const zen = window.zen;
     const item = queue.queuedMessages.value.find((entry) => entry.id === id);
     if (!zen || !item || !isRunning.value) {
+      return;
+    }
+    // 插入通道只传文本：带附件的排队消息不支持插入执行，UI 已禁用按钮，等队列轮到自动发送
+    if (item.attachments?.length) {
       return;
     }
     queue.remove(id);
@@ -256,57 +260,6 @@ export const useChatStore = defineStore("chat", () => {
       }
       queue.queuedMessages.value = [item, ...queue.queuedMessages.value];
       lastError.value = result.error ?? i18n.global.t("app.chat.insertFailed");
-      statusText.value = lastError.value;
-    }
-  }
-
-  /**
-   * 运行中转向：把新消息以「转向」注入当前 run——打断 → 按新指示调整 → 自动恢复原任务。
-   * 注入被拒（等审批/提问/并发插入/主进程无此 run）时回退到队列，run 结束后按序续发。
-   */
-  async function steerRunning(text: string) {
-    const zen = window.zen;
-    if (!zen) {
-      return;
-    }
-    insertActive.value = true;
-    // 本地先展示（带「转向」徽标）；转向 run 的流事件会另起新助手气泡衔接在后面
-    const localMessage: ChatMessage = {
-      id: uuid(),
-      role: "user",
-      content: text,
-      createdAt: Date.now(),
-      meta: { steer: true },
-    };
-    appendMessage(localMessage);
-    status.value = "thinking";
-    phase.value = "thinking";
-    statusText.value = i18n.global.t("session-mode.sessionMode.steer.running");
-    sessionStatusStore.set(sessionId.value, "running");
-
-    // IPC 抛错与 {ok:false} 同路处理：insertActive 必须复位，否则 isRunning 永久为 true
-    let result: { ok: boolean; error?: string };
-    try {
-      result = await zen.agent.steer(sessionId.value, text);
-    } catch (error) {
-      result = {
-        ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : i18n.global.t("session-mode.sessionMode.steer.failed"),
-      };
-    }
-    if (!result.ok) {
-      // 转向失败：消息退回队列不丢，气泡撤下，错误走 lastError
-      insertActive.value = false;
-      const index = messages.value.indexOf(localMessage);
-      if (index >= 0) {
-        messages.value.splice(index, 1);
-      }
-      queue.enqueue(text);
-      lastError.value =
-        result.error ?? i18n.global.t("session-mode.sessionMode.steer.failed");
       statusText.value = lastError.value;
     }
   }
@@ -651,20 +604,22 @@ export const useChatStore = defineStore("chat", () => {
     if (!zen || (!text && !attachments.value.length)) {
       return;
     }
-    // 运行中不再排队等待：文本消息直接「转向」当前 run（打断 → 新指示 → 自动恢复）；
-    // 带附件（转向不支持附件）时回退原队列，run 结束后按序续发
+    // 运行中默认排队（不打断当前 run，正常结束后按序自动续发）；
+    // 「立即插入」由队列条目的插入按钮承担（打断 → 先跑这条 → 自动恢复）
     if (isRunning.value) {
-      if (!text) {
+      // 「继续」/计划批准等系统续发只带文本：空文本即无内容可排队；
+      // 普通发送的纯附件消息（text 为空）照常入队
+      if (!text && (continued || !attachments.value.length)) {
         return;
       }
       if (!continued) {
+        queue.enqueue(text, attachments.value);
         input.value = "";
-        if (attachments.value.length) {
-          queue.enqueue(text);
-          return;
-        }
+        attachments.value = [];
+      } else {
+        queue.enqueue(text);
       }
-      await steerRunning(text);
+      statusText.value = i18n.global.t("chat.queued.hint");
       return;
     }
     // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送；

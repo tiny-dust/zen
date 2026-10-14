@@ -40,6 +40,8 @@ export interface QueuedMessage {
   id: string;
   text: string;
   createdAt: number;
+  /** 随消息入队的附件快照（发送时已从 composer 清空，出队/编辑时还原）；纯附件消息 text 为空串 */
+  attachments?: ComposerAttachment[];
 }
 
 export type { ComposerElementMark } from "@/lib/browser-element";

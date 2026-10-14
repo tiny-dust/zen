@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 import type { QueuedMessage } from "@/stores/chat-types";
 
-defineProps<{
+const props = defineProps<{
   /** 运行中插入的排队消息（按执行顺序排列） */
   items: QueuedMessage[];
   /** 插入执行进行中：按钮禁用，避免并发插入 */
@@ -21,6 +21,27 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+/** 队列条目展示文本：正文为空（纯附件消息）时退回附件名列表 */
+function displayText(item: QueuedMessage): string {
+  return item.text || (item.attachments ?? []).map((att) => att.name).join("、");
+}
+
+/** 带附件的排队消息不能「插入执行」（插入通道只传文本），按队列顺序自动发送 */
+function insertBlocked(item: QueuedMessage): boolean {
+  return (item.attachments?.length ?? 0) > 0;
+}
+
+/** 插入按钮禁用态与提示：插入执行中 / 带附件 / 正常 */
+function insertButtonHint(item: QueuedMessage): { disabled: boolean; label: string } {
+  if (props.insertDisabled) {
+    return { disabled: true, label: t("chat.queued.inserting") };
+  }
+  if (insertBlocked(item)) {
+    return { disabled: true, label: t("chat.queued.insertNoAttachments") };
+  }
+  return { disabled: false, label: t("chat.queued.insertTitle") };
+}
 </script>
 
 <template>
@@ -39,16 +60,16 @@ const { t } = useI18n();
       <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
         {{ index + 1 }}
       </span>
-      <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-txt)]" :title="item.text">
-        {{ item.text }}
+      <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-txt)]" :title="displayText(item)">
+        {{ displayText(item) }}
       </span>
       <Button
         variant="ghost"
         size="icon-xs"
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-accent)]"
-        :disabled="insertDisabled"
-        :title="insertDisabled ? t('chat.queued.inserting') : t('chat.queued.insertTitle')"
-        :aria-label="insertDisabled ? t('chat.queued.inserting') : t('chat.queued.insert')"
+        :disabled="insertButtonHint(item).disabled"
+        :title="insertButtonHint(item).label"
+        :aria-label="insertButtonHint(item).label"
         @click="$emit('insert', item.id)"
       >
         <Zap class="size-3" />

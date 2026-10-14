@@ -453,18 +453,16 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         break;
       }
       case "insert_started":
-        // 插入/转向 run 开始：原 run 已暂停，后续流事件属于插入 run。
-        // insertQueued/steerRunning 已乐观置位 insertActive；这里同步状态与提示文案
+        // 插入 run 开始：原 run 已暂停，后续流事件属于插入 run。
+        // insertQueued 已乐观置位 insertActive；这里同步状态与提示文案
         ctx.insertActive.value = true;
         ctx.isPaused.value = false;
         ctx.status.value = "thinking";
         ctx.phase.value = "thinking";
-        ctx.statusText.value = event.steer
-          ? i18n.global.t("session-mode.sessionMode.steer.running")
-          : i18n.global.t("app.chat.insertRunning");
+        ctx.statusText.value = i18n.global.t("app.chat.insertRunning");
         break;
       case "original_resumed":
-        // 插入/转向 run 完成，原 run 从 checkpoint 恢复：回到正常 running 语义。
+        // 插入 run 完成，原 run 从 checkpoint 恢复：回到正常 running 语义。
         // 之后的流式输出要另起新助手气泡，不并进插入 run 的回复
         ctx.insertActive.value = false;
         breakAssistantBubble = true;

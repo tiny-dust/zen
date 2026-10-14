@@ -1,13 +1,13 @@
 import type { LocaleModule } from "../index";
 
 /**
- * 模型自动路由文案（ModelPicker「自动（推荐）」与路由理由展示）。
+ * 模型自动路由文案（ModelPicker「自动」与路由理由展示）。
  * 键：modelRouting.*（命名空间即文件名 model-routing）。
  */
 export default {
   "zh-CN": {
     modelRouting: {
-      auto: "自动（推荐）",
+      auto: "自动",
       autoSubtitle: "根据任务自动选择模型",
       autoBadge: "自动",
       autoAria: "选择自动模型路由",
@@ -26,7 +26,7 @@ export default {
   },
   "en-US": {
     modelRouting: {
-      auto: "Auto (recommended)",
+      auto: "Auto",
       autoSubtitle: "Pick a model based on the task",
       autoBadge: "Auto",
       autoAria: "Select automatic model routing",

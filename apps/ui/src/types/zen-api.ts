@@ -38,7 +38,9 @@ import type {
   GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
+  GitStashEntry,
   GitStatus,
+  GitSyncResult,
   LarkLoginEvent,
   LarkStatus,
   McpServerConfig,
@@ -136,6 +138,22 @@ export interface ZenApi {
       options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
+    /** 刷新远端状态，返回当前分支 ahead/behind（无上游时缺省） */
+    fetch(cwd?: string): Promise<GitSyncResult>;
+    /** 拉取并合并上游（无上游时报清晰错误；冲突时返回冲突文件列表） */
+    pull(cwd?: string): Promise<GitSyncResult>;
+    /** 合并指定分支：冲突时不自动 commit，返回冲突文件列表 */
+    merge(cwd: string | undefined, branch: string): Promise<GitSyncResult>;
+    /** 中止进行中的合并 */
+    mergeAbort(cwd?: string): Promise<GitSyncResult>;
+    /** 贮藏当前变更（-u 含未跟踪文件；message 可选） */
+    stashPush(cwd: string | undefined, message?: string): Promise<GitSyncResult>;
+    /** 应用贮藏：apply 保留条目，pop 应用成功后删除 */
+    stashApply(cwd: string | undefined, index: number, mode?: "apply" | "pop"): Promise<GitSyncResult>;
+    /** 贮藏列表 */
+    stashList(cwd?: string): Promise<GitStashEntry[]>;
+    /** 删除指定贮藏 */
+    stashDrop(cwd: string | undefined, index: number): Promise<GitSyncResult>;
     log(cwd?: string, ref?: string): Promise<GitLogEntry[]>;
     commitDetail(cwd: string | undefined, hash: string): Promise<GitCommitDetail | null>;
     commitFileDiff(cwd: string | undefined, hash: string, path: string): Promise<string | null>;
@@ -367,6 +385,8 @@ export interface ZenApi {
   };
   pathForFile(file: File): string;
   browser: {
+    /** 校正当前工作区的内嵌浏览器 scope（会话切换时由右栏面板 watch 驱动；preload 边界维护） */
+    setScope(scope: string): void;
     status(): Promise<BrowserStatus>;
     ensureRunning(): Promise<BrowserStatus>;
     stop(): Promise<BrowserStatus>;

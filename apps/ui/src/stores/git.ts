@@ -7,7 +7,9 @@ import type {
   GitFileChange,
   GitLogEntry,
   GitPullRequest,
+  GitStashEntry,
   GitStatus,
+  GitSyncResult,
 } from "@zen/shared";
 import { toast } from "@/components/ui/toast";
 import { useChatStore } from "@/stores/chat";
@@ -37,6 +39,9 @@ export const useGitStore = defineStore("git", () => {
   const feedback = ref("");
   /** 提交/推送进行中的操作；跨组件（提交弹窗、信息卡）共享，弹窗关闭不影响操作继续执行 */
   const opBusy = ref<GitOpKind | "">("");
+  /** 贮藏列表（stash Popover 数据源）；打开浮层或操作后刷新 */
+  const stashes = ref<GitStashEntry[]>([]);
+  const stashesLoading = ref(false);
 
   function cwd(): string | undefined {
     return useWorkspaceStore().pathOf(useChatStore().sessionWorkspaceId);
@@ -392,6 +397,157 @@ export const useGitStore = defineStore("git", () => {
     return result;
   }
 
+  /** fetch / pull / merge 类结果统一反馈：冲突时提示待解决文件数并刷新状态（变更面板展示冲突文件与合并横幅） */
+  function reportSyncResult(result: GitSyncResult, messages: { ok: string; failed: string }) {
+    if (result.ok) {
+      feedback.value = messages.ok;
+      toast.ok(messages.ok);
+    } else if (result.conflicts?.length) {
+      feedback.value = i18n.global.t("app.git.mergeConflict", { n: result.conflicts.length });
+      toast.err(feedback.value);
+    } else {
+      feedback.value = result.error ?? messages.failed;
+      toast.err(feedback.value);
+    }
+  }
+
+  /** 刷新远端状态（fetch）：不合并，仅更新 ahead/behind 与远端分支 */
+  async function fetchRemote() {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.fetch(root);
+    reportSyncResult(result, {
+      ok: i18n.global.t("app.git.fetched"),
+      failed: i18n.global.t("app.git.fetchFailed"),
+    });
+    await Promise.all([refreshStatus(), refreshBranches()]);
+    return result;
+  }
+
+  /** 拉取并合并上游（无上游时后端给清晰报错；冲突时返回冲突文件列表） */
+  async function pull() {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.pull(root);
+    reportSyncResult(result, {
+      ok: i18n.global.t("app.git.pulled"),
+      failed: i18n.global.t("app.git.pullFailed"),
+    });
+    await Promise.all([refreshStatus(), refreshBranches()]);
+    return result;
+  }
+
+  /** 合并指定分支：冲突时不自动提交，变更面板引导解决 */
+  async function merge(branch: string) {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.merge(root, branch);
+    reportSyncResult(result, {
+      ok: i18n.global.t("app.git.merged"),
+      failed: i18n.global.t("app.git.mergeFailed"),
+    });
+    await Promise.all([refreshStatus(), refreshBranches()]);
+    return result;
+  }
+
+  /** 中止进行中的合并 */
+  async function mergeAbort() {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.mergeAbort(root);
+    if (result.ok) {
+      feedback.value = i18n.global.t("app.git.mergeAborted");
+      toast.ok(i18n.global.t("app.git.mergeAborted"));
+    } else {
+      feedback.value = result.error ?? i18n.global.t("app.git.abortMergeFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.abortMergeFailed"));
+    }
+    await refreshStatus();
+    return result;
+  }
+
+  /** 刷新贮藏列表（打开 Popover / 贮藏操作后调用） */
+  async function refreshStashes() {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      stashes.value = [];
+      return;
+    }
+    stashesLoading.value = true;
+    try {
+      stashes.value = await zen.git.stashList(root);
+    } finally {
+      stashesLoading.value = false;
+    }
+  }
+
+  /** 贮藏当前变更（-u 含未跟踪文件；message 可选） */
+  async function stashPush(message?: string) {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.stashPush(root, message);
+    if (result.ok) {
+      feedback.value = i18n.global.t("app.git.stashed");
+      toast.ok(i18n.global.t("app.git.stashed"));
+    } else {
+      feedback.value = result.error ?? i18n.global.t("app.git.stashFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.stashFailed"));
+    }
+    await Promise.all([refreshStatus(), refreshStashes()]);
+    return result;
+  }
+
+  /** 应用贮藏：apply 保留条目，pop 应用成功后删除 */
+  async function stashApply(index: number, mode: "apply" | "pop" = "apply") {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.stashApply(root, index, mode);
+    reportSyncResult(result, {
+      ok: mode === "pop" ? i18n.global.t("app.git.stashPopped") : i18n.global.t("app.git.stashApplied"),
+      failed: i18n.global.t("app.git.stashApplyFailed"),
+    });
+    await Promise.all([refreshStatus(), refreshStashes()]);
+    return result;
+  }
+
+  /** 删除指定贮藏 */
+  async function stashDrop(index: number) {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.stashDrop(root, index);
+    if (result.ok) {
+      feedback.value = i18n.global.t("app.git.stashDropped");
+      toast.ok(i18n.global.t("app.git.stashDropped"));
+    } else {
+      feedback.value = result.error ?? i18n.global.t("app.git.stashDropFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.stashDropFailed"));
+    }
+    await refreshStashes();
+    return result;
+  }
+
   function reset() {
     status.value = null;
     branches.value = { local: [], remote: [] };
@@ -403,6 +559,8 @@ export const useGitStore = defineStore("git", () => {
     commitPanelOpen.value = false;
     branchPickerOpen.value = false;
     feedback.value = "";
+    stashes.value = [];
+    stashesLoading.value = false;
   }
 
   function statusBadge(change: GitFileChange): { text: string; cls: string } {
@@ -438,6 +596,8 @@ export const useGitStore = defineStore("git", () => {
     branchPickerOpen,
     feedback,
     opBusy,
+    stashes,
+    stashesLoading,
     files,
     branch,
     totalAdd,
@@ -456,6 +616,14 @@ export const useGitStore = defineStore("git", () => {
     commit,
     commitBatched,
     push,
+    fetchRemote,
+    pull,
+    merge,
+    mergeAbort,
+    refreshStashes,
+    stashPush,
+    stashApply,
+    stashDrop,
     reset,
     statusBadge,
     cwd,

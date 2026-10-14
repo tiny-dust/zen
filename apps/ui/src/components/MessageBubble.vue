@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, Ban, Check, CircleAlert, Compass, Copy, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
+import { AudioLines, Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -94,11 +94,6 @@ const attachmentParts = computed(() => {
 /** 插入执行的用户消息：气泡上方加「已插入」徽标（打断原任务、高权重先执行） */
 const insertedBadge = computed(
   () => (props.message.meta as { inserted?: boolean } | undefined)?.inserted === true,
-);
-
-/** 转向的用户消息：气泡上方加「转向」徽标（调整任务方向、原任务自动恢复） */
-const steerBadge = computed(
-  () => (props.message.meta as { steer?: boolean } | undefined)?.steer === true,
 );
 
 const toolMeta = computed<ToolCallMessageMeta | null>(() => {
@@ -405,16 +400,6 @@ async function ocrAttachment(path: string) {
         >
           <Zap class="size-3" aria-hidden="true" />
           {{ t("chat.bubble.inserted") }}
-        </span>
-      </div>
-      <!-- 转向徽标：运行中插话调整任务方向，原任务已自动恢复 -->
-      <div v-if="steerBadge" class="mb-1.5 flex justify-end">
-        <span
-          class="inline-flex items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]"
-          :title="t('session-mode.sessionMode.steer.badgeTitle')"
-        >
-          <Compass class="size-3" aria-hidden="true" />
-          {{ t("session-mode.sessionMode.steer.badge") }}
         </span>
       </div>
       <!-- 随消息发送的技能 / 页面元素 tag -->

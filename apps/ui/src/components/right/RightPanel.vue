@@ -2,7 +2,7 @@
 import GraphPanel from "@/components/right/GitGraph.vue";
 import { Bot, Check, FolderOpen, GitGraph, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { Component } from "vue";
 
@@ -19,6 +19,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
+import { useBrowserStore } from "@/stores/browser";
+import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
 import { PANEL_TITLES, useRightPanelStore, type RightPanelKind } from "@/stores/right-panel";
@@ -28,7 +30,36 @@ const { t } = useI18n();
 const layoutStore = useLayoutStore();
 const rightPanel = useRightPanelStore();
 const gitStore = useGitStore();
+const browserStore = useBrowserStore();
+const chatStore = useChatStore();
 const { tabs, activeId, activeTab } = storeToRefs(rightPanel);
+
+/**
+ * 内嵌浏览器按工作区隔离：切工作区时把主进程的活动浏览器 scope 对齐到当前
+ * 会话工作区。preload 的会话流量拦截覆盖常规切换，这里兜底校正 preload 看不到
+ * 的路径（未持久化会话切工作区等）与面板重新展开时的初始值。
+ */
+watch(
+  () => chatStore.sessionWorkspaceId,
+  (id) => {
+    window.zen?.browser?.setScope?.(id || "common");
+  },
+  { immediate: true },
+);
+
+/**
+ * 面板分桶切换完成后（tabs 引用整体替换）修复 store.status 里残留的上一工作区
+ * pip 标记：status 未分桶，陈旧 pip 会让 reconcileView / bounds 推送提前跳过，
+ * 表现为切过来浏览器面板空白。仅在浏览器 tab 已打开且残留 pip 时刷新对齐。
+ */
+watch(
+  tabs,
+  () => {
+    if (rightPanel.hasKind("browser") && (browserStore.status.pip || browserStore.status.pipHidden)) {
+      void browserStore.syncStatus().then(() => browserStore.reconcileView());
+    }
+  },
+);
 
 /** 「打开面板」菜单展开态：菜单浮层 z 低于浏览器 WebContentsView，打开期间需压制原生视图 */
 const panelMenuOpen = ref(false);
