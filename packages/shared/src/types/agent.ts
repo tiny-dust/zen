@@ -46,6 +46,8 @@ export interface GitStatus {
   ahead?: number;
   /** 落后远程：本地落后上游的提交数；无上游分支时缺省 */
   behind?: number;
+  /** 合并进行中（存在 MERGE_HEAD）：UI 引导在变更面板解决冲突后提交 */
+  merging?: boolean;
 }
 
 export interface GitLogEntry {
@@ -109,6 +111,28 @@ export interface GitPullRequest {
   title: string;
   url: string;
   state: "open" | "closed" | "merged" | "draft";
+}
+
+/** 远端同步操作（fetch / pull / merge / stash）的通用结果 */
+export interface GitSyncResult {
+  ok: boolean;
+  error?: string;
+  output?: string;
+  /** 冲突文件相对路径（merge / pull / stash apply 冲突时非空） */
+  conflicts?: string[];
+  /** fetch / pull 后当前分支领先/落后上游的提交数；无上游时缺省 */
+  ahead?: number;
+  behind?: number;
+}
+
+/** stash 条目（git stash list 解析结果） */
+export interface GitStashEntry {
+  /** stash@{n} 的序号 n */
+  index: number;
+  /** 短哈希 */
+  hash: string;
+  /** 贮藏主题（首行说明） */
+  message: string;
 }
 
 export const BUILTIN_SKILLS: Array<{ id: string; label: string; description: string }> = [
