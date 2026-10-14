@@ -1,24 +1,54 @@
-/** 调度单位（interval 类任务的循环周期单位） */
-export type ScheduleUnit = "second" | "minute" | "hour" | "day" | "month";
+/** 调度单位（interval / recurrence 类任务的循环周期单位） */
+export type ScheduleUnit = "second" | "minute" | "hour" | "day" | "week" | "month";
+
+/**
+ * 月内规则（recurrence 且 unit=month）：
+ * - day：每月 X 号（当月不足该日取月末，如 31 → 2 月 28/29 日）
+ * - nthWeekday：每月第 N 个周几（如第 2 个周二；当月不足则不触发）
+ */
+export type MonthlyPattern =
+  | { mode: "day"; day: number }
+  | { mode: "nthWeekday"; nth: number; weekday: number };
 
 /**
  * 定时任务调度：
- * - interval：每 N 个单位循环（秒/分/时/天/月）
- * - daily：每天固定时刻
- * - monthly：每月几号固定时刻（当月不足该日取当月最后一天，如 31 → 2 月 28/29 日）
+ * - recurrence：统一重复规则（RRULE-lite）。每 N 个单位（秒/分/时/天/周/月）循环；
+ *   周→按 weekdays 多选周几，月→按 monthlyOn 指定几号或第 N 个周几；
+ *   天/周/月在 times 里的一天多个触发时刻；until 为截止日（含当日，本地时区）。
+ *   表达力覆盖旧 interval / daily / monthly（编辑旧任务时前向迁移）。
+ * - dates：日历多选的任意指定日期 × 多个时刻（每年不规则的那几天跑）
+ * - interval：每 N 个单位循环（秒/分/时/天/月）——旧类型，兼容存量数据
+ * - daily：每天固定时刻——旧类型，兼容存量数据
+ * - monthly：每月几号固定时刻——旧类型，兼容存量数据
  * - once：指定日期时间执行一次（触发后自动停用）
  * - window：每天指定时间范围内每 N 分钟循环
- * 结构上仍预留 RRULE 扩展位（RFC 5545；当前版本不解析，仅透传保存）。
  */
 export interface ScheduledTaskSchedule {
-  kind: "interval" | "daily" | "monthly" | "once" | "window";
-  /** interval：循环间隔数值（>=1） */
+  kind:
+    | "recurrence"
+    | "dates"
+    | "interval"
+    | "daily"
+    | "monthly"
+    | "once"
+    | "window";
+  /** recurrence / interval：循环间隔数值（>=1） */
   every?: number;
-  /** interval：循环单位 */
+  /** recurrence / interval：循环单位 */
   unit?: ScheduleUnit;
-  /** daily / monthly：触发时刻 "HH:mm"（本地时区，24 小时制） */
+  /** recurrence 且 unit=week：选中的星期几（0=周日 … 6=周六），空数组非法 */
+  weekdays?: number[];
+  /** recurrence 且 unit=month：月内规则 */
+  monthlyOn?: MonthlyPattern;
+  /** recurrence（天/周/月）/ dates：一天内的触发时刻列表 "HH:mm"（本地时区，非空） */
+  times?: string[];
+  /** recurrence：截止日 "YYYY-MM-DD"（含当日），缺省永不结束 */
+  until?: string;
+  /** dates：选中的日期列表 "YYYY-MM-DD"（非空） */
+  dates?: string[];
+  /** daily / monthly：触发时刻 "HH:mm"（本地时区，24 小时制）——旧类型 */
   time?: string;
-  /** monthly：每月几号（1-31） */
+  /** monthly：每月几号（1-31）——旧类型 */
   day?: number;
   /** once：触发时间戳（ms，本地时区） */
   at?: number;
@@ -28,8 +58,6 @@ export interface ScheduledTaskSchedule {
   endTime?: string;
   /** window：范围内循环间隔分钟数（>=1） */
   everyMinutes?: number;
-  /** RRULE 扩展位（RFC 5545；当前版本不解析，仅透传保存） */
-  rrule?: string;
 }
 
 /** 定时任务：到点自动在目标工作区新建会话并运行 agent */
