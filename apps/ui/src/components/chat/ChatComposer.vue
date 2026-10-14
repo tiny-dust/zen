@@ -449,7 +449,7 @@ function removeAttachment(id: string) {
                 :title="t('chat.addFileTitle')"
                 @click="openFilePicker"
               >
-                <Plus class="size-4 text-[var(--composer-ic-file)]" />
+                <Plus class="size-4" />
               </Button>
               <PromptPicker :compact="isCompactBar" />
               <SessionModePicker :compact="isCompactBar" />
@@ -479,7 +479,7 @@ function removeAttachment(id: string) {
                 @click="onMicClick"
               >
                 <Square v-if="voiceRecording" class="size-3.5" />
-                <Mic v-else class="size-4 text-[var(--composer-ic-voice)]" />
+                <Mic v-else class="size-4" />
               </Button>
               <!-- 计划模式批准：以「批准执行」消息继续，main 侧切回互动模式 -->
               <Button

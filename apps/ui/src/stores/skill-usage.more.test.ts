@@ -17,7 +17,7 @@ describe("usageTargetFromTool 边界", () => {
     expect(usageTargetFromTool("loadSkill", null)).toBeNull();
     expect(usageTargetFromTool("loadSkill", { skillId: "" })).toBeNull();
     expect(usageTargetFromTool("readFile", { path: "/a" })).toBeNull();
-    expect(usageTargetFromTool("mcp.", {})).toBeNull();
+    expect(usageTargetFromTool("mcp__", {})).toBeNull();
     expect(usageTargetFromTool("mcp", {})).toBeNull();
   });
 
@@ -48,9 +48,9 @@ describe("useSkillUsageStore 补充行为", () => {
 
   it("noteToolEnd 失败也结束进行中动效", () => {
     const store = useSkillUsageStore();
-    store.noteToolStart("s1", "mcp.filesystem.read", {});
+    store.noteToolStart("s1", "mcp__filesystem__read", {});
     expect(store.entriesOf("s1")[0]?.running).toBe(true);
-    store.noteToolEnd("s1", "mcp.filesystem.read", false, {});
+    store.noteToolEnd("s1", "mcp__filesystem__read", false, {});
     expect(store.entriesOf("s1")[0]?.running).toBe(false);
   });
 
@@ -64,7 +64,7 @@ describe("useSkillUsageStore 补充行为", () => {
   it("endRun 清掉所有进行中动效", () => {
     const store = useSkillUsageStore();
     store.noteToolStart("s1", "loadSkill", { skillId: "a" });
-    store.noteToolStart("s1", "mcp.srv.tool", {});
+    store.noteToolStart("s1", "mcp__srv__tool", {});
     store.endRun("s1");
     expect(store.entriesOf("s1").every((item) => !item.running)).toBe(true);
   });

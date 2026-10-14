@@ -15,6 +15,34 @@ interface ComposerFilesOptions {
 }
 
 /**
+ * 批内文件名去重：同名文件从 -2 起取最小可用序号（image.png → image-2.png → image-3.png），
+ * 避免粘贴多图时全部叫 image.png 导致附件互相冲突。首个保持原名，序号与批内已有名顺延。
+ */
+export function dedupeFileNames(files: File[]): File[] {
+  const used = new Set<string>();
+  return files.map((file) => {
+    if (!file.name) {
+      // 空文件名沿用 onPaste 的 pasted-image.png 兜底，不在此改名
+      return file;
+    }
+    if (!used.has(file.name)) {
+      used.add(file.name);
+      return file;
+    }
+    const dot = file.name.lastIndexOf(".");
+    const base = dot > 0 ? file.name.slice(0, dot) : file.name;
+    const ext = dot > 0 ? file.name.slice(dot) : "";
+    let index = 2;
+    while (used.has(`${base}-${index}${ext}`)) {
+      index += 1;
+    }
+    const renamed = `${base}-${index}${ext}`;
+    used.add(renamed);
+    return new File([file], renamed, { type: file.type, lastModified: file.lastModified });
+  });
+}
+
+/**
  * Composer 的文件进入通道：文件选择器、粘贴、拖放三条路径共用 addAttachment，
  * 并管理附件图像 objectURL 的生命周期（附件移除或组件卸载时 revoke）。
  * 拖放/粘贴/选择处理函数从 ChatComposer 拆出，编辑器交互经 options 注入。
@@ -84,7 +112,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     endFileDialog();
     const target = event.target as HTMLInputElement;
     const zen = window.zen;
-    for (const file of Array.from(target.files ?? [])) {
+    for (const file of dedupeFileNames(Array.from(target.files ?? []))) {
       const path = zen ? zen.pathForFile(file) : "";
       addAttachment(file, path);
       insertAtCaret(`$${file.name} `);
@@ -117,7 +145,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     }
     event.preventDefault();
     const zen = window.zen;
-    for (const file of files) {
+    for (const file of dedupeFileNames(files)) {
       let path = zen ? zen.pathForFile(file) : "";
       if (!path && zen?.cache?.savePaste) {
         try {
@@ -175,7 +203,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     event.preventDefault();
     const zen = window.zen;
     let refs = "";
-    for (const file of files) {
+    for (const file of dedupeFileNames(files)) {
       const path = zen ? zen.pathForFile(file) : "";
       addAttachment(file, path);
       refs += `$${file.name} `;

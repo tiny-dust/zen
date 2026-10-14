@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 
+import { parseMcpToolName } from "@zen/shared";
+
 import { useAgentStore } from "@/stores/agent";
 
 /**
@@ -49,13 +51,9 @@ export function usageTargetFromTool(
     const name = skillDisplayName(skillId);
     return { key: `skill:${name}`, kind: "skill", name };
   }
-  if (toolName.startsWith("mcp.")) {
-    // 工具名形如 mcp.<server>.<tool>；server 名含点时按已知桥接仍取第一段
-    const server = toolName.slice("mcp.".length).split(".")[0] ?? "";
-    if (!server) {
-      return null;
-    }
-    return { key: `mcp:${server}`, kind: "mcp", name: server };
+  const mcp = parseMcpToolName(toolName);
+  if (mcp) {
+    return { key: `mcp:${mcp.serverName}`, kind: "mcp", name: mcp.serverName };
   }
   return null;
 }

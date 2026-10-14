@@ -62,7 +62,7 @@ describe("skill-usage", () => {
   it("resolves loadSkill target to display name key", () => {
     const target = usageTargetFromTool("loadSkill", { skillId: "/a/b/my-skill" });
     expect(target).toEqual({ key: "skill:my-skill", kind: "skill", name: "my-skill" });
-    const mcp = usageTargetFromTool("mcp.filesystem.read", {});
+    const mcp = usageTargetFromTool("mcp__filesystem__read", {});
     expect(mcp).toEqual({ key: "mcp:filesystem", kind: "mcp", name: "filesystem" });
   });
 });

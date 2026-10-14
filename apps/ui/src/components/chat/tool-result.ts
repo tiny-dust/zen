@@ -1,6 +1,6 @@
 import type { ToolPart } from "./tool-part";
 
-import { isMcpAppOutput } from "@zen/shared";
+import { isMcpAppOutput, isMcpToolName } from "@zen/shared";
 
 import { i18n } from "@/locales";
 
@@ -87,7 +87,7 @@ export function toolResult(part: ToolPart): ToolResult | null {
     return { kind: "text", text: [reason, text].filter(Boolean).join("\n\n") || i18n.global.t("chat.tool.incomplete") };
   }
   // MCP Apps：MCP 工具结果带 HTML 资源 → 沙箱 iframe 交互视图（其余文本走通用分支）
-  if (state === "ok" && part.toolName.startsWith("mcp.") && isMcpAppOutput(part.output)) {
+  if (state === "ok" && isMcpToolName(part.toolName) && isMcpAppOutput(part.output)) {
     return { kind: "app", html: part.output.html, text: part.output.output ?? "" };
   }
   if (part.toolName === "readFile" && (typeof part.output === "string" || typeof output?.content === "string")) {

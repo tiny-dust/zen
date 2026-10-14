@@ -43,7 +43,7 @@ async function setPermissionMode(mode: unknown) {
         :aria-label="t('chat.permission.select')"
         :title="t('chat.permission.label', { label: permissionLabel })"
       >
-        <PermissionIcon :mode="permissionMode" :size="16" class="flex-none text-[var(--composer-ic-perm)]" />
+        <PermissionIcon :mode="permissionMode" :size="16" class="flex-none" />
         <span v-if="!compact" class="text-[11px] font-normal">{{ permissionLabel }}</span>
       </Button>
     </DropdownMenuTrigger>

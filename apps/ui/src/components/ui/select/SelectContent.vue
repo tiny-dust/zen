@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { SelectContentEmits, SelectContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
+import type { OverlayElement } from '@/composables/useOverlayGeometry'
 import { reactiveOmit } from '@vueuse/core'
 import {
   SelectContent,
@@ -8,6 +9,8 @@ import {
   SelectViewport,
   useForwardPropsEmits,
 } from 'reka-ui'
+import { ref } from 'vue'
+import { useOverlayGeometry } from '@/composables/useOverlayGeometry'
 import { cn } from '@/lib/utils'
 import { SelectScrollDownButton, SelectScrollUpButton } from '.'
 
@@ -27,11 +30,16 @@ const emits = defineEmits<SelectContentEmits>()
 const delegatedProps = reactiveOmit(props, 'class')
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+
+// 几何感知守卫：下拉列表与内嵌浏览器视图相交才压制原生 WebContentsView（见 useOverlayGeometry）
+const contentEl = ref<OverlayElement>(null)
+useOverlayGeometry(contentEl)
 </script>
 
 <template>
   <SelectPortal>
     <SelectContent
+      ref="contentEl"
       data-slot="select-content"
       :data-align-trigger="position === 'item-aligned'"
       v-bind="{ ...$attrs, ...forwarded }"

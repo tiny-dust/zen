@@ -237,7 +237,7 @@ export const formats: FormatEntry[] = [
     group: "工具与过程",
     title: "MCP",
     support: "existing",
-    note: "toolDisplay 对 mcp. 前缀提供 MCP 标签，仍复用通用工具 part。",
+    note: "toolDisplay 对 mcp__ 前缀提供 MCP 标签，仍复用通用工具 part。",
     source: "apps/ui/src/components/chat/tool-part.ts:101-105",
   },
   {

@@ -1,5 +1,7 @@
 import { ref } from "vue";
 
+import { i18n } from "@/locales";
+
 import type { AbilityProbe } from "@zen/shared";
 
 /**
@@ -72,7 +74,8 @@ export function useVoiceInput() {
       return null;
     }
     if (!recording.value) {
-      const started = await window.zen?.voice?.start();
+      // locale = 当前界面语言：系统默认识别语言与用户口音不匹配时结果为空（macOS）
+      const started = await window.zen?.voice?.start(i18n.global.locale.value);
       if (!started?.ok) {
         throw new Error(started?.error ?? "无法开始录音");
       }

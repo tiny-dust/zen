@@ -125,7 +125,7 @@ export default {
     mcp: {
       title: "MCP 服务",
       descA: "配置本地 stdio 或远程 MCP；工具以 ",
-      toolPattern: "mcp.服务.工具",
+      toolPattern: "mcp__服务__工具",
       descB:
         " 接入 Agent。配置写入 ~/.zen/mcp.json。远程服务要求 OAuth 时，点服务行的「授权登录」在系统浏览器完成认证。",
       editServer: "编辑服务",
@@ -297,7 +297,7 @@ export default {
     mcp: {
       title: "MCP Servers",
       descA: "Set up local stdio or remote MCP servers; tools attach to the agent as ",
-      toolPattern: "mcp.<server>.<tool>",
+      toolPattern: "mcp__<server>__<tool>",
       descB:
         " . Configs are saved to ~/.zen/mcp.json. If a remote server requires OAuth, click \"Sign in\" on its row to authenticate in the system browser.",
       editServer: "Edit server",

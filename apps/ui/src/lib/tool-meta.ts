@@ -17,6 +17,8 @@ import {
 
 import type { FunctionalComponent } from "vue";
 
+import { parseMcpToolName } from "@zen/shared";
+
 import { i18n } from "@/locales";
 
 export interface ToolIconSpec {
@@ -62,9 +64,9 @@ export function toolIconSpec(toolName: string): ToolIconSpec {
   if (exact) {
     return exact;
   }
-  if (toolName.startsWith("mcp.")) {
-    const parts = toolName.split(".");
-    return spec(Plug, "text-[var(--color-mut)]", parts.slice(1).join(".") || i18n.global.t("app.tool.mcpFallback"));
+  const mcp = parseMcpToolName(toolName);
+  if (mcp) {
+    return spec(Plug, "text-[var(--color-mut)]", `${mcp.serverName}.${mcp.toolName}` || i18n.global.t("app.tool.mcpFallback"));
   }
   if (toolName.startsWith("git")) {
     return spec(GitBranch, "text-[var(--color-accent-2)]", toolName);

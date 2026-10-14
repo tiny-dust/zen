@@ -9,6 +9,7 @@ import type {
   BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
+  BrowserViewBounds,
 } from "@zen/shared";
 import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
@@ -64,6 +65,12 @@ export const useBrowserStore = defineStore("browser", () => {
   const showHome = ref(true);
   /** 渲染层弹窗（技能/MCP 等 HTML 覆盖层）打开期间压制原生视图：WebContentsView 层级高于一切 HTML */
   const overlayDepth = ref(0);
+  /**
+   * 原生视图最近一次推送的窗口内矩形（CSS px，与 Electron DIP 一致，无需 DPR 换算），
+   * 供弹层几何判定（useOverlayGeometry）：面板收起/历史页/画中画时为 null。
+   * 弹层压制（overlayDepth>0）期间保留——视图只是暂时隐藏，几何未变。
+   */
+  const viewRect = ref<BrowserViewBounds | null>(null);
   const annotating = ref(false);
   const lastScreenshotPath = ref("");
   /** 短暂抑制「自动展开右栏」，避免循环打开 */
@@ -270,12 +277,19 @@ export const useBrowserStore = defineStore("browser", () => {
   async function syncBounds(rect: DOMRect | null, visible: boolean) {
     const zen = window.zen?.browser;
     if (!zen) {
+      viewRect.value = null;
       return;
     }
     // 画中画悬浮/后台运行时不推送面板 bounds：视图由主进程 PiP 逻辑接管，面板推送会把它拽回主窗口
     if (status.value.pip || status.value.pipHidden) {
+      viewRect.value = null;
       return;
     }
+    // 同步几何记录（不含 overlayDepth：压制期间视图只是隐藏，矩形不变）
+    viewRect.value =
+      visible && !showHome.value && rect && rect.width >= 2 && rect.height >= 2
+        ? { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+        : null;
     // 历史页/弹窗压制/隐藏时不对齐原生视图
     const effective = visible && !showHome.value && overlayDepth.value === 0;
     if (!effective || !rect || rect.width < 2 || rect.height < 2) {
@@ -669,6 +683,7 @@ export const useBrowserStore = defineStore("browser", () => {
     showHome,
     annotating,
     lastScreenshotPath,
+    viewRect,
     isRunning,
     isPip,
     isPipHidden,

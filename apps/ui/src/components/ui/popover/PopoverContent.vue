@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { PopoverContentEmits, PopoverContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
+import type { OverlayElement } from '@/composables/useOverlayGeometry'
 import { reactiveOmit } from '@vueuse/core'
 import {
   PopoverContent,
   PopoverPortal,
   useForwardPropsEmits,
 } from 'reka-ui'
+import { ref } from 'vue'
+import { useOverlayGeometry } from '@/composables/useOverlayGeometry'
 import { cn } from '@/lib/utils'
 
 defineOptions({
@@ -25,11 +28,16 @@ const emits = defineEmits<PopoverContentEmits>()
 const delegatedProps = reactiveOmit(props, 'class')
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+
+// 几何感知守卫：弹层与内嵌浏览器视图相交才压制原生 WebContentsView（见 useOverlayGeometry）
+const contentEl = ref<OverlayElement>(null)
+useOverlayGeometry(contentEl)
 </script>
 
 <template>
   <PopoverPortal>
     <PopoverContent
+      ref="contentEl"
       data-slot="popover-content"
       v-bind="{ ...$attrs, ...forwarded }"
       :class="

@@ -108,7 +108,7 @@ onBeforeUnmount(() => {
       :title="t('chat.branch.current', { branch })"
       @click="toggle"
     >
-      <GitBranch class="size-3.5 flex-none text-[var(--composer-ic-branch)]" aria-hidden="true" />
+      <GitBranch class="size-3.5 flex-none" aria-hidden="true" />
       <span
         v-if="!props.compact"
         class="max-w-[140px] truncate font-[family-name:var(--font-mono)] text-[11px]"

@@ -37,6 +37,15 @@ const modes: SessionMode[] = ["interactive", "plan", "autopilot"];
 const modeLabel = (mode: SessionMode) => t(`session-mode.sessionMode.modes.${mode}.label`);
 
 const currentIcon = computed(() => MODE_META[sessionMode.value].icon);
+
+/** 三档模式的区分色 token（styles.css 明暗两套定义） */
+const MODE_COLOR: Record<SessionMode, string> = {
+  interactive: "var(--mode-interactive)",
+  plan: "var(--mode-plan)",
+  autopilot: "var(--mode-autopilot)",
+};
+
+const modeColor = (mode: SessionMode) => MODE_COLOR[mode];
 </script>
 
 <template>
@@ -50,7 +59,12 @@ const currentIcon = computed(() => MODE_META[sessionMode.value].icon);
         :aria-label="t('session-mode.sessionMode.pickerAria')"
         :title="t('session-mode.sessionMode.pickerTitle', { label: modeLabel(sessionMode) })"
       >
-        <component :is="currentIcon" :size="16" class="flex-none text-[var(--composer-ic-mode)]" />
+        <component
+          :is="currentIcon"
+          :size="16"
+          class="flex-none"
+          :style="{ color: modeColor(sessionMode) }"
+        />
         <span v-if="!compact" class="text-[11px] font-normal">{{ modeLabel(sessionMode) }}</span>
       </Button>
     </DropdownMenuTrigger>
@@ -65,9 +79,17 @@ const currentIcon = computed(() => MODE_META[sessionMode.value].icon);
           :value="mode"
           class="items-start gap-2 py-1.5"
         >
-          <component :is="MODE_META[mode].icon" class="mt-0.5 size-4 flex-none" />
+          <component
+            :is="MODE_META[mode].icon"
+            class="mt-0.5 size-4 flex-none"
+            :style="mode === sessionMode ? { color: modeColor(mode) } : undefined"
+          />
           <div class="flex min-w-0 flex-col gap-0.5">
-            <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+            <span
+              class="text-[12px] font-medium"
+              :style="mode === sessionMode ? { color: modeColor(mode) } : undefined"
+              :class="mode === sessionMode ? '' : 'text-[var(--color-txt-strong)]'"
+            >
               {{ modeLabel(mode) }}
             </span>
             <span class="text-[11px] leading-relaxed text-[var(--color-mut)]">

@@ -72,7 +72,7 @@ describe("toolResult", () => {
   it("uses actual generic results and keeps errors visible", () => {
     expect(toolResult(part("listDir", { args: { path: "src" }, output: "d components\n- main.ts" })))
       .toEqual({ kind: "text", text: "d components\n- main.ts" });
-    expect(toolResult(part("mcp.test", { output: { matches: 2 } })))
+    expect(toolResult(part("mcp__test__tool", { output: { matches: 2 } })))
       .toEqual({ kind: "text", text: '{\n  "matches": 2\n}' });
     expect(toolResult(part("readFile", { state: "error", error: "ENOENT" })))
       .toEqual({ kind: "text", text: "ENOENT" });
@@ -84,16 +84,16 @@ describe("toolResult", () => {
   });
 
   it("routes MCP App HTML resources to the sandbox app view", () => {
-    expect(toolResult(part("mcp.gallery.search", {
+    expect(toolResult(part("mcp__gallery__search", {
       output: { output: "找到 3 张图", html: "<button>click</button>" },
     }))).toEqual({ kind: "app", html: "<button>click</button>", text: "找到 3 张图" });
     // html 缺省/为空 → 不进 app 分支，仍按文本渲染
-    expect(toolResult(part("mcp.gallery.search", { output: { output: "纯文本" } })))
+    expect(toolResult(part("mcp__gallery__search", { output: { output: "纯文本" } })))
       .toEqual({ kind: "text", text: "纯文本" });
-    expect(toolResult(part("mcp.gallery.search", { output: { output: "空 html", html: "" } })))
+    expect(toolResult(part("mcp__gallery__search", { output: { output: "空 html", html: "" } })))
       .toEqual({ kind: "text", text: "空 html" });
     // 失败的 MCP 调用不展示交互 UI
-    expect(toolResult(part("mcp.gallery.search", {
+    expect(toolResult(part("mcp__gallery__search", {
       state: "error", error: "server down", output: { output: "", html: "<p>x</p>" },
     }))).toEqual({ kind: "text", text: "server down" });
   });

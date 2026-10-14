@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { HoverCardContentProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
+import type { OverlayElement } from '@/composables/useOverlayGeometry'
 import { reactiveOmit } from '@vueuse/core'
 import {
   HoverCardContent,
   HoverCardPortal,
   useForwardProps,
 } from 'reka-ui'
+import { ref } from 'vue'
+import { useOverlayGeometry } from '@/composables/useOverlayGeometry'
 import { cn } from '@/lib/utils'
 
 const props = withDefaults(
@@ -19,11 +22,16 @@ const props = withDefaults(
 const delegatedProps = reactiveOmit(props, 'class')
 
 const forwardedProps = useForwardProps(delegatedProps)
+
+// 几何感知守卫：卡片与内嵌浏览器视图相交才压制原生 WebContentsView（见 useOverlayGeometry）
+const contentEl = ref<OverlayElement>(null)
+useOverlayGeometry(contentEl)
 </script>
 
 <template>
   <HoverCardPortal>
     <HoverCardContent
+      ref="contentEl"
       data-slot="hover-card-content"
       v-bind="forwardedProps"
       :class="

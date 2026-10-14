@@ -538,9 +538,9 @@ describe("McpDialog 状态、扫描与说明", () => {
     wrapper.unmount();
   });
 
-  it("主动调用说明渲染 mcp.服务.工具 与配置写入位置", async () => {
+  it("主动调用说明渲染 mcp__服务__工具 与配置写入位置", async () => {
     const wrapper = await mountWith([]);
-    expect(wrapper.text()).toContain("mcp.服务.工具");
+    expect(wrapper.text()).toContain("mcp__服务__工具");
     expect(wrapper.text()).toContain("~/.zen/mcp.json");
     // 空列表给出引导
     expect(wrapper.text()).toContain("尚未配置 MCP 服务。");

@@ -28,6 +28,8 @@ import type { Component } from "vue";
 
 import { i18n } from "@/locales";
 
+import { parseMcpToolName } from "@zen/shared";
+
 import type { ChatMessagePart, ToolCallState } from "@zen/shared";
 
 export type ToolPart = Extract<ChatMessagePart, { type: "tool" }>;
@@ -168,12 +170,14 @@ export function toolDisplay(toolName: string, args: unknown): ToolDisplay {
       return { icon: Hourglass, label: i18n.global.t("chat.tool.waitForAgents") };
     case "collectAgentResults":
       return { icon: Inbox, label: i18n.global.t("chat.tool.collectAgentResults") };
-    default:
-      if (toolName.startsWith("mcp.")) {
-        return { icon: Plug, label: i18n.global.t("chat.tool.mcpTool", { name: toolName.slice(4) }) };
+    default: {
+      const mcp = parseMcpToolName(toolName);
+      if (mcp) {
+        return { icon: Plug, label: i18n.global.t("chat.tool.mcpTool", { name: `${mcp.serverName}.${mcp.toolName}` }) };
       }
       // 展示统一中文：未映射的工具名是内部标识符，不直接外显
       return { icon: Wrench, label: i18n.global.t("chat.tool.genericTool") };
+    }
   }
 }
 

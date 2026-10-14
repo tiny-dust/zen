@@ -459,7 +459,7 @@ export interface ZenApi {
   /** 语音输入（ASR）：点击开始/结束，转写文本回填输入框；probe 不支持时按钮隐藏 */
   voice: {
     probe(): Promise<AbilityProbe>;
-    start(): Promise<VoiceStartResult>;
+    start(locale?: string): Promise<VoiceStartResult>;
     stop(): Promise<VoiceTranscribeResult>;
     /** 录音期间实时中间结果（partial 字幕）；返回取消订阅函数 */
     onPartial(handler: (text: string) => void): () => void;

@@ -374,7 +374,7 @@ export default {
     },
     mcp: {
       introA: "工具会以 ",
-      toolPattern: "mcp.服务器.工具",
+      toolPattern: "mcp__服务器__工具",
       introB:
         " 的形式接入 Agent；配置持久化在 ~/.zen/mcp.json。支持 stdio 本地进程、SSE 旧版远程与 Streamable HTTP 新版远程三种传输。",
       presetsTitle: "知名服务预设",
@@ -843,7 +843,7 @@ export default {
     },
     mcp: {
       introA: "Tools attach to the Agent as ",
-      toolPattern: "mcp.<server>.<tool>",
+      toolPattern: "mcp__<server>__<tool>",
       introB:
         " . Configs are saved to ~/.zen/mcp.json. Supports stdio local processes, legacy SSE remote, and Streamable HTTP remote transports.",
       presetsTitle: "Popular presets",

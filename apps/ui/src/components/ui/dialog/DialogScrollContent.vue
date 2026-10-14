@@ -2,6 +2,7 @@
 import type { DialogContentEmits, DialogContentProps } from 'reka-ui'
 
 import type { HTMLAttributes } from 'vue'
+import type { OverlayElement } from '@/composables/useOverlayGeometry'
 import { XIcon } from '@lucide/vue'
 import { reactiveOmit } from '@vueuse/core'
 import {
@@ -11,6 +12,8 @@ import {
   DialogPortal,
   useForwardPropsEmits,
 } from 'reka-ui'
+import { ref } from 'vue'
+import { useOverlayGeometry } from '@/composables/useOverlayGeometry'
 import { cn } from '@/lib/utils'
 
 defineOptions({
@@ -23,6 +26,10 @@ const emits = defineEmits<DialogContentEmits>()
 const delegatedProps = reactiveOmit(props, 'class')
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+
+// 几何感知守卫：弹窗与内嵌浏览器视图相交才压制原生 WebContentsView（见 useOverlayGeometry）
+const contentEl = ref<OverlayElement>(null)
+useOverlayGeometry(contentEl)
 </script>
 
 <template>
@@ -31,6 +38,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       class="fixed inset-0 z-[var(--z-overlay)] grid place-items-center overflow-y-auto bg-[var(--color-scrim)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
     >
       <DialogContent
+        ref="contentEl"
         :class="
           cn(
             'relative z-50 grid w-full max-w-lg my-8 gap-4 border border-border bg-background p-6 shadow-lg duration-200 sm:rounded-lg md:w-full',
