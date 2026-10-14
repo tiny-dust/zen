@@ -38,7 +38,9 @@ const execFileAsync = promisify(execFile);
 const VOICE_SWIFT_SOURCE = `import AVFoundation
 import Speech
 
-// 参数：<result.txt> <partial.txt> <pid.txt>
+// 参数：<result.txt> <partial.txt> <pid.txt> [locale]
+// locale（可选）：BCP 47 语言标识（如 zh-CN），指定 SFSpeechRecognizer 识别语言；
+// 缺省回退系统默认。系统默认 locale 与用户口音不匹配时识别结果为空（本机坑）。
 // 流式识别：AVAudioEngine 边录边喂 SFSpeechAudioBufferRecognitionRequest，
 // 识别与录音并行进行——SIGINT 只做 endAudio() 收尾，final 结果几乎即时返回
 // （旧实现录完再把整段音频从头重算一遍，停录后还要等一整轮识别）。
@@ -46,7 +48,7 @@ import Speech
 // 经 open(LaunchServices) 启动的 .app bundle：stdout/stderr 不回传主进程，
 // 识别结果与错误一律写 result 文件（错误以 "ERROR:" 前缀），pid 写 pid 文件供停录信号。
 let args = CommandLine.arguments
-guard args.count == 4 else {
+guard args.count == 4 || args.count == 5 else {
     exit(64)
 }
 let resultPath = args[1]
@@ -71,17 +73,50 @@ sigintSource.setEventHandler {
 }
 sigintSource.resume()
 
-// 语音识别授权（同步等待；bundle Info.plist 带 NSSpeechRecognitionUsageDescription）
+// 语音识别授权（同步等待；bundle Info.plist 带 NSSpeechRecognitionUsageDescription）。
+// 状态必须检查：被拒时继续往下走只是静默识别为空，用户无从得知根因
 let authDone = DispatchSemaphore(value: 0)
-SFSpeechRecognizer.requestAuthorization { _ in authDone.signal() }
+var authStatus = SFSpeechRecognizerAuthorizationStatus.notDetermined
+SFSpeechRecognizer.requestAuthorization { status in
+    authStatus = status
+    authDone.signal()
+}
 _ = authDone.wait(timeout: .now() + 300)
 if interrupted {
     fail("授权等待被中断")
 }
+if authStatus == .denied || authStatus == .restricted {
+    fail("speech recognition permission denied")
+}
 
-guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
+// 麦克风授权（同步等待）：未授权时 inputNode 的格式为 0 通道/0 采样率，
+// installTap 会直接抛 ObjC 异常崩溃（非 Swift Error，do/catch 接不住）
+let micDone = DispatchSemaphore(value: 0)
+var micGranted = false
+AVCaptureDevice.requestAccess(for: .audio) { granted in
+    micGranted = granted
+    micDone.signal()
+}
+_ = micDone.wait(timeout: .now() + 300)
+if interrupted {
+    fail("授权等待被中断")
+}
+if !micGranted {
+    fail("microphone permission denied")
+}
+
+// 识别语言：优先第 4 参 locale（如 zh-CN）；无参或该语言不可用时回退系统默认
+var recognizer = args.count == 5 ? SFSpeechRecognizer(locale: Locale(identifier: args[4])) : nil
+if recognizer == nil {
+    recognizer = SFSpeechRecognizer()
+}
+guard let recognizer = recognizer, recognizer.isAvailable else {
     fail("speech recognizer unavailable")
 }
+// 关键：recognitionTask 回调默认投递主 OperationQueue，而主线程阻塞在信号量
+// 等待（stopped.wait），主 RunLoop 不运转 → 回调永不执行 → 识别结果恒为空。
+// 换成独立 OperationQueue（自己的后台线程），回调在录音等待期间正常送达。
+recognizer.queue = OperationQueue()
 
 let engine = AVAudioEngine()
 let request = SFSpeechAudioBufferRecognitionRequest()
@@ -96,7 +131,7 @@ if #available(macOS 13.0, *) {
 
 let inputNode = engine.inputNode
 let recordingFormat = inputNode.outputFormat(forBus: 0)
-guard recordingFormat.channelCount > 0 else {
+guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
     fail("no audio input channel")
 }
 inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
@@ -247,7 +282,11 @@ export class VoiceService {
     return this.probeCache;
   }
 
-  async start(sender?: WebContents): Promise<VoiceStartResult> {
+  /**
+   * 开录。locale（可选，BCP 47 如 zh-CN）：仅 macOS Swift 工具使用——指定
+   * SFSpeechRecognizer 识别语言；Windows/Linux 后端不识别语言参数，忽略。
+   */
+  async start(sender?: WebContents, locale?: string): Promise<VoiceStartResult> {
     if (this.session) {
       return { ok: false, error: "已有进行中的录音" };
     }
@@ -274,9 +313,14 @@ export class VoiceService {
         const resultPath = join(dir, `${id}.txt`);
         const partialPath = join(dir, `${id}.partial`);
         const pidPath = join(dir, `${id}.pid`);
+        // locale 作为第 4 个位置参数传给 Swift 工具（空串不传，保持 3 参协议）
+        const toolArgs = [resultPath, partialPath, pidPath];
+        if (typeof locale === "string" && locale) {
+          toolArgs.push(locale);
+        }
         const child = spawn(
           "open",
-          ["-n", "-W", bundlePath, "--args", resultPath, partialPath, pidPath],
+          ["-n", "-W", bundlePath, "--args", ...toolArgs],
           { stdio: ["ignore", "ignore", "ignore"] },
         );
         this.session = this.track(child, "swift", partialPath, {

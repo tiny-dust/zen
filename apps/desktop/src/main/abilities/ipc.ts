@@ -26,7 +26,7 @@ export function registerSystemAbilitiesIpc(): void {
 
   ipcMain.handle("voice:probe", () => voice.probe());
   // sender 透传：partial 实时字幕通过 voice:partial 推回发起录音的窗口
-  ipcMain.handle("voice:start", (event) => voice.start(event.sender));
+  ipcMain.handle("voice:start", (event, locale?: string) => voice.start(event.sender, locale));
   ipcMain.handle("voice:stop", () => voice.stop());
 
   ipcMain.handle("tts:probe", () => tts.probe());

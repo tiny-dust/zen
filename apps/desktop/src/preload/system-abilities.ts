@@ -14,8 +14,8 @@ export const systemAbilitiesApi = {
     probe(): Promise<AbilityProbe> {
       return ipcRenderer.invoke("voice:probe");
     },
-    start(): Promise<VoiceStartResult> {
-      return ipcRenderer.invoke("voice:start");
+    start(locale?: string): Promise<VoiceStartResult> {
+      return ipcRenderer.invoke("voice:start", locale);
     },
     stop(): Promise<VoiceTranscribeResult> {
       return ipcRenderer.invoke("voice:stop");

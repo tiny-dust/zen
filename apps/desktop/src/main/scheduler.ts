@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { Notification } from "electron";
 
+import { isTaskDue, isValidSchedule } from "@zen/shared";
+
 import { runAgentRequest } from "./agent-runner";
 import { currentLocale, mainT } from "./i18n";
-import { isTaskDue, isValidSchedule } from "./scheduler-core";
 import { getDb } from "./model-db-connection";
 import {
   createSession,
@@ -20,7 +21,7 @@ import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRunEvent } from "@
  * 定时/计划任务：scheduled_tasks 表（复用 zen.sqlite 连接）+ 每分钟 tick 的最小调度器。
  * 触发执行走 runAgentRequest（飞书入口同款 headless：不传 send，流事件只落库），
  * 跑完把结果摘要写回任务并 Notification 通知（失败静默降级）。
- * 到期判断等纯函数在 scheduler-core.ts（带单测）。
+ * 到期判断等纯函数在 @zen/shared 的 scheduler-core（带单测）。
  */
 
 interface TaskRow {
@@ -83,7 +84,7 @@ function parseSchedule(json: string): ScheduledTask["schedule"] {
     if (parsed.kind === "daily" && typeof parsed.dailyTime === "string") {
       return { kind: "daily", time: parsed.dailyTime };
     }
-    if (["daily", "monthly", "once", "window"].includes(parsed.kind)) {
+    if (["recurrence", "dates", "daily", "monthly", "once", "window"].includes(parsed.kind)) {
       return parsed as unknown as ScheduledTask["schedule"];
     }
   } catch {
