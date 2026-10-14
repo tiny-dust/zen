@@ -11,7 +11,7 @@ import type {
   ToolCallState,
 } from "@zen/shared";
 import { readWorkspaceFile } from "@zen/tools-fs";
-import { buildProviderOptions, createLanguageModel } from "./agent-model";
+import { buildProviderOptions, buildToolCallRepair, createLanguageModel } from "./agent-model";
 import { buildToolSet } from "./agent-tools";
 import type { ToolHooks } from "./agent-tools";
 import { evaluateApproval, riskForTool } from "./agent-approval";
@@ -143,6 +143,8 @@ export class AgentSession {
   private step = 0;
   /** 本 run 是否已做过溢出恢复重试（每次 run/插入阶段重置；每 run 只重试一次） */
   private overflowRetried = false;
+  /** 连续「缺 finish_reason」重放次数：上限内视为上游抖动，超限按真实错误终态 */
+  private missingFinishReplays = 0;
   /** 最近一次 finish-step 的真实输入 tokens（步间主动压缩判据；run 开始时重置） */
   private lastInputTokens: number | null = null;
   /** lastInputTokens 对应的 step；与 lastCompactStep 比较避免用陈旧 usage 重复压缩 */
@@ -236,8 +238,15 @@ export class AgentSession {
           });
 
     const multiAgentTools = this.orchestrator?.buildTools();
+    const model = createLanguageModel(config);
     this.agent = new ToolLoopAgent({
-      model: createLanguageModel(config),
+      model,
+      // 网关/代理偶发 503（"Upstream service temporarily unavailable"）时 SDK 默认
+      // maxRetries=2（共 3 次尝试）常不够：提高到 5（共 6 次，指数退避 2s→32s，
+      // 尊重 Retry-After 头），把短暂上游抖动吸收在重试里而不是把错误抛给用户
+      maxRetries: 5,
+      // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
+      repairToolCall: buildToolCallRepair(model),
       tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
         resourceLock: this.resourceLock,
         ownerLabel: config.ownerLabel ?? config.sessionId,
@@ -520,6 +529,7 @@ export class AgentSession {
     this.paused = false;
     this.step = 0;
     this.overflowRetried = false;
+    this.missingFinishReplays = 0;
     this.lastInputTokens = null;
     this.lastUsageStep = -1;
     this.lastCompactStep = -1;
@@ -695,6 +705,7 @@ export class AgentSession {
     });
     // 3. 执行插入 run：正常流式 emit 各类事件
     this.overflowRetried = false;
+    this.missingFinishReplays = 0;
     this.lastInputTokens = null;
     this.lastUsageStep = -1;
     this.lastCompactStep = -1;
@@ -939,12 +950,9 @@ export class AgentSession {
       if (signal.aborted) {
         aborted = true;
       } else {
+        // 只记录不发事件：error 事件统一在流结束后的终态判定处发，
+        // 避免「先报错又继续跑」的假报错（良性错误会被下面的 rescue 清掉）
         state.streamError = errorMessage(error);
-        this.config.emit({
-          type: "error",
-          sessionId: this.sessionId,
-          message: state.streamError,
-        });
       }
     }
 
@@ -978,18 +986,48 @@ export class AgentSession {
     }
 
     // 错误终态：不得再发 done(stop) 覆盖。
-    // 例外：部分新模型（如 gpt-6 系列）流结束时不带 finish_reason，但正文已完整产出，
-    // openai-compatible 会把它当成错误；此处只要已有正文就按正常完成处理。
+    // 例外：部分新模型/代理（gpt-6 系列、部分 GPT 代理）流结束时不带 finish_reason——
+    // 正文或工具调用已完整产出时只是缺收尾元数据，按正常完成处理：
+    // 清掉 streamError 继续走下面的终态判定（有工具则续跑，否则 stop）。
     if (state.streamError) {
       if (
-        state.hasText &&
-        /without a finish reason/i.test(state.streamError)
+        /without a finish reason/i.test(state.streamError) &&
+        (state.hasText || state.lastStepHadToolCalls)
       ) {
-        state.streamError = null;
+        // 纯文本已完整产出：只是缺收尾元数据，按正常完成处理（正文照常入 messages）
+        if (!state.lastStepHadToolCalls) {
+          state.streamError = null;
+        } else {
+          // 半截工具步：SDK 对 finishReason=error 的 step 不执行工具（结果必然缺失），
+          // 续跑会在下一次请求组装 prompt 时抛 MissingToolResultsError。丢弃本步直接
+          // 重放（同 SDK streamRetries 语义：只重放当前 step，已完成的早前 step 不动），
+          // 工具调用重新生成后走正常执行/审批流
+          if (this.step >= MAX_RUN_STEPS || this.missingFinishReplays >= 3) {
+            this.emitUnfinishedTools("error");
+            this.config.emit({
+              type: "error",
+              sessionId: this.sessionId,
+              message: state.streamError,
+            });
+            this.finishRun("error");
+            return;
+          }
+          // 本步 tool_start 已发但不会有 tool_end：补终态事件，避免 UI 悬挂「运行中」
+          this.emitUnfinishedTools("error");
+          this.missingFinishReplays += 1;
+          await this.continueLoop();
+          return;
+        }
       } else if (await this.recoverFromOverflow(state.streamError)) {
         // 超限恢复已接管：裁剪历史并重跑（流内 error part 与中途抛错都收敛到这里判定）
         return;
       } else {
+        // 真实流错误到这里才发 error 事件：终态唯一出口，避免中途误报
+        this.config.emit({
+          type: "error",
+          sessionId: this.sessionId,
+          message: state.streamError,
+        });
         this.finishRun("error");
         return;
       }

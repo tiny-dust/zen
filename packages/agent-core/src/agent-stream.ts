@@ -184,12 +184,10 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
       });
       break;
     case "error":
+      // 只记录不发事件：error 事件统一由 AgentSession.runStep 在终态判定处发。
+      // 部分错误（如流缺 finish_reason 但正文/工具已完整产出）会被判定为良性并继续
+      // 循环，若在这里直接 emit，UI 会出现「报错后又继续跑」的假报错。
       state.streamError = errorMessage(part.error);
-      emit({
-        type: "error",
-        sessionId,
-        message: state.streamError,
-      });
       break;
     default:
       break;

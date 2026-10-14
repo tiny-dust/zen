@@ -1,6 +1,15 @@
+import { InvalidToolInputError, NoSuchToolError, tool } from "ai";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { buildProviderOptions, createLanguageModel, truncateOutput } from "./agent-model";
+import {
+  buildProviderOptions,
+  buildToolCallRepair,
+  cleanToolInputText,
+  createLanguageModel,
+  normalizeToolName,
+  truncateOutput,
+} from "./agent-model";
 
 import type { AgentSessionConfig } from "./agent-config";
 
@@ -67,5 +76,99 @@ describe("truncateOutput", () => {
   it("超限截断并标注，未超限原样返回", () => {
     expect(truncateOutput("abc")).toBe("abc");
     expect(truncateOutput("abcde", 3)).toBe("abc\n…[输出截断]");
+  });
+});
+
+// ---------- 工具调用修复（GPT 系模型） ----------
+
+const repairTools = {
+  runTerminal: tool({
+    description: "shell",
+    inputSchema: z.object({ command: z.string() }),
+    execute: async () => "",
+  }),
+};
+
+describe("normalizeToolName", () => {
+  it("snake/kebab/大小写变形唯一命中改回真实工具名", () => {
+    expect(normalizeToolName("run_terminal", repairTools)).toBe("runTerminal");
+    expect(normalizeToolName("RUNTERMINAL", repairTools)).toBe("runTerminal");
+    expect(normalizeToolName("run-terminal", repairTools)).toBe("runTerminal");
+  });
+
+  it("未知名与归一化歧义返回 null", () => {
+    expect(normalizeToolName("nonexistent_tool", repairTools)).toBeNull();
+    const ambiguous = {
+      ...repairTools,
+      run_terminal: tool({
+        description: "x",
+        inputSchema: z.object({}),
+        execute: async () => "",
+      }),
+    };
+    expect(normalizeToolName("runTerminal", ambiguous)).toBeNull();
+  });
+});
+
+describe("cleanToolInputText", () => {
+  it("剥 markdown 代码围栏", () => {
+    expect(cleanToolInputText('```json\n{"command":"ls"}\n```')).toBe('{"command":"ls"}');
+  });
+
+  it("提取 JSON 主体并去掉尾逗号", () => {
+    expect(cleanToolInputText('这是入参 {"command":"ls",} 完毕')).toBe('{"command":"ls"}');
+  });
+
+  it("已是合法 JSON 时保持不变", () => {
+    expect(cleanToolInputText('{"command":"ls"}')).toBe('{"command":"ls"}');
+  });
+});
+
+describe("buildToolCallRepair", () => {
+  const repair = buildToolCallRepair(createLanguageModel(config()));
+  const base = {
+    tools: repairTools,
+    inputSchema: async () => ({ type: "object" as const }),
+    instructions: undefined,
+    system: undefined,
+    messages: [],
+  };
+
+  it("NoSuchTool：工具名变形归一化修复", async () => {
+    const result = await repair({
+      ...base,
+      toolCall: { type: "tool-call", toolCallId: "c1", toolName: "run_terminal", input: "{}" },
+      error: new NoSuchToolError({ toolName: "run_terminal" }),
+    });
+    expect(result).not.toBeNull();
+    expect(result?.toolName).toBe("runTerminal");
+  });
+
+  it("InvalidToolInput：围栏 JSON 清理后本地校验通过即修复", async () => {
+    const result = await repair({
+      ...base,
+      toolCall: {
+        type: "tool-call",
+        toolCallId: "c2",
+        toolName: "runTerminal",
+        input: '```json\n{"command":"ls"}\n```',
+      },
+      error: new InvalidToolInputError({
+        toolName: "runTerminal",
+        toolInput: '```json\n{"command":"ls"}\n```',
+        cause: new Error("invalid"),
+      }),
+    });
+    expect(result).not.toBeNull();
+    expect(result?.input).toBe('{"command":"ls"}');
+  });
+
+  it("未知工具名返回 null（修复器不抛异常、不瞎猜）", async () => {
+    const unknown = await repair({
+      ...base,
+      toolCall: { type: "tool-call", toolCallId: "c3", toolName: "run_terminal", input: "{}" },
+      error: new NoSuchToolError({ toolName: "totally_unknown" }),
+    });
+    expect(unknown).toBeNull();
   });
 });

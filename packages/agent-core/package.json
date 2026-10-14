@@ -19,7 +19,7 @@
     "@zen/tools-github": "workspace:*",
     "@zen/tools-system": "workspace:*",
     "@zen/tools-terminal": "workspace:*",
-    "ai": "7.0.99",
+    "ai": "7.0.140",
     "jsdom": "27.0.0",
     "rattail": "2.2.0",
     "turndown": "7.2.1",

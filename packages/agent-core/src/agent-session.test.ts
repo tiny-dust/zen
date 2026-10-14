@@ -166,7 +166,10 @@ type Behavior =
   | "spawn-error"
   | "overflow-retry"
   | "auto-compact"
-  | "compact-reinject";
+  | "compact-reinject"
+  | "repair-tool-input"
+  | "repair-tool-name"
+  | "missing-finish-reason";
 
 let server: Server;
 let origin = "";
@@ -342,6 +345,61 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
     }
     return textBlocks("完成");
   }
+  // GPT 系修复：入参字段名写错（缺必填 tasks）→ repairToolCall 模型重写 → 工具执行成功
+  if (behavior === "repair-tool-input") {
+    return seq === 1
+      ? toolCall("updateTasks", { task: [{ id: "t1", label: "坏字段", done: false }] }, "call_repair_1")
+      : textBlocks("done");
+  }
+  // 工具名被写成 snake_case → NoSuchTool 归一化修复（不产生修复请求）
+  if (behavior === "repair-tool-name") {
+    return seq === 1
+      ? toolCall(
+          "update_tasks",
+          { startNew: true, tasks: [{ id: "t1", label: "改名修复", done: false }] },
+          "call_name_1",
+        )
+      : textBlocks("done");
+  }
+  // 流结束缺 finish_reason：半截工具步被丢弃重放（第二次请求正常带 finish_reason），
+  // 工具走正常执行流续跑，而不是 error 终态
+  if (behavior === "missing-finish-reason") {
+    if (seq === 1) {
+      return [
+        chunk({ role: "assistant", content: "" }, null),
+        chunk(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_mf_1",
+                type: "function",
+                function: {
+                  name: "updateTasks",
+                  arguments: JSON.stringify({
+                    startNew: true,
+                    tasks: [{ id: "t1", label: "无finish", done: false }],
+                  }),
+                },
+              },
+            ],
+          },
+          null,
+        ),
+        chunk({}, null),
+        "data: [DONE]\n\n",
+      ];
+    }
+    if (seq === 2) {
+      // 重放的本步：代理这次收尾正常，同一工具调用带 finish_reason 重发
+      return toolCall(
+        "updateTasks",
+        { startNew: true, tasks: [{ id: "t1", label: "无finish", done: false }] },
+        "call_mf_2",
+      );
+    }
+    return textBlocks("完成");
+  }
   // spawn-error
   if (isChild) {
     return [];
@@ -376,6 +434,34 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
             "This model's maximum context length is 8192 tokens. However, you requested 20000 tokens (19000 in the messages, 1000 in the completion). Please reduce the length of the messages or completion.",
         },
         type: "invalid_request_error",
+      }),
+    );
+    return;
+  }
+  // repairToolCall 的结构化重写请求（generateText 非流式）：返回修正后的入参 JSON。
+  // 按请求体识别（含修复提示词），与 seq 计数解耦——修复请求会占用一个 seq。
+  if (behavior === "repair-tool-input" && body.includes("tried to call the tool")) {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: "chatcmpl-zen-repair",
+        object: "chat.completion",
+        created: 0,
+        model: "zen-test-model",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: JSON.stringify({
+                startNew: true,
+                tasks: [{ id: "t1", label: "修复后", done: false }],
+              }),
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
       }),
     );
     return;
@@ -770,5 +856,51 @@ describe("AgentSession 步间主动压缩", () => {
     expect(retryBody).toContain("步骤7");
     // readFile 那一步已被摘要进 head：早期历史不再直发
     expect(retryBody).not.toContain("旧问题0");
+  });
+});
+
+describe("GPT 系工具调用修复与缺 finish_reason 兜底", () => {
+  it("入参不合 schema：repairToolCall 模型重写后执行，无 error 事件", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-repair-input", "repair-tool-input");
+    await session.start("建清单");
+
+    // 确实发起过一次模型结构化重写请求
+    expect(requestBodies.some((body) => body.includes("tried to call the tool"))).toBe(true);
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+    expect(events.some((event) => event.type === "tasks_updated")).toBe(true);
+    const toolEnds = events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "tool_end" }> =>
+        event.type === "tool_end",
+    );
+    expect(toolEnds.length).toBeGreaterThan(0);
+    expect(toolEnds.every((event) => event.ok)).toBe(true);
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" && done.reason).toBe("stop");
+  });
+
+  it("工具名 snake_case 变形：归一化修复后执行，无修复请求与 error 事件", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-repair-name", "repair-tool-name");
+    await session.start("建清单");
+
+    expect(requestBodies.some((body) => body.includes("tried to call the tool"))).toBe(false);
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+    expect(events.some((event) => event.type === "tasks_updated")).toBe(true);
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" && done.reason).toBe("stop");
+  });
+
+  it("流缺 finish_reason 但工具已完整产出：不误报 error，续跑后 stop 收尾", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "sess-missing-finish", "missing-finish-reason");
+    await session.start("建清单");
+
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+    expect(events.some((event) => event.type === "tasks_updated")).toBe(true);
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" && done.reason).toBe("stop");
   });
 });
