@@ -2,13 +2,21 @@ import { ipcRenderer } from "electron";
 
 import type { ChatMessage, SessionMode, SessionRecord } from "@zen/shared";
 
+import { syncBrowserScope } from "./browser";
+
 export const sessionApi = {
   session: {
     create(workspaceId: string | null, id?: string): Promise<SessionRecord> {
-      return ipcRenderer.invoke("session:create", workspaceId, id);
+      // 新会话落在指定工作区：内嵌浏览器 scope 同步跟随（preload IPC 边界维护，见 browser.ts）
+      return ipcRenderer.invoke("session:create", workspaceId, id).then((record) => {
+        syncBrowserScope(workspaceId ?? record?.workspaceId);
+        return record;
+      });
     },
     setWorkspace(id: string, workspaceId: string | null): Promise<void> {
-      return ipcRenderer.invoke("session:set-workspace", id, workspaceId);
+      return ipcRenderer
+        .invoke("session:set-workspace", id, workspaceId)
+        .then(() => syncBrowserScope(workspaceId));
     },
     /** 会话级模型覆盖；null 表示跟随全局默认模型 */
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void> {
@@ -21,7 +29,13 @@ export const sessionApi = {
     open(
       id: string,
     ): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {
-      return ipcRenderer.invoke("session:open", id);
+      // 会话切换：按目标会话的工作区切换内嵌浏览器 scope（null = 公共区 → "common"）
+      return ipcRenderer.invoke("session:open", id).then((found) => {
+        if (found?.session) {
+          syncBrowserScope(found.session.workspaceId);
+        }
+        return found;
+      });
     },
     /** 渲染层自建消息落库（上下文压缩摘要卡）；main 侧会校验并拒绝非法载荷 */
     appendMessage(

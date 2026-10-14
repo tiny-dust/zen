@@ -185,7 +185,6 @@ export class BrowserViewManager {
       };
       view.setVisible(true);
       view.setBounds(rect);
-      view.setBounds(rect);
       this.setStatus({ visible: true });
     } catch (error) {
       this.setStatus({
@@ -193,24 +192,6 @@ export class BrowserViewManager {
         error: error instanceof Error ? error.message : "设置浏览器视图区域失败",
       });
     }
-  }
-
-  /** 主进程侧兜底 bounds：右栏大致区域（渲染层未同步时） */
-  protected fallbackBounds(): BrowserViewBounds | null {
-    const win = this.hostWindow && !this.hostWindow.isDestroyed() ? this.hostWindow : null;
-    if (!win) {
-      return null;
-    }
-    const size = win.getContentSize();
-    const width = Number(size[0]) || 1200;
-    const height = Number(size[1]) || 800;
-    const panelWidth = Math.min(560, Math.max(280, Math.floor(width * 0.4)));
-    return {
-      x: Math.max(0, width - panelWidth + 8),
-      y: 48,
-      width: Math.max(200, panelWidth - 16),
-      height: Math.max(200, height - 48 - 16),
-    };
   }
 
   private requireWindow(): BrowserWindow {
@@ -350,11 +331,14 @@ export class BrowserViewManager {
         error: undefined,
       });
 
-      // 立刻给一个可见区域，避免「已 running 但 0 尺寸」
-      if (!this.bounds) {
-        this.bounds = this.fallbackBounds();
+      // 立即给视图一个状态，但可见性由渲染层 bounds 推送驱动：
+      // - 已有合法 bounds（视图销毁重建、面板仍在推送）→ 保留原可见意图；
+      // - 无 bounds（面板未开，如 agent 后台启动）→ 保持隐藏。
+      // 旧实现在这里无条件 wantVisible=true 并用 fallbackBounds 猜测矩形点亮，
+      // 会把视图亮在错误位置盖住其它面板/内容（遮挡 bug 根因之一）。
+      if (!this.bounds || this.bounds.width < 2) {
+        this.wantVisible = false;
       }
-      this.wantVisible = true;
       this.applyBounds();
 
       // 预热 about:blank，验证 guest 可加载（失败不阻断）

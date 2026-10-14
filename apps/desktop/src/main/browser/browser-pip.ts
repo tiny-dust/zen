@@ -15,6 +15,11 @@ import { BrowserContentApi } from "./browser-content";
  * 页面 webContents 全程不销毁，切换只是「搬 view」。
  */
 export class BrowserPipApi extends BrowserContentApi {
+  /** 本工作区的浏览器是否悬浮在指定窗口上（画中画顶栏 IPC 按 sender 窗口归属路由用） */
+  ownsPipWindow(win: BrowserWindow | null): boolean {
+    return Boolean(win && this.pipWindow && !this.pipWindow.isDestroyed() && this.pipWindow === win);
+  }
+
   /** 进入画中画：off/hidden → floating */
   async enterPip(): Promise<BrowserStatus> {
     const status = await this.ensureRunning();
@@ -76,7 +81,10 @@ export class BrowserPipApi extends BrowserContentApi {
         }
       }
     }
-    // 先按缓存 bounds 兜底贴一次；渲染层收到 status 后会按面板矩形重新推送
+    // 统一隐藏、等渲染层 bounds 推送点亮：面板开着时 store.exitPip 会立刻推送；
+    // 面板没开（或该工作区已切到后台）时按缓存 bounds 点亮会用陈旧矩形盖住
+    // 当前 UI——多工作区画中画返回串台的根源之一
+    this.wantVisible = false;
     this.applyBounds();
     return this.getStatus();
   }

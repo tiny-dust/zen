@@ -3,12 +3,14 @@ import { BrowserWindow, shell } from "electron";
 import type {
   BrowserActionResult,
   BrowserAgentBridge,
+  BrowserElementRef,
   BrowserOpenResult,
+  BrowserSettings,
+  BrowserStatus,
   BrowserViewBounds,
 } from "@zen/shared";
 
 import { delay, kernelLabels, withTimeout } from "./browser-utils";
-import { loadBrowserSettings } from "../zen-dir";
 import { BrowserPipApi } from "./browser-pip";
 
 export interface BrowserDebugInfo {
@@ -25,21 +27,23 @@ export interface BrowserDebugInfo {
   debuggerAttached: boolean;
   electron: string;
   chrome: string;
+  /** 本服务归属的工作区（workspaceId；公共区为 "common"） */
+  scope: string;
 }
 
 /**
  * 产品内浏览器对外门面：页面导航与生命周期编排。
  * 实现按子域分层继承：browser-view（WebContentsView/状态）→ browser-cdp（CDP）→ browser-content（内容与动作）
  * → browser-pip（画中画悬浮窗）。
+ * 每个工作区（scope）一个实例，由 BrowserServiceRegistry 多路复用（见文件底部）。
  */
 export class BrowserService extends BrowserPipApi implements BrowserAgentBridge {
-  /** 启动时载入 ~/.zen/config.json 的浏览器设置（UA/缩放/画中画几何），失败用缺省值 */
-  async initSettings(): Promise<void> {
-    try {
-      this.applyBrowserSettings(await loadBrowserSettings());
-    } catch {
-      // 配置损坏不阻断浏览器启动
-    }
+  /** 本服务归属的工作区 scope（workspaceId；公共区为 "common"），与渲染层浏览器分桶 key 一致 */
+  readonly scope: string;
+
+  constructor(scope: string) {
+    super();
+    this.scope = scope;
   }
 
   /** localhost / IPv6 字面量：本地 dev server 常只监听 ::1 或 127.0.0.1，逐个候选重试 */
@@ -92,10 +96,10 @@ export class BrowserService extends BrowserPipApi implements BrowserAgentBridge 
       }
       const wc = this.requireWebContents();
 
-      if (!this.bounds || this.bounds.width < 2) {
-        this.bounds = this.fallbackBounds();
-      }
-      this.wantVisible = true;
+      // 可见性一律由渲染层 bounds 推送（setBounds(rect, true)）驱动：无合法 bounds
+      // （面板未开/未同步，如后台工作区的 agent 打开页面）时保持隐藏。
+      // 旧实现在这里用 fallbackBounds 猜测矩形并强制点亮，会把视图亮在错误位置
+      // 盖住其它面板/内容（遮挡 bug 根因之一）。
       this.applyBounds();
 
       this.setStatus({ error: undefined });
@@ -237,6 +241,7 @@ export class BrowserService extends BrowserPipApi implements BrowserAgentBridge 
       debuggerAttached: this.debuggerAttached,
       electron: process.versions.electron || "",
       chrome: process.versions.chrome || "",
+      scope: this.scope,
     };
   }
 
@@ -269,16 +274,163 @@ export class BrowserService extends BrowserPipApi implements BrowserAgentBridge 
   }
 }
 
-let singleton: BrowserService | null = null;
+/** 默认 scope：公共区（与渲染层 chat store 的 sessionWorkspaceId 兜底一致） */
+const DEFAULT_BROWSER_SCOPE = "common";
 
-export function getBrowserService(): BrowserService {
-  if (!singleton) {
-    singleton = new BrowserService();
+function normalizeScope(key: unknown): string {
+  return typeof key === "string" && key.trim() ? key.trim() : DEFAULT_BROWSER_SCOPE;
+}
+
+/**
+ * 浏览器服务按工作区（workspaceId）多路复用，修复多会话串台：
+ * - 每个工作区独立的 WebContentsView 与页面状态；切走的工作区视图隐藏、页面后台保留，
+ *   切回由面板 bounds 推送重新点亮，不再互相覆盖；
+ * - 仅当前（active）工作区的服务接收渲染层 bounds 推送；IPC 由 preload 附带 scope 路由；
+ * - status / element-picked 事件只转发当前工作区的服务——其它工作区（后台 agent 等）
+ *   的导航不会写进当前会话的地址栏/历史，也不会强制展开浏览器面板；
+ * - UA / 缩放 / 画中画几何是全局设置（~/.zen/config.json），对所有服务统一应用。
+ */
+export class BrowserServiceRegistry {
+  private services = new Map<string, BrowserService>();
+  private activeKey = DEFAULT_BROWSER_SCOPE;
+  private settings: BrowserSettings | null = null;
+  private statusSink: ((status: BrowserStatus) => void) | null = null;
+  private pickSink: ((ref: BrowserElementRef) => void) | null = null;
+
+  /** 渲染层事件出口（ipc.ts 注入 broadcast 门面） */
+  setSinks(
+    status: (status: BrowserStatus) => void,
+    pick: (ref: BrowserElementRef) => void,
+  ): void {
+    this.statusSink = status;
+    this.pickSink = pick;
   }
-  return singleton;
+
+  /** 切换当前工作区：旧工作区视图立即隐藏（画中画悬浮除外），页面后台保留 */
+  bindScope(key: string): BrowserService {
+    const next = normalizeScope(key);
+    if (next !== this.activeKey) {
+      const prev = this.services.get(this.activeKey);
+      if (prev && !prev.isPipFloating()) {
+        prev.setVisible(false);
+      }
+      this.activeKey = next;
+    }
+    return this.forScope(next);
+  }
+
+  /** 取指定工作区的服务（无则创建；key 缺省回落当前工作区） */
+  forScope(key?: unknown): BrowserService {
+    const scope = normalizeScope(key);
+    let service = this.services.get(scope);
+    if (!service) {
+      service = new BrowserService(scope);
+      if (this.settings) {
+        service.applyBrowserSettings(this.settings);
+      }
+      // 事件门控：仅当前工作区的服务向渲染层转发，避免后台导航串台
+      service.onStatus((status) => {
+        if (scope === this.activeKey) {
+          this.statusSink?.(status);
+        }
+      });
+      service.onElementPicked((ref) => {
+        if (scope === this.activeKey) {
+          this.pickSink?.(ref);
+        }
+      });
+      this.services.set(scope, service);
+    }
+    return service;
+  }
+
+  /** 当前工作区的服务（getBrowserService 的语义：用户正在看的浏览器） */
+  active(): BrowserService {
+    return this.forScope(this.activeKey);
+  }
+
+  /** 全局浏览器设置应用到全部服务；新建服务时沿用缓存 */
+  applySettings(settings: BrowserSettings): void {
+    this.settings = { ...settings };
+    for (const service of this.services.values()) {
+      service.applyBrowserSettings(this.settings);
+    }
+  }
+
+  /** 画中画悬浮窗归属的服务（顶栏 IPC 按 sender 窗口路由） */
+  serviceOwningPipWindow(win: BrowserWindow | null): BrowserService | null {
+    if (!win) {
+      return null;
+    }
+    for (const service of this.services.values()) {
+      if (service.ownsPipWindow(win)) {
+        return service;
+      }
+    }
+    return null;
+  }
+
+  /** 丢弃并销毁指定工作区的服务（browser:stop）；key 缺省指当前工作区 */
+  dropScope(key?: unknown): void {
+    const scope = normalizeScope(key);
+    const service = this.services.get(scope);
+    if (service) {
+      service.dispose();
+      this.services.delete(scope);
+    }
+  }
+
+  forEach(cb: (service: BrowserService) => void): void {
+    for (const service of this.services.values()) {
+      cb(service);
+    }
+  }
+
+  disposeAll(): void {
+    for (const service of this.services.values()) {
+      service.dispose();
+    }
+    this.services.clear();
+    this.activeKey = DEFAULT_BROWSER_SCOPE;
+  }
+}
+
+let registry: BrowserServiceRegistry | null = null;
+
+export function getBrowserRegistry(): BrowserServiceRegistry {
+  if (!registry) {
+    registry = new BrowserServiceRegistry();
+  }
+  return registry;
+}
+
+/**
+ * 兼容旧调用方（agent 桥 / 系统弹窗保护 / 外链打开）：当前工作区的浏览器服务。
+ * agent-runner 在 run 创建时捕获该实例——run 期间用户切走工作区后，agent 继续操作
+ * 原工作区的浏览器（隔离正确），不会把页面开进当前工作区。
+ */
+export function getBrowserService(): BrowserService {
+  return getBrowserRegistry().active();
 }
 
 export function shutdownBrowserService(): void {
-  singleton?.dispose();
-  singleton = null;
+  registry?.disposeAll();
+  registry = null;
+}
+
+/** 渲染层 reload / 窗口重建：全部服务重新指向主窗口（画中画悬浮的服务不动） */
+export function attachBrowserWindow(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  getBrowserRegistry().forEach((service) => service.attachToWindow(win));
+}
+
+/** 渲染层 reload 期间隐藏全部工作区视图（画中画悬浮除外——视图挂在悬浮窗上） */
+export function hideAllBrowserViews(): void {
+  getBrowserRegistry().forEach((service) => {
+    if (!service.isPipFloating()) {
+      service.setVisible(false);
+    }
+  });
 }

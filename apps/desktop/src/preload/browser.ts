@@ -15,77 +15,114 @@ import type {
   BrowserViewBounds,
 } from "@zen/shared";
 
+/**
+ * 内嵌浏览器按工作区（workspaceId）隔离。preload 是渲染层全部浏览器 IPC 的必经
+ * 边界，在这里维护「当前工作区 scope」并附加到每次 invoke，主进程据此路由到
+ * 对应工作区的浏览器服务（BrowserServiceRegistry）。
+ *
+ * scope 与 chat store 的 sessionWorkspaceId 同源，更新途径：
+ * 1. 初始种子：localStorage 的 zen.activeWorkspace（chat store 初始化读取同一 key）；
+ * 2. 会话切换：session.create / open / setWorkspace 的参数或返回值（见 preload/session.ts）；
+ * 3. 右栏面板：RightPanel watch sessionWorkspaceId 调 setScope 主动校正。
+ */
+let browserScope = seedScope();
+
+function seedScope(): string {
+  try {
+    // 画中画悬浮窗顶栏（data: URL，无 localStorage 访问权）等环境抛错时回落公共区；
+    // 那里的调用由主进程按悬浮窗归属路由，不依赖该值
+    return localStorage.getItem("zen.activeWorkspace") || "common";
+  } catch {
+    return "common";
+  }
+}
+
+/** 会话工作区变化：更新本地 scope 并通知主进程切换活动浏览器服务（幂等） */
+export function syncBrowserScope(workspaceId: string | null | undefined): void {
+  const next =
+    typeof workspaceId === "string" && workspaceId.trim() ? workspaceId.trim() : "common";
+  if (next === browserScope) {
+    return;
+  }
+  browserScope = next;
+  void ipcRenderer.invoke("browser:bind-scope", next).catch(() => undefined);
+}
+
 export const browserApi = {
   browser: {
+    /** 渲染层主动校正当前工作区 scope（RightPanel 会话切换 watch 调用） */
+    setScope(scope: string): void {
+      syncBrowserScope(scope);
+    },
     status(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:status");
+      return ipcRenderer.invoke("browser:status", browserScope);
     },
     ensureRunning(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:ensure-running");
+      return ipcRenderer.invoke("browser:ensure-running", browserScope);
     },
     stop(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:stop");
+      return ipcRenderer.invoke("browser:stop", browserScope);
     },
     setBounds(bounds: BrowserViewBounds | null, visible?: boolean): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:set-bounds", bounds, visible);
+      return ipcRenderer.invoke("browser:set-bounds", bounds, visible, browserScope);
     },
     setVisible(visible: boolean): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:set-visible", visible);
+      return ipcRenderer.invoke("browser:set-visible", visible, browserScope);
     },
     open(url: string): Promise<BrowserOpenResult> {
-      return ipcRenderer.invoke("browser:open", url);
+      return ipcRenderer.invoke("browser:open", url, browserScope);
     },
     goBack(): Promise<BrowserActionResult> {
-      return ipcRenderer.invoke("browser:go-back");
+      return ipcRenderer.invoke("browser:go-back", browserScope);
     },
     goForward(): Promise<BrowserActionResult> {
-      return ipcRenderer.invoke("browser:go-forward");
+      return ipcRenderer.invoke("browser:go-forward", browserScope);
     },
     reload(ignoreCache?: boolean): Promise<BrowserActionResult> {
-      return ipcRenderer.invoke("browser:reload", ignoreCache);
+      return ipcRenderer.invoke("browser:reload", ignoreCache, browserScope);
     },
     openExternal(url?: string): Promise<{ ok: boolean; error?: string }> {
-      return ipcRenderer.invoke("browser:open-external", url);
+      return ipcRenderer.invoke("browser:open-external", url, browserScope);
     },
     focusHost(): Promise<{ ok: boolean }> {
-      return ipcRenderer.invoke("browser:focus-host");
+      return ipcRenderer.invoke("browser:focus-host", browserScope);
     },
     debug(): Promise<Record<string, unknown>> {
-      return ipcRenderer.invoke("browser:debug");
+      return ipcRenderer.invoke("browser:debug", browserScope);
     },
     snapshot(): Promise<BrowserSnapshot> {
-      return ipcRenderer.invoke("browser:snapshot");
+      return ipcRenderer.invoke("browser:snapshot", browserScope);
     },
     extract(): Promise<BrowserExtractResult> {
-      return ipcRenderer.invoke("browser:extract");
+      return ipcRenderer.invoke("browser:extract", browserScope);
     },
     click(selector: string): Promise<BrowserActionResult> {
-      return ipcRenderer.invoke("browser:click", selector);
+      return ipcRenderer.invoke("browser:click", selector, browserScope);
     },
     type(
       selector: string,
       text: string,
       options?: { submit?: boolean },
     ): Promise<BrowserActionResult> {
-      return ipcRenderer.invoke("browser:type", selector, text, options);
+      return ipcRenderer.invoke("browser:type", selector, text, options, browserScope);
     },
     console(limit?: number): Promise<{ entries: BrowserConsoleEntry[] }> {
-      return ipcRenderer.invoke("browser:console", limit);
+      return ipcRenderer.invoke("browser:console", limit, browserScope);
     },
     performance(): Promise<BrowserPerformanceMetrics> {
-      return ipcRenderer.invoke("browser:performance");
+      return ipcRenderer.invoke("browser:performance", browserScope);
     },
     screenshot(): Promise<BrowserScreenshotResult> {
-      return ipcRenderer.invoke("browser:screenshot");
+      return ipcRenderer.invoke("browser:screenshot", browserScope);
     },
     evaluate(expression: string): Promise<BrowserEvalResult> {
-      return ipcRenderer.invoke("browser:evaluate", expression);
+      return ipcRenderer.invoke("browser:evaluate", expression, browserScope);
     },
     pickStart(): Promise<{ ok: boolean; error?: string }> {
-      return ipcRenderer.invoke("browser:pick-start");
+      return ipcRenderer.invoke("browser:pick-start", browserScope);
     },
     pickStop(): Promise<{ ok: boolean }> {
-      return ipcRenderer.invoke("browser:pick-stop");
+      return ipcRenderer.invoke("browser:pick-stop", browserScope);
     },
     getSettings(): Promise<BrowserSettings> {
       return ipcRenderer.invoke("browser:get-settings");
@@ -94,13 +131,13 @@ export const browserApi = {
       return ipcRenderer.invoke("browser:set-settings", partial);
     },
     pipEnter(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:pip-enter");
+      return ipcRenderer.invoke("browser:pip-enter", browserScope);
     },
     pipExit(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:pip-exit");
+      return ipcRenderer.invoke("browser:pip-exit", browserScope);
     },
     pipHide(): Promise<BrowserStatus> {
-      return ipcRenderer.invoke("browser:pip-hide");
+      return ipcRenderer.invoke("browser:pip-hide", browserScope);
     },
     onStatus(handler: (status: BrowserStatus) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, status: BrowserStatus) => {

@@ -6,7 +6,9 @@ import type {
   GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
+  GitStashEntry,
   GitStatus,
+  GitSyncResult,
 } from "@zen/shared";
 
 export const gitApi = {
@@ -60,6 +62,30 @@ export const gitApi = {
     },
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }> {
       return ipcRenderer.invoke("git:push", cwd);
+    },
+    fetch(cwd?: string): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:fetch", cwd);
+    },
+    pull(cwd?: string): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:pull", cwd);
+    },
+    merge(cwd: string | undefined, branch: string): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:merge", cwd, branch);
+    },
+    mergeAbort(cwd?: string): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:merge-abort", cwd);
+    },
+    stashPush(cwd: string | undefined, message?: string): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:stash-push", cwd, message);
+    },
+    stashApply(cwd: string | undefined, index: number, mode?: "apply" | "pop"): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:stash-apply", cwd, index, mode);
+    },
+    stashList(cwd?: string): Promise<GitStashEntry[]> {
+      return ipcRenderer.invoke("git:stash-list", cwd);
+    },
+    stashDrop(cwd: string | undefined, index: number): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:stash-drop", cwd, index);
     },
     branches(cwd?: string): Promise<GitBranches> {
       return ipcRenderer.invoke("git:branches", cwd);

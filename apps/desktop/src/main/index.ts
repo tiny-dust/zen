@@ -22,7 +22,12 @@ import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerMcpIpc, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
 import { registerBrowserIpc } from "./browser/ipc";
-import { getBrowserService, shutdownBrowserService } from "./browser/service";
+import {
+  attachBrowserWindow,
+  getBrowserService,
+  hideAllBrowserViews,
+  shutdownBrowserService,
+} from "./browser/service";
 import { registerCacheIpc } from "./cache-ipc";
 import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
@@ -94,7 +99,7 @@ function createWindow(): BrowserWindow {
   // 渲染进程异常退出时自动恢复，避免整窗黑屏
   window.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason !== "clean-exit") {
-      // 先摘掉可能残留的 WebContentsView，再 reload
+      // 先摘掉可能残留的 WebContentsView（全部工作区），再 reload
       shutdownBrowserService();
       window.webContents.reload();
     }
@@ -103,19 +108,13 @@ function createWindow(): BrowserWindow {
   // 渲染层整页刷新/热更新后：隐藏并重建浏览器视图，避免旧 WebContentsView 盖在左上角。
   // 画中画悬浮时跳过：视图此时挂在悬浮窗上，不该被主窗口的刷新逻辑隐藏
   window.webContents.on("did-start-loading", () => {
-    const service = getBrowserService();
-    if (!service.isPipFloating()) {
-      service.setVisible(false);
-    }
+    hideAllBrowserViews();
   });
   window.webContents.on("did-finish-load", () => {
-    const service = getBrowserService();
-    service.attachToWindow(window);
-    // 不自动 dispose（保留会话），但默认不可见，等 UI 再 setBounds；
-    // 画中画悬浮时同样跳过隐藏，避免悬浮窗页面被主窗口刷新连坐熄灭
-    if (!service.isPipFloating()) {
-      service.setVisible(false);
-    }
+    // 全部工作区服务重新指向主窗口（macOS 关窗后 activate 重建场景），保持隐藏，
+    // 等各工作区面板重新 setBounds；画中画悬浮的除外，避免悬浮窗页面被连坐熄灭
+    attachBrowserWindow(window);
+    hideAllBrowserViews();
   });
 
   window.webContents.setWindowOpenHandler((details) => {

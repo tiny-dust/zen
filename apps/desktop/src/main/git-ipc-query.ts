@@ -62,7 +62,7 @@ export function registerGitQueryIpc(): void {
     const workdir = cwd || process.cwd();
     try {
       const branch = (await git(workdir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
-      const [porcelain, unstaged, staged, upstream] = await Promise.all([
+      const [porcelain, unstaged, staged, upstream, mergeHead] = await Promise.all([
         // -uall：未跟踪目录展开到具体文件（与 VS Code 变更列表一致，默认只给 `?? dir/`）；
         // quotepath=false：中文/特殊字符路径按原样输出，不夹 \xNN 转义与引号
         git(workdir, ["-c", "core.quotepath=false", "status", "--porcelain", "-uall"]),
@@ -70,6 +70,10 @@ export function registerGitQueryIpc(): void {
         git(workdir, ["diff", "--cached", "--numstat"]),
         // 左=上游独有（落后），右=本地独有（待推送）；无上游时为空
         git(workdir, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).catch(() => ""),
+        // MERGE_HEAD 存在即合并进行中（冲突解决后未提交也算）：UI 借此展示合并横幅/中止入口
+        git(workdir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+          .then(() => true)
+          .catch(() => false),
       ]);
       const unstagedStat = parseNumstat(unstaged);
       const stagedStat = parseNumstat(staged);
@@ -103,6 +107,7 @@ export function registerGitQueryIpc(): void {
         files,
         ahead: upstream ? Number(ahead) || 0 : undefined,
         behind: upstream ? Number(behind) || 0 : undefined,
+        merging: mergeHead,
       };
     } catch {
       return null;
