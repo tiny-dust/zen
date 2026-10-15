@@ -21,6 +21,27 @@ function withVersionSegment(baseUrl: string): string {
   return `${base}/v1`;
 }
 
+/**
+ * 仅支持 adaptive 思考的新一代 Claude（fable / opus-5 / sonnet-5 / 4.6+）。
+ * 这些模型拒绝 thinking: {type:"enabled"}，只认 thinking adaptive + output_config.effort。
+ * 对齐 @ai-sdk/anthropic getModelCapabilities 的支持表；未知新 Claude（目录未收录）
+ * 按 SDK 惯例同样视为 adaptive。
+ */
+const ADAPTIVE_CLAUDE = /claude-(?:fable|opus-5|opus-4-[6-9]|sonnet-5|sonnet-4-6)/i;
+/** 旧 Claude（enabled/budget_tokens 时代）；sonnet-4/opus-4 用边界断言避免误伤 4-5/4-6 */
+const LEGACY_CLAUDE =
+  /claude-(?:haiku-4-5|sonnet-4-5|opus-4-5|opus-4-1|sonnet-4(?:-|@|$)|opus-4(?:-|@|$)|3|instant|v?2(?:$|[-.:]))/i;
+/** adaptive 但不支持 xhigh effort 档的模型（SDK 支持表：仅 fable/opus-4-7+/sonnet-5/opus-5 支持） */
+const NO_XHIGH_EFFORT_CLAUDE = /claude-(?:sonnet-4-6|opus-4-6)/i;
+
+export function supportsAdaptiveThinking(modelId: string): boolean {
+  if (ADAPTIVE_CLAUDE.test(modelId)) {
+    return true;
+  }
+  // 目录未收录的 claude-* 视为更新的型号（与 SDK 的兜底分支一致）
+  return /claude-/i.test(modelId) && !LEGACY_CLAUDE.test(modelId);
+}
+
 export function createLanguageModel(config: AgentSessionConfig): LanguageModel {
   const baseURL = withVersionSegment(config.baseUrl);
 
@@ -46,18 +67,21 @@ export function buildProviderOptions(config: AgentSessionConfig): Record<string,
   const effort = config.reasoningEffort;
 
   if (config.protocol === "anthropic-messages") {
-    // 最新 Claude 模型只接受 adaptive 思考（enabled/budget_tokens 已废弃）。
-    // 推理模型显式传 adaptive + effort，避免 AI SDK 对目录未收录模型回退到 enabled 形态报错。
-    if (config.reasoning) {
-      const raw = effort && effort !== "off" ? effort : "medium";
-      // anthropic 不接受 "minimal"，映射到 "low"
-      const mapped = raw === "minimal" ? "low" : raw;
-      return { anthropic: { thinking: { type: "adaptive" }, effort: mapped } };
+    // 旧 Claude（haiku-4-5 / sonnet-4-5 / 4-1 / 4 / 3 系）只认 enabled/budget_tokens，
+    // 对它们下发 adaptive 会收到对称的 400；不下发 thinking，交给服务端默认（旧模型默认关闭）。
+    // 非推理模型（capabilities.reasoning=false）同样不下发。
+    if (!supportsAdaptiveThinking(config.model) || !config.reasoning) {
+      return {};
     }
-    if (effort && effort !== "off") {
-      return { anthropic: { thinking: { type: "adaptive" }, effort: effort === "minimal" ? "low" : effort } };
+    // display: summarized —— Opus 4.7+ / Fable 默认省略思考正文，不显式要回则 UI 看不到推理过程
+    if (!effort || effort === "off") {
+      // 未选档位（off 仅作缺省值出现）：adaptive 思考交给服务端默认强度
+      return { anthropic: { thinking: { type: "adaptive", display: "summarized" } } };
     }
-    return {};
+    // anthropic 不接受 "minimal" 映射到 "low"；sonnet-4-6/opus-4-6 不支持 "xhigh" 映射到 "max"
+    const mapped = effort === "minimal" ? "low" : effort;
+    const capped = mapped === "xhigh" && NO_XHIGH_EFFORT_CLAUDE.test(config.model) ? "max" : mapped;
+    return { anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: capped } };
   }
 
   if (!effort || effort === "off") {
@@ -139,10 +163,15 @@ function zodSafeParseOf(
  * 1. 工具名归一化（NoSuchToolError，零成本）；
  * 2. 入参文本清理 + 本地 schema 校验（零成本）；
  * 3. 同模型结构化输出重写入参（schema 约束；返回后仍经 SDK doParse 复验，失败即安全降级）。
- * 任何异常都吞掉返回 null——修复器自身绝不能把 run 打挂。
+ * 第 3 层带上会话的 providerOptions（推理档位一致，GPT-6 等推理模型不传档位会用默认档
+ * 高速空转）、透传 abortSignal（用户取消立即中断）且 maxRetries=0（修复失败交回 SDK
+ * 默认回喂，不叠加慢请求重试）。任何异常都吞掉返回 null——修复器自身绝不能把 run 打挂。
  */
-export function buildToolCallRepair(model: LanguageModel): ToolCallRepairFunction<ToolSet> {
-  return async ({ toolCall, tools, inputSchema, error }) => {
+export function buildToolCallRepair(
+  model: LanguageModel,
+  providerOptions?: Record<string, unknown>,
+): ToolCallRepairFunction<ToolSet> {
+  return async ({ toolCall, tools, inputSchema, error, abortSignal }) => {
     try {
       if (NoSuchToolError.isInstance(error)) {
         // error.toolName 是查找失败的权威名字：归一化它而非 toolCall 上的名字，
@@ -173,6 +202,9 @@ export function buildToolCallRepair(model: LanguageModel): ToolCallRepairFunctio
       const { output } = await generateText({
         model,
         output: Output.object({ schema }),
+        providerOptions: providerOptions as never,
+        abortSignal,
+        maxRetries: 0,
         prompt: [
           `The model tried to call the tool "${toolCall.toolName}" but the inputs failed validation.`,
           `Original input:`,

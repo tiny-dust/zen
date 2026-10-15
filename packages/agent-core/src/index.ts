@@ -14,6 +14,7 @@ export { AgentSession, insertUserContent, steerUserContent } from "./agent-sessi
 export type { AgentImageAttachment } from "./agent-session";
 export { runMockAgent } from "./mock-agent";
 export { registerMcpRuntime } from "./mcp-runtime";
+export { supportsAdaptiveThinking } from "./agent-model";
 export type {
   AgentSkillHint,
   McpToolBridge,

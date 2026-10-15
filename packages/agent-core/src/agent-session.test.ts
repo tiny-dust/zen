@@ -176,6 +176,43 @@ let origin = "";
 let workspaceRoot = "";
 const routes = new Map<string, Behavior>();
 const requestBodies: string[] = [];
+/** 每个请求命中的路径（协议改写断言用：/v1/chat/completions vs /v1/messages） */
+const requestPaths: string[] = [];
+/** 打到 /v1/messages 的请求体（anthropic 原生协议改写断言用） */
+const anthropicBodies: string[] = [];
+
+/** anthropic messages SSE：单段文本回复（协议改写测试的应答） */
+function anthropicTextBlocks(text: string): string[] {
+  return [
+    `event: message_start\ndata: ${JSON.stringify({
+      type: "message_start",
+      message: {
+        id: "msg_zen_test",
+        model: "claude-fable-5",
+        role: "assistant",
+        content: [],
+        usage: { input_tokens: 10, output_tokens: 1 },
+      },
+    })}\n\n`,
+    `event: content_block_start\ndata: ${JSON.stringify({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "" },
+    })}\n\n`,
+    `event: content_block_delta\ndata: ${JSON.stringify({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text },
+    })}\n\n`,
+    `event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`,
+    `event: message_delta\ndata: ${JSON.stringify({
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: { output_tokens: 5 },
+    })}\n\n`,
+    `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+  ];
+}
 const childSeq = new Map<string, number>();
 const parentSeq = new Map<string, number>();
 
@@ -413,6 +450,22 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const body = await readBody(req);
   requestBodies.push(body);
   const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+  requestPaths.push(path);
+  // anthropic 原生端点：直接回 SSE 文本，不查 routes/seq（协议改写测试专用）
+  if (path.endsWith("/v1/messages")) {
+    anthropicBodies.push(body);
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    for (const block of anthropicTextBlocks("fable ok")) {
+      res.write(block);
+      await delay(2);
+    }
+    res.end();
+    return;
+  }
   const behavior = routes.get(path) ?? "text";
   const isChild = body.includes("派生的子 Agent");
   const counters = isChild ? childSeq : parentSeq;
@@ -893,6 +946,20 @@ describe("GPT 系工具调用修复与缺 finish_reason 兜底", () => {
     expect(done?.type === "done" && done.reason).toBe("stop");
   });
 
+  it("入参不合 schema 时的重写请求：透传会话推理档位（GPT-6 不再按默认档慢速空转）", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-repair-effort", "repair-tool-input", {
+      reasoningEffort: "high",
+    });
+    await session.start("建清单");
+
+    const repairBody = requestBodies.find((body) => body.includes("tried to call the tool"));
+    expect(repairBody).toBeTruthy();
+    expect(repairBody).toContain('"reasoning_effort":"high"');
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+  });
+
   it("流缺 finish_reason 但工具已完整产出：不误报 error，续跑后 stop 收尾", async () => {
     const events: AgentStreamEvent[] = [];
     const session = createSession(events, "sess-missing-finish", "missing-finish-reason");
@@ -902,5 +969,45 @@ describe("GPT 系工具调用修复与缺 finish_reason 兜底", () => {
     expect(events.some((event) => event.type === "tasks_updated")).toBe(true);
     const done = events.find((event) => event.type === "done");
     expect(done?.type === "done" && done.reason).toBe("stop");
+  });
+});
+
+describe("adaptive Claude 协议改写（fable 等新一代模型）", () => {
+  it("openai-chat + fable：请求改走 /v1/messages 原生端点，body 带 adaptive 思考与 output_config.effort", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestPaths.length = 0;
+    anthropicBodies.length = 0;
+    const session = createSession(events, "sess-fable-route", "text", {
+      model: "claude-fable-5",
+      reasoning: true,
+      reasoningEffort: "high",
+    });
+    await session.start("你好");
+
+    // 不再打 chat/completions（网关在那里把 reasoning_effort 误译成 thinking.enabled）
+    expect(requestPaths.some((path) => path.endsWith("/v1/chat/completions"))).toBe(false);
+    expect(anthropicBodies.length).toBeGreaterThan(0);
+    const body = anthropicBodies[0] ?? "";
+    expect(body).toContain('"model":"claude-fable-5"');
+    expect(body).toContain('"thinking"');
+    expect(body).toContain('"adaptive"');
+    expect(body).toContain('"output_config"');
+    expect(body).toContain('"effort":"high"');
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" && done.reason).toBe("stop");
+  });
+
+  it("openai-chat + 旧 Claude（haiku-4-5）：不改写，仍走 chat/completions", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestPaths.length = 0;
+    anthropicBodies.length = 0;
+    const session = createSession(events, "sess-haiku-route", "text", {
+      model: "claude-haiku-4-5",
+    });
+    await session.start("你好");
+
+    expect(requestPaths.some((path) => path.endsWith("/v1/chat/completions"))).toBe(true);
+    expect(anthropicBodies).toEqual([]);
   });
 });

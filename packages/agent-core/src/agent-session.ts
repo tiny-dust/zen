@@ -11,7 +11,12 @@ import type {
   ToolCallState,
 } from "@zen/shared";
 import { readWorkspaceFile } from "@zen/tools-fs";
-import { buildProviderOptions, buildToolCallRepair, createLanguageModel } from "./agent-model";
+import {
+  buildProviderOptions,
+  buildToolCallRepair,
+  createLanguageModel,
+  supportsAdaptiveThinking,
+} from "./agent-model";
 import { buildToolSet } from "./agent-tools";
 import type { ToolHooks } from "./agent-tools";
 import { evaluateApproval, riskForTool } from "./agent-approval";
@@ -180,8 +185,17 @@ export class AgentSession {
   private readonly emitNormalized: (event: AgentStreamEvent) => void;
 
   constructor(config: AgentSessionConfig) {
-    this.config = config;
-    this.resourceLock = config.resourceLock ?? new ResourceLock();
+    // Claude 新一代模型（fable/opus-5/sonnet-5/4.6+）只认 thinking adaptive + output_config.effort；
+    // openai-chat 网关（new-api 系）会把 reasoning_effort 翻译成已废弃的 thinking.enabled，
+    // 上游直接 400「...enabled is not supported for this model」。这类模型统一改走
+    // Anthropic 原生 /v1/messages（tars 等网关双端点并存，同一 API Key 可用）。
+    // 归一化在构造器落定：子会话（...this.config）与 providerOptions 都基于改写后的协议。
+    this.config =
+      config.protocol === "openai-chat" && supportsAdaptiveThinking(config.model)
+        ? { ...config, protocol: "anthropic-messages" }
+        : config;
+    const sessionConfig = this.config;
+    this.resourceLock = sessionConfig.resourceLock ?? new ResourceLock();
     const emit: (event: AgentStreamEvent) => void = (event) => {
       if (event.type === "tasks_updated") {
         // version=-1 表示工具要求开新版；version=0 表示更新当前版
@@ -238,7 +252,11 @@ export class AgentSession {
           });
 
     const multiAgentTools = this.orchestrator?.buildTools();
-    const model = createLanguageModel(config);
+    // 模型与推理参数都基于归一化后的协议（openai-chat → anthropic-messages 改写在此生效）
+    const model = createLanguageModel(sessionConfig);
+    // 推理参数一处计算：主请求与 repairToolCall 的模型重写请求共用同一档位，
+    // 避免 GPT-6 等推理模型的重写请求因缺档位而按默认档慢速空转
+    const providerOptions = buildProviderOptions(sessionConfig) as never;
     this.agent = new ToolLoopAgent({
       model,
       // 网关/代理偶发 503（"Upstream service temporarily unavailable"）时 SDK 默认
@@ -246,7 +264,7 @@ export class AgentSession {
       // 尊重 Retry-After 头），把短暂上游抖动吸收在重试里而不是把错误抛给用户
       maxRetries: 5,
       // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
-      repairToolCall: buildToolCallRepair(model),
+      repairToolCall: buildToolCallRepair(model, providerOptions),
       tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
         resourceLock: this.resourceLock,
         ownerLabel: config.ownerLabel ?? config.sessionId,
@@ -257,7 +275,7 @@ export class AgentSession {
       // 步间边界（真实 usage 可见、消息基线可改写）归 agent-session 掌控——
       // 步间主动压缩与溢出恢复都在这里落钩子，而不是埋进 SDK 内部循环
       stopWhen: isStepCount(1),
-      providerOptions: buildProviderOptions(config) as never,
+      providerOptions,
       prepareCall: (options) => {
         // history 的 system 轮并入 instructions（排在主指令之后），messages 保持无 system
         const base = typeof options.instructions === "string" ? options.instructions : undefined;

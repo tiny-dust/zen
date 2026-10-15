@@ -7,7 +7,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.53",
     "@ai-sdk/openai": "4.0.66",
-    "@ai-sdk/openai-compatible": "3.0.48",
+    "@ai-sdk/openai-compatible": "3.0.69",
     "@mozilla/readability": "0.6.0",
     "@zen/mcp-client": "workspace:*",
     "@zen/session": "workspace:*",
