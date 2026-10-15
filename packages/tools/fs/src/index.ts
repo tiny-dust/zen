@@ -44,19 +44,48 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 模型常见入参畸形：首尾引号包裹 / 前后空白（GPT 系高频） */
+function unquote(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(['"])(.*)\1$/s);
+  return match?.[2] ? match[2].trim() : trimmed;
+}
+
 export function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string {
   if (isEmpty(relativePath)) {
-    throw new Error("path is required");
+    throw new Error("path is required (relative to the workspace root, e.g. src/main.ts)");
   }
-  if (isAbsolute(relativePath)) {
-    throw new Error(`absolute path is not allowed: ${relativePath}`);
-  }
+  // 模型常传工作区绝对路径（GPT 系高频报错来源）：工作区内绝对路径归一化为相对路径
+  const cleaned = unquote(relativePath);
   const root = toSlash(normalize(workspaceRoot));
-  const full = toSlash(normalize(join(workspaceRoot, relativePath)));
-  if (full !== root && !full.startsWith(`${root}/`)) {
+  const candidate = isAbsolute(cleaned) ? toSlash(normalize(cleaned)) : toSlash(normalize(join(workspaceRoot, cleaned)));
+  if (isAbsolute(cleaned) && candidate !== root && !candidate.startsWith(`${root}/`)) {
+    throw new Error(
+      `path is outside the workspace: ${relativePath} (readFile only accepts workspace files; use runTerminal for files outside the workspace)`,
+    );
+  }
+  if (!isAbsolute(cleaned)) {
+    const normalized = toSlash(normalize(cleaned));
+    if (normalized === ".." || normalized.startsWith("../")) {
+      throw new Error(`path escapes workspace: ${relativePath}`);
+    }
+  }
+  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
     throw new Error(`path escapes workspace: ${relativePath}`);
   }
-  return full;
+  return candidate;
+}
+
+/** 结果展示路径：绝对路径输入转回工作区相对形式，去掉引号/空白 */
+function toDisplayPath(workspaceRoot: string, fullPath: string, rawInput: string): string {
+  const root = toSlash(normalize(workspaceRoot));
+  if (fullPath === root) {
+    return ".";
+  }
+  if (fullPath.startsWith(`${root}/`)) {
+    return fullPath.slice(root.length + 1);
+  }
+  return rawInput;
 }
 
 export async function readWorkspaceFile(
@@ -64,11 +93,15 @@ export async function readWorkspaceFile(
   relativePath: string,
 ): Promise<ReadFileResult> {
   const fullPath = resolveWorkspacePath(workspaceRoot, relativePath);
+  const display = toDisplayPath(workspaceRoot, fullPath, relativePath);
   try {
     const content = await readFile(fullPath, "utf8");
-    return { path: relativePath, content };
+    return { path: display, content };
   } catch (error) {
-    throw new Error(`failed to read ${relativePath}: ${toErrorMessage(error)}`);
+    if (error instanceof Error && "code" in error && error.code === "EISDIR") {
+      throw new Error(`${display} is a directory; use listDir to list its contents`);
+    }
+    throw new Error(`failed to read ${display}: ${toErrorMessage(error)}`);
   }
 }
 

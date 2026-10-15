@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { editWorkspaceFile, listWorkspaceDir, writeWorkspaceFile } from "./index.ts";
+import { editWorkspaceFile, listWorkspaceDir, readWorkspaceFile, writeWorkspaceFile } from "./index.ts";
 
 const roots: string[] = [];
 
@@ -80,7 +80,36 @@ describe("workspace file snapshots", () => {
   it("retains workspace path validation", async () => {
     const root = await makeRoot();
     await assert.rejects(writeWorkspaceFile(root, "../escape.txt", "content"), /escapes workspace/);
-    await assert.rejects(editWorkspaceFile(root, "/absolute.txt", "old", "new"), /absolute path/);
+    await assert.rejects(
+      editWorkspaceFile(root, "/definitely/outside.txt", "old", "new"),
+      /outside the workspace/,
+    );
+  });
+
+  it("accepts workspace-absolute and quoted paths, rejects outside-workspace with guidance", async () => {
+    const root = await makeRoot();
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src/main.ts"), "hello");
+    // 工作区内绝对路径归一化（GPT 系高频入参形态）
+    const abs = await readWorkspaceFile(root, join(root, "src/main.ts"));
+    assert.equal(abs.content, "hello");
+    assert.equal(abs.path, "src/main.ts");
+    // 引号包裹 / 前后空白
+    const quoted = await readWorkspaceFile(root, ' "src/main.ts" ');
+    assert.equal(quoted.content, "hello");
+    // 工作区外：报错里给出 runTerminal 兜底指引
+    await assert.rejects(
+      readWorkspaceFile(root, join(root, "../elsewhere.txt")),
+      /use runTerminal/,
+    );
+    // 空路径报错带示例
+    await assert.rejects(readWorkspaceFile(root, ""), /path is required/);
+  });
+
+  it("suggests listDir when reading a directory", async () => {
+    const root = await makeRoot();
+    await writeWorkspaceFile(root, "a.txt", "x");
+    await assert.rejects(readWorkspaceFile(root, "."), /is a directory; use listDir/);
   });
 
   it("lists workspace root when path is empty (listDir tool regression)", async () => {
