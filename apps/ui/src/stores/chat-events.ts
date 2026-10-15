@@ -271,6 +271,40 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     }
   }
 
+  /**
+   * delta 合批：流式 token 逐个到达，逐个应用会让整条消息 markdown 全量重解析、
+   * 代码块全量重高亮（成本随消息长度线性放大，长回复直接烧满一核 CPU）。
+   * 相邻同类 delta 合并成一个事件，120ms 窗口冲刷；任何非 delta 事件到达先
+   * 冲刷，保证与工具调用 / 终态事件的先后顺序不变。
+   */
+  const DELTA_FLUSH_MS = 120;
+  let deltaQueue: Array<{ type: "delta" | "reasoning_delta"; text: string }> = [];
+  let deltaOwner = "";
+  let deltaTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function flushDeltas(): void {
+    if (deltaTimer !== undefined) {
+      clearTimeout(deltaTimer);
+      deltaTimer = undefined;
+    }
+    if (!deltaQueue.length) {
+      return;
+    }
+    const queue = deltaQueue;
+    deltaQueue = [];
+    // 会话已切换：挂起 delta 属于旧会话，直接丢弃（切走的会话由后台缓冲接管）
+    if (deltaOwner !== ctx.sessionId.value) {
+      return;
+    }
+    for (const item of queue) {
+      applyToLiveAssistant(
+        item.type === "delta"
+          ? { type: "delta", sessionId: deltaOwner, text: item.text }
+          : { type: "reasoning_delta", sessionId: deltaOwner, text: item.text },
+      );
+    }
+  }
+
   function handleStreamEvent(event: AgentStreamEvent): void {
     if (event.sessionId !== ctx.sessionId.value) {
       handleBackgroundEvent(event);
@@ -283,10 +317,30 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     }
     useAgentProcessesStore().handleStreamEvent(event);
 
+    // delta 高频：进合批缓冲（见 flushDeltas），phase 即时更新不等待冲刷
+    if (event.type === "delta" || event.type === "reasoning_delta") {
+      if (deltaOwner !== event.sessionId) {
+        flushDeltas();
+        deltaOwner = event.sessionId;
+      }
+      const tail = deltaQueue[deltaQueue.length - 1];
+      if (tail && tail.type === event.type) {
+        tail.text += event.text;
+      } else {
+        deltaQueue.push({ type: event.type, text: event.text });
+      }
+      if (deltaTimer === undefined) {
+        deltaTimer = setTimeout(flushDeltas, DELTA_FLUSH_MS);
+      }
+      ctx.phase.value = event.type === "delta" ? "answering" : "thinking";
+      return;
+    }
+
+    // 其余事件先冲刷挂起的 delta，保持时间线顺序
+    flushDeltas();
+
     // 与 main 共用消息级 reducer：parts / content / run summary / 未完成工具终态
     if (
-      event.type === "delta" ||
-      event.type === "reasoning_delta" ||
       event.type === "reasoning_end" ||
       event.type === "tool_input_start" ||
       event.type === "tool_start" ||
@@ -303,12 +357,6 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     }
 
     switch (event.type) {
-      case "delta":
-        ctx.phase.value = "answering";
-        break;
-      case "reasoning_delta":
-        ctx.phase.value = "thinking";
-        break;
       case "reasoning_end":
         break;
       case "tool_input_start":

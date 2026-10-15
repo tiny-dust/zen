@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, ref } from "vue";
 
 import type {
@@ -196,5 +196,101 @@ describe("createChatEventGateway 后台会话面板事件落桶", () => {
     info.ensureSession("s2");
     expect(info.activeTasks.map((item) => item.label)).toEqual(["后台任务"]);
     expect(info.references.map((item) => item.url)).toEqual(["https://doc"]);
+  });
+});
+
+describe("createChatEventGateway delta 合批", () => {
+  it("相邻同类 delta 合并为一次应用，phase 即时更新", async () => {
+    vi.useFakeTimers();
+    const ctx = contextOf();
+    ctx.isRunning = computed(() => true);
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "Hel" });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "lo " });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "world" });
+    // phase 不等冲刷即时反映
+    expect(ctx.phase.value).toBe("answering");
+    // 尚未冲刷：消息还没建
+    expect(ctx.messages.value.length).toBe(0);
+    await vi.advanceTimersByTimeAsync(130);
+    // 一次冲刷、一条助手消息、三段文本合并成同一 part 的完整内容
+    const last = ctx.messages.value.at(-1);
+    expect(last?.role).toBe("assistant");
+    expect(last?.content).toBe("Hello world");
+    expect(last?.parts?.filter((p) => p.type === "text")).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
+  it("非 delta 事件先冲刷挂起内容，保持时间线顺序", async () => {
+    vi.useFakeTimers();
+    const ctx = contextOf();
+    ctx.isRunning = computed(() => true);
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "part1 " });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "part2" });
+    // 工具事件到达：先冲刷 delta 再应用工具
+    handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s1",
+      toolCallId: "t1",
+      toolName: "readFile",
+      args: {},
+    });
+    const last = ctx.messages.value.at(-1);
+    expect(last?.content).toBe("part1 part2");
+    const toolPart = last?.parts?.find((p) => p.type === "tool");
+    expect(toolPart?.type === "tool" && toolPart.toolCallId).toBe("t1");
+    // 文本 part 在工具 part 之前（顺序保持）
+    const types = last?.parts?.map((p) => p.type);
+    expect(types?.indexOf("text")).toBeLessThan(types?.indexOf("tool") ?? Infinity);
+    vi.useRealTimers();
+  });
+
+  it("reasoning 与 text 交错时不跨类型合并", async () => {
+    vi.useFakeTimers();
+    const ctx = contextOf();
+    ctx.isRunning = computed(() => true);
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "reasoning_delta", sessionId: "s1", text: "think " });
+    handleStreamEvent({ type: "reasoning_delta", sessionId: "s1", text: "hard" });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "answer" });
+    await vi.advanceTimersByTimeAsync(130);
+    const last = ctx.messages.value.at(-1);
+    expect(last?.reasoning).toBe("think hard");
+    expect(last?.content).toBe("answer");
+    const types = last?.parts?.map((p) => p.type);
+    expect(types).toEqual(["reasoning", "text"]);
+    vi.useRealTimers();
+  });
+
+  it("切换会话后旧会话挂起的 delta 被丢弃，不写入新会话", async () => {
+    vi.useFakeTimers();
+    const ctx = contextOf();
+    ctx.isRunning = computed(() => true);
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "old " });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "session" });
+    // 用户切到 s2
+    ctx.sessionId.value = "s2";
+    await vi.advanceTimersByTimeAsync(130);
+    expect(ctx.messages.value.length).toBe(0);
+    // s2 的 delta 正常工作
+    handleStreamEvent({ type: "delta", sessionId: "s2", text: "new" });
+    await vi.advanceTimersByTimeAsync(130);
+    expect(ctx.messages.value.at(-1)?.content).toBe("new");
+    vi.useRealTimers();
+  });
+
+  it("done 前冲刷全部挂起 delta，终态内容完整", async () => {
+    vi.useFakeTimers();
+    const ctx = contextOf();
+    ctx.isRunning = computed(() => true);
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "final " });
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "words" });
+    handleStreamEvent({ type: "done", sessionId: "s1", reason: "stop" });
+    const last = ctx.messages.value.at(-1);
+    expect(last?.content).toBe("final words");
+    vi.useRealTimers();
   });
 });
