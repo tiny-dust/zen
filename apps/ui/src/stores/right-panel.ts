@@ -8,8 +8,7 @@ import { i18n } from "@/locales";
 export type RightPanelKind =
   | "files"
   | "browser"
-  | "changes"
-  | "graph"
+  | "git"
   | "agents"
   | "terminals";
 
@@ -27,11 +26,8 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
   get browser() {
     return i18n.global.t("app.panel.browser");
   },
-  get changes() {
-    return i18n.global.t("app.panel.changes");
-  },
-  get graph() {
-    return i18n.global.t("app.panel.graph");
+  get git() {
+    return i18n.global.t("app.panel.git");
   },
   get agents() {
     return i18n.global.t("app.panel.agents");

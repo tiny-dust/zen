@@ -153,7 +153,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="actionCls"
         :disabled="!gitStore.hasChanges && !gitStore.loading"
-        @click="gitStore.openChangesPanel()"
+        @click="gitStore.openGitPanel()"
       >
         <RefreshCw
           v-if="gitStore.loading"

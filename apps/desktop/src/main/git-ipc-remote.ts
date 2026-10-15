@@ -3,6 +3,7 @@ import { ipcMain } from "electron";
 import { resolveWorkdir } from "./git-exec";
 import {
   abortMerge,
+  discardChanges,
   fetchRemote,
   mergeBranch,
   pullRemote,
@@ -35,6 +36,16 @@ export function registerGitRemoteIpc(): void {
     "git:merge-abort",
     async (_event, cwd?: string): Promise<ReturnType<typeof abortMerge>> =>
       abortMerge(resolveWorkdir(cwd)),
+  );
+
+  ipcMain.handle(
+    "git:discard",
+    async (
+      _event,
+      cwd: string | undefined,
+      files?: string[],
+    ): Promise<ReturnType<typeof discardChanges>> =>
+      discardChanges(resolveWorkdir(cwd), files),
   );
 
   ipcMain.handle(

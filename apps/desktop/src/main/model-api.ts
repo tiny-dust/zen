@@ -314,7 +314,18 @@ export async function completeOnce(
   );
   const text = extractChatText(data);
   if (!text) {
-    throw new Error("模型未返回文本内容");
+    // 推理模型把 max_tokens 全部耗在 reasoning 上时 content 为空（实测 glm/o 系）：
+    // 带上模型名与原因，调用方 toast/错误提示能直接定位到模型
+    const choice = (data as {
+      choices?: Array<{ finish_reason?: string; message?: { reasoning_content?: string } }>;
+    })?.choices?.[0];
+    const reasoningBurned =
+      choice?.finish_reason === "length" || Boolean(choice?.message?.reasoning_content);
+    throw new Error(
+      reasoningBurned
+        ? `模型 ${modelId} 未返回文本内容（输出预算被推理过程耗尽，请换非推理模型或调低思考强度）`
+        : `模型 ${modelId} 未返回文本内容`,
+    );
   }
   return text;
 }

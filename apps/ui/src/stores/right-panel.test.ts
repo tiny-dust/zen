@@ -37,15 +37,15 @@ describe("useRightPanelStore", () => {
 
   it("ensureTab 创建新 tab，重复调用只激活不重建", () => {
     const store = useRightPanelStore();
-    const created = store.ensureTab("changes");
-    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "changes"]);
-    expect(store.activeId).toBe("changes");
-    expect(created.title).toBe("变更");
+    const created = store.ensureTab("git");
+    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "git"]);
+    expect(store.activeId).toBe("git");
+    expect(created.title).toBe("Git");
 
-    const again = store.ensureTab("changes");
+    const again = store.ensureTab("git");
     expect(store.tabs).toHaveLength(2);
     expect(again.id).toBe(created.id);
-    expect(store.activeId).toBe("changes");
+    expect(store.activeId).toBe("git");
   });
 
   it("ensureTab 顺带展开右栏", () => {
@@ -72,19 +72,19 @@ describe("useRightPanelStore", () => {
 
   it("关闭活动 tab 时切到邻近 tab", () => {
     const store = useRightPanelStore();
-    store.ensureTab("changes");
-    store.ensureTab("graph");
-    // tabs: files, changes, graph（active=graph）
-    store.closeTab("graph");
-    expect(store.activeId).toBe("changes");
-    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "changes"]);
+    store.ensureTab("git");
+    store.ensureTab("browser");
+    // tabs: files, git, browser（active=browser）
+    store.closeTab("browser");
+    expect(store.activeId).toBe("git");
+    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "git"]);
   });
 
   it("关闭非活动 tab 保持当前激活", () => {
     const store = useRightPanelStore();
-    store.ensureTab("changes");
+    store.ensureTab("git");
     store.activate("files");
-    store.closeTab("changes");
+    store.closeTab("git");
     expect(store.activeId).toBe("files");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files"]);
   });
@@ -118,8 +118,8 @@ describe("useRightPanelStore", () => {
 
   it("关闭非浏览器 tab 不碰原生视图", () => {
     const store = useRightPanelStore();
-    store.ensureTab("changes");
-    store.closeTab("changes");
+    store.ensureTab("git");
+    store.closeTab("git");
     expect(setBounds).not.toHaveBeenCalled();
   });
 
@@ -137,24 +137,24 @@ describe("useRightPanelStore 工作区分桶", () => {
     const store = useRightPanelStore();
     store.bindWorkspaceScope("s1");
     store.ensureTab("browser");
-    store.ensureTab("changes");
-    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "changes"]);
+    store.ensureTab("git");
+    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "git"]);
 
     // 切到工作区 s2：回到默认 files 布局
     store.bindWorkspaceScope("s2");
     expect(store.tabs.map((item) => item.kind)).toEqual(["files"]);
     expect(store.activeId).toBe("files");
 
-    // 工作区 s2 自己开了 graph
-    store.ensureTab("graph");
+    // 工作区 s2 自己开了 git
+    store.ensureTab("git");
 
-    // 切回 s1：恢复 browser + changes，s2 的布局留在自己的桶里
+    // 切回 s1：恢复 browser + git，s2 的布局留在自己的桶里
     store.bindWorkspaceScope("s1");
-    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "changes"]);
-    expect(store.activeTab?.kind).toBe("changes");
+    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "browser", "git"]);
+    expect(store.activeTab?.kind).toBe("git");
 
     store.bindWorkspaceScope("s2");
-    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "graph"]);
+    expect(store.tabs.map((item) => item.kind)).toEqual(["files", "git"]);
   });
 
   it("未绑定时行为不变（默认 files）", () => {

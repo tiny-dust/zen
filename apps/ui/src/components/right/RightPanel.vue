@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import GraphPanel from "@/components/right/GitGraph.vue";
-import { Bot, Check, FolderOpen, GitGraph, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
+import { Bot, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -8,8 +7,8 @@ import type { Component } from "vue";
 
 import AgentsPanel from "@/components/right/AgentsPanel.vue";
 import BrowserPanel from "@/components/right/BrowserPanel.vue";
-import ChangesPanel from "@/components/right/ChangesPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
+import GitPanel from "@/components/right/GitPanel.vue";
 import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,8 +68,7 @@ useBrowserOverlayGuard(panelMenuOpen);
 const PANEL_ITEMS: { kind: RightPanelKind; icon: Component }[] = [
   { kind: "files", icon: FolderOpen },
   { kind: "browser", icon: Globe },
-  { kind: "changes", icon: RefreshCw },
-  { kind: "graph", icon: GitGraph },
+  { kind: "git", icon: GitBranch },
   { kind: "agents", icon: Bot },
   { kind: "terminals", icon: SquareTerminal },
 ];
@@ -110,7 +108,7 @@ function tabCls(id: string) {
           <component
             :is="iconFor(tab.kind)"
             class="size-3.5 flex-none"
-            :class="tab.kind === 'changes' && gitStore.loading ? 'animate-spin' : ''"
+            :class="tab.kind === 'git' && gitStore.loading ? 'animate-spin' : ''"
             aria-hidden="true"
           />
           <span class="min-w-0 truncate">{{ tab.title }}</span>
@@ -175,8 +173,7 @@ function tabCls(id: string) {
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">
       <FilePanel v-if="activeTab?.kind === 'files'" />
       <BrowserPanel v-else-if="activeTab?.kind === 'browser'" />
-      <ChangesPanel v-else-if="activeTab?.kind === 'changes'" />
-      <GraphPanel v-else-if="activeTab?.kind === 'graph'" />
+      <GitPanel v-else-if="activeTab?.kind === 'git'" />
       <AgentsPanel v-else-if="activeTab?.kind === 'agents'" />
       <RightTerminalsPanel v-else-if="activeTab?.kind === 'terminals'" />
     </div>

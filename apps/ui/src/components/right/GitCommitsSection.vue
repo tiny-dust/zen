@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, GitGraph as GitGraphIcon, GitBranch, RefreshCw, Tag } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
@@ -40,20 +40,12 @@ import { useGitStore } from "@/stores/git";
 
 import type { GitCommitDetail, GitCommitFile, GitLogEntry } from "@zen/shared";
 
+/** Git 面板「提交历史」图谱 tab：泳道图谱 + 分支筛选 + 行内展开提交详情与文件 diff（固定 tab，不可关闭） */
+
 const gitStore = useGitStore();
 const { t } = useI18n();
 
 const graphRows = computed(() => computeGraphRows(gitStore.log));
-
-// 打开面板或切换工作区时刷新提交历史与分支列表（筛选下拉数据源）
-watch(
-  () => gitStore.cwd(),
-  () => {
-    void gitStore.refreshLog();
-    void gitStore.refreshBranches();
-  },
-  { immediate: true },
-);
 
 /** 展开态与详情缓存（按 hash 懒加载一次） */
 const expandedHash = ref("");
@@ -128,17 +120,43 @@ const branchFilter = computed({
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-2">
+  <div class="flex min-h-0 flex-1 flex-col gap-1">
+    <!-- 图谱工具行：分支筛选 + 刷新 -->
     <div class="flex flex-none items-center gap-1">
-      <span
-        class="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--color-txt-strong)]"
-      >
-        {{ t("panels.commitHistory") }}
-      </span>
-      <span class="flex-none text-[10px] text-[var(--color-dim)]">{{ graphRows.length }}</span>
+      <div class="min-w-0 flex-1">
+        <Select v-model="branchFilter">
+          <SelectTrigger
+            size="sm"
+            class="h-7 w-full rounded-md text-[11px]"
+            :aria-label="t('panels.filterBranches')"
+          >
+            <SelectValue :placeholder="t('panels.filterBranches')" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{{ t("panels.allBranches") }}</SelectItem>
+            <SelectGroup>
+              <SelectLabel>{{ t("panels.localBranches") }}</SelectLabel>
+              <SelectItem v-for="branch in gitStore.branches.local" :key="branch.name" :value="branch.name">
+                {{ branch.name }}{{ branch.current ? t("panels.currentBranchSuffix") : "" }}
+              </SelectItem>
+            </SelectGroup>
+            <SelectGroup v-if="gitStore.branches.remote.length">
+              <SelectLabel>{{ t("panels.remoteBranches") }}</SelectLabel>
+              <SelectItem
+                v-for="branch in gitStore.branches.remote"
+                :key="branch.name"
+                :value="branch.name"
+              >
+                {{ branch.name }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
       <Button
         variant="ghost"
         size="icon-xs"
+        class="flex-none"
         :aria-label="gitStore.logLoading ? t('panels.refreshing') : t('panels.refreshHistory')"
         :title="t('panels.refresh')"
         @click="gitStore.refreshLog()"
@@ -146,36 +164,6 @@ const branchFilter = computed({
         <RefreshCw :class="gitStore.logLoading ? 'animate-spin' : ''" />
       </Button>
     </div>
-
-    <!-- 分支筛选：全部 / 本地 / 远端（Git Graph 同款） -->
-    <Select v-model="branchFilter">
-      <SelectTrigger
-        size="sm"
-        class="h-7 w-full flex-none rounded-md text-[11px]"
-        :aria-label="t('panels.filterBranches')"
-      >
-        <SelectValue :placeholder="t('panels.filterBranches')" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">{{ t("panels.allBranches") }}</SelectItem>
-        <SelectGroup>
-          <SelectLabel>{{ t("panels.localBranches") }}</SelectLabel>
-          <SelectItem v-for="branch in gitStore.branches.local" :key="branch.name" :value="branch.name">
-            {{ branch.name }}{{ branch.current ? t("panels.currentBranchSuffix") : "" }}
-          </SelectItem>
-        </SelectGroup>
-        <SelectGroup v-if="gitStore.branches.remote.length">
-          <SelectLabel>{{ t("panels.remoteBranches") }}</SelectLabel>
-          <SelectItem
-            v-for="branch in gitStore.branches.remote"
-            :key="branch.name"
-            :value="branch.name"
-          >
-            {{ branch.name }}
-          </SelectItem>
-        </SelectGroup>
-      </SelectContent>
-    </Select>
 
     <div class="min-h-0 flex-1 overflow-auto">
       <p

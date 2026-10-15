@@ -18,6 +18,7 @@ import {
   stashDrop,
   stashList,
   stashPush,
+  discardChanges,
 } from "./git-remote";
 
 type GitResult = { stdout?: string; stderr?: string } | (Error & { stderr?: string });
@@ -304,6 +305,49 @@ describe("stashPush", () => {
     await expect(stashPush("/repo")).resolves.toEqual({
       ok: false,
       error: "error: could not write stash",
+    });
+  });
+});
+
+describe("discardChanges", () => {
+  it("单文件：已跟踪 checkout HEAD，未跟踪 clean -f", async () => {
+    mockGit({
+      status: () => ({ stdout: " M a.ts\n?? new.ts\n" }),
+      checkout: (args) => {
+        expect(args).toEqual(["checkout", "HEAD", "--", "a.ts"]);
+        return { stdout: "" };
+      },
+      clean: (args) => {
+        expect(args).toEqual(["clean", "-f", "--", "new.ts"]);
+        return { stdout: "Removing new.ts\n" };
+      },
+    });
+    await expect(discardChanges("/repo", ["a.ts", "new.ts"])).resolves.toEqual({ ok: true });
+  });
+
+  it("全部撤回：reset --hard HEAD + clean -fd（不带 -x，忽略项保留）", async () => {
+    const calls: string[][] = [];
+    mockGit({
+      reset: (args) => {
+        calls.push(args);
+        return { stdout: "HEAD is now at abc1234\n" };
+      },
+      clean: (args) => {
+        calls.push(args);
+        return { stdout: "" };
+      },
+    });
+    await expect(discardChanges("/repo")).resolves.toEqual({ ok: true });
+    expect(calls).toEqual([["reset", "--hard", "HEAD"], ["clean", "-fd"]]);
+  });
+
+  it("git 报错时返回 stderr 文案", async () => {
+    mockGit({
+      reset: () => gitFailure("error: reset failed"),
+    });
+    await expect(discardChanges("/repo")).resolves.toEqual({
+      ok: false,
+      error: "error: reset failed",
     });
   });
 });

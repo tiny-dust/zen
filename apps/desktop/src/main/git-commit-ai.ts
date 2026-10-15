@@ -14,14 +14,28 @@ const BATCH_PLAN_SYSTEM_PROMPT = [
   "数组元素形如 {\"message\":\"...\",\"files\":[\"...\"]}：message 为该批次的 commit message，files 为该批次包含的文件路径。",
 ].join("\n");
 
+/** 补全类任务显式指定的模型：优先于全局选中（全局兜底可能按名称排序选中不合适的推理模型） */
+export interface CompletionModel {
+  providerId?: string;
+  modelId?: string;
+}
+
 /** 按变更内容规划提交批次：优先用模型分组，失败时按目录确定性兜底 */
 export async function planBatches(
   workdir: string,
   candidates: string[],
   candidateSet: Set<string>,
+  model?: CompletionModel,
 ): Promise<Array<{ message: string; files: string[] }>> {
   const raw = await buildBatchPlanPrompt(workdir, candidates)
-    .then((prompt) => completeOnce(prompt, { maxTokens: 2048, system: BATCH_PLAN_SYSTEM_PROMPT }))
+    .then((prompt) =>
+      completeOnce(prompt, {
+        maxTokens: 2048,
+        system: BATCH_PLAN_SYSTEM_PROMPT,
+        providerId: model?.providerId,
+        modelId: model?.modelId,
+      }),
+    )
     .catch(() => "");
   const plan = parseBatchPlan(raw, candidateSet);
   if (!plan.length) {
@@ -196,7 +210,10 @@ function toCommitMessage(raw: string): string {
   return body ? `${cappedSubject}\n\n${body}` : cappedSubject;
 }
 
-export async function generateAiMessage(workdir: string): Promise<string> {
+export async function generateAiMessage(
+  workdir: string,
+  model?: CompletionModel,
+): Promise<string> {
   const [diffStat, numstat, status, diffBody, historyRaw] = await Promise.all([
     git(workdir, ["diff", "HEAD", "--stat"]).catch(() => ""),
     git(workdir, ["diff", "HEAD", "--numstat"]).catch(() => ""),
@@ -247,7 +264,14 @@ export async function generateAiMessage(workdir: string): Promise<string> {
     "变更内容（diff）：",
     diff || "（无）",
   ].join("\n");
-  return toCommitMessage(await completeOnce(prompt, { maxTokens: 2048, system: SYSTEM_PROMPT }));
+  return toCommitMessage(
+    await completeOnce(prompt, {
+      maxTokens: 2048,
+      system: SYSTEM_PROMPT,
+      providerId: model?.providerId,
+      modelId: model?.modelId,
+    }),
+  );
 }
 
 /** AI 不可用时的确定性兜底 commit message，保证提交链路不会因空 message 失败 */

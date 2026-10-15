@@ -11,6 +11,12 @@ import type {
   GitSyncResult,
 } from "@zen/shared";
 
+/** 补全类任务（commit message 等）显式指定的模型：优先于全局选中 */
+export interface GitCompletionModel {
+  providerId?: string;
+  modelId?: string;
+}
+
 export const gitApi = {
   git: {
     info(cwd?: string): Promise<{ repo: string; branch: string }> {
@@ -26,7 +32,12 @@ export const gitApi = {
       cwd: string | undefined,
       message: string,
       files: string[],
-      options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
+      options?: {
+        push?: boolean;
+        includeUnstaged?: boolean;
+        autoMessage?: boolean;
+        model?: GitCompletionModel;
+      },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> {
       return ipcRenderer.invoke("git:commit", cwd, message, files, options);
     },
@@ -46,12 +57,12 @@ export const gitApi = {
     commitBatched(
       cwd: string | undefined,
       files: string[],
-      options?: { push?: boolean },
+      options?: { push?: boolean; model?: GitCompletionModel },
     ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> {
       return ipcRenderer.invoke("git:commit-batched", cwd, files, options);
     },
-    aiMessage(cwd?: string): Promise<string> {
-      return ipcRenderer.invoke("git:ai-message", cwd);
+    aiMessage(cwd?: string, model?: GitCompletionModel): Promise<string> {
+      return ipcRenderer.invoke("git:ai-message", cwd, model);
     },
     createBranch(
       cwd: string | undefined,
@@ -74,6 +85,10 @@ export const gitApi = {
     },
     mergeAbort(cwd?: string): Promise<GitSyncResult> {
       return ipcRenderer.invoke("git:merge-abort", cwd);
+    },
+    /** 撤回工作区改动：files 为空撤回全部（不可恢复，UI 侧需二次确认） */
+    discard(cwd: string | undefined, files?: string[]): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:discard", cwd, files);
     },
     stashPush(cwd: string | undefined, message?: string): Promise<GitSyncResult> {
       return ipcRenderer.invoke("git:stash-push", cwd, message);

@@ -108,6 +108,12 @@ export interface PlatformInfo {
   openFolderLabel: string;
 }
 
+/** 补全类任务（commit message 等）显式指定的模型：优先于全局选中 */
+export interface GitCompletionModel {
+  providerId?: string;
+  modelId?: string;
+}
+
 export interface ZenApi {
   app: {
     info(): Promise<AppInfo>;
@@ -135,7 +141,12 @@ export interface ZenApi {
       cwd: string | undefined,
       message: string,
       files: string[],
-      options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
+      options?: {
+        push?: boolean;
+        includeUnstaged?: boolean;
+        autoMessage?: boolean;
+        model?: GitCompletionModel;
+      },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
     /** 刷新远端状态，返回当前分支 ahead/behind（无上游时缺省） */
@@ -146,6 +157,8 @@ export interface ZenApi {
     merge(cwd: string | undefined, branch: string): Promise<GitSyncResult>;
     /** 中止进行中的合并 */
     mergeAbort(cwd?: string): Promise<GitSyncResult>;
+    /** 撤回工作区改动：files 为空撤回全部（不可恢复，UI 侧需二次确认） */
+    discard(cwd: string | undefined, files?: string[]): Promise<GitSyncResult>;
     /** 贮藏当前变更（-u 含未跟踪文件；message 可选） */
     stashPush(cwd: string | undefined, message?: string): Promise<GitSyncResult>;
     /** 应用贮藏：apply 保留条目，pop 应用成功后删除 */
@@ -160,9 +173,9 @@ export interface ZenApi {
     commitBatched(
       cwd: string | undefined,
       files: string[],
-      options?: { push?: boolean },
+      options?: { push?: boolean; model?: GitCompletionModel },
     ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }>;
-    aiMessage(cwd?: string): Promise<string>;
+    aiMessage(cwd?: string, model?: GitCompletionModel): Promise<string>;
     createBranch(
       cwd: string | undefined,
       name: string,

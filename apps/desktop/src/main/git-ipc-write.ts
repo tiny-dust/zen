@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 
 import { fallbackCommitMessage, generateAiMessage, planBatches } from "./git-commit-ai";
+import type { CompletionModel } from "./git-commit-ai";
 import { git } from "./git-exec";
 
 import type { GitCommitBatch } from "@zen/shared";
@@ -24,7 +25,12 @@ export function registerGitWriteIpc(): void {
       cwd: string | undefined,
       message: string,
       files: string[],
-      options?: { push?: boolean; includeUnstaged?: boolean; autoMessage?: boolean },
+      options?: {
+        push?: boolean;
+        includeUnstaged?: boolean;
+        autoMessage?: boolean;
+        model?: CompletionModel;
+      },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> => {
       const workdir = cwd || process.cwd();
       const push = options?.push ?? false;
@@ -34,7 +40,7 @@ export function registerGitWriteIpc(): void {
       try {
         // 任意提交相关操作：空 message 一律现场生成（AI 优先，失败用变更摘要兜底）
         if (!trimmed && options?.autoMessage !== false) {
-          trimmed = (await generateAiMessage(workdir).catch(() => "")).trim();
+          trimmed = (await generateAiMessage(workdir, options?.model).catch(() => "")).trim();
         }
         if (!trimmed && options?.autoMessage !== false) {
           trimmed = await fallbackCommitMessage(workdir);
@@ -101,7 +107,7 @@ export function registerGitWriteIpc(): void {
       _event,
       cwd: string | undefined,
       files: string[],
-      options?: { push?: boolean },
+      options?: { push?: boolean; model?: CompletionModel },
     ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> => {
       const workdir = cwd || process.cwd();
       const candidates = [...new Set(files.map((file) => file.trim()).filter(Boolean))];
@@ -111,7 +117,7 @@ export function registerGitWriteIpc(): void {
       const candidateSet = new Set(candidates);
       const committed: GitCommitBatch[] = [];
       try {
-        const plan = await planBatches(workdir, candidates, candidateSet);
+        const plan = await planBatches(workdir, candidates, candidateSet, options?.model);
         for (const batch of plan) {
           // add 保证未跟踪文件入库；pathspec 限定 commit 只提交本批路径，不泄漏其它已暂存内容
           await git(workdir, ["add", "--", ...batch.files]);
@@ -137,10 +143,13 @@ export function registerGitWriteIpc(): void {
     },
   );
 
-  ipcMain.handle("git:ai-message", async (_event, cwd?: string): Promise<string> => {
-    const workdir = cwd || process.cwd();
-    return generateAiMessage(workdir);
-  });
+  ipcMain.handle(
+    "git:ai-message",
+    async (_event, cwd?: string, model?: CompletionModel): Promise<string> => {
+      const workdir = cwd || process.cwd();
+      return generateAiMessage(workdir, model);
+    },
+  );
 
   ipcMain.handle(
     "git:create-branch",

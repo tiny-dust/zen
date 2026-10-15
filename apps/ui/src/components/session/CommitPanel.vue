@@ -79,7 +79,7 @@ async function generateMessage() {
   generating.value = true;
   error.value = "";
   try {
-    const text = await zen.git.aiMessage(gitStore.cwd());
+    const text = await zen.git.aiMessage(gitStore.cwd(), gitStore.completionModel());
     if (text) {
       message.value = text;
     } else if (!message.value.trim()) {

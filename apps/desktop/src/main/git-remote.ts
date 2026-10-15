@@ -102,6 +102,56 @@ export async function abortMerge(workdir: string): Promise<GitSyncResult> {
   }
 }
 
+/** 撤回工作区改动（不可恢复，UI 侧已二次确认）：
+ *  - 指定文件：已跟踪（含已暂存）用 checkout HEAD -- 恢复；未跟踪（??）用 clean -f -- 删除
+ *  - 全部（files 为空）：reset --hard HEAD 恢复所有已跟踪文件 + clean -fd 删除未跟踪
+ *    （clean 不带 -x：忽略文件/目录不动，避免误删 node_modules 等） */
+export async function discardChanges(
+  workdir: string,
+  files?: string[],
+): Promise<GitSyncResult> {
+  try {
+    const paths = (files ?? []).map((file) => file.trim()).filter(Boolean);
+    if (paths.length) {
+      // 按 porcelain 状态分类：?? 开头为未跟踪，其余（含冲突 U*）按已跟踪恢复
+      const statusOut = await git(workdir, [
+        "-c",
+        "core.quotepath=false",
+        "status",
+        "--porcelain",
+        "--",
+        ...paths,
+      ]);
+      const untracked: string[] = [];
+      const tracked: string[] = [];
+      for (const line of statusOut.split("\n")) {
+        if (!line.trim()) {
+          continue;
+        }
+        const path = line.slice(3);
+        if (line.startsWith("??")) {
+          untracked.push(path);
+        } else {
+          tracked.push(path);
+        }
+      }
+      // 请求的路径不在 status 输出（已无改动）：checkout 幂等，跳过即可
+      if (tracked.length) {
+        await git(workdir, ["checkout", "HEAD", "--", ...tracked]);
+      }
+      if (untracked.length) {
+        await git(workdir, ["clean", "-f", "--", ...untracked]);
+      }
+      return { ok: true };
+    }
+    await git(workdir, ["reset", "--hard", "HEAD"]);
+    await git(workdir, ["clean", "-fd"]);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: describeGitError(error, "撤回更改失败") };
+  }
+}
+
 /** stash@{n} 参数拼装：只接受非负整数，防任意 ref 注入（execFile 不经 shell，仍收口） */
 function stashRef(index: number): string | null {
   return Number.isInteger(index) && index >= 0 ? `stash@{${index}}` : null;

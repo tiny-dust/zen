@@ -42,9 +42,22 @@ export const useGitStore = defineStore("git", () => {
   /** 贮藏列表（stash Popover 数据源）；打开浮层或操作后刷新 */
   const stashes = ref<GitStashEntry[]>([]);
   const stashesLoading = ref(false);
+  /** 右侧 diff tab：图谱 tab 固定存在（"graph"），点击变更文件追加文件 tab */
+  const diffTabs = ref<string[]>([]);
+  const activeDiffTab = ref<string>("graph");
 
   function cwd(): string | undefined {
     return useWorkspaceStore().pathOf(useChatStore().sessionWorkspaceId);
+  }
+
+  /** commit AI 生成用的模型：当前会话生效模型（会话覆盖 > 全局默认）。
+   *  全局兜底会按名称排序取第一个启用模型，可能选中不合适的推理模型（实测 glm 把
+   *  输出预算全部耗在 reasoning 上导致永远走 fallback "chore: update ..."），显式传会话模型规避 */
+  function completionModel(): { providerId?: string; modelId?: string } {
+    const sel = useChatStore().effectiveSelection;
+    return sel.providerId && sel.modelId
+      ? { providerId: sel.providerId, modelId: sel.modelId }
+      : {};
   }
 
   const files = computed(() => status.value?.files ?? []);
@@ -53,16 +66,21 @@ export const useGitStore = defineStore("git", () => {
   const totalDel = computed(() => files.value.reduce((sum, item) => sum + item.del, 0));
   const hasChanges = computed(() => files.value.length > 0);
 
-  /** 应用一次 status 结果：更新文件列表并校正选中/diff、同步 chat 分支信息 */
+  /** 应用一次 status 结果：更新文件列表并校正 tab/diff、同步 chat 分支信息 */
   function applyStatus(next: GitStatus | null) {
     status.value = next;
     const valid = new Set(files.value.map((item) => item.path));
-    if (selectedPath.value && !valid.has(selectedPath.value)) {
-      selectedPath.value = "";
-      diff.value = "";
-    }
-    if (!selectedPath.value && files.value.length) {
-      void selectFile(files.value[0].path);
+    // 文件已提交/被撤回后：关闭对应 diff tab；激活 tab 失效则回退到相邻 tab 或图谱
+    diffTabs.value = diffTabs.value.filter((path) => valid.has(path));
+    if (activeDiffTab.value !== "graph" && !valid.has(activeDiffTab.value)) {
+      const fallback = diffTabs.value[diffTabs.value.length - 1] ?? "graph";
+      activeDiffTab.value = fallback;
+      if (fallback === "graph") {
+        selectedPath.value = "";
+        diff.value = "";
+      } else {
+        void selectFile(fallback);
+      }
     }
     void useChatStore().refreshGit();
   }
@@ -256,9 +274,38 @@ export const useGitStore = defineStore("git", () => {
     }
   }
 
-  /** 从会话信息卡打开右侧变更面板 */
-  function openChangesPanel() {
-    useRightPanelStore().ensureTab("changes");
+  /** 打开（或激活）文件 diff tab；点击变更文件时调用 */
+  function openFileTab(path: string) {
+    if (!diffTabs.value.includes(path)) {
+      diffTabs.value.push(path);
+    }
+    activeDiffTab.value = path;
+    void selectFile(path);
+  }
+
+  /** 关闭文件 diff tab：激活 tab 被关则切到相邻文件 tab，否则回图谱 */
+  function closeDiffTab(path: string) {
+    const index = diffTabs.value.indexOf(path);
+    if (index < 0) {
+      return;
+    }
+    diffTabs.value.splice(index, 1);
+    if (activeDiffTab.value === path) {
+      const fallback = diffTabs.value[index] ?? diffTabs.value[index - 1];
+      if (fallback) {
+        activeDiffTab.value = fallback;
+        void selectFile(fallback);
+      } else {
+        activeDiffTab.value = "graph";
+        selectedPath.value = "";
+        diff.value = "";
+      }
+    }
+  }
+
+  /** 从会话信息卡打开右侧 Git 面板 */
+  function openGitPanel() {
+    useRightPanelStore().ensureTab("git");
     void refreshStatus();
   }
 
@@ -318,6 +365,7 @@ export const useGitStore = defineStore("git", () => {
         includeUnstaged: options.includeUnstaged ?? true,
         // 空 message 一律允许后端自动生成（AI + 兜底），避免「提交信息不能为空」
         autoMessage: true,
+        model: completionModel(),
       });
     } finally {
       opBusy.value = "";
@@ -349,7 +397,10 @@ export const useGitStore = defineStore("git", () => {
     opBusy.value = options.push ? "commit-push" : "commit";
     let result: Awaited<ReturnType<typeof zen.git.commitBatched>>;
     try {
-      result = await zen.git.commitBatched(root, paths, { push: options.push });
+      result = await zen.git.commitBatched(root, paths, {
+        push: options.push,
+        model: completionModel(),
+      });
     } finally {
       opBusy.value = "";
     }
@@ -478,6 +529,27 @@ export const useGitStore = defineStore("git", () => {
     return result;
   }
 
+  /** 撤回工作区改动：单文件（传 paths）或全部（不传）；不可恢复，调用方需先二次确认 */
+  async function discard(paths?: string[]) {
+    const zen = window.zen;
+    const root = cwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const result = await zen.git.discard(root, paths);
+    if (result.ok) {
+      feedback.value = paths?.length
+        ? i18n.global.t("app.git.discardedFiles", { n: paths.length })
+        : i18n.global.t("app.git.discardedAll");
+      toast.ok(feedback.value);
+    } else {
+      feedback.value = result.error ?? i18n.global.t("app.git.discardFailed");
+      toast.err(feedback.value);
+    }
+    await refreshStatus();
+    return result;
+  }
+
   /** 刷新贮藏列表（打开 Popover / 贮藏操作后调用） */
   async function refreshStashes() {
     const zen = window.zen;
@@ -561,6 +633,8 @@ export const useGitStore = defineStore("git", () => {
     feedback.value = "";
     stashes.value = [];
     stashesLoading.value = false;
+    diffTabs.value = [];
+    activeDiffTab.value = "graph";
   }
 
   function statusBadge(change: GitFileChange): { text: string; cls: string } {
@@ -611,6 +685,10 @@ export const useGitStore = defineStore("git", () => {
     logRef,
     setLogRef,
     selectFile,
+    diffTabs,
+    activeDiffTab,
+    openFileTab,
+    closeDiffTab,
     checkout,
     createBranch,
     commit,
@@ -620,6 +698,7 @@ export const useGitStore = defineStore("git", () => {
     pull,
     merge,
     mergeAbort,
+    discard,
     refreshStashes,
     stashPush,
     stashApply,
@@ -627,6 +706,7 @@ export const useGitStore = defineStore("git", () => {
     reset,
     statusBadge,
     cwd,
-    openChangesPanel,
+    completionModel,
+    openGitPanel,
   };
 });
