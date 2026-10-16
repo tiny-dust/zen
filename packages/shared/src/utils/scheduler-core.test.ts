@@ -25,6 +25,7 @@ function task(patch: Partial<ScheduledTask>): ScheduledTask {
     lastRunAt: null,
     lastResult: null,
     lastRunOk: null,
+    lastSessionId: null,
     createdAt: 0,
     updatedAt: 0,
     ...patch,

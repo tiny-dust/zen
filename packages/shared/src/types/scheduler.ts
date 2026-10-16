@@ -75,6 +75,8 @@ export interface ScheduledTask {
   lastResult: string | null;
   /** 最近一次运行是否成功；null = 从未运行 */
   lastRunOk: boolean | null;
+  /** 最近一次运行新建的会话 id；null = 从未运行（用于跳转会话查看完整过程） */
+  lastSessionId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -96,4 +98,19 @@ export interface ScheduledTaskRunEvent {
   sessionId?: string;
   /** done/error 时的结果摘要 */
   summary?: string;
+}
+
+/** 一次运行的历史记录（scheduled_task_runs 表） */
+export interface ScheduledTaskRun {
+  id: string;
+  taskId: string;
+  /** 本次运行新建的会话 id；运行启动前失败时为 null */
+  sessionId: string | null;
+  startedAt: number;
+  /** 结束时间戳；null = 仍在运行 */
+  finishedAt: number | null;
+  /** 是否成功；null = 仍在运行 */
+  ok: boolean | null;
+  /** 结果摘要（助手回复截断或错误信息） */
+  summary: string | null;
 }

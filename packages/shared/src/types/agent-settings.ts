@@ -94,6 +94,23 @@ export interface AskUserAnswer {
   answer: string;
 }
 
+/** 技能目录内单个文件（技能调用 tag 弹窗用） */
+export interface SkillFileInfo {
+  /** 相对技能目录的 posix 风格路径（如 "references/baseline.md"） */
+  path: string;
+  /** 文件字节数 */
+  size: number;
+}
+
+/** 技能文件读取结果（含越权/二进制/截断等错误形态） */
+export interface SkillFileContent {
+  ok: boolean;
+  content?: string;
+  /** 超过读取上限被截断 */
+  truncated?: boolean;
+  error?: string;
+}
+
 /** 设置页展示的技能条目（扫描结果，含启用状态） */
 export interface SkillSummary {
   id: string;
