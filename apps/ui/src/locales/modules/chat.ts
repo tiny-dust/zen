@@ -229,6 +229,15 @@ export default {
       skill: "技能 {name}",
       calls: "本会话已调用 {n} 次",
       label: "本会话已调用的技能与 MCP 服务",
+      viewFiles: "点击查看技能文件",
+      fileCount: "{n} 个文件",
+      loading: "加载中…",
+      missing: "未找到该技能的目录（可能已被卸载或移除）",
+      readError: "读取失败：{error}",
+      injected: "已注入对话",
+      truncated: "内容过长，已截断",
+      previewHint: "悬浮预览内容，点击查看全文",
+      dialogDesc: "来自技能 {name} 的文件",
     },
 
     /* 上下文压缩卡 */
@@ -507,6 +516,15 @@ export default {
       skill: "Skill {name}",
       calls: "Called {n} times this session",
       label: "Skills and MCP services used this session",
+      viewFiles: "Click to view skill files",
+      fileCount: "{n} files",
+      loading: "Loading…",
+      missing: "Skill directory not found (uninstalled or moved)",
+      readError: "Failed to load: {error}",
+      injected: "Injected",
+      truncated: "Content too long — truncated",
+      previewHint: "Hover to preview, click to open",
+      dialogDesc: "File from skill {name}",
     },
 
     /* Context compact card */

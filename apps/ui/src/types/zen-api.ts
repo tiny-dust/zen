@@ -60,10 +60,13 @@ import type {
   ReadFileResult,
   ScheduledTask,
   ScheduledTaskInput,
+  ScheduledTaskRun,
   ScheduledTaskRunEvent,
   SessionRecord,
   SetModelsEnabledInput,
   AgentServiceInfo,
+  SkillFileContent,
+  SkillFileInfo,
   SkillSummary,
   SyncResult,
   TerminalCreateResult,
@@ -248,6 +251,10 @@ export interface ZenApi {
     getSettings(): Promise<AgentSettings>;
     setSettings(partial: Partial<AgentSettings>): Promise<AgentSettings>;
     listSkills(): Promise<SkillSummary[]>;
+    /** 技能调用 tag 弹窗：技能目录文件枚举 */
+    skillFiles(dir: string): Promise<SkillFileInfo[]>;
+    /** 技能调用 tag 弹窗：读取技能目录内单个文件（主进程做越权/二进制/大小校验） */
+    readSkillFile(dir: string, path: string): Promise<SkillFileContent>;
     /** 会话文件快照：writeFile/editFile 写入前的原文件备份清单（最新在前） */
     listCheckpoints(sessionId: string): Promise<FileCheckpoint[]>;
     /** 把指定快照恢复回工作区原路径 */
@@ -473,6 +480,8 @@ export interface ZenApi {
   /** 定时/计划任务：到点自动在目标工作区运行 agent 并通知 */
   scheduler: {
     list(): Promise<ScheduledTask[]>;
+    /** 某任务的运行历史（新→旧；展开任务卡历史时拉取） */
+    listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
     create(input: ScheduledTaskInput): Promise<ScheduledTask | { error: string }>;
     update(
       id: string,

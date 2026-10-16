@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarClock, Loader2, Pencil, Play, Plus, Trash2, X } from "@lucide/vue";
+import { CalendarClock, History, Loader2, MessageSquareText, Pencil, Play, Plus, Trash2, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -26,6 +26,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
+import { openSessionById } from "@/lib/open-session";
 import { useSchedulerStore } from "@/stores/scheduler";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -37,7 +38,7 @@ const open = defineModel<boolean>("open", { default: false });
 
 const schedulerStore = useSchedulerStore();
 const workspaceStore = useWorkspaceStore();
-const { tasks } = storeToRefs(schedulerStore);
+const { tasks, runs } = storeToRefs(schedulerStore);
 
 const { t } = useI18n();
 
@@ -68,6 +69,9 @@ const UNIT_KEYS: Record<ScheduleUnit, string> = {
   week: "scheduler.unitWeek",
   month: "scheduler.unitMonth",
 };
+
+/** 弹窗视图：list=任务列表（默认），form=新建/编辑配置页（提交/取消后回列表） */
+const view = ref<"list" | "form">("list");
 
 /** 新建/编辑共用表单；editingId 为 null 表示「新建」；调度细节由 ScheduleEditor 管理 */
 const editingId = ref<string | null>(null);
@@ -100,6 +104,9 @@ const workspaceOptions = computed(() => {
 
 watch(open, (value) => {
   if (value) {
+    // 每次打开都从任务列表进（上次关闭前停在表单页不延续）
+    view.value = "list";
+    resetForm();
     void schedulerStore.load();
   }
 });
@@ -114,6 +121,12 @@ function resetForm() {
   form.enabled = true;
 }
 
+/** 列表 → 新建配置页 */
+function startCreate() {
+  resetForm();
+  view.value = "form";
+}
+
 function startEdit(task: ScheduledTask) {
   editingId.value = task.id;
   formError.value = "";
@@ -123,10 +136,13 @@ function startEdit(task: ScheduledTask) {
   form.schedule = task.schedule;
   form.workspacePath = toFormWorkspace(task.workspacePath);
   form.enabled = task.enabled;
+  view.value = "form";
 }
 
+/** 取消/关闭配置页：回列表 */
 function cancelEdit() {
   resetForm();
+  view.value = "list";
 }
 
 /** 表单 → ScheduledTaskInput；校验失败返回错误文案 */
@@ -169,14 +185,15 @@ async function submitForm() {
     : await schedulerStore.create(parsed.input);
   // update 找不到任务返回 null（任务刚被删）：按取消编辑处理
   if (!result) {
-    resetForm();
+    cancelEdit();
     return;
   }
   if ("error" in result && result.error) {
     formError.value = result.error;
     return;
   }
-  resetForm();
+  // 提交成功：回列表
+  cancelEdit();
 }
 
 /** 删除确认（任务落库，删除不可恢复） */
@@ -203,6 +220,48 @@ async function onRunNow(task: ScheduledTask) {
   } else {
     delete runErrors.value[task.id];
   }
+}
+
+// ---------- 运行历史与会话跳转 ----------
+
+/** 展开运行历史的任务 id 集：展开即懒加载，运行结束事件会自动刷新已加载列表 */
+const expandedRuns = ref<Set<string>>(new Set());
+
+function isRunsExpanded(taskId: string): boolean {
+  return expandedRuns.value.has(taskId);
+}
+
+function toggleRuns(taskId: string) {
+  const next = new Set(expandedRuns.value);
+  if (next.has(taskId)) {
+    next.delete(taskId);
+  } else {
+    next.add(taskId);
+    void schedulerStore.loadRuns(taskId);
+  }
+  expandedRuns.value = next;
+}
+
+/** 打开某次运行对应的会话（跳过去看完整过程）；成功后关闭弹窗 */
+async function openRun(sessionId: string | null, taskId: string) {
+  if (!sessionId) {
+    return;
+  }
+  const opened = await openSessionById(sessionId);
+  if (opened) {
+    open.value = false;
+    return;
+  }
+  runErrors.value[taskId] = t("scheduler.sessionMissing");
+}
+
+/** 历史行状态徽标：ok=null 表示仍在运行 */
+function runStatusLabel(ok: boolean | null): string {
+  return ok === null ? t("scheduler.runningState") : ok ? t("scheduler.ok") : t("scheduler.failed");
+}
+
+function runTimeLabel(at: number): string {
+  return new Date(at).toLocaleString();
 }
 
 /** 星期几短标签（0=周日 … 6=周六；与 shared weekdays 约定一致） */
@@ -305,63 +364,23 @@ function lastRunLabel(task: ScheduledTask): string {
       </DialogHeader>
 
       <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-        <!-- 新建 / 编辑表单 -->
-        <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-            {{ editingId ? t("scheduler.editTask") : t("scheduler.add") }}
-          </div>
-          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,200px)]">
-            <Input
-              v-model="form.name"
-              class="h-8 text-[12px]"
-              :placeholder="t('scheduler.namePlaceholder')"
-              :aria-label="t('scheduler.name')"
-            />
-            <Select v-model="form.workspacePath">
-              <SelectTrigger class="h-8 text-[12px]" :aria-label="t('scheduler.workspace')">
-                <SelectValue :placeholder="t('scheduler.workspace')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="item in workspaceOptions" :key="item.path || 'common'" :value="item.path">
-                  {{ item.label }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Textarea
-            v-model="form.prompt"
-            class="min-h-[60px] text-[12px]"
-            :placeholder="t('scheduler.promptPlaceholder')"
-            :aria-label="t('scheduler.prompt')"
-          />
-          <!-- 统一调度编辑器：重复/每日时间范围/单次/指定日期（Calendar + DatePicker） -->
-          <ScheduleEditor ref="editorRef" v-model="form.schedule" />
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
-              <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />
-              {{ t("scheduler.enabled") }}
-            </label>
-            <Button size="sm" @click="submitForm">
-              <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? t("common.save") : t("scheduler.add") }}
+        <!-- 任务列表（默认视图）：先看列表，新建/编辑才进配置页 -->
+        <template v-if="view === 'list'">
+          <div class="flex flex-none items-center justify-between gap-2">
+            <div class="min-w-0 truncate text-[12px] font-medium text-[var(--color-mut)]">
+              {{ t("scheduler.taskCount", { n: tasks.length }) }}
+            </div>
+            <Button size="sm" class="flex-none" @click="startCreate">
+              <Plus class="size-3.5" />{{ t("scheduler.add") }}
             </Button>
-            <Button v-if="editingId" variant="ghost" size="sm" @click="cancelEdit">
-              <X class="size-3.5" />{{ t("common.cancel") }}
-            </Button>
-            <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
           </div>
-        </div>
-
-        <!-- 任务列表 -->
-        <div class="min-w-0">
-          <div class="mb-2 text-[12px] font-medium text-[var(--color-mut)]">
-            {{ t("scheduler.taskCount", { n: tasks.length }) }}
-          </div>
-          <div v-if="tasks.length" class="flex flex-col gap-1.5">
+          <div v-if="tasks.length" class="flex min-w-0 flex-col gap-1.5">
             <div
               v-for="task in tasks"
               :key="task.id"
-              class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+              class="rounded-lg border border-[var(--color-line)] px-3 py-2"
             >
+              <div class="flex items-start gap-2">
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ task.name }}</span>
@@ -411,6 +430,25 @@ function lastRunLabel(task: ScheduledTask): string {
                   <Play v-else class="size-3.5" />
                 </Button>
                 <Button
+                  v-if="task.lastSessionId"
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="t('scheduler.viewRun')"
+                  :title="t('scheduler.viewRun')"
+                  @click="openRun(task.lastSessionId, task.id)"
+                >
+                  <MessageSquareText class="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  :aria-label="t('scheduler.runHistory')"
+                  :title="t('scheduler.runHistory')"
+                  @click="toggleRuns(task.id)"
+                >
+                  <History class="size-3.5" />
+                </Button>
+                <Button
                   variant="ghost"
                   size="icon-sm"
                   :aria-label="t('scheduler.editTask')"
@@ -430,9 +468,106 @@ function lastRunLabel(task: ScheduledTask): string {
                   <Trash2 class="size-3.5" />
                 </Button>
               </div>
+              </div>
+
+              <!-- 运行历史（展开态；行内「查看运行」跳到该次会话看完整过程） -->
+              <div
+                v-if="isRunsExpanded(task.id)"
+                class="mt-2 border-t border-[var(--color-line-soft)] pt-2"
+              >
+                <div
+                  v-if="!runs[task.id]"
+                  class="flex items-center gap-1.5 text-[11px] text-[var(--color-dim)]"
+                >
+                  <Loader2 class="size-3 animate-spin" aria-hidden="true" />{{ t("common.loading") }}
+                </div>
+                <template v-else-if="runs[task.id].length">
+                  <div
+                    v-for="run in runs[task.id]"
+                    :key="run.id"
+                    class="flex items-center gap-2 py-0.5"
+                  >
+                    <Badge
+                      :variant="run.ok === false ? 'destructive' : 'secondary'"
+                      class="flex-none text-[10px]"
+                    >
+                      {{ runStatusLabel(run.ok) }}
+                    </Badge>
+                    <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
+                      {{ runTimeLabel(run.startedAt) }}
+                    </span>
+                    <span
+                      v-if="run.summary"
+                      class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]"
+                      :title="run.summary"
+                    >
+                      {{ run.summary }}
+                    </span>
+                    <Button
+                      v-if="run.sessionId"
+                      variant="ghost"
+                      size="icon-sm"
+                      :aria-label="t('scheduler.viewRun')"
+                      :title="t('scheduler.viewRun')"
+                      @click="openRun(run.sessionId, task.id)"
+                    >
+                      <MessageSquareText class="size-3" />
+                    </Button>
+                  </div>
+                </template>
+                <p v-else class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("scheduler.noRuns") }}</p>
+              </div>
             </div>
           </div>
-          <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("scheduler.noTasks") }}</p>
+          <!-- 空状态：图标 + 一句话（新建按钮已在顶栏，不重复同屏控件） -->
+          <div v-else class="flex flex-col items-center gap-2 py-8 text-[var(--color-dim)]">
+            <CalendarClock class="size-6" aria-hidden="true" />
+            <p class="m-0 text-[12px]">{{ t("scheduler.noTasks") }}</p>
+          </div>
+        </template>
+
+        <!-- 新建 / 编辑配置页：从列表进入，提交/取消回列表 -->
+        <div v-else class="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
+          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+            {{ editingId ? t("scheduler.editTask") : t("scheduler.add") }}
+          </div>
+          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,200px)]">
+            <Input
+              v-model="form.name"
+              class="h-8 text-[12px]"
+              :placeholder="t('scheduler.namePlaceholder')"
+              :aria-label="t('scheduler.name')"
+            />
+            <Select v-model="form.workspacePath">
+              <SelectTrigger class="h-8 text-[12px]" :aria-label="t('scheduler.workspace')">
+                <SelectValue :placeholder="t('scheduler.workspace')" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="item in workspaceOptions" :key="item.path || 'common'" :value="item.path">
+                  {{ item.label }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Textarea
+            v-model="form.prompt"
+            class="min-h-[60px] text-[12px]"
+            :placeholder="t('scheduler.promptPlaceholder')"
+            :aria-label="t('scheduler.prompt')"
+          />
+          <!-- 统一调度编辑器：重复/每日时间范围/单次/指定日期（Calendar + DatePicker） -->
+          <ScheduleEditor ref="editorRef" v-model="form.schedule" />
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
+              <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />
+              {{ t("scheduler.enabled") }}
+            </label>
+            <Button size="sm" @click="submitForm">{{ t("common.save") }}</Button>
+            <Button variant="ghost" size="sm" @click="cancelEdit">
+              <X class="size-3.5" />{{ t("common.cancel") }}
+            </Button>
+            <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
+          </div>
         </div>
       </div>
     </DialogContent>

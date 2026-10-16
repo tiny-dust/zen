@@ -16,6 +16,7 @@ import type { PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-typ
 import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { useSessionInfoStore } from "@/stores/session-info";
+import { useSessionStatusStore } from "@/stores/session-status";
 
 function contextOf(): ChatEventContext {
   return {
@@ -292,5 +293,47 @@ describe("createChatEventGateway delta 合批", () => {
     const last = ctx.messages.value.at(-1);
     expect(last?.content).toBe("final words");
     vi.useRealTimers();
+  });
+});
+
+describe("createChatEventGateway 后台运行态与缓冲生命周期", () => {
+  it("从未打开过的后台会话收到运行证据即置 running（计划任务侧栏可见）", () => {
+    const ctx = contextOf();
+    const status = useSessionStatusStore();
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s2", text: "后台输出" });
+    expect(status.get("s2")).toBe("running");
+  });
+
+  it("后台消息级事件懒建缓冲，done 终态丢弃（内容已落库）", () => {
+    const ctx = contextOf();
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s2", text: "部分输出" });
+    // 从未打开过的后台会话也有缓冲：中途打开可补看已流出的内容
+    expect(ctx.backgroundTranscripts.has("s2")).toBe(true);
+    handleStreamEvent({ type: "done", sessionId: "s2", reason: "stop" });
+    // run 结束内容已落库：缓冲丢弃防泄漏，之后再打开走数据库恢复
+    expect(ctx.backgroundTranscripts.has("s2")).toBe(false);
+    const status = useSessionStatusStore();
+    expect(status.get("s2")).toBe("done");
+  });
+
+  it("本 UI 未发起的运行：当前会话首个运行证据恢复运行态（渲染层重载/后台启动后立即打开）", () => {
+    const ctx = contextOf();
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    // send() 未执行过（status=idle），事件直接流入：说明 run 来自外部
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "外部运行的输出" });
+    expect(ctx.status.value).toBe("thinking");
+    expect(ctx.isPaused.value).toBe(false);
+    const status = useSessionStatusStore();
+    expect(status.get("s1")).toBe("running");
+  });
+
+  it("已有运行态时事件不改状态（本 UI 自己发起的 run 不走恢复分支）", () => {
+    const ctx = contextOf();
+    ctx.status.value = "answering";
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({ type: "delta", sessionId: "s1", text: "正常流式" });
+    expect(ctx.status.value).toBe("answering");
   });
 });

@@ -1,15 +1,19 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRunEvent } from "@zen/shared";
+import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun, ScheduledTaskRunEvent } from "@zen/shared";
 
 /**
  * 定时/计划任务：数据源为主进程（scheduler:list + scheduler:changed 推送），
  * 运行状态由 scheduler:run-event 驱动（started 加入 runningIds，done/error 移除）。
+ * 运行历史按任务懒加载（任务卡展开时 loadRuns）；某任务已加载历史且该任务运行
+ * 结束（done/error）时自动刷新，保持展开中的历史是最新的。
  * IPC 边界处一律 JSON.parse(JSON.stringify(...)) 过纯对象（Proxy 过桥会抛克隆错误）。
  */
 export const useSchedulerStore = defineStore("scheduler", () => {
   const tasks = ref<ScheduledTask[]>([]);
+  /** 运行历史（新→旧），键为任务 id；undefined = 尚未加载过 */
+  const runs = ref<Record<string, ScheduledTaskRun[]>>({});
   const runningIds = ref<Set<string>>(new Set());
   const loaded = ref(false);
   const error = ref("");
@@ -50,6 +54,10 @@ export const useSchedulerStore = defineStore("scheduler", () => {
         running.add(event.taskId);
       } else {
         running.delete(event.taskId);
+        // 已展开过该任务的历史 → 运行结束时刷新（未加载过的任务不主动拉）
+        if (runs.value[event.taskId]) {
+          void loadRuns(event.taskId);
+        }
       }
       runningIds.value = running;
     });
@@ -108,6 +116,19 @@ export const useSchedulerStore = defineStore("scheduler", () => {
     return result;
   }
 
+  /** 某任务的运行历史（新→旧）：任务卡展开历史时拉取，重复调用即刷新 */
+  async function loadRuns(taskId: string): Promise<void> {
+    const zen = window.zen;
+    if (!zen) {
+      return;
+    }
+    try {
+      runs.value[taskId] = await zen.scheduler.listRuns(taskId);
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   async function remove(id: string): Promise<void> {
     const zen = window.zen;
     if (!zen) {
@@ -115,6 +136,9 @@ export const useSchedulerStore = defineStore("scheduler", () => {
     }
     await zen.scheduler.remove(id);
     dropTask(id);
+    const next = { ...runs.value };
+    delete next[id];
+    runs.value = next;
   }
 
   async function toggle(id: string, enabled: boolean): Promise<void> {
@@ -149,11 +173,13 @@ export const useSchedulerStore = defineStore("scheduler", () => {
 
   return {
     tasks,
+    runs,
     runningIds,
     loaded,
     error,
     count,
     load,
+    loadRuns,
     dispose,
     create,
     update,

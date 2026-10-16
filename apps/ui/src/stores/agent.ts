@@ -8,6 +8,8 @@ import type {
   McpServerConfig,
   McpServerStatus,
   PromptPreset,
+  SkillFileContent,
+  SkillFileInfo,
   SkillSummary,
   SyncResult,
 } from "@zen/shared";
@@ -79,6 +81,24 @@ export const useAgentStore = defineStore("agent", () => {
       return;
     }
     skills.value = await zen.agent.listSkills();
+  }
+
+  /** 技能调用 tag 弹窗：技能目录文件枚举（旧 preload 无此方法时返回空） */
+  async function skillFiles(dir: string): Promise<SkillFileInfo[]> {
+    const zen = window.zen;
+    if (!zen?.agent?.skillFiles) {
+      return [];
+    }
+    return zen.agent.skillFiles(dir);
+  }
+
+  /** 技能调用 tag 弹窗：读取技能目录内单个文件（主进程做越权/二进制/大小校验） */
+  async function readSkillFile(dir: string, path: string): Promise<SkillFileContent | null> {
+    const zen = window.zen;
+    if (!zen?.agent?.readSkillFile) {
+      return null;
+    }
+    return zen.agent.readSkillFile(dir, path);
   }
 
   async function refreshMcp(): Promise<void> {
@@ -188,6 +208,8 @@ export const useAgentStore = defineStore("agent", () => {
     bootstrap,
     updateSettings,
     refreshSkills,
+    skillFiles,
+    readSkillFile,
     refreshMcp,
     authorizeMcp,
     refreshLark,

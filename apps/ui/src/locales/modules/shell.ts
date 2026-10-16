@@ -102,6 +102,7 @@ export default {
     closeTerminal: "关闭终端",
     closeTerminalAria: "关闭 {name}",
     noTerminals: "暂无终端",
+    insertSelectionToChat: "插入选中内容到对话",
     // 文件预览
     filePreview: "文件预览",
     reading: "读取中…",
@@ -226,6 +227,7 @@ export default {
     closeTerminal: "Close terminal",
     closeTerminalAria: "Close {name}",
     noTerminals: "No terminals yet",
+    insertSelectionToChat: "Insert selection into chat",
     // File preview
     filePreview: "File preview",
     reading: "Loading…",

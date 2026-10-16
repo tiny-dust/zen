@@ -22,7 +22,7 @@ import { useAgentStore } from "@/stores/agent";
 import { useAgentProcessesStore } from "@/stores/agent-processes";
 import { useAgentsStore } from "@/stores/agents";
 import { createChatEventGateway } from "@/stores/chat-events";
-import { BackgroundTranscripts } from "@/stores/chat-background";
+import { BackgroundTranscripts, mergeBackgroundTranscript } from "@/stores/chat-background";
 import type { ComposerAttachment, PendingApproval, QueuedMessage, RunPhase } from "@/stores/chat-types";
 import { buildHistory, estimateHistoryTokens } from "@/stores/chat-types";
 import { createCompressionDomain } from "@/stores/chat-compress";
@@ -1041,15 +1041,18 @@ export const useChatStore = defineStore("chat", () => {
         : null;
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
-    // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容）；
-    // 否则用数据库恢复，并清掉过期缓冲
+    // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容；
+    // 从未在前台打开过的后台运行如计划任务，缓冲里只有流式增量，已落库前缀
+    // 由数据库补上）；否则用数据库恢复，并清掉过期缓冲
     const bgStatus = sessionStatusStore.get(record.id);
     const bgResumable = bgStatus === "running" || bgStatus === "needs_action";
     const buffered = bgResumable ? backgroundTranscripts.take(record.id) : undefined;
     if (!buffered) {
       backgroundTranscripts.drop(record.id);
     }
-    messages.value = buffered ?? found.messages;
+    messages.value = buffered
+      ? mergeBackgroundTranscript(found.messages, buffered)
+      : found.messages;
     // 恢复该会话 composer 草稿：内存暂存优先（未持久化会话兜底），否则解析库内 draft。
     // 切换窗口内用户继续输入 → 正文保留刚输入的内容，只恢复附件与标注
     if (typedDuringSwitch) {

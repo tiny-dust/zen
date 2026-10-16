@@ -79,6 +79,30 @@ function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
 }
 
 /**
+ * 运行证据事件：这些事件到达即证明对应会话有活跃 run。用于给「非本 UI 发起」
+ * 的运行（计划任务后台执行、渲染层重载后仍在跑的 run）恢复运行态——
+ * 本 UI 自己发起的 run 在 send() 时已置 thinking，不依赖这里。
+ */
+const RUN_EVIDENCE_EVENTS: ReadonlySet<AgentStreamEvent["type"]> = new Set([
+  "delta",
+  "reasoning_delta",
+  "reasoning_end",
+  "tool_input_start",
+  "tool_start",
+  "tool_progress",
+  "tool_end",
+  "step_start",
+  "usage",
+  "insert_started",
+  "original_resumed",
+  "agent_tree",
+  "agent_status",
+  "status",
+  "approval_request",
+  "ask_user",
+]);
+
+/**
  * 会话事件网关：流事件 → 本地消息归约与运行态流转，
  * 附带审批/askUser 的用户应答入口。
  */
@@ -204,6 +228,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       }
       return;
     }
+    // 运行证据且该会话尚无运行态：置 running（侧栏「进行中」）。
+    // 计划任务等从未在前台打开过的会话由此获得运行态：中途打开时才能判为
+    // 「运行中恢复」（bgResumable）并采用后台缓冲补看已流出的内容
+    if (sessionStatusStore.get(id) === "idle" && RUN_EVIDENCE_EVENTS.has(event.type)) {
+      sessionStatusStore.set(id, "running");
+    }
     // 后台会话的面板事件落桶：store 按 activeKey 分流写进该会话的桶（不劫持当前视图）
     if (event.type === "agent_tree" || event.type === "agent_status") {
       useAgentsStore().handleStreamEvent(event);
@@ -261,6 +291,9 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         backgroundInserts.delete(id);
         // 会话已结束：挂起问询不再有效（主进程侧已随 run 终止）
         ctx.stashedAsks.delete(id);
+        // run 终态内容在 done 广播前已落库（main 侧先 persist 再 send）：
+        // 丢弃后台缓冲防泄漏，之后再打开走数据库恢复
+        ctx.backgroundTranscripts.drop(id);
         const isError = event.reason === "error";
         sessionStatusStore.set(id, isError ? "error" : "done");
         playNotifySound(isError ? "error" : "done");
@@ -309,6 +342,15 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     if (event.sessionId !== ctx.sessionId.value) {
       handleBackgroundEvent(event);
       return;
+    }
+
+    // 本会话收到运行证据但本地无运行态：run 不是本 UI 发起（计划任务后台启动后
+    // 立即打开、渲染层重载后 run 仍在跑）——恢复运行态：输入禁用、停止按钮可用
+    if (ctx.status.value === "idle" && RUN_EVIDENCE_EVENTS.has(event.type)) {
+      ctx.status.value = "thinking";
+      ctx.phase.value = "thinking";
+      ctx.isPaused.value = false;
+      sessionStatusStore.set(ctx.sessionId.value, "running");
     }
 
     // 子 Agent 树 / runTerminal 进程：悬浮信息卡数据源

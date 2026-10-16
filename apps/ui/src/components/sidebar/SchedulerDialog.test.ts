@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SchedulerDialog from "@/components/sidebar/SchedulerDialog.vue";
 
 import type { VueWrapper } from "@vue/test-utils";
+import type { Mock } from "vitest";
 import type { ScheduledTask } from "@zen/shared";
 
 /**
@@ -27,6 +28,7 @@ function taskFixture(patch: Partial<ScheduledTask> = {}): ScheduledTask {
     lastRunAt: null,
     lastResult: null,
     lastRunOk: null,
+    lastSessionId: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     ...patch,
@@ -40,6 +42,7 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
   vi.stubGlobal("zen", {
     scheduler: {
       list: vi.fn().mockResolvedValue(tasks),
+      listRuns: vi.fn().mockResolvedValue([]),
       create,
       update: vi.fn(),
       remove: vi.fn().mockResolvedValue({ ok: true }),
@@ -140,10 +143,19 @@ async function setSelect(wrapper: VueWrapper, current: string, next: string) {
   await option.trigger("click");
 }
 
-async function submit(wrapper: VueWrapper) {
+/** 列表视图 → 新建配置页（点顶栏「新建任务」按钮） */
+async function openCreateForm(wrapper: VueWrapper) {
   const add = wrapper.findAll("button").find((item) => item.text().includes("新建任务"));
-  expect(add).toBeTruthy();
+  expect(add, "列表视图应有「新建任务」入口").toBeTruthy();
   await add!.trigger("click");
+  await flushPromises();
+}
+
+/** 配置页里点「保存」提交 */
+async function submit(wrapper: VueWrapper) {
+  const save = wrapper.findAll("button").find((item) => item.text().includes("保存"));
+  expect(save, "配置页应有「保存」按钮").toBeTruthy();
+  await save!.trigger("click");
   await flushPromises();
 }
 
@@ -162,6 +174,7 @@ afterEach(() => {
 describe("SchedulerDialog 统一调度编辑器", () => {
   it("默认重复·每天：改间隔与单位后提交秒级重复调度", async () => {
     const wrapper = await mountDialog();
+    await openCreateForm(wrapper);
     await inputByLabel(wrapper, "名称").setValue("秒级巡检");
     await inputByLabel(wrapper, "指令").setValue("看一眼构建状态");
     await inputByLabel(wrapper, "间隔").setValue("15");
@@ -179,6 +192,7 @@ describe("SchedulerDialog 统一调度编辑器", () => {
 
   it("切到 每日时间范围：显示起止与间隔字段并提交范围调度", async () => {
     const wrapper = await mountDialog();
+    await openCreateForm(wrapper);
     await inputByLabel(wrapper, "名称").setValue("工作时间巡检");
     await inputByLabel(wrapper, "指令").setValue("巡检");
     await setSelect(wrapper, "recurrence", "window");
@@ -195,6 +209,7 @@ describe("SchedulerDialog 统一调度编辑器", () => {
 
   it("重复·每周：星期几多选 chips 提交 weekdays + 时刻", async () => {
     const wrapper = await mountDialog();
+    await openCreateForm(wrapper);
     await inputByLabel(wrapper, "名称").setValue("周报");
     await inputByLabel(wrapper, "指令").setValue("汇总");
     await setSelect(wrapper, "day", "week");
@@ -215,6 +230,7 @@ describe("SchedulerDialog 统一调度编辑器", () => {
 
   it("校验：范围起止相等 / 单次时间已过 均拦截并提示", async () => {
     const wrapper = await mountDialog();
+    await openCreateForm(wrapper);
     await inputByLabel(wrapper, "名称").setValue("x");
     await inputByLabel(wrapper, "指令").setValue("y");
 
@@ -255,8 +271,11 @@ describe("SchedulerDialog 统一调度编辑器", () => {
     expect((inputByLabel(wrapper, "日期").element as HTMLInputElement).value).toBe("2026-10-20");
     expect((inputByLabel(wrapper, "时间").element as HTMLInputElement).value).toBe("14:30");
 
-    // 旧 daily 任务：编辑即迁移到「重复·每天」，时刻回显旧值 08:30
-    await editButtons[1].trigger("click");
+    // 取消回列表再编辑第二个任务（切换视图后旧按钮已卸载，需重新查询）
+    const cancel = wrapper.findAll("button").find((item) => item.text().includes("取消"));
+    await cancel!.trigger("click");
+    await flushPromises();
+    await wrapper.findAll('button[aria-label="编辑任务"]')[1].trigger("click");
     await flushPromises();
     expect((inputByLabel(wrapper, "时刻").element as HTMLInputElement).value).toBe("08:30");
     // 模式下拉当前值为 recurrence（已迁移），提交为 recurrence 载荷
@@ -294,9 +313,158 @@ describe("SchedulerDialog 统一调度编辑器", () => {
 
   it("回归：工作区选项值永不为空串（reka SelectItem 空 value 会打断弹窗交互）", async () => {
     const wrapper = await mountDialog();
+    await openCreateForm(wrapper);
     // 公共区选项使用哨兵值：工作区 Select 桩的当前值即 __common__（非空串）
     const stub = wrapper.findAll(".select-stub").find((item) => item.attributes("data-value") === "__common__");
     expect(stub).toBeTruthy();
+    wrapper.unmount();
+  });
+
+  it("视图流：打开默认列表（无表单），点新建进配置页，取消回列表", async () => {
+    const wrapper = await mountDialog([taskFixture()]);
+    expect(wrapper.find('button[aria-label="编辑任务"]').exists(), "默认视图应是任务列表").toBe(true);
+    expect(wrapper.find('input[aria-label="名称"]').exists(), "列表视图不应渲染配置表单").toBe(false);
+
+    await openCreateForm(wrapper);
+    expect(wrapper.find('input[aria-label="名称"]').exists(), "新建后应切到配置页").toBe(true);
+    expect(wrapper.find('button[aria-label="编辑任务"]').exists(), "配置页不显示任务列表").toBe(false);
+
+    const cancel = wrapper.findAll("button").find((item) => item.text().includes("取消"));
+    await cancel!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find('button[aria-label="编辑任务"]').exists(), "取消后应回到列表").toBe(true);
+    expect(wrapper.find('input[aria-label="名称"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("SchedulerDialog 运行记录与查看运行", () => {
+  /** stubGlobal 之后的 zen 桥（类型上可空；此处必然存在） */
+  function zenApi() {
+    expect(window.zen).toBeTruthy();
+    return window.zen!;
+  }
+
+  /** 运行历史桩数据：成功（带摘要）+ 进行中（无会话） */
+  function runFixtures() {
+    return [
+      {
+        id: "r-1",
+        taskId: "task-1",
+        sessionId: "s-1",
+        startedAt: 1_700_000_000_000,
+        finishedAt: 1_700_000_060_000,
+        ok: true,
+        summary: "今日共 5 个提交",
+      },
+      {
+        id: "r-2",
+        taskId: "task-1",
+        sessionId: null,
+        startedAt: 1_700_000_100_000,
+        finishedAt: null,
+        ok: null,
+        summary: null,
+      },
+    ];
+  }
+
+  it("展开运行记录：拉取历史并渲染状态徽标与摘要", async () => {
+    const wrapper = await mountDialog([taskFixture()]);
+    const listRuns = (zenApi().scheduler.listRuns as Mock).mockResolvedValue(runFixtures());
+
+    await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click");
+    await flushPromises();
+
+    expect(listRuns).toHaveBeenCalledWith("task-1");
+    const text = wrapper.text();
+    expect(text).toContain("成功");
+    expect(text).toContain("运行中");
+    expect(text).toContain("今日共 5 个提交");
+    wrapper.unmount();
+  });
+
+  it("运行历史为空时显示占位；找不到会话时提示错误", async () => {
+    const wrapper = await mountDialog([taskFixture()]);
+    await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("还没有运行记录");
+
+    // 历史行「查看运行」：侧栏数据里找不到该会话 → 卡上提示错误、弹窗不关
+    (zenApi().scheduler.listRuns as Mock).mockResolvedValue(runFixtures());
+    await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click"); // 收起
+    await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click"); // 再展开（刷新）
+    await flushPromises();
+    await wrapper.findAll('button[aria-label="查看运行"]')[0].trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("找不到该次运行的会话");
+    expect(wrapper.emitted("update:open") ?? []).not.toContainEqual([false]);
+    wrapper.unmount();
+  });
+
+  it("查看运行：切到该次运行的会话并关闭弹窗", async () => {
+    const wrapper = await mountDialog([taskFixture()]);
+    (zenApi().scheduler.listRuns as Mock).mockResolvedValue(runFixtures());
+    // 侧栏工作区数据含目标会话（openSessionById 的定位数据源）
+    (zenApi().workspace.list as Mock).mockResolvedValue([
+      {
+        id: "common",
+        name: "公共区",
+        kind: "common",
+        path: null,
+        archived: false,
+        pinned: false,
+        sessions: [
+          {
+            id: "s-1",
+            title: "计划任务：日报",
+            workspaceId: null,
+            draft: "",
+            pinned: false,
+            archived: false,
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      },
+    ]);
+    // chatStore.loadSession 链路上的最小桩（与 chat-draft.test 同口径）
+    const sessionOpen = vi.fn().mockResolvedValue({
+      session: {
+        id: "s-1",
+        title: "计划任务：日报",
+        workspaceId: null,
+        draft: "",
+        pinned: false,
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      messages: [],
+    });
+    Object.assign(zenApi().session, {
+      open: sessionOpen,
+      setDraft: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn(),
+      setWorkspace: vi.fn(),
+    });
+    Object.assign(zenApi(), {
+      app: { info: vi.fn().mockResolvedValue({}) },
+      agent: { onEvent: vi.fn(() => () => undefined) },
+      git: {
+        info: vi.fn().mockResolvedValue({ repo: "", branch: "" }),
+        status: vi.fn().mockResolvedValue(null),
+      },
+    });
+
+    await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click");
+    await flushPromises();
+    await wrapper.findAll('button[aria-label="查看运行"]')[0].trigger("click");
+    await flushPromises();
+
+    expect(sessionOpen).toHaveBeenCalledWith("s-1");
+    expect(wrapper.emitted("update:open")?.at(-1)).toEqual([false]);
     wrapper.unmount();
   });
 });

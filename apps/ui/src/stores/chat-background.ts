@@ -16,8 +16,11 @@ function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
 }
 
 /**
- * 后台会话消息缓冲：会话运行中被切走时快照当前消息，之后后台收到的消息级流事件
- * 持续归约进缓冲；切回时优先用缓冲恢复，运行中未落库的流式内容不丢。
+ * 后台会话消息缓冲：运行中的会话不在前台时，消息级流事件持续归约进缓冲。
+ * - 切走的运行中会话：切走前快照当前消息（stash），之后的事件继续归约；
+ * - 从未在前台打开过的运行中会话（计划任务等后台运行）：apply 从首个事件
+ *   起懒建空缓冲，用户中途打开时可补看已流出的内容（已落库前缀由
+ *   mergeBackgroundTranscript 在打开时合并补上）。
  * 纯逻辑无 Vue 依赖，方便单测。
  */
 export class BackgroundTranscripts {
@@ -33,15 +36,17 @@ export class BackgroundTranscripts {
 
   /**
    * 把后台收到的消息级事件归约进缓冲（逻辑对齐 chat-events 活跃路径）。
-   * 无缓冲的会话直接忽略：切回时走数据库恢复即可。子 Agent 会话（::）不缓冲。
+   * 无缓冲的会话懒建空缓冲：从未在前台打开过的运行中会话（计划任务等
+   * 后台运行）由此也能积累流式内容，中途打开时补看。子 Agent 会话（::）不缓冲。
    */
   apply(sessionId: string, event: AgentStreamEvent): void {
     if (sessionId.includes("::")) {
       return;
     }
-    const transcript = this.transcripts.get(sessionId);
+    let transcript = this.transcripts.get(sessionId);
     if (!transcript) {
-      return;
+      transcript = { messages: [], breakBubble: false };
+      this.transcripts.set(sessionId, transcript);
     }
     switch (event.type) {
       case "insert_started":
@@ -111,4 +116,17 @@ export class BackgroundTranscripts {
     last.parts ??= [];
     return last;
   }
+}
+
+/**
+ * 打开运行中的后台会话时合并恢复消息：数据库前缀（用户消息/已完成轮次——
+ * 流式内容 run 结束前不落库）+ 后台缓冲增量（切走快照或懒建缓冲），按消息 id
+ * 去重：快照里已含的落库消息不重复，懒建缓冲缺失的已落库前缀由数据库补上。
+ */
+export function mergeBackgroundTranscript(
+  persisted: ChatMessage[],
+  buffered: ChatMessage[],
+): ChatMessage[] {
+  const seen = new Set(persisted.map((item) => item.id));
+  return [...persisted, ...buffered.filter((item) => !seen.has(item.id))];
 }

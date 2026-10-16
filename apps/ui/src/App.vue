@@ -16,6 +16,7 @@ import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
 import { Toaster } from "@/components/ui/toast";
 import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
 import { useMediaQuery } from "@/composables/useMediaQuery";
+import { openSessionById } from "@/lib/open-session";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
@@ -88,18 +89,9 @@ async function runWorkbenchCommand(command: string): Promise<void> {
   }
 }
 
-/** CLI open 请求落点：刷新侧栏数据后按 id 找到会话并切换（找不到则忽略） */
+/** CLI open 请求落点：按 id 刷新侧栏数据并切到目标会话（找不到则忽略） */
 async function openSessionFromCli(sessionId: string): Promise<void> {
-  const workspaceStore = useWorkspaceStore();
-  await workspaceStore.refresh();
-  for (const group of workspaceStore.groups) {
-    const record = group.sessions.find((item) => item.id === sessionId);
-    if (record) {
-      workspaceStore.setActive(group.id);
-      await chatStore.loadSession(record);
-      return;
-    }
-  }
+  await openSessionById(sessionId);
 }
 
 onMounted(() => {

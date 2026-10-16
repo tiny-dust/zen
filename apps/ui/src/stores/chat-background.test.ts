@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentStreamEvent, ChatMessage } from "@zen/shared";
-import { BackgroundTranscripts } from "@/stores/chat-background";
+import { BackgroundTranscripts, mergeBackgroundTranscript } from "@/stores/chat-background";
 
 const SID = "session-a";
 
@@ -137,14 +137,46 @@ describe("BackgroundTranscripts", () => {
     transcripts.drop(SID);
   });
 
-  it("子 Agent 会话（::）与无缓冲会话直接忽略", () => {
+  it("子 Agent 会话（::）不缓冲", () => {
     const transcripts = new BackgroundTranscripts();
     const childId = `${SID}::sub-1`;
     transcripts.stash(childId, [userMessage("child")]);
+    transcripts.apply(childId, delta("子事件"));
     expect(transcripts.has(childId)).toBe(false);
+    expect(transcripts.take(childId)).toBeUndefined();
+  });
 
-    // 无缓冲会话的 apply 不抛错也不建缓冲
-    transcripts.apply(SID, delta("孤儿事件"));
-    expect(transcripts.has(SID)).toBe(false);
+  it("从未 stash 的会话从首个事件懒建缓冲（计划任务等后台运行）", () => {
+    const transcripts = new BackgroundTranscripts();
+    transcripts.apply(SID, delta("第一句"));
+    transcripts.apply(SID, delta("第二句"));
+    expect(transcripts.has(SID)).toBe(true);
+    const restored = transcripts.take(SID);
+    // 缓冲只有流式增量；用户消息等已落库前缀由打开时的合并补上
+    expect(restored).toHaveLength(1);
+    expect(restored?.[0]?.role).toBe("assistant");
+    expect(restored?.[0]?.content).toBe("第一句第二句");
+  });
+
+  it("mergeBackgroundTranscript：数据库前缀 + 缓冲增量按 id 去重", () => {
+    const user = userMessage("跑一下");
+    const partial: ChatMessage = {
+      id: "a1",
+      role: "assistant",
+      content: "流式中",
+      createdAt: 1001,
+      parts: [],
+    };
+    // 切走快照：缓冲已含落库的用户消息，合并后不重复
+    const snapshot = [user, partial];
+    expect(mergeBackgroundTranscript([user], snapshot).map((m) => m.id)).toEqual([
+      "user-跑一下",
+      "a1",
+    ]);
+    // 从未打开过的懒建缓冲只含增量：直接衔接在数据库前缀后
+    expect(mergeBackgroundTranscript([user], [partial]).map((m) => m.id)).toEqual([
+      "user-跑一下",
+      "a1",
+    ]);
   });
 });

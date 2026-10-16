@@ -78,6 +78,12 @@ export default {
     errWindowTime: "结束时间须晚于开始时间",
     errWindowEvery: "范围内间隔需为不小于 1 的整数分钟",
     runFailed: "启动失败：{error}",
+    // 运行历史 / 会话跳转
+    viewRun: "查看运行",
+    runHistory: "运行记录",
+    noRuns: "还没有运行记录",
+    runningState: "运行中",
+    sessionMissing: "找不到该次运行的会话（可能已被删除）",
     // 列表徽标：重复（recurrence）
     everyUnit: "每 {n} {unit}",
     weekdaysShort: "日,一,二,三,四,五,六",
@@ -168,6 +174,12 @@ export default {
     errWindowTime: "End time must be later than start time",
     errWindowEvery: "Interval must be an integer of at least 1 minute",
     runFailed: "Failed to start: {error}",
+    // run history / session jump
+    viewRun: "View run",
+    runHistory: "Run history",
+    noRuns: "No runs yet",
+    runningState: "Running",
+    sessionMissing: "The session for this run was not found (it may have been deleted)",
     everyUnit: "Every {n} {unit}",
     weekdaysShort: "Sun,Mon,Tue,Wed,Thu,Fri,Sat",
     recLabelDay: "Every {n} day(s) at {times}",

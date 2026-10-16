@@ -13,13 +13,21 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { useTerminalPanes } from "@/composables/useTerminalPanes";
+import { useChatStore } from "@/stores/chat";
 import { useTerminalStore } from "@/stores/terminal";
 
 import type { TerminalSessionInfo } from "@zen/shared";
 
 const terminalStore = useTerminalStore();
+const chatStore = useChatStore();
 const { error, sessions, activeId, splitMode, visibleSessions } = storeToRefs(terminalStore);
 const { t } = useI18n();
 const { entries, setHostRef, mountVisible, disposeEntry, startResizeObserver } =
@@ -58,6 +66,23 @@ function treeStatus(item: TerminalSessionInfo): { label: string; tone: string } 
 function setRenameInput(el: unknown) {
   // Input 是封装组件，函数 ref 收到的是组件实例（expose focus/blur/select）
   renameInputEl.value = (el as InstanceType<typeof Input> | null) ?? null;
+}
+
+/** 右键菜单打开瞬间抓取该 pane 的选中文字；空选中 → 菜单项禁用 */
+const menuSelection = ref("");
+
+function captureSelection(id: string) {
+  menuSelection.value = entries.get(id)?.term.getSelection() || "";
+}
+
+/** 选中内容插入对话输入框光标处（复用浏览器标注的 composer 插入通道） */
+function insertSelectionToChat() {
+  const text = menuSelection.value.trim();
+  menuSelection.value = "";
+  if (!text) {
+    return;
+  }
+  chatStore.insertAtComposerCaret(text);
 }
 
 onMounted(async () => {
@@ -155,14 +180,25 @@ async function openExternal() {
       </div>
       <div class="min-h-0" :class="error ? 'h-[calc(100%-22px)]' : 'h-full'">
         <div :class="layoutCls" class="h-full">
-          <div
+          <ContextMenu
             v-for="item in visibleSessions"
             :key="item.id"
-            :ref="(el) => setHostRef(item.id, el)"
-            class="min-h-0 min-w-0 border border-[var(--color-line-soft)]"
-            :class="isSplit ? 'relative h-full w-full rounded-[var(--radius-sm)]' : 'absolute inset-0'"
-            @mousedown="onSelectSession(item.id)"
-          />
+            @update:open="(open) => open && captureSelection(item.id)"
+          >
+            <ContextMenuTrigger as-child>
+              <div
+                :ref="(el) => setHostRef(item.id, el)"
+                class="min-h-0 min-w-0 border border-[var(--color-line-soft)]"
+                :class="isSplit ? 'relative h-full w-full rounded-[var(--radius-sm)]' : 'absolute inset-0'"
+                @mousedown="onSelectSession(item.id)"
+              />
+            </ContextMenuTrigger>
+            <ContextMenuContent class="min-w-44">
+              <ContextMenuItem :disabled="!menuSelection" @select="insertSelectionToChat">
+                {{ t("shell.insertSelectionToChat") }}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </div>
       </div>
     </div>
