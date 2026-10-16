@@ -86,7 +86,9 @@ function blocksFor(kind: RouteKind): string[] {
         ? { command: "printf failure >&2; exit 7" }
         : kind === "edit-miss"
           ? { path: "edit-miss.txt", oldString: "missing", newString: "new" }
-          : { path: "missing-parent/file.txt", content: "never written" };
+          : // 写工作区根目录本身（EISDIR）：writeFile 必失败场景。
+            // （missing-parent/file.txt 现在会自动补齐父目录并成功——新行为）
+            { path: ".", content: "never written" };
     return [
       chunk({ role: "assistant", content: "" }, null),
       chunk(

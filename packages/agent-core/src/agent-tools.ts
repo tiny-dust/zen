@@ -1,5 +1,6 @@
 import { jsonSchema, tool } from "ai";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { z } from "zod";
 
 import { readSkillById } from "@zen/skills";
@@ -16,6 +17,7 @@ import {
   searchWorkspaceFiles,
   writeWorkspaceFile,
 } from "@zen/tools-fs";
+import { resolveDefaultShell } from "@zen/tools-terminal";
 
 import type { ToolSet } from "ai";
 import type {
@@ -139,7 +141,7 @@ export function buildToolSet(
           );
           if (result.replacements === 0) {
             throw new Error(
-              `oldString not found in ${path}; read the file first and copy exact text`,
+              `oldString not found in ${path}; read the file first and copy exact text${result.hint ? ` (${result.hint})` : ""}`,
             );
           }
           return result;
@@ -156,7 +158,11 @@ export function buildToolSet(
       }),
       execute: async ({ path }) => {
         const result = await listWorkspaceDir(workspaceRoot, path ?? "");
-        return result.entries.map((entry) => `${entry.isDir ? "d" : "-"} ${entry.name}`).join("\n");
+        const lines = result.entries.map((entry) => `${entry.isDir ? "d" : "-"} ${entry.name}`);
+        if (result.truncated) {
+          lines.push(`[条目过多：仅显示前 ${result.entries.length} 项]`);
+        }
+        return lines.join("\n");
       },
     }),
     searchFiles: tool({
@@ -167,16 +173,17 @@ export function buildToolSet(
         mode: z.enum(["name", "content"]).describe("name = file names, content = file contents."),
       }),
       execute: async ({ query, mode }) => {
-        const hits = await searchWorkspaceFiles(workspaceRoot, query, mode);
+        const { hits, truncated } = await searchWorkspaceFiles(workspaceRoot, query, mode);
         if (!hits.length) {
           return "no matches";
         }
-        return hits
+        const lines = hits
           .slice(0, 40)
-          .map((hit) =>
-            hit.line > 0 ? `${hit.path}:${hit.line}: ${hit.snippet}` : `${hit.path}`,
-          )
-          .join("\n");
+          .map((hit) => (hit.line > 0 ? `${hit.path}:${hit.line}: ${hit.snippet}` : `${hit.path}`));
+        if (truncated) {
+          lines.push("[结果已截断：命中过多或扫描范围达上限，请用更精确的查询缩小范围]");
+        }
+        return lines.join("\n");
       },
     }),
     runTerminal: tool({
@@ -191,6 +198,9 @@ export function buildToolSet(
       }),
       execute: async ({ command, timeoutMs }, { toolCallId, abortSignal }) => {
         return exclusive(runtime, "terminal", async () => {
+          // 用户 shell 环境快照（PATH 等）：GUI 启动的进程缺 ~/.zshrc 等交互配置，
+          // 直接继承 process.env 会高频 command not found；首调捕获一次，进程内缓存
+          const shellEnv = await getShellEnvSnapshot();
           return await new Promise((resolve) => {
             // 持续运行的命令（dev server / watch）：边跑边收输出尾部，
             // 节流推送 tool_progress.outputTail 供「进程」节实时刷新；仅保留尾部限量
@@ -246,16 +256,23 @@ export function buildToolSet(
               }
               resolve(value);
             };
+            // 只杀 shell 本身、不杀进程组：孙进程（dev server）留在进程组里，
+            // 由 servicesBridge 收集为长驻服务（有意设计，勿改成整组 kill）。
+            // SIGTERM 被忽略的 shell 2s 后升级 SIGKILL；exitCode 非 null 表示已退出，
+            // 不会再误杀（避免 pid 复用风险）
+            const killShell = () => {
+              child.kill();
+              setTimeout(() => {
+                if (child.exitCode === null && child.signalCode === null) {
+                  child.kill("SIGKILL");
+                }
+              }, 2000).unref?.();
+            };
             // spawn（而非 exec）：detached 让 shell 真正成为进程组长（pgid = pid，
             // exec 不转发 detached），超时/中断只杀 shell，存活的孙进程仍留在同一
-            // 进程组，settle 后可整组跟踪与关闭
-            const child = spawn(command, {
-              cwd: workspaceRoot,
-              shell: true,
-              detached: true,
-              windowsHide: true,
-              env: process.env,
-            });
+            // 进程组，settle 后可整组跟踪与关闭。
+            // stdin = ignore：等待输入的命令立刻 EOF 退出，而不是挂到超时
+            const child = spawnAgentCommand(workspaceRoot, command, shellEnv);
             childPid = child.pid ?? 0;
             if (childPid > 0) {
               config.servicesBridge?.track({ sessionId, command, cwd: workspaceRoot, pid: childPid });
@@ -264,7 +281,7 @@ export function buildToolSet(
               `${stdoutText}${stderrText ? `\n[stderr]\n${stderrText}` : ""}`.trim();
             const timer = setTimeout(() => {
               timedOut = true;
-              child.kill();
+              killShell();
               // 超时即结算：孙进程（dev server 等）会继续持有 stdio 管道令 close 永不
               // 触发，干等只会把 exclusive 锁一起挂死；存活进程组交给 settle 里的
               // servicesBridge 收集为长驻服务
@@ -274,6 +291,16 @@ export function buildToolSet(
                 output: truncateOutput(combinedSoFar() || "(no output)"),
               });
             }, Math.min(Math.max(timeoutMs ?? 120_000, 1000), 300_000));
+            // spawn 异步失败（shell 不存在/cwd 失效）必须兜底结算：
+            // 无 error 监听会变成 unhandled 'error' 事件直接崩进程
+            child.on("error", (error) => {
+              clearTimeout(timer);
+              settle({
+                ok: false,
+                exitCode: -1,
+                output: `failed to start command: ${error.message}`,
+              });
+            });
             child.on("exit", (code) => {
               exitCode = code;
               // shell 退出 ≠ close：孙进程可能仍持有管道。给一个短暂收尾窗口把已产出
@@ -303,7 +330,7 @@ export function buildToolSet(
             });
             const onAbort = () => {
               clearTimeout(timer);
-              child.kill();
+              killShell();
               settle({ ok: false, exitCode: -1, output: "已中断（暂停或取消）" });
             };
             if (abortSignal?.aborted) {
@@ -683,6 +710,116 @@ async function importMcpRuntime(): Promise<{
 }> {
   const mod = await import("./mcp-runtime");
   return mod.importMcpRuntime();
+}
+
+/**
+ * 用户 shell 环境快照：GUI 启动的 Electron 主进程继承的是 launchd/systemd 环境，
+ * 缺 ~/.zshrc 等交互配置里的 PATH（nvm/homebrew/自定义 bin），runTerminal 因此
+ * 高频 "command not found"。用登录+交互 shell 跑一次 env，取白名单键，进程内缓存。
+ * 快照失败/超时一律返回空对象（回退 process.env，行为不劣于旧实现）。
+ */
+const SHELL_ENV_KEYS = new Set([
+  "PATH",
+  "MANPATH",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+]);
+let shellEnvSnapshot: Promise<Record<string, string>> | null = null;
+
+function captureShellEnv(): Promise<Record<string, string>> {
+  if (process.platform === "win32") {
+    // Windows GUI 进程从注册表拿到用户 PATH，无需快照
+    return Promise.resolve({});
+  }
+  const shell = resolveDefaultShell();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value: Record<string, string>) => {
+      if (!done) {
+        done = true;
+        resolve(value);
+      }
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(shell.path, ["-l", "-i", "-c", "env"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+    } catch {
+      finish({});
+      return;
+    }
+    // 病态 profile 可能挂住（如等待输入）：5s 超时放弃，回退默认 env
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish({});
+    }, 5000);
+    let out = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (out.length < 1024 * 1024) {
+        out += chunk.toString("utf8");
+      }
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      finish({});
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const env: Record<string, string> = {};
+      for (const line of out.split("\n")) {
+        const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim());
+        const key = match?.[1];
+        if (match && key && SHELL_ENV_KEYS.has(key)) {
+          env[key] = match[2] ?? "";
+        }
+      }
+      finish(env);
+    });
+  });
+}
+
+function getShellEnvSnapshot(): Promise<Record<string, string>> {
+  if (!shellEnvSnapshot) {
+    shellEnvSnapshot = captureShellEnv().catch(() => ({}));
+  }
+  return shellEnvSnapshot;
+}
+
+/**
+ * runTerminal 命令 spawn：POSIX 用用户登录 shell（$SHELL）-c 执行——shell:true
+ * 固定 /bin/sh，bashism/用户别名全部失效；PATH 等来自 shell 环境快照。
+ * shell 路径逐级回退（$SHELL → /bin/zsh|bash → /bin/sh），Windows 保持 cmd shell:true。
+ */
+function spawnAgentCommand(
+  cwd: string,
+  command: string,
+  shellEnv: Record<string, string>,
+): ReturnType<typeof spawn> {
+  const env = Object.keys(shellEnv).length ? { ...process.env, ...shellEnv } : process.env;
+  const stdio: Array<"ignore" | "pipe"> = ["ignore", "pipe", "pipe"];
+  if (process.platform !== "win32") {
+    const fallbacks =
+      process.platform === "darwin"
+        ? [resolveDefaultShell().path, "/bin/zsh", "/bin/bash", "/bin/sh"]
+        : [resolveDefaultShell().path, "/bin/bash", "/bin/sh"];
+    const shellPath = fallbacks.find((candidate) => candidate && existsSync(candidate));
+    if (shellPath) {
+      return spawn(shellPath, ["-c", command], {
+        cwd,
+        detached: true,
+        windowsHide: true,
+        env,
+        stdio,
+      });
+    }
+  }
+  return spawn(command, { cwd, shell: true, detached: true, windowsHide: true, env, stdio });
 }
 
 /** MCP Apps HTML 上限：超长 UI 截断（事件/持久化都不会被巨幅 HTML 撑爆） */
