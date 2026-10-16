@@ -7,6 +7,8 @@ import type {
   AskUserAnswer,
   FileCheckpoint,
   PromptPreset,
+  SkillFileContent,
+  SkillFileInfo,
   SkillSummary,
   ToolApprovalDecision,
   WebSearchApiProviderId,
@@ -71,6 +73,14 @@ export const agentApi = {
     },
     listSkills(): Promise<SkillSummary[]> {
       return ipcRenderer.invoke("agent:list-skills");
+    },
+    /** 技能调用 tag 弹窗：技能目录文件枚举 */
+    skillFiles(dir: string): Promise<SkillFileInfo[]> {
+      return ipcRenderer.invoke("agent:skill-files", dir);
+    },
+    /** 技能调用 tag 弹窗：读取技能目录内单个文件（主进程做越权/二进制/大小校验） */
+    readSkillFile(dir: string, path: string): Promise<SkillFileContent> {
+      return ipcRenderer.invoke("agent:read-skill-file", dir, path);
     },
     pickDirectory(): Promise<string | null> {
       return ipcRenderer.invoke("agent:pick-directory");

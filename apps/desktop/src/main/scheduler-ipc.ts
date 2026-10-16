@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 
 import {
   createScheduledTask,
+  listScheduledTaskRuns,
   listScheduledTasks,
   removeScheduledTask,
   runScheduledTaskNow,
@@ -13,10 +14,10 @@ import {
 export { shutdownScheduler } from "./scheduler";
 
 import type { AgentSession } from "@zen/agent-core";
-import type { ScheduledTask, ScheduledTaskInput } from "@zen/shared";
+import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from "@zen/shared";
 
 /**
- * 定时任务 IPC：list / create / update / remove / toggle / run-now。
+ * 定时任务 IPC：list / list-runs / create / update / remove / toggle / run-now。
  * 任务状态变化经 broadcast 推送（scheduler:changed 全量列表 + scheduler:run-event 运行事件）。
  */
 export function registerSchedulerIpc(
@@ -26,6 +27,13 @@ export function registerSchedulerIpc(
   startScheduler(broadcast, sessions);
 
   ipcMain.handle("scheduler:list", (): ScheduledTask[] => listScheduledTasks());
+
+  ipcMain.handle("scheduler:list-runs", (_event, id: string): ScheduledTaskRun[] => {
+    if (typeof id !== "string" || !id) {
+      return [];
+    }
+    return listScheduledTaskRuns(id);
+  });
 
   ipcMain.handle("scheduler:create", (_event, input: Partial<ScheduledTaskInput>) => {
     return createScheduledTask(input);

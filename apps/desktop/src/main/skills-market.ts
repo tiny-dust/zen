@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { ipcMain } from "electron";
@@ -445,10 +445,39 @@ interface UpstreamRef {
 }
 
 /**
+ * GitHub owner/repo 形态校验：锁文件/origin 里可能存有旧版 CLI 写入的
+ * 非 GitHub 来源（如 open.feishu.cn），CLI add 与 raw.githubusercontent 都无法解析。
+ */
+function isRepoSource(source: string): boolean {
+  const parts = source.replace(/^github\//, "").split("/").filter(Boolean);
+  return (
+    parts.length === 2 &&
+    parts.every((part) => /^[A-Za-z0-9_.-]+$/.test(part) && part !== ".git")
+  );
+}
+
+/**
+ * 按技能名查 skills.sh 定位真实仓库（锁/origin 的来源不可用时兜底）。
+ * 仅 skillId 全等命中且来源为 owner/repo 形态才采用，避免匹配到同名错误仓库；
+ * 结果走 searchMarketplace 的缓存与串行闸，不打爆上游。
+ */
+async function searchUpstreamByName(name: string): Promise<UpstreamRef | null> {
+  try {
+    const items = await searchMarketplace(name);
+    const hit = items
+      .filter((item) => item.skillId.trim().toLowerCase() === name.trim().toLowerCase())
+      .sort((a, b) => b.installs - a.installs)[0];
+    return hit && isRepoSource(hit.source) ? { source: hit.source } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 定位技能的上游来源，优先级：skills CLI 锁文件（含精确 skillPath）> .zen-origin.json。
  * 锁文件是 skills CLI 安装时写入的权威记录，能覆盖任意仓库布局；
  * origin 是 Zen 市场安装的兜底记录（无 skillPath，靠候选路径探测）。
- * 无锁条目时若 skills.sh 搜索也不可用，则认为无上游。
+ * 锁/origin 来源非 GitHub 形态时按技能名查 skills.sh 找真实仓库；无任何记录则认为无上游。
  */
 async function resolveUpstream(
   skill: SkillSummary,
@@ -456,19 +485,25 @@ async function resolveUpstream(
 ): Promise<UpstreamRef | null> {
   const entry = lock.get(skill.name);
   if (entry?.source) {
-    return { source: entry.source, skillPath: entry.skillPath };
+    if (isRepoSource(entry.source)) {
+      return { source: entry.source, skillPath: entry.skillPath };
+    }
+    return searchUpstreamByName(skill.name);
   }
   const origin = await readSkillOrigin(skill.dir);
   if (origin?.source) {
-    return { source: origin.source };
+    if (isRepoSource(origin.source)) {
+      return { source: origin.source };
+    }
+    return searchUpstreamByName(skill.name);
   }
   return null;
 }
 
 /**
  * 更新检测：git 仓库比对提交落后；其余按上游 SKILL.md 内容哈希比对。
- * 上游定位走 resolveUpstream（锁文件/origin），不再依赖 skills.sh 搜索兜底——
- * 搜索既触发限流（HTTP 429），又可能把同名技能匹配到错误仓库。
+ * 上游定位走 resolveUpstream（锁文件/origin；仅来源非 GitHub 形态时按名查 skills.sh 兜底），
+ * 不对每个技能盲打搜索——那既触发限流（HTTP 429），又可能把同名技能匹配到错误仓库。
  * 比不到内容时报「跳过」而非「可更新」，避免误报。
  */
 async function checkMarketUpdate(
@@ -656,9 +691,10 @@ async function marketUpdateSkill(
 async function uninstallSkill(skill: SkillSummary): Promise<{ ok: boolean; error?: string }> {
   const dir = expandHome(skill.dir);
   const zenRoot = zenSkillsRoot();
-  // 仅允许卸载位于用户技能目录下的技能，系统内置不动
+  // 仅允许卸载用户技能根的严格子目录，系统内置不动；
+  // 根目录本身（兼容目录根混入的 SKILL.md）绝不删，否则会清空整个技能目录
   const allowed = [zenRoot, join(homedir(), ".claude", "skills"), join(homedir(), ".agents", "skills")];
-  const underAllowed = allowed.some((root) => dir.startsWith(root));
+  const underAllowed = allowed.some((root) => dir.startsWith(resolve(root) + sep));
   if (!underAllowed) {
     return { ok: false, error: mainT(await currentLocale(), "skills.notUninstallable") };
   }

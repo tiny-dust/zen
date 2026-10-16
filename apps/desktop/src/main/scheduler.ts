@@ -12,15 +12,22 @@ import {
   createWorkspace,
   getSession as loadSessionRecord,
   listWorkspaceGroups,
+  renameSession,
 } from "./workspace-db";
 
 import type { AgentSession } from "@zen/agent-core";
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRunEvent } from "@zen/shared";
+import type {
+  ScheduledTask,
+  ScheduledTaskInput,
+  ScheduledTaskRun,
+  ScheduledTaskRunEvent,
+} from "@zen/shared";
 
 /**
- * 定时/计划任务：scheduled_tasks 表（复用 zen.sqlite 连接）+ 每分钟 tick 的最小调度器。
- * 触发执行走 runAgentRequest（飞书入口同款 headless：不传 send，流事件只落库），
- * 跑完把结果摘要写回任务并 Notification 通知（失败静默降级）。
+ * 定时/计划任务：scheduled_tasks + scheduled_task_runs 表（复用 zen.sqlite 连接）
+ * + 每秒 tick 的最小调度器。触发执行走 runAgentRequest（飞书入口同款 headless：
+ * 不传 send，流事件只落库），跑完把结果摘要写回任务并 Notification 通知（失败静默降级）。
+ * 每次运行同时落一条历史（含新建会话 id，渲染层据此跳转会话查看完整过程）。
  * 到期判断等纯函数在 @zen/shared 的 scheduler-core（带单测）。
  */
 
@@ -34,15 +41,31 @@ interface TaskRow {
   last_run_at: number | null;
   last_result: string | null;
   last_run_ok: number | null;
+  last_session_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+/** 运行历史行（scheduled_task_runs） */
+interface RunRow {
+  id: string;
+  task_id: string;
+  session_id: string | null;
+  started_at: number;
+  finished_at: number | null;
+  ok: number | null;
+  summary: string | null;
 }
 
 /** 摘要最长保留字符数（助手回复/错误信息截断入库） */
 const RESULT_SUMMARY_LIMIT = 400;
 
+/** 每任务保留的运行历史条数（秒级任务防表无限增长，超出裁最旧） */
+const RUN_HISTORY_LIMIT = 50;
+
 function ensureTable(): void {
-  getDb().exec(`
+  const db = getDb();
+  db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -53,10 +76,31 @@ function ensureTable(): void {
       last_run_at INTEGER,
       last_result TEXT,
       last_run_ok INTEGER,
+      last_session_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      session_id TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      ok INTEGER,
+      summary TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task
+      ON scheduled_task_runs (task_id, started_at DESC);
   `);
+  // 旧库补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
+  const taskCols = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{
+    name: string;
+  }>;
+  if (!taskCols.some((col) => col.name === "last_session_id")) {
+    db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN last_session_id TEXT`);
+  }
 }
 
 /**
@@ -104,6 +148,7 @@ function toTask(row: TaskRow): ScheduledTask {
     lastRunAt: row.last_run_at,
     lastResult: row.last_result,
     lastRunOk: row.last_run_ok === null ? null : row.last_run_ok === 1,
+    lastSessionId: row.last_session_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -177,14 +222,15 @@ export function createScheduledTask(
     last_run_at: null,
     last_result: null,
     last_run_ok: null,
+    last_session_id: null,
     created_at: now,
     updated_at: now,
   };
   getDb()
     .prepare(
       `INSERT INTO scheduled_tasks
-       (id, name, prompt, schedule_json, enabled, workspace_path, last_run_at, last_result, last_run_ok, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, prompt, schedule_json, enabled, workspace_path, last_run_at, last_result, last_run_ok, last_session_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -196,6 +242,7 @@ export function createScheduledTask(
       row.last_run_at,
       row.last_result,
       row.last_run_ok,
+      row.last_session_id,
       row.created_at,
       row.updated_at,
     );
@@ -245,7 +292,69 @@ export function setScheduledTaskEnabled(id: string, enabled: boolean): Scheduled
 export function removeScheduledTask(id: string): boolean {
   ensureTable();
   const result = getDb().prepare("DELETE FROM scheduled_tasks WHERE id = ?").run(id);
+  // 运行历史随任务删除（运行产生的会话保留，仍可从侧栏进入）
+  getDb().prepare("DELETE FROM scheduled_task_runs WHERE task_id = ?").run(id);
   return result.changes > 0;
+}
+
+// ---------- 运行历史（scheduled_task_runs） ----------
+
+function toRun(row: RunRow): ScheduledTaskRun {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    sessionId: row.session_id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    ok: row.ok === null ? null : row.ok === 1,
+    summary: row.summary,
+  };
+}
+
+/** 新运行开档：启动即插入（sessionId 建立会话后补记），超限裁掉最旧历史 */
+function insertRun(runId: string, taskId: string, startedAt: number): void {
+  getDb()
+    .prepare(
+      `INSERT INTO scheduled_task_runs (id, task_id, session_id, started_at, finished_at, ok, summary)
+       VALUES (?, ?, NULL, ?, NULL, NULL, NULL)`,
+    )
+    .run(runId, taskId, startedAt);
+  getDb()
+    .prepare(
+      `DELETE FROM scheduled_task_runs WHERE task_id = ? AND id NOT IN (
+         SELECT id FROM scheduled_task_runs WHERE task_id = ?
+         ORDER BY started_at DESC, id DESC LIMIT ?
+       )`,
+    )
+    .run(taskId, taskId, RUN_HISTORY_LIMIT);
+}
+
+/** 会话建立后补记 run 的 sessionId */
+function setRunSession(runId: string, sessionId: string): void {
+  getDb().prepare("UPDATE scheduled_task_runs SET session_id = ? WHERE id = ?").run(
+    sessionId,
+    runId,
+  );
+}
+
+/** 运行结束落终态（finished/ok/summary） */
+function finishRun(runId: string, ok: boolean, summary: string): void {
+  getDb()
+    .prepare(
+      "UPDATE scheduled_task_runs SET finished_at = ?, ok = ?, summary = ? WHERE id = ?",
+    )
+    .run(Date.now(), ok ? 1 : 0, summary, runId);
+}
+
+/** 运行历史（新→旧，上限 RUN_HISTORY_LIMIT）；渲染层展开任务卡时拉取 */
+export function listScheduledTaskRuns(taskId: string): ScheduledTaskRun[] {
+  ensureTable();
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM scheduled_task_runs WHERE task_id = ? ORDER BY started_at DESC, id DESC LIMIT ?",
+    )
+    .all(taskId, RUN_HISTORY_LIMIT) as RunRow[];
+  return rows.map(toRun);
 }
 
 // ---------- 调度循环与执行 ----------
@@ -306,10 +415,14 @@ async function executeTask(task: ScheduledTask): Promise<void> {
     return;
   }
   runningIds.add(task.id);
+  const startedAt = Date.now();
+  const runId = randomUUID();
+  // 运行历史开档（sessionId 尚未建立）：任何一次启动（含随后立即失败）都有记录可查
+  insertRun(runId, task.id, startedAt);
   // 先记 lastRunAt：interval 任务据此计下次到期；daily 任务据此判定「今天已跑过」
   getDb()
     .prepare("UPDATE scheduled_tasks SET last_run_at = ?, updated_at = ? WHERE id = ?")
-    .run(Date.now(), Date.now(), task.id);
+    .run(startedAt, startedAt, task.id);
   try {
     let workspaceId: string;
     if (task.workspacePath) {
@@ -321,6 +434,17 @@ async function executeTask(task: ScheduledTask): Promise<void> {
       workspaceId = "common";
     }
     const session = createSession(workspaceId);
+    // 会话命名成任务名（缺省会叫「新会话」，侧栏无法辨识）+ 任务/历史记下会话 id
+    renameSession(
+      session.id,
+      mainT(await currentLocale(), "scheduler.sessionTitle", { name: task.name }),
+    );
+    setRunSession(runId, session.id);
+    getDb()
+      .prepare(
+        "UPDATE scheduled_tasks SET last_session_id = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(session.id, Date.now(), task.id);
     pushRunEvent({ taskId: task.id, state: "started", sessionId: session.id });
     const result = await runAgentRequest(
       {
@@ -331,7 +455,13 @@ async function executeTask(task: ScheduledTask): Promise<void> {
         userMessage: task.prompt,
         history: [],
       },
-      { sessions: sessions ?? new Map() },
+      {
+        sessions: sessions ?? new Map(),
+        // 流事件广播到渲染层（agent:event 与渲染层发起的 run 同频道）：
+        // 「查看运行」打开运行中的会话即可看到实时输出；未打开时由 chat-events
+        // 落桶（侧栏状态/后台消息缓冲），run 结束后完整内容照常落库。
+        send: (streamEvent) => broadcast?.("agent:event", streamEvent),
+      },
     );
     const summary = result.ok
       ? sessionResultSummary(session.id) || mainT(await currentLocale(), "scheduler.noReply")
@@ -341,6 +471,7 @@ async function executeTask(task: ScheduledTask): Promise<void> {
         "UPDATE scheduled_tasks SET last_result = ?, last_run_ok = ?, updated_at = ? WHERE id = ?",
       )
       .run(summary, result.ok ? 1 : 0, Date.now(), task.id);
+    finishRun(runId, result.ok, summary);
     pushRunEvent({
       taskId: task.id,
       state: result.ok ? "done" : "error",
@@ -355,6 +486,7 @@ async function executeTask(task: ScheduledTask): Promise<void> {
         "UPDATE scheduled_tasks SET last_result = ?, last_run_ok = ?, updated_at = ? WHERE id = ?",
       )
       .run(summary, 0, Date.now(), task.id);
+    finishRun(runId, false, summary);
     pushRunEvent({ taskId: task.id, state: "error", summary });
     void notify(task.name, false, summary);
   } finally {

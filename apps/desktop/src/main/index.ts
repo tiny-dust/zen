@@ -9,6 +9,7 @@ import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electro
 import { runAgentRequest, continueLarkChat, startLarkChat } from "./agent-runner";
 import { getAgentServicesRegistry, initAgentServices, shutdownAgentServices } from "./agent-services";
 import { registerAgentServicesIpc } from "./agent-services-ipc";
+import { setupApplicationMenu } from "./app-menu";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
@@ -89,6 +90,18 @@ function createWindow(): BrowserWindow {
 
   window.on("ready-to-show", () => {
     window.show();
+  });
+
+  // 整页刷新（Cmd/Ctrl+R、F5）会丢终端面板等渲染层状态：一律拦截。
+  // dev 保留 CmdOrCtrl+Alt+R 手动重载（见 app-menu.ts），故带 Alt 的组合放行。
+  window.webContents.on("before-input-event", (event, input) => {
+    const key = (input.key || "").toLowerCase();
+    const reloadCombo =
+      (key === "r" && (input.control || input.meta) && !input.alt) ||
+      (key === "f5" && !input.alt);
+    if (reloadCombo) {
+      event.preventDefault();
+    }
   });
 
   // 锁定窗口标题（页面 <title> 会覆盖 BrowserWindow 的 title，dev/prod 需可区分）
@@ -410,6 +423,8 @@ app.whenReady().then(() => {
   registerFeatureCatalogIpc();
   // zen CLI：本地 TCP 服务（127.0.0.1 随机端口 + token 写 ~/.zen/cli-socket.json）
   startCliServer(broadcast, sessions);
+  // 应用菜单：去掉 Reload 角色（禁用整页刷新），保留复制粘贴等系统快捷键角色
+  setupApplicationMenu(isDevRenderer);
   createWindow();
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));

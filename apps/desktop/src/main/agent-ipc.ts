@@ -1,9 +1,11 @@
 import { BrowserWindow, ipcMain } from "electron";
 
-import { listSkills } from "@zen/skills";
+import { listSkillFiles, listSkills, readSkillFile } from "@zen/skills";
 
 import type {
   AgentSettings,
+  SkillFileContent,
+  SkillFileInfo,
   SkillSummary,
   WebSearchApiProviderId,
   WebSearchStatus,
@@ -48,6 +50,23 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
     const settings = await loadAgentSettings();
     return listSkills(settings.skillExtraPaths);
   });
+
+  // 技能调用 tag 弹窗：技能目录文件枚举（dir 来自 listSkills 结果，仍在 @zen/skills 内做根目录校验）
+  ipcMain.handle(
+    "agent:skill-files",
+    async (_event, dir: string): Promise<SkillFileInfo[]> => {
+      const settings = await loadAgentSettings();
+      return listSkillFiles(String(dir ?? ""), settings.skillExtraPaths);
+    },
+  );
+
+  ipcMain.handle(
+    "agent:read-skill-file",
+    async (_event, dir: string, path: string): Promise<SkillFileContent> => {
+      const settings = await loadAgentSettings();
+      return readSkillFile(String(dir ?? ""), String(path ?? ""), settings.skillExtraPaths);
+    },
+  );
 
   ipcMain.handle("agent:pick-directory", async (event): Promise<string | null> => {
     const win = BrowserWindow.fromWebContents(event.sender);

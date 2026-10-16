@@ -242,4 +242,74 @@ describe("skills-market", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("无上游来源记录");
   });
+
+  it("锁来源非 GitHub 形态时按名查 skills.sh 定位上游并完成更新", async () => {
+    await mkdir(join(state.home, ".agents"), { recursive: true });
+    await writeFile(
+      join(state.home, ".agents", ".skill-lock.json"),
+      JSON.stringify({
+        version: 3,
+        skills: { "lark-doc": { source: "open.feishu.cn" } },
+      }),
+      "utf8",
+    );
+    const dir = join(state.home, ".agents", "skills", "lark-doc");
+    await writeLocalSkill(dir, "old local lark\n");
+    state.remoteFiles.set("raw.githubusercontent.com/larksuite/cli/", "fresh lark\n");
+    // mock 的 execFile 会把 remoteFiles[skillId] 写为安装内容
+    state.remoteFiles.set("lark-doc", "fresh lark\n");
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const url = String(input);
+      state.fetchLog.push(url);
+      if (url.includes("skills.sh")) {
+        return new Response(
+          JSON.stringify({
+            skills: [
+              { id: "larksuite/cli/lark-doc", skillId: "lark-doc", name: "lark-doc", source: "larksuite/cli", installs: 100 },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      const hit = [...state.remoteFiles.entries()].find(([key]) => url.includes(key));
+      if (hit && url.includes("raw.githubusercontent.com")) {
+        return new Response(hit[1], { status: 200 });
+      }
+      return new Response("404: Not Found", { status: 404 });
+    });
+
+    const check = (await handler("skills:market-check-updates")({}, [
+      makeSkill("lark-doc", dir),
+    ])) as { ok: boolean; items: Array<{ hasUpdate: boolean }> };
+    expect(check.items[0]?.hasUpdate).toBe(true);
+    expect(state.fetchLog.some((url) => url.includes("skills.sh/api/search?q=lark-doc"))).toBe(true);
+
+    const update = (await handler("skills:market-update")({}, makeSkill("lark-doc", dir))) as {
+      ok: boolean;
+      dir?: string;
+      error?: string;
+    };
+    expect(update.ok).toBe(true);
+    expect(update.dir).toBe(dir);
+    expect(await readFile(join(dir, "SKILL.md"), "utf8")).toBe("fresh lark\n");
+    // CLI add 用的是 skills.sh 定位到的真实仓库
+    expect(
+      state.execLog.some((args) => args[0]?.includes("npx") && args.includes("larksuite/cli")),
+    ).toBe(true);
+  });
+
+  it("卸载拦截技能根目录本身（根级 SKILL.md 混入时防误删整个目录）", async () => {
+    const root = join(state.home, ".claude", "skills");
+    await writeLocalSkill(root, "root skill\n");
+
+    const result = (await handler("skills:uninstall")({}, makeSkill("claude-root", root))) as {
+      ok: boolean;
+      error?: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+    // 根目录与里面的 SKILL.md 都还在
+    await expect(readFile(join(root, "SKILL.md"), "utf8")).resolves.toBe("root skill\n");
+  });
 });

@@ -228,6 +228,11 @@ const dict: Record<string, { "zh-CN": string; "en-US": string }> = {
     "zh-CN": "⏰ 定时任务「{name}」运行失败",
     "en-US": "⏰ Scheduled task \"{name}\" failed",
   },
+  // 计划任务运行新建会话的标题（侧栏可辨识）
+  "scheduler.sessionTitle": {
+    "zh-CN": "计划任务：{name}",
+    "en-US": "Scheduled: {name}",
+  },
 
   // ---------- 飞书网关（lark/gateway.ts）：状态与相对时间 ----------
   "lark.state.idle": { "zh-CN": "空闲", "en-US": "Idle" },

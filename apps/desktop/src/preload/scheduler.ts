@@ -1,12 +1,20 @@
 import { ipcRenderer } from "electron";
 
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRunEvent } from "@zen/shared";
+import type {
+  ScheduledTask,
+  ScheduledTaskInput,
+  ScheduledTaskRun,
+  ScheduledTaskRunEvent,
+} from "@zen/shared";
 
-/** 定时/计划任务：任务 CRUD、立即执行与状态变化订阅 */
+/** 定时/计划任务：任务 CRUD、运行历史、立即执行与状态变化订阅 */
 export const schedulerApi = {
   scheduler: {
     list(): Promise<ScheduledTask[]> {
       return ipcRenderer.invoke("scheduler:list");
+    },
+    listRuns(taskId: string): Promise<ScheduledTaskRun[]> {
+      return ipcRenderer.invoke("scheduler:list-runs", taskId);
     },
     create(input: ScheduledTaskInput): Promise<ScheduledTask | { error: string }> {
       return ipcRenderer.invoke("scheduler:create", input);
