@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 
 import { AgentSession, runMockAgent } from "@zen/agent-core";
 
+import { withAttachmentManifest } from "./agent-attachments";
 import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
 import { getAgentServicesRegistry } from "./agent-services";
 import { buildApprovalGate } from "./approval-gate";
@@ -220,6 +221,9 @@ export async function runAgentRequest(
         });
       }
     }
+    // 附件路径清单：$名称 引用对模型只是文本，注入路径后 Agent 才能读到
+    // 工作区外的上传文件（视觉模型看到的图片同样需要路径来保存/处理）
+    runUserMessage = withAttachmentManifest(runUserMessage, request.attachments);
 
     const apiKey = await loadProviderApiKey(provider.id);
 
