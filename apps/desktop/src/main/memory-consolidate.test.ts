@@ -84,6 +84,16 @@ describe("consolidateMemory 预览与失败安全", () => {
     expect(result.changedCount).toBe(3);
     // 落盘文件保持原样
     expect(readUserNotes()).toHaveLength(3);
+    // 推理模型默认档会烧尽输出预算（Unexpected end of JSON input 根因）：
+    // 补全必须降最低推理档 + 放宽超时（与 commit 生成同款参数）
+    expect(state.completeOnce).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        maxTokens: 8192,
+        reasoningEffort: "lowest",
+        timeoutMs: 180_000,
+      }),
+    );
   });
 
   it("模型调用失败：返回 {ok:false, error}，原始数据不动", async () => {
@@ -105,6 +115,23 @@ describe("consolidateMemory 预览与失败安全", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeTruthy();
+    expect(readUserNotes()).toHaveLength(3);
+  });
+
+  it("模型输出被截断的 JSON（Unexpected end of JSON input 场景）：错误可读可行动，原始数据不动", async () => {
+    writeUserNotes(NOTES);
+    // 推理模型烧尽输出预算时 finish_reason=length，JSON 在数组中途被切断
+    state.completeOnce.mockResolvedValue(
+      '[{"id":"n1","text":"全局依赖用 pnpm","createdAt":1000},{"id":"n3","text":"默认 sh',
+    );
+
+    const result = await consolidateMemory("user");
+
+    expect(result.ok).toBe(false);
+    // 不再透传裸的 "Unexpected end of JSON input"，而是可读的截断提示
+    expect(result.error).toContain("完整 JSON");
+    expect(result.error).toContain("截断");
+    expect(result.error).not.toContain("Unexpected end");
     expect(readUserNotes()).toHaveLength(3);
   });
 

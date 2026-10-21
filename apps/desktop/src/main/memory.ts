@@ -263,7 +263,17 @@ function parseModelJson(raw: string): MemoryNote[] {
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
-  const parsed = JSON.parse(stripped) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch {
+    // 截断的 JSON（Unexpected end of JSON input）大多因推理模型烧尽输出预算；
+    // 原始 SyntaxError 文案对用户毫无信息量，翻译成可行动的提示
+    throw new Error(
+      `模型输出不是完整 JSON（收到 ${stripped.length} 字符，开头为「${stripped.slice(0, 50)}…」，疑似被输出预算截断）。` +
+        "可重试一次；若仍失败，请到设置中换用非推理/轻量模型作为默认模型",
+    );
+  }
   const list = Array.isArray(parsed)
     ? parsed
     : Array.isArray((parsed as { notes?: unknown })?.notes)
@@ -306,10 +316,15 @@ export async function consolidateMemory(scope: MemoryScope): Promise<MemoryConso
       `以下是待整理的记忆备注（JSON 数组）。请合并重复项、改写啰嗦表述，输出整固后的同 schema JSON 数组。\n\n${JSON.stringify(before, null, 2)}`,
       {
         maxTokens: CONSOLIDATE_MAX_TOKENS,
+        // 推理模型默认档位会把输出预算烧在思考上（实测 glm-5.3 高档截断 JSON）：
+        // 整固是结构改写任务，降到最低推理档 + 放宽超时（与 commit 生成同款验证过的参数）
+        reasoningEffort: "lowest",
+        timeoutMs: 180_000,
         system:
           "你是记忆整理助手。把输入的备注列表合并、去重、改写成精炼且保留全部长期信息的条目。" +
           '只输出 JSON 数组，不要输出任何解释或 Markdown 代码块。每条形如 {"id":string,"text":string,"createdAt":number}；' +
-          "id 与 createdAt 尽量沿用输入（合并时取较早的 createdAt），text 可改写但不得编造输入中不存在的事实、不得丢弃任何有用信息。",
+          "id 与 createdAt 尽量沿用输入（合并时取较早的 createdAt），text 可改写但不得编造输入中不存在的事实、不得丢弃任何有用信息。" +
+          "输出必须是单个完整、可直接解析的 JSON 数组，绝不截断。",
       },
     );
     const after = parseModelJson(raw);
