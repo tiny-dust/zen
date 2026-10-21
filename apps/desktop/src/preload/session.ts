@@ -1,6 +1,6 @@
 import { ipcRenderer } from "electron";
 
-import type { ChatMessage, SessionMode, SessionRecord } from "@zen/shared";
+import type { ChatMessage, SessionGoal, SessionMode, SessionRecord } from "@zen/shared";
 
 import { syncBrowserScope } from "./browser";
 
@@ -26,6 +26,10 @@ export const sessionApi = {
     setMode(id: string, mode: SessionMode): Promise<void> {
       return ipcRenderer.invoke("session:set-mode", id, mode);
     },
+    /** 会话目标（Goals 目标模式）；null 表示清除目标 */
+    setGoal(id: string, goal: SessionGoal | null): Promise<void> {
+      return ipcRenderer.invoke("session:set-goal", id, goal);
+    },
     open(
       id: string,
     ): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {
@@ -36,6 +40,10 @@ export const sessionApi = {
         }
         return found;
       });
+    },
+    /** 全局会话搜索（侧栏）：标题 + 消息内容命中（标题命中优先），当前用户可见范围 */
+    search(query: string, limit?: number): Promise<SessionRecord[]> {
+      return ipcRenderer.invoke("session:search", query, limit);
     },
     /** 渲染层自建消息落库（上下文压缩摘要卡）；main 侧会校验并拒绝非法载荷 */
     appendMessage(

@@ -1,4 +1,4 @@
-import type { AgentRunRequest, PermissionMode, SessionMode } from "@zen/shared";
+import type { AgentRunRequest, PermissionMode, SessionGoal, SessionMode } from "@zen/shared";
 import {
   normalizeSessionMode,
   PERMISSION_MODE_LABELS,
@@ -70,6 +70,33 @@ export function appendSessionModeDirective(
   permissionMode: PermissionMode,
 ): string {
   const directive = sessionModeDirective(mode, permissionMode);
+  if (!directive) {
+    return basePrompt;
+  }
+  return basePrompt ? `${basePrompt}\n\n${directive}` : directive;
+}
+
+/**
+ * 会话目标（Goals 目标模式）的目标指令：仅目标为 active 时注入；
+ * token 预算只做 UI 展示与用量对比，不写进提示词。
+ */
+export function goalDirective(goal: SessionGoal | null | undefined): string {
+  if (!goal || goal.status !== "active") {
+    return "";
+  }
+  return [
+    "【会话目标】本会话设定了以下目标，请始终围绕它推进工作：",
+    `- 目标：${goal.text}`,
+    "- 目标尚未完成时，优先继续推进该目标；若判断目标已达成，在回复中明确说明。",
+  ].join("\n");
+}
+
+/** 基础系统提示词追加目标指令；无目标 / 非 active 时原样返回 */
+export function appendGoalDirective(
+  basePrompt: string,
+  goal: SessionGoal | null | undefined,
+): string {
+  const directive = goalDirective(goal);
   if (!directive) {
     return basePrompt;
   }

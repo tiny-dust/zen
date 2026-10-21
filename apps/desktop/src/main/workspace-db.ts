@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
-import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionMode, uuidv7 } from "@zen/shared";
+import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionGoal, normalizeSessionMode, uuidv7 } from "@zen/shared";
 
 import { getDb } from "./model-db-connection";
 
-import type { ChatMessage, SessionMode, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
+import type { ChatMessage, SessionGoal, SessionMode, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
 
 interface WorkspaceRow {
   id: string;
@@ -28,6 +28,7 @@ interface SessionRow {
   model_provider_id: string | null;
   model_id: string | null;
   mode: string;
+  goal_json: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -88,7 +89,20 @@ function toSession(row: SessionRow): SessionRecord {
     modelProviderId: row.model_provider_id,
     modelId: row.model_id,
     mode: normalizeSessionMode(row.mode),
+    goal: parseGoalJson(row.goal_json),
   };
+}
+
+/** goal_json 解析：脏数据（非法 JSON / 非法结构）一律按无目标处理 */
+function parseGoalJson(json: string | null): SessionGoal | null {
+  if (!json) {
+    return null;
+  }
+  try {
+    return normalizeSessionGoal(JSON.parse(json));
+  } catch {
+    return null;
+  }
 }
 
 function toMessage(row: MessageRow): ChatMessage {
@@ -122,6 +136,34 @@ export function listWorkspaceGroups(): WorkspaceGroup[] {
     ...toWorkspace(row),
     sessions: sessions.filter((item) => (item.workspace_id ?? COMMON_ID) === row.id).map(toSession),
   }));
+}
+
+/**
+ * 全局会话搜索（侧栏）：标题与消息内容 LIKE 命中，跨公共区与全部工作区，
+ * 沿用用户隔离口径；标题命中优先，其余按更新时间倒序。
+ * SQLite LIKE 对 ASCII 默认大小写不敏感（中文无大小写概念，原样匹配）。
+ */
+export function searchSessions(query: string, limit = 50): SessionRecord[] {
+  const trimmed = query.trim();
+  if (!trimmed || !Number.isFinite(limit) || limit <= 0) {
+    return [];
+  }
+  // 用户输入按字面匹配：转义 LIKE 通配符（% _ \）
+  const pattern = `%${trimmed.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const rows = getDb()
+    .prepare(
+      `SELECT s.* FROM chat_sessions AS s
+       WHERE s.${ownerSql()} AND (
+         s.title LIKE ? ESCAPE '\\' OR EXISTS (
+           SELECT 1 FROM chat_messages AS m
+           WHERE m.session_id = s.id AND m.content LIKE ? ESCAPE '\\'
+         )
+       )
+       ORDER BY (s.title LIKE ? ESCAPE '\\') DESC, s.updated_at DESC
+       LIMIT ?`,
+    )
+    .all(...ownerParams(), pattern, pattern, pattern, Math.floor(limit)) as SessionRow[];
+  return rows.map(toSession);
 }
 
 /** 新建工作区：以所选目录的 basename 命名；同一目录只建一次 */
@@ -206,6 +248,7 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     model_provider_id: null,
     model_id: null,
     mode: "interactive",
+    goal_json: null,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -254,6 +297,17 @@ export function setSessionMode(id: string, mode: SessionMode): void {
 
 function isSessionModeValue(value: unknown): value is SessionMode {
   return value === "interactive" || value === "plan" || value === "autopilot";
+}
+
+/**
+ * 会话目标（Goals 目标模式）：文本 + 状态 + token 预算整体写入 goal_json。
+ * goal 为 null / 空文本 / 非法结构时清空目标（normalizeSessionGoal 返回 null）。
+ */
+export function setSessionGoal(id: string, goal: SessionGoal | null): void {
+  const normalized = normalizeSessionGoal(goal);
+  getDb()
+    .prepare(`UPDATE chat_sessions SET goal_json = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
+    .run(normalized ? JSON.stringify(normalized) : null, Date.now(), id, ...ownerParams());
 }
 
 export function getSession(id: string):

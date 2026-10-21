@@ -213,6 +213,10 @@ function migrate(conn: Database.Database) {
         `ALTER TABLE chat_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'interactive'`,
       );
     }
+    // 会话目标（Goals 目标模式）：文本 + 状态 + token 预算（JSON）；NULL = 未设定
+    if (!sessionCols.some((col) => col.name === "goal_json")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN goal_json TEXT`);
+    }
   }
 }
 

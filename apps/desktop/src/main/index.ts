@@ -13,7 +13,13 @@ import { setupApplicationMenu } from "./app-menu";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
-import { listFileCheckpoints, restoreFileCheckpoint } from "./session-checkpoints";
+import {
+  listFileCheckpoints,
+  listTurnCheckpoints,
+  reapplyTurnCheckpoints,
+  restoreFileCheckpoint,
+  undoTurnCheckpoints,
+} from "./session-checkpoints";
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
@@ -319,23 +325,54 @@ function registerIpc(): void {
     listFileCheckpoints(sessionId),
   );
 
+  // 按轮（run）分组的改动摘要：每轮文件数与撤销状态，「文件快照」区分组展示
+  ipcMain.handle("agent:checkpoints:list-turns", (_event, sessionId: string) =>
+    listTurnCheckpoints(sessionId),
+  );
+
+  // 与 runAgentRequest 同口径：按会话归属工作区解析实际根目录（沙箱模式生效）
+  async function checkpointWorkspaceRoot(sessionId: string): Promise<string | null> {
+    const record = getSession(sessionId);
+    if (!record) {
+      return null;
+    }
+    const projectPath = getWorkspace(record.session.workspaceId)?.path;
+    if (projectPath) {
+      const agentSettings = await loadAgentSettings();
+      return (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
+    }
+    return sessionCacheDir(sessionId);
+  }
+
   ipcMain.handle(
     "agent:checkpoints:restore",
     async (_event, sessionId: string, checkpointId: string) => {
-      const record = getSession(sessionId);
-      if (!record) {
+      const workspaceRoot = await checkpointWorkspaceRoot(sessionId);
+      if (!workspaceRoot) {
         return { ok: false, error: "session not found" };
       }
-      // 与 runAgentRequest 同口径：按会话归属工作区解析实际根目录（沙箱模式生效）
-      const projectPath = getWorkspace(record.session.workspaceId)?.path;
-      let workspaceRoot: string;
-      if (projectPath) {
-        const agentSettings = await loadAgentSettings();
-        workspaceRoot = (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
-      } else {
-        workspaceRoot = sessionCacheDir(sessionId);
-      }
       return restoreFileCheckpoint(sessionId, workspaceRoot, checkpointId);
+    },
+  );
+
+  // 撤销一轮：恢复该轮所有改前副本（新建文件移除）；仅允许最新未撤销轮（防旧副本覆盖新改动）
+  ipcMain.handle("agent:checkpoints:undo-turn", async (_event, sessionId: string, run: number) => {
+    const workspaceRoot = await checkpointWorkspaceRoot(sessionId);
+    if (!workspaceRoot) {
+      return { ok: false, error: "session not found" };
+    }
+    return undoTurnCheckpoints(sessionId, workspaceRoot, run);
+  });
+
+  // 重新套用已撤销的一轮：恢复该轮所有改后副本
+  ipcMain.handle(
+    "agent:checkpoints:reapply-turn",
+    async (_event, sessionId: string, run: number) => {
+      const workspaceRoot = await checkpointWorkspaceRoot(sessionId);
+      if (!workspaceRoot) {
+        return { ok: false, error: "session not found" };
+      }
+      return reapplyTurnCheckpoints(sessionId, workspaceRoot, run);
     },
   );
 

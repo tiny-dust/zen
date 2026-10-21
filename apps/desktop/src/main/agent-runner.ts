@@ -5,6 +5,7 @@ import { AgentSession, runMockAgent } from "@zen/agent-core";
 
 import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agent-images";
 import { getAgentServicesRegistry } from "./agent-services";
+import { buildApprovalGate } from "./approval-gate";
 import { getCuaService } from "./abilities/cua";
 import { getBrowserService } from "./browser/service";
 import { notifyLarkEvent } from "./lark/ipc";
@@ -14,7 +15,11 @@ import { inspectModelCapabilities } from "./model-capabilities";
 import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
-import { backupWorkspaceFile } from "./session-checkpoints";
+import {
+  backupAfterWrite,
+  backupWorkspaceFile,
+  beginTurnCheckpoint,
+} from "./session-checkpoints";
 import { getWebSearchApiKeys } from "./websearch-auth-store";
 import { loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import {
@@ -28,10 +33,17 @@ import {
   saveTaskList,
   setSessionMode,
 } from "./workspace-db";
-import { appendSessionModeDirective, resolveRunSessionMode } from "./session-mode";
+import { appendGoalDirective, appendSessionModeDirective, resolveRunSessionMode } from "./session-mode";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
-import type { AgentRunRequest, AgentStreamEvent, ChatMessage, ChatTurn, SessionMode } from "@zen/shared";
+import type {
+  AgentRunRequest,
+  AgentStreamEvent,
+  ChatMessage,
+  ChatTurn,
+  SessionGoal,
+  SessionMode,
+} from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
 /**
@@ -85,6 +97,8 @@ export async function runAgentRequest(
   // 这里抛出会让 agent:run IPC reject，渲染层 send() 无兜底，运行态卡死
   // 会话模式：前置块解析（plan 批准消息先落库切回 interactive），后续 AgentSession 组装要用
   let runMode: SessionMode = "interactive";
+  // 会话目标（Goals 目标模式）：active 时追加进系统提示词（同会话模式指令的注入点）
+  let runGoal: SessionGoal | null = null;
   try {
     // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
     const record = loadSessionRecord(request.sessionId);
@@ -96,6 +110,7 @@ export async function runAgentRequest(
       request,
       (mode) => setSessionMode(request.sessionId, mode),
     );
+    runGoal = record.session.goal ?? null;
 
     // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
     ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
@@ -232,6 +247,15 @@ export async function runAgentRequest(
       enabledMcpTools().catch(() => []),
     ]);
 
+    // 每轮 run 开始处打 turn 标记：本轮（含子 Agent/插入执行）全部文件改动
+    // 归属同一 run 序号，供「文件快照」区按轮分组撤销/重新套用；失败不阻塞 run
+    let checkpointRun = 1;
+    try {
+      checkpointRun = await beginTurnCheckpoint(request.sessionId);
+    } catch (error) {
+      console.warn("[checkpoints] turn 标记失败:", error);
+    }
+
     const session = new AgentSession({
       sessionId: request.sessionId,
       workspaceRoot,
@@ -244,11 +268,15 @@ export async function runAgentRequest(
       reasoningEffort: request.reasoningEffort,
       reasoning: capabilities.reasoning === true,
       permissionMode: agentSettings.permissionMode,
-      // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）
-      systemPrompt: appendSessionModeDirective(
-        resolvePromptText(agentSettings),
-        runMode,
-        agentSettings.permissionMode,
+      // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）；
+      // 目标指令再追加在其后（仅 active 目标注入，预算不进提示词）
+      systemPrompt: appendGoalDirective(
+        appendSessionModeDirective(
+          resolvePromptText(agentSettings),
+          runMode,
+          agentSettings.permissionMode,
+        ),
+        runGoal,
       ),
       // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
       memoryContext: await readMemorySnapshot()
@@ -270,13 +298,42 @@ export async function runAgentRequest(
       cuaBridge: agentSettings.cuaEnabled === true ? getCuaService().bridge() : undefined,
       // runTerminal 进程组跟踪：settle 后存活的 dev server 等收集为长驻服务（右栏「服务」）
       servicesBridge: getAgentServicesRegistry()?.bridge(),
-      // 会话文件快照：写/改文件前把原文件备份进会话缓存目录（失败不阻塞写入）
+      // 自动审批闸：命令前缀规则命中 allow 直接放行；「帮我核准」开启时先由会话生效
+      // 模型安全审查（completeOnce 直连供应商，不经工具循环，不会递归触发审批），
+      // 未放行/审查失败/超时一律回落人工审批。两特性都未启用时不注入（零开销）
+      approvalGate:
+        agentSettings.approvalRules.length > 0 || agentSettings.approvalReviewer === "assistant"
+          ? buildApprovalGate({
+              rules: agentSettings.approvalRules,
+              reviewer: agentSettings.approvalReviewer,
+              providerId: providerId ?? undefined,
+              modelId: modelId ?? undefined,
+            })
+          : undefined,
+      // 会话文件快照：写/改文件前备份原文件、写入成功后备份改后副本（失败不阻塞写入）
       checkpointBridge: {
         backupFile: async (rel) => {
           try {
-            await backupWorkspaceFile(request.sessionId, workspaceRoot, rel);
+            const checkpoint = await backupWorkspaceFile(
+              request.sessionId,
+              workspaceRoot,
+              rel,
+              checkpointRun,
+            );
+            return checkpoint?.id ?? null;
           } catch (error) {
             console.warn("[checkpoints] 备份失败:", error);
+            return null;
+          }
+        },
+        afterFile: async (rel, checkpointId) => {
+          if (!checkpointId) {
+            return;
+          }
+          try {
+            await backupAfterWrite(request.sessionId, workspaceRoot, rel, checkpointId);
+          } catch (error) {
+            console.warn("[checkpoints] 改后副本备份失败:", error);
           }
         },
       },

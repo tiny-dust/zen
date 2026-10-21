@@ -11,6 +11,7 @@ import type {
   SkillFileInfo,
   SkillSummary,
   ToolApprovalDecision,
+  TurnCheckpointGroup,
   WebSearchApiProviderId,
   WebSearchStatus,
 } from "@zen/shared";
@@ -58,6 +59,28 @@ export const agentApi = {
     /** 会话文件快照：写/改文件前的原文件备份，最新在前 */
     listCheckpoints(sessionId: string): Promise<FileCheckpoint[]> {
       return ipcRenderer.invoke("agent:checkpoints:list", sessionId);
+    },
+    /** 按轮（run）分组的改动摘要：每轮文件数与撤销状态，最新一轮在前 */
+    listTurnCheckpoints(sessionId: string): Promise<TurnCheckpointGroup[]> {
+      return ipcRenderer.invoke("agent:checkpoints:list-turns", sessionId);
+    },
+    /** 撤销一轮改动：恢复该轮改前副本（新建文件移除），返回 {ok,error?,applied?,skipped?} */
+    undoTurn(sessionId: string, run: number): Promise<{
+      ok: boolean;
+      error?: string;
+      applied?: number;
+      skipped?: number;
+    }> {
+      return ipcRenderer.invoke("agent:checkpoints:undo-turn", sessionId, run);
+    },
+    /** 重新套用已撤销的一轮：恢复该轮改后副本 */
+    reapplyTurn(sessionId: string, run: number): Promise<{
+      ok: boolean;
+      error?: string;
+      applied?: number;
+      skipped?: number;
+    }> {
+      return ipcRenderer.invoke("agent:checkpoints:reapply-turn", sessionId, run);
     },
     restoreCheckpoint(
       sessionId: string,

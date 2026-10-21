@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { access, constants, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, constants, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import type { DeviceMemory, MemoryNote, MemoryScope, MemorySnapshot, UserMemory } from "@zen/shared";
+import type {
+  DeviceMemory,
+  MemoryConsolidationResult,
+  MemoryNote,
+  MemoryScope,
+  MemorySnapshot,
+  UserMemory,
+} from "@zen/shared";
 
 import { zenMemoryDir } from "./zen-dir";
+import { completeOnce } from "./model-api";
 
 /**
  * 记忆域（~/.zen/memory）：设备环境快照（启动自动采集）+ 备注（Agent updateMemory / 用户设置页）。
@@ -231,6 +239,114 @@ export async function removeMemoryNote(scope: MemoryScope, id: string): Promise<
   }
   return readMemorySnapshot();
 }
+
+// ---------------------------------------------------------------------------
+// 记忆整固：模型把累积 notes 合并/去重/改写成精炼结构。
+// 预览（consolidateMemory）不落盘；用户在设置页确认 diff 后才由
+// applyMemoryConsolidation 原子写回。任何失败都绝不动原始数据。
+// ---------------------------------------------------------------------------
+
+/** 整固输出的 token 预算：条目多时合并结果可能较长，取安全余量 */
+const CONSOLIDATE_MAX_TOKENS = 8192;
+
+/** 原子写回：先写临时文件再 rename，进程中断不会留下半个 JSON */
+async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
+  await mkdir(zenMemoryDir(), { recursive: true });
+  const temp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(temp, JSON.stringify(data, null, 2), "utf8");
+  await rename(temp, file);
+}
+
+/** 模型输出里剥掉 Markdown 代码围栏后解析 JSON；数组或 {notes:[]} 均接受 */
+function parseModelJson(raw: string): MemoryNote[] {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  const parsed = JSON.parse(stripped) as unknown;
+  const list = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray((parsed as { notes?: unknown })?.notes)
+      ? (parsed as { notes: unknown[] }).notes
+      : [];
+  return normalizeNotes(list as MemoryNote[]);
+}
+
+/** 变化条数：before 中被移除/改写的 + after 中新增/改写的（文本比对） */
+function countChangedNotes(before: MemoryNote[], after: MemoryNote[]): number {
+  const beforeTexts = new Set(before.map((note) => note.text));
+  const afterTexts = new Set(after.map((note) => note.text));
+  const removed = before.filter((note) => !afterTexts.has(note.text)).length;
+  const added = after.filter((note) => !beforeTexts.has(note.text)).length;
+  return removed + added;
+}
+
+/**
+ * 整固预览：调用当前选中模型把该域 notes 合并/去重/改写，返回 before/after 供审阅。
+ * 只算不写——落盘必须走 applyMemoryConsolidation（用户确认 diff 之后）。
+ * 模型失败 / JSON 解析失败 / 模型清空了全部条目 → {ok:false, error}，原样保留数据。
+ */
+export async function consolidateMemory(scope: MemoryScope): Promise<MemoryConsolidationResult> {
+  const before =
+    scope === "user"
+      ? (await readUserMemory()).notes
+      : (await readDeviceMemory())?.notes ?? [];
+  const unchanged: MemoryConsolidationResult = {
+    ok: true,
+    scope,
+    before,
+    after: before,
+    changedCount: 0,
+  };
+  if (!before.length) {
+    return unchanged;
+  }
+  try {
+    const raw = await completeOnce(
+      `以下是待整理的记忆备注（JSON 数组）。请合并重复项、改写啰嗦表述，输出整固后的同 schema JSON 数组。\n\n${JSON.stringify(before, null, 2)}`,
+      {
+        maxTokens: CONSOLIDATE_MAX_TOKENS,
+        system:
+          "你是记忆整理助手。把输入的备注列表合并、去重、改写成精炼且保留全部长期信息的条目。" +
+          '只输出 JSON 数组，不要输出任何解释或 Markdown 代码块。每条形如 {"id":string,"text":string,"createdAt":number}；' +
+          "id 与 createdAt 尽量沿用输入（合并时取较早的 createdAt），text 可改写但不得编造输入中不存在的事实、不得丢弃任何有用信息。",
+      },
+    );
+    const after = parseModelJson(raw);
+    if (!after.length) {
+      // 模型清空了全部条目：视为失败，宁可不动也不误删
+      throw new Error("模型未返回任何有效条目");
+    }
+    return { ...unchanged, after, changedCount: countChangedNotes(before, after) };
+  } catch (error) {
+    return {
+      ...unchanged,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * 应用整固结果：把预览通过审阅的 notes 原子写回（临时文件 + rename）。
+ * device 域只替换 notes，快照其余字段（collectedAt/tools 等）保持不变。
+ */
+export async function applyMemoryConsolidation(
+  scope: MemoryScope,
+  notes: MemoryNote[],
+): Promise<MemorySnapshot> {
+  const cleaned = normalizeNotes(notes);
+  if (scope === "user") {
+    await writeJsonAtomic(userFile(), { notes: cleaned });
+  } else {
+    const device = await readDeviceMemory();
+    if (device) {
+      await writeJsonAtomic(deviceFile(), { ...device, notes: cleaned });
+    }
+  }
+  return readMemorySnapshot();
+}
+
 
 function renderNotes(notes: MemoryNote[]): string[] {
   return notes

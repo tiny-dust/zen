@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { app } from "electron";
 
-import type { AgentSettings, BrowserSettings, McpServerConfig } from "@zen/shared";
+import type { AgentSettings, BrowserSettings, CommandApprovalRule, McpServerConfig } from "@zen/shared";
 import { DEFAULT_AGENT_SETTINGS, DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 
 /**
@@ -94,6 +94,24 @@ export async function initZenDir(): Promise<void> {
   }
 }
 
+/** 命令前缀审批规则清洗：非数组/空 pattern/非法 decision 过滤，合法条目 trim pattern */
+function sanitizeApprovalRules(rules: unknown): CommandApprovalRule[] {
+  if (!Array.isArray(rules)) {
+    return [];
+  }
+  return rules
+    .filter(
+      (item): item is CommandApprovalRule =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as CommandApprovalRule).pattern === "string" &&
+        (item as CommandApprovalRule).pattern.trim().length > 0 &&
+        ((item as CommandApprovalRule).decision === "allow" ||
+          (item as CommandApprovalRule).decision === "ask"),
+    )
+    .map((item) => ({ pattern: item.pattern.trim(), decision: item.decision }));
+}
+
 export async function loadAgentSettings(): Promise<AgentSettings> {
   await ensureDir(zenRoot());
   const stored = await readJson<Partial<AgentSettings>>(zenConfigFile(), DEFAULT_AGENT_SETTINGS);
@@ -103,6 +121,9 @@ export async function loadAgentSettings(): Promise<AgentSettings> {
     prompt: { ...DEFAULT_AGENT_SETTINGS.prompt, ...stored.prompt },
     // 旧配置缺 quickCommands 等新字段时按默认补齐，避免 undefined 进网关
     larkBridge: { ...DEFAULT_AGENT_SETTINGS.larkBridge, ...stored.larkBridge },
+    // 旧配置缺审批规则表时按空表补齐；脏数据（空 pattern/非法 decision）清洗掉
+    approvalRules: sanitizeApprovalRules(stored.approvalRules),
+    approvalReviewer: stored.approvalReviewer === "assistant" ? "assistant" : "off",
   };
 }
 

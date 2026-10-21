@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import { writeFile } from "node:fs/promises";
 
 import type { ChatMessage, SessionMode } from "@zen/shared";
-import { SESSION_MODES } from "@zen/shared";
+import { SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
@@ -17,6 +17,7 @@ import {
   listWorkspaceGroups,
   renameSession,
   renameWorkspace,
+  searchSessions,
   setSessionArchived,
   setSessionDraft,
   setSessionModel,
@@ -25,6 +26,7 @@ import {
   setWorkspaceArchived,
   setWorkspacePinned,
   setSessionMode,
+  setSessionGoal,
   trimMessagesFrom,
 } from "./workspace-db";
 
@@ -166,7 +168,20 @@ export function registerSessionIpc(): void {
     }
   });
 
+  // 会话目标（Goals 目标模式）：载荷经 normalizeSessionGoal 归一化，
+  // 非法/空载荷等价于清除目标（goal_json 置 NULL）
+  ipcMain.handle("session:set-goal", (_event, id: string, goal: unknown) => {
+    if (typeof id === "string" && id.trim()) {
+      setSessionGoal(id, normalizeSessionGoal(goal));
+    }
+  });
+
   ipcMain.handle("session:open", (_event, id: string) => getSession(id) ?? null);
+
+  // 全局会话搜索（侧栏）：标题 + 消息内容命中，标题命中优先；空词返回空列表
+  ipcMain.handle("session:search", (_event, query: unknown, limit?: unknown) =>
+    searchSessions(typeof query === "string" ? query : "", typeof limit === "number" ? limit : undefined),
+  );
 
   // 渲染层自建消息落库（当前用于上下文压缩摘要卡）；会话不存在直接拒绝
   ipcMain.handle("session:append-message", (_event, sessionId: string, input: unknown) => {
