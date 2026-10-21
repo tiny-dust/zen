@@ -46,6 +46,7 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpDiscoveredServer,
+  MemoryConsolidationResult,
   MemoryScope,
   MemorySnapshot,
   ModelCapabilities,
@@ -73,6 +74,7 @@ import type {
   TerminalSessionInfo,
   TerminalShellInfo,
   ToolApprovalDecision,
+  TurnCheckpointGroup,
   UpdateStatusInfo,
   UpdateModelInput,
   WebSearchApiProviderId,
@@ -81,7 +83,7 @@ import type {
   Workspace,
   WorkspaceGroup,
 } from "@zen/shared";
-import type { SessionMode } from "@zen/shared";
+import type { SessionGoal, SessionMode } from "@zen/shared";
 
 export interface AppInfo {
   workspaceRoot: string;
@@ -257,6 +259,18 @@ export interface ZenApi {
     readSkillFile(dir: string, path: string): Promise<SkillFileContent>;
     /** 会话文件快照：writeFile/editFile 写入前的原文件备份清单（最新在前） */
     listCheckpoints(sessionId: string): Promise<FileCheckpoint[]>;
+    /** 按轮（run）分组的改动摘要：每轮文件数与撤销状态，最新一轮在前 */
+    listTurnCheckpoints(sessionId: string): Promise<TurnCheckpointGroup[]>;
+    /** 撤销一轮改动：恢复该轮改前副本（新建文件移除）；applied/skipped 为处理计数 */
+    undoTurn(
+      sessionId: string,
+      run: number,
+    ): Promise<{ ok: boolean; error?: string; applied?: number; skipped?: number }>;
+    /** 重新套用已撤销的一轮：恢复该轮改后副本 */
+    reapplyTurn(
+      sessionId: string,
+      run: number,
+    ): Promise<{ ok: boolean; error?: string; applied?: number; skipped?: number }>;
     /** 把指定快照恢复回工作区原路径 */
     restoreCheckpoint(
       sessionId: string,
@@ -329,6 +343,13 @@ export interface ZenApi {
     addNote(scope: MemoryScope, text: string): Promise<MemorySnapshot>;
     removeNote(scope: MemoryScope, id: string): Promise<MemorySnapshot>;
     collect(): Promise<MemorySnapshot>;
+    /** 整固预览：模型算 diff 不落盘；失败返回 {ok:false, error}，绝不动原始数据 */
+    consolidatePreview(scope: MemoryScope): Promise<MemoryConsolidationResult>;
+    /** 应用整固：把预览确认过的 notes 原子写回（临时文件 + rename） */
+    applyConsolidation(
+      scope: MemoryScope,
+      notes: Array<{ id: string; text: string; createdAt: number }>,
+    ): Promise<MemorySnapshot>;
   };
   sync: {
     upload(): Promise<SyncResult>;
@@ -374,11 +395,15 @@ export interface ZenApi {
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void>;
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void>;
+    /** 会话目标（Goals 目标模式）；null 表示清除目标 */
+    setGoal(id: string, goal: SessionGoal | null): Promise<void>;
     open(id: string): Promise<{
       session: SessionRecord;
       messages: ChatMessage[];
       taskLists?: Array<{ version: number; items: import("@zen/shared").TaskItem[]; createdAt?: number }>;
     } | null>;
+    /** 全局会话搜索（侧栏）：标题 + 消息内容命中，标题命中优先；空词返回空列表 */
+    search(query: string, limit?: number): Promise<SessionRecord[]>;
     /** 渲染层自建消息落库（上下文压缩摘要卡）；main 侧会校验并拒绝非法载荷 */
     appendMessage(
       sessionId: string,

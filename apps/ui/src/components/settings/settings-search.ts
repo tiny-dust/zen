@@ -55,6 +55,15 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
   },
   {
     tab: "permissions",
+    sectionId: "set-agent-approval",
+    titleKey: "settings.agent.approvalTitle",
+    descKey: "settings.agent.approvalDesc",
+    keywords: [
+      "command rule prefix auto approve allow ask 命令 规则 前缀 自动放行 白名单 帮我核准 助手 审查",
+    ],
+  },
+  {
+    tab: "permissions",
     sectionId: "set-agent-sandbox",
     titleKey: "settings.agent.sandboxTitle",
     keywords: ["sandbox isolate worktree 隔离区 沙箱 副本 rebuild 重建"],

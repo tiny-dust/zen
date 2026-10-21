@@ -11,11 +11,14 @@ import type {
   ChatMessage,
   ChatRunSummary,
   ReasoningEffort,
+  SessionGoal,
+  SessionGoalStatus,
   SessionMode,
   SessionRecord,
 } from "@zen/shared";
 import { restoreRunSummaryFromMessages, normalizeSessionMode, PLAN_APPROVAL_MESSAGE, routeModel, uuidv7 } from "@zen/shared";
 import { expandBrowserElementTokens } from "@/lib/browser-element";
+import { formatTokens } from "@/lib/format-tokens";
 import { parseSessionDraft } from "@/lib/session-draft";
 import type { SessionDraftState } from "@/lib/session-draft";
 import { useAgentStore } from "@/stores/agent";
@@ -65,6 +68,8 @@ export const useChatStore = defineStore("chat", () => {
   const sessionModel = ref<{ providerId: string; modelId: string } | null>(null);
   /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
   const sessionMode = ref<SessionMode>("interactive");
+  /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
+  const sessionGoal = ref<SessionGoal | null>(null);
   const attachments = ref<ComposerAttachment[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
@@ -87,6 +92,12 @@ export const useChatStore = defineStore("chat", () => {
    * 切走的会话保留其问询卡，切回时恢复；主进程仍在等待应答，不能丢。
    */
   const stashedAsks = new Map<string, AskUserQuestionEvent[]>();
+  /**
+   * 非当前会话的挂起审批暂存（含后台会话新到的 approval_request）：
+   * 切走时把审批卡按旧 sessionId 暂存，切回时恢复——否则主进程还在等审批决定，
+   * UI 却再也拿不回这张卡：会话停在 awaiting-approval，后续发送全被静默拦进队列。
+   */
+  const stashedApprovals = new Map<string, PendingApproval>();
 
   /** 切走当前会话前：把挂起问询按旧 sessionId 暂存并清空当前队列 */
   function stashPendingAsks() {
@@ -100,6 +111,20 @@ export const useChatStore = defineStore("chat", () => {
   function restorePendingAsks(id: string) {
     pendingAsks.value = stashedAsks.get(id) ?? [];
     stashedAsks.delete(id);
+  }
+
+  /** 切走当前会话前：挂起审批按旧 sessionId 暂存（主进程仍在等决定，不能丢） */
+  function stashPendingApproval() {
+    if (pendingApproval.value) {
+      stashedApprovals.set(sessionId.value, pendingApproval.value);
+      pendingApproval.value = null;
+    }
+  }
+
+  /** 切入会话后：恢复该会话的挂起审批卡（无则清空，防串台） */
+  function restorePendingApproval(id: string) {
+    pendingApproval.value = stashedApprovals.get(id) ?? null;
+    stashedApprovals.delete(id);
   }
   /** 兼容单卡视图：队首问询（ChatComposer v-if 用） */
   const pendingAsk = computed(() => pendingAsks.value[0] ?? null);
@@ -239,6 +264,8 @@ export const useChatStore = defineStore("chat", () => {
     phase.value = "thinking";
     statusText.value = i18n.global.t("app.chat.insertRunning");
     sessionStatusStore.set(sessionId.value, "running");
+    // main 侧会先落库这条插入消息：本地同步 updatedAt，侧栏排序立即置顶
+    useWorkspaceStore().touchSessionLocal(sessionId.value);
 
     // IPC 抛错与 {ok:false} 同路处理：insertActive 必须复位，否则 isRunning 永久为 true，
     // 之后所有发送被队列守卫拦住、侧栏一直「进行中」
@@ -261,6 +288,22 @@ export const useChatStore = defineStore("chat", () => {
       queue.queuedMessages.value = [item, ...queue.queuedMessages.value];
       lastError.value = result.error ?? i18n.global.t("app.chat.insertFailed");
       statusText.value = lastError.value;
+      // 运行态复位：插入没发出去（主进程无此 run / run 已结束），不落回的话
+      // status 停在 thinking，isRunning 拦住后续发送且队列永不派发（表现为
+      // 「只 loading 没反应」）；等审批/提问属真实等待，保持 awaiting-approval
+      const error = result.error ?? "";
+      if (error.includes("审批") || error.includes("提问")) {
+        status.value = "awaiting-approval";
+      } else if (
+        error === "session not running" ||
+        error.includes("没有运行中的任务")
+      ) {
+        status.value = "idle";
+        phase.value = "answering";
+        isPaused.value = false;
+        sessionStatusStore.set(sessionId.value, "done");
+      }
+      // 「已有插入任务在执行」：主进程有真实插入 run 在跑，保持 thinking 不动
     }
   }
 
@@ -364,6 +407,18 @@ export const useChatStore = defineStore("chat", () => {
     return Math.min(100, Math.round((cached / input) * 1000) / 10);
   });
 
+  /**
+   * 目标预算消耗标签（如 12.3K/50K）：会话累计消耗 vs 目标 token 预算。
+   * 预算仅 UI 展示对比；无目标或未设预算时为 null。
+   */
+  const goalBudgetLabel = computed(() => {
+    const goal = sessionGoal.value;
+    if (!goal?.tokenBudget) {
+      return null;
+    }
+    return `${formatTokens(sessionTotalTokens.value)}/${formatTokens(goal.tokenBudget)}`;
+  });
+
   // ---------- 历史压缩域：发送前折叠 / 摘要卡 ----------
   const compressionDomain = createCompressionDomain({
     messages,
@@ -434,7 +489,8 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  const { handleStreamEvent, approve, submitAsk, dismissApproval } = createChatEventGateway({
+  const { handleStreamEvent, approve, submitAsk, dismissApproval, consumeBackgroundDispatch } =
+    createChatEventGateway({
     sessionId,
     messages,
     status,
@@ -454,6 +510,7 @@ export const useChatStore = defineStore("chat", () => {
     pendingApproval,
     pendingAsks,
     stashedAsks,
+    stashedApprovals,
     pendingToolArgs,
     filesRevision,
     usedUpdateTasks,
@@ -583,6 +640,20 @@ export const useChatStore = defineStore("chat", () => {
     }
     await send(
       "继续。请先回顾上面的历史与已完成进度（必要时查看当前文件状态确认），接着完成剩余工作，不要重复已完成的操作。",
+    );
+  }
+
+  /**
+   * 「继续推进目标」（Goals 目标模式）：run 正常结束且目标 active 时的一键续跑，
+   * 复用 continueRun 的保留历史语义并附带目标文本；单次手动触发，不自动循环。
+   */
+  async function continueGoal() {
+    const goal = sessionGoal.value;
+    if (isRunning.value || !goal || goal.status !== "active") {
+      return;
+    }
+    await send(
+      `继续推进目标：${goal.text}\n请先回顾上面的历史与已完成进度（必要时查看当前文件状态确认），接着朝该目标继续推进剩余工作，不要重复已完成的操作。`,
     );
   }
 
@@ -745,6 +816,8 @@ export const useChatStore = defineStore("chat", () => {
           : {}),
       },
     });
+    // 发起对话即置顶：main 落库时会同步 updated_at，本地侧栏排序也立即跟上
+    useWorkspaceStore().touchSessionLocal(sessionId.value);
 
     status.value = "thinking";
     isPaused.value = false;
@@ -894,6 +967,13 @@ export const useChatStore = defineStore("chat", () => {
       if (sessionMode.value !== "interactive") {
         await zen.session.setMode(sessionId.value, sessionMode.value);
       }
+      // 未持久化阶段设定的会话目标同样补落库（过桥前先序列化成纯对象，防响应式 Proxy）
+      if (sessionGoal.value) {
+        await zen.session.setGoal(
+          sessionId.value,
+          JSON.parse(JSON.stringify(sessionGoal.value)) as SessionGoal,
+        );
+      }
     } catch (error) {
       lastError.value = i18n.global.t("app.chat.createSessionFailed", {
         error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
@@ -954,6 +1034,7 @@ export const useChatStore = defineStore("chat", () => {
     // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
+    stashPendingApproval();
 
     messages.value = [];
     if (!typedDuringSwitch) {
@@ -966,6 +1047,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = null;
     sessionMode.value = "interactive";
+    sessionGoal.value = null;
 
     sessionWorkspaceId.value = target;
     workspaceStore.setActive(target);
@@ -981,6 +1063,7 @@ export const useChatStore = defineStore("chat", () => {
     // （不能用 clear()：那会清掉全部会话的桶，切回旧会话就恢复不了了）
     bindPanelSessions();
     restorePendingAsks(sessionId.value);
+    restorePendingApproval(sessionId.value);
     void refreshGit();
     void useGitStore().refreshStatus();
   }
@@ -1028,6 +1111,7 @@ export const useChatStore = defineStore("chat", () => {
     // 把未落库的流式消息存进后台缓冲
     stashRunningTranscript();
     stashPendingAsks();
+    stashPendingApproval();
     sessionId.value = record.id;
     sessionPersisted.value = true;
     // 重新打开即视为已读：清除侧栏「已完成 / 失败」结果圆点
@@ -1041,6 +1125,8 @@ export const useChatStore = defineStore("chat", () => {
         : null;
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
+    // 恢复该会话的目标（Goals 目标模式；未设定为 null）
+    sessionGoal.value = found.session.goal ?? null;
     // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容；
     // 从未在前台打开过的后台运行如计划任务，缓冲里只有流式增量，已落库前缀
     // 由数据库补上）；否则用数据库恢复，并清掉过期缓冲
@@ -1074,8 +1160,16 @@ export const useChatStore = defineStore("chat", () => {
       phase.value = "answering";
       isPaused.value = false;
     }
+    // 会话 run 是在后台正常结束的（stop/max_steps）：done 走后台分支没能当场
+    // 调度队列续发——队列已恢复且会话空闲，这里补调度，排队消息才能自动发出
+    const backgroundDispatch = consumeBackgroundDispatch(record.id);
+    if (backgroundDispatch && !bgResumable && queue.queuedMessages.value.length) {
+      queue.scheduleDispatch();
+    }
     // 恢复该会话挂起的 askUser 问询（切走时暂存 / 后台新到的），否则问询卡不显示
     restorePendingAsks(record.id);
+    // 恢复该会话挂起的审批卡（切走时暂存 / 后台新到的），否则主进程等不到决定、会话卡死
+    restorePendingApproval(record.id);
     // 面板状态分桶切换：旧会话面板内容入桶，目标会话有桶则恢复（不能用 clear() 清全部桶）
     bindPanelSessions();
     // 任务清单：目标会话无内存态（本次运行内首次打开）时才从落库数据重建，
@@ -1120,6 +1214,29 @@ export const useChatStore = defineStore("chat", () => {
     if (zen && sessionPersisted.value) {
       await zen.session.setMode(sessionId.value, mode);
     }
+  }
+
+  /**
+   * 设置/更新会话目标（Goals 目标模式）并持久化；goal 为 null 表示清除。
+   * 未持久化会话先记内存，首发补建时由 ensurePersistedSession 落库。
+   * 过桥前 JSON 序列化成纯对象：ref 可能被 popover 表单包成响应式 Proxy，直接
+   * 传 IPC 会抛 "An object could not be cloned"（zen-005）。
+   */
+  async function setSessionGoal(goal: SessionGoal | null) {
+    sessionGoal.value = goal ? JSON.parse(JSON.stringify(goal)) as SessionGoal : null;
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setGoal(sessionId.value, sessionGoal.value);
+    }
+  }
+
+  /** 仅切换目标状态（active/paused/blocked/complete），保留文本与预算 */
+  async function updateGoalStatus(status: SessionGoalStatus) {
+    const goal = sessionGoal.value;
+    if (!goal || goal.status === status) {
+      return;
+    }
+    await setSessionGoal({ ...goal, status });
   }
 
   /** 计划模式批准：以用户消息「批准执行」继续，main 侧识别后切回 interactive 并落库 */
@@ -1174,10 +1291,14 @@ export const useChatStore = defineStore("chat", () => {
     effort,
     sessionModel,
     sessionMode,
+    sessionGoal,
+    goalBudgetLabel,
     effectiveSelection,
     effectiveModel,
     setSessionModel,
     setSessionMode,
+    setSessionGoal,
+    updateGoalStatus,
     approvePlan,
     attachments,
     elementMarks,
@@ -1232,6 +1353,7 @@ export const useChatStore = defineStore("chat", () => {
     cancelEdit,
     retryFrom,
     continueRun,
+    continueGoal,
     editAnchorId,
     approve,
     submitAsk,

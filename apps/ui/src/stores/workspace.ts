@@ -110,6 +110,20 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     }
   }
 
+  /** 会话有新活动（发起对话等）：本地同步 updatedAt 并重排，侧栏立即置顶；DB 侧由 main 落消息时同步 */
+  function touchSessionLocal(sessionId: string) {
+    for (const group of groups.value) {
+      const session = group.sessions.find((item) => item.id === sessionId);
+      if (session) {
+        session.updatedAt = Date.now();
+        group.sessions.sort(
+          (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt,
+        );
+        return;
+      }
+    }
+  }
+
   function archiveSessionLocal(sessionId: string, archived: boolean) {
     for (const group of groups.value) {
       const session = group.sessions.find((item) => item.id === sessionId);
@@ -224,6 +238,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     appendSessionLocal,
     renameSessionLocal,
     pinSessionLocal,
+    touchSessionLocal,
     archiveSessionLocal,
     removeSessionLocal,
     refresh,

@@ -39,6 +39,7 @@ function contextOf(): ChatEventContext {
     pendingApproval: ref<PendingApproval | null>(null),
     pendingAsks: ref<AskUserQuestionEvent[]>([]),
     stashedAsks: new Map<string, AskUserQuestionEvent[]>(),
+    stashedApprovals: new Map(),
     pendingToolArgs: new Map<string, { toolName: string; args: unknown }>(),
     filesRevision: ref(0),
     usedUpdateTasks: ref(false),

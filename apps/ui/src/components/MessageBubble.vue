@@ -272,6 +272,17 @@ const canContinue = computed(() => {
   return reason != null && reason !== "stop";
 });
 
+/**
+ * 「继续推进目标」（Goals 目标模式）：run 正常结束（done stop）且目标 active 时，
+ * 最后一条助手消息的底部操作行出现一键续跑入口；不自动循环。
+ */
+const canContinueGoal = computed(() => {
+  if (props.streaming || chatStore.isRunning || chatStore.messages.at(-1)?.id !== props.message.id) {
+    return false;
+  }
+  return runSummary.value?.reason === "stop" && chatStore.sessionGoal?.status === "active";
+});
+
 /** system 消息：默认中性通知；meta.severity=danger 才用危险红 */
 const systemTone = computed(() => {
   const meta = props.message.meta as { severity?: string; kind?: string } | undefined;
@@ -654,6 +665,18 @@ async function ocrAttachment(path: string) {
         @click="chatStore.continueRun()"
       >
         <Play class="size-3.5" />
+      </Button>
+      <!-- 目标模式：run 正常结束且目标 active 时的一键续跑（单次手动触发，不自动循环） -->
+      <Button
+        v-if="canContinueGoal"
+        variant="ghost"
+        class="h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+        :aria-label="t('goal.continue')"
+        :title="t('goal.continueTitle')"
+        @click="chatStore.continueGoal()"
+      >
+        <Play class="size-3" aria-hidden="true" />
+        {{ t("goal.continue") }}
       </Button>
     </div>
   </div>

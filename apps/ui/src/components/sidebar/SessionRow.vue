@@ -7,6 +7,7 @@ import { classes } from "rattail";
 
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useSessionStatusStore } from "@/stores/session-status";
 
 import type { SessionRuntimeStatus } from "@/stores/session-status";
@@ -15,6 +16,10 @@ import type { SessionRecord } from "@zen/shared";
 const props = defineProps<{
   session: SessionRecord;
   active: boolean;
+  /** 批量管理模式：行首显示勾选框，点击行不再打开会话而是切换勾选 */
+  batchMode?: boolean;
+  /** 批量模式下的勾选态 */
+  selected?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -22,6 +27,7 @@ const emit = defineEmits<{
   pin: [];
   archive: [archived: boolean];
   remove: [];
+  "toggle-select": [];
 }>();
 
 const sessionStatus = useSessionStatusStore();
@@ -64,6 +70,7 @@ const rowCls = computed(() =>
       "bg-[var(--color-side-sel)] text-[var(--color-txt-strong)] font-medium",
     ],
     [needsAction.value, "text-[var(--color-txt-strong)]"],
+    [props.batchMode && props.selected, "bg-[var(--color-side-sel)]"],
   ),
 );
 
@@ -96,11 +103,20 @@ const ghostActionCls = classes(
 </script>
 
 <template>
-  <div :class="rowCls" :aria-current="active ? 'true' : undefined">
+  <div :class="rowCls" :aria-current="active && !batchMode ? 'true' : undefined" @click="batchMode ? emit('toggle-select') : undefined">
+    <!-- 批量模式：行首勾选框（点击行任意位置即切换，勾选行加选中底色） -->
+    <Checkbox
+      v-if="batchMode"
+      :model-value="selected"
+      class="mr-1.5 ml-0.5 flex-none"
+      :aria-label="t('sidebar.batchSelectedCount', { n: 1 })"
+      @click.stop
+      @update:model-value="emit('toggle-select')"
+    />
     <Button
       variant="ghost"
       class="h-full flex min-w-0 flex-1 items-center px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
-      @click="emit('open')"
+      @click="batchMode ? emit('toggle-select') : emit('open')"
     >
       <span :class="titleCls">{{ session.title }}</span>
     </Button>
@@ -131,8 +147,9 @@ const ghostActionCls = classes(
       <span class="size-1.5 shrink-0 rounded-full" :class="resultDotCls" aria-hidden="true" />
     </span>
 
-    <!-- 行尾置顶开关：置顶时常显（accent 斜钉），可直接点击取消；未置顶时 hover 才浮现 -->
+    <!-- 行尾置顶开关：置顶时常显（accent 斜钉），可直接点击取消；未置顶时 hover 才浮现（批量模式下隐藏） -->
     <button
+      v-if="!batchMode"
       type="button"
       class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-mut)] transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/session:opacity-100"
       :class="session.pinned ? 'opacity-100' : 'opacity-0'"
@@ -147,7 +164,7 @@ const ghostActionCls = classes(
       />
     </button>
 
-    <div :class="hoverClusterCls">
+    <div v-if="!batchMode" :class="hoverClusterCls">
       <Button
         variant="ghost"
         size="icon-sm"

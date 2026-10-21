@@ -1,9 +1,10 @@
 <script setup lang="ts">
-  import { ChevronDown, Copy, ExternalLink, Folder, Globe, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
-  import { computed } from "vue";
+  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
+  import { computed, ref } from "vue";
   import { useI18n } from "vue-i18n";
 
   import SessionRow from "@/components/sidebar/SessionRow.vue";
+  import DangerIconButton from "@/components/base/DangerIconButton.vue";
   import { Button } from "@/components/ui/button";
   import {
     ContextMenu,
@@ -44,6 +45,8 @@
     "copy-path": [];
     "show-in-folder": [];
     "delete-workspace": [];
+    /** 批量操作：选中的会话交给父级执行（删除在父级弹确认） */
+    batch: [action: "pin" | "unpin" | "archive" | "delete", sessions: SessionRecord[]];
   }>();
 
   const workspaceStore = useWorkspaceStore();
@@ -54,12 +57,74 @@
   /** 区块头形态（公共区组头即区块头，视觉更重） */
   const isZone = computed(() => props.variant === "zone");
   const previewCount = workspaceStore.PREVIEW_COUNT;
-  /** 未展开时多渲染 1 条露头，配合渐隐遮罩提示还有更多 */
+  /** 未展开时多渲染 1 条露头，配合渐隐遮罩提示还有更多（批量模式下展示全量） */
   const shownSessions = computed(() =>
-    props.expanded ? props.sessions : props.sessions.slice(0, previewCount + 1),
+    batchMode.value || props.expanded ? props.sessions : props.sessions.slice(0, previewCount + 1),
   );
-  const truncated = computed(() => !props.expanded && props.sessions.length > previewCount);
-  const showExpandToggle = computed(() => props.sessions.length > previewCount);
+  const truncated = computed(
+    () => !batchMode.value && !props.expanded && props.sessions.length > previewCount,
+  );
+  const showExpandToggle = computed(
+    () => !batchMode.value && props.sessions.length > previewCount,
+  );
+
+  // ---------- 批量管理模式（本组内多选 → 置顶 / 归档 / 删除） ----------
+  /** 批量模式开关：进入后行首出勾选框、点击行切换勾选，不再打开会话 */
+  const batchMode = ref(false);
+  const selectedIds = ref(new Set<string>());
+
+  const selectedSessions = computed(() =>
+    props.sessions.filter((item) => selectedIds.value.has(item.id)),
+  );
+  const allSelected = computed(
+    () => props.sessions.length > 0 && props.sessions.every((item) => selectedIds.value.has(item.id)),
+  );
+  /** 选中项已全部置顶时按钮翻转为「取消置顶」，否则置顶 */
+  const pinAction = computed<"pin" | "unpin">(() =>
+    selectedSessions.value.length > 0 &&
+    selectedSessions.value.every((item) => item.pinned)
+      ? "unpin"
+      : "pin",
+  );
+
+  function enterBatch() {
+    if (!props.sessions.length) {
+      return;
+    }
+    selectedIds.value = new Set();
+    batchMode.value = true;
+  }
+
+  function exitBatch() {
+    batchMode.value = false;
+    selectedIds.value = new Set();
+  }
+
+  function toggleSelect(session: SessionRecord) {
+    const next = new Set(selectedIds.value);
+    if (next.has(session.id)) {
+      next.delete(session.id);
+    } else {
+      next.add(session.id);
+    }
+    selectedIds.value = next;
+  }
+
+  function toggleSelectAll() {
+    selectedIds.value = allSelected.value
+      ? new Set()
+      : new Set(props.sessions.map((item) => item.id));
+  }
+
+  /** 执行批量动作后退出模式；删除的二次确认由父级（AppSidebar）负责 */
+  function runBatch(action: "pin" | "unpin" | "archive" | "delete") {
+    const selected = selectedSessions.value;
+    if (!selected.length) {
+      return;
+    }
+    exitBatch();
+    emit("batch", action, selected);
+  }
 </script>
 
 <template>
@@ -100,6 +165,11 @@
               :aria-label="t('sidebar.newSession')" :title="t('sidebar.newSession')" @click.stop="emit('new-session')">
               <Plus class="size-3.5" aria-hidden="true" />
             </Button>
+            <Button v-if="sessions.length" variant="ghost" size="icon-sm"
+              class="size-5 text-[var(--color-dim)] hover:text-[var(--color-txt-strong)] dark:hover:text-[var(--color-txt-strong)]"
+              :aria-label="t('sidebar.batchManage')" :title="t('sidebar.batchManage')" @click.stop="enterBatch()">
+              <ListChecks class="size-3.5" aria-hidden="true" />
+            </Button>
             <template v-if="!isCommon">
               <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-del)] hover:text-[var(--color-danger-fg)] dark:hover:text-[var(--color-danger-fg)]"
@@ -126,6 +196,10 @@
         <ContextMenuItem @select="emit('new-session')">
           <Plus class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
           {{ t("sidebar.newSession") }}
+        </ContextMenuItem>
+        <ContextMenuItem v-if="sessions.length" @select="enterBatch()">
+          <ListChecks class="size-3.5 text-[var(--color-mut)]" aria-hidden="true" />
+          {{ t("sidebar.batchManage") }}
         </ContextMenuItem>
         <template v-if="!isCommon">
           <ContextMenuSeparator />
@@ -157,10 +231,38 @@
     </ContextMenu>
 
     <div v-if="open && sessions.length" class="mt-0.5">
+      <!-- 批量管理操作条：计数 + 全选 + 置顶/归档/删除 + 退出 -->
+      <div v-if="batchMode"
+        class="mb-1 flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-side-hover)] px-1.5 py-1"
+        :class="isZone ? 'ml-3' : 'ml-5'" role="toolbar" :aria-label="t('sidebar.batchManage')">
+        <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]">
+          {{ selectedSessions.length ? t("sidebar.batchSelectedCount", { n: selectedSessions.length }) : t("sidebar.batchNoneSelected") }}
+        </span>
+        <Button variant="ghost" size="xs" class="h-6 flex-none px-1.5 text-[11px]" @click="toggleSelectAll">
+          {{ allSelected ? t("sidebar.collapse") : t("sidebar.batchSelectAll") }}
+        </Button>
+        <Button variant="ghost" size="xs" class="h-6 flex-none px-1.5 text-[11px]" :disabled="!selectedSessions.length"
+          @click="runBatch(pinAction)">
+          {{ pinAction === "unpin" ? t("sidebar.batchUnpin") : t("sidebar.batchPin") }}
+        </Button>
+        <Button variant="ghost" size="xs" class="h-6 flex-none px-1.5 text-[11px]" :disabled="!selectedSessions.length"
+          @click="runBatch('archive')">
+          {{ t("sidebar.batchArchive") }}
+        </Button>
+        <DangerIconButton class="flex-none" :label="t('sidebar.batchDelete')" :disabled="!selectedSessions.length"
+          @click="runBatch('delete')">
+          <Trash2 class="size-[13px] shrink-0" />
+        </DangerIconButton>
+        <Button variant="ghost" size="xs" class="h-6 flex-none px-1.5 text-[11px]" @click="exitBatch">
+          {{ t("sidebar.batchExit") }}
+        </Button>
+      </div>
       <div class="flex flex-col gap-0.5" :class="[isZone ? 'pl-3' : 'pl-5', truncated && 'session-list-fade']">
         <SessionRow v-for="session in shownSessions" :key="session.id" :session="session"
-          :active="activeSessionId === session.id" @open="emit('open', session)" @pin="emit('pin', session)"
-          @archive="(archived) => emit('archive', session, archived)" @remove="emit('remove', session)" />
+          :active="activeSessionId === session.id" :batch-mode="batchMode"
+          :selected="selectedIds.has(session.id)" @open="emit('open', session)" @pin="emit('pin', session)"
+          @archive="(archived) => emit('archive', session, archived)" @remove="emit('remove', session)"
+          @toggle-select="toggleSelect(session)" />
       </div>
       <div v-if="showExpandToggle" class="flex justify-center pr-10 pt-0.5">
         <Button variant="ghost"

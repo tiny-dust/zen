@@ -41,7 +41,7 @@ function toggleSection(id: SectionId) {
 
 /** 左栏宽度（px），拖拽手柄调整 */
 const sidebarWidth = ref(230);
-const SIDEBAR_MIN = 170;
+const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 420;
 
 function onSidebarDrag(delta: number) {

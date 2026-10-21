@@ -33,6 +33,7 @@ import PromptPicker from "@/components/chat/PromptPicker.vue";
 import WorkspacePicker from "@/components/chat/WorkspacePicker.vue";
 import ComposerBranchPicker from "@/components/chat/ComposerBranchPicker.vue";
 import ContextUsagePicker from "@/components/chat/ContextUsagePicker.vue";
+import GoalChip from "@/components/chat/GoalChip.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
@@ -530,6 +531,8 @@ function removeAttachment(id: string) {
             <div class="flex min-w-0 items-center gap-1">
               <WorkspacePicker :compact="isCompactBar" />
               <ComposerBranchPicker :compact="isCompactBar" />
+              <!-- 会话目标（Goals 目标模式）：无目标=设定入口，有目标=摘要 chip -->
+              <GoalChip />
             </div>
             <div class="flex flex-none items-center gap-1">
               <PermissionPicker :compact="isCompactBar" />

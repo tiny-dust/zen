@@ -55,6 +55,12 @@ export interface ChatEventContext {
   pendingAsks: Ref<AskUserQuestionEvent[]>;
   /** 非当前会话的挂起问询暂存：后台新到的 ask_user 记入，切回该会话时由 chat store 恢复 */
   stashedAsks: Map<string, AskUserQuestionEvent[]>;
+  /**
+   * 非当前会话的挂起审批暂存：后台会话新到 approval_request 时记入，
+   * 切回该会话时由 chat store 恢复审批卡——否则主进程一直等不到决定，
+   * 会话停在 awaiting-approval，后续发送全被静默拦进队列。
+   */
+  stashedApprovals: Map<string, PendingApproval>;
   /** tool_start 入参暂存：tool_end 成功后据此把读写过的项目文件登记进参考 */
   pendingToolArgs: Map<string, { toolName: string; args: unknown }>;
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
@@ -110,6 +116,11 @@ export function createChatEventGateway(ctx: ChatEventContext) {
   const sessionStatusStore = useSessionStatusStore();
   /** 后台会话中处于插入 run 的 sessionId：其 done(phase=insert) 不能当会话结束 */
   const backgroundInserts = new Set<string>();
+  /**
+   * 后台正常收尾（stop/max_steps）的 sessionId：其 run 结束时不在前台，done 走
+   * 后台分支无法当场调度队列续发——记下，切回该会话时补一次调度
+   */
+  const backgroundDispatchable = new Set<string>();
 
   /** 流式助手消息：无助手消息时先建一条空的（模型不输出正文直接调工具时也需要） */
   /** 原 run 恢复后另起新助手气泡：原 run 的续跑输出不并进插入 run 的回复气泡 */
@@ -262,7 +273,21 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         break;
       case "approval_request":
       case "ask_user":
-        if (event.type === "ask_user") {
+        if (event.type === "approval_request") {
+          // 后台会话的审批记入暂存：切回该会话时恢复审批卡（主进程仍在等决定）
+          const request = event.request;
+          ctx.stashedApprovals.set(id, {
+            approvalId: request.approvalId,
+            toolCallId: request.toolCallId,
+            toolName: request.toolName,
+            prompt:
+              request.reason ??
+              i18n.global.t("app.chat.approvalNeeded", {
+                label: toolDisplay(request.toolName, request.input).label,
+              }),
+            input: request.input,
+          });
+        } else if (event.type === "ask_user") {
           // 后台会话的问询记入暂存：切回该会话时恢复出问询卡（主进程仍在等应答）
           const question = event.question;
           const stashed = ctx.stashedAsks.get(id) ?? [];
@@ -280,6 +305,8 @@ export function createChatEventGateway(ctx: ChatEventContext) {
             id,
             (ctx.stashedAsks.get(id) ?? []).filter((item) => item.askId !== event.askId),
           );
+        } else {
+          ctx.stashedApprovals.delete(id);
         }
         sessionStatusStore.set(id, "running");
         break;
@@ -294,6 +321,13 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         // run 终态内容在 done 广播前已落库（main 侧先 persist 再 send）：
         // 丢弃后台缓冲防泄漏，之后再打开走数据库恢复
         ctx.backgroundTranscripts.drop(id);
+        // 后台正常收尾（stop/max_steps）时该会话的插入队列无法当场续发（不在前台），
+        // 记下来等切回时补调度；取消/出错与前台的「保留队列待用户处理」语义一致
+        if (event.reason === "stop" || event.reason === "max_steps") {
+          backgroundDispatchable.add(id);
+        } else {
+          backgroundDispatchable.delete(id);
+        }
         const isError = event.reason === "error";
         sessionStatusStore.set(id, isError ? "error" : "done");
         playNotifySound(isError ? "error" : "done");
@@ -652,5 +686,16 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     ctx.statusText.value = i18n.global.t("app.chat.approvalDismissed");
   }
 
-  return { handleStreamEvent, approve, submitAsk, dismissApproval };
+  /**
+   * 切回后台已正常收尾的会话时消费该标记：true 表示该会话的 run 是在后台
+   * 正常结束（stop/max_steps）的，其插入队列还没续发，需要补一次调度。
+   * 无论是否派发都清掉标记，避免残留到下一次打开。
+   */
+  function consumeBackgroundDispatch(id: string): boolean {
+    const dispatch = backgroundDispatchable.has(id);
+    backgroundDispatchable.delete(id);
+    return dispatch;
+  }
+
+  return { handleStreamEvent, approve, submitAsk, dismissApproval, consumeBackgroundDispatch };
 }

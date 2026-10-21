@@ -265,6 +265,25 @@ export default {
       cuaWarning:
         "高风险：开启后 Agent 可在无需逐次确认的情况下操作你的电脑。请仅在必要时开启，并在用完后及时关闭。",
       cuaOpenAccessibility: "打开系统辅助功能授权",
+      approvalTitle: "命令规则与自动核准",
+      approvalDesc:
+        "为终端执行类工具配置命令前缀规则：命中「自动放行」的命令不再弹审批卡；也可让助手模型自动审阅审批请求。",
+      approvalRulesTitle: "命令前缀规则",
+      approvalRulesHint:
+        "按前缀匹配（忽略大小写与首尾空白），自上而下首条命中生效——更具体的规则放前面可覆盖宽规则。",
+      approvalRulePatternPlaceholder: "命令前缀，如 git status 或 pnpm test",
+      approvalDecisionAllow: "自动放行",
+      approvalDecisionAsk: "人工确认",
+      approvalDecisionAria: "新规则的处置方式",
+      approvalAddRule: "添加规则",
+      approvalRuleEmpty: "暂无规则。命中「自动放行」前缀的命令将跳过审批卡直接执行，工具卡片上会标注放行来源。",
+      approvalDeleteRuleAria: "删除规则 {pattern}",
+      approvalReviewerTitle: "帮我核准",
+      approvalReviewerToggle: "助手模型自动审阅审批请求",
+      approvalReviewerDesc:
+        "开启后，需要确认的工具调用先交给当前生效的模型做安全审查：判定安全的操作自动放行并在工具卡片上标注「已由助手模型核准」与理由；审查失败、超时或判定有风险时回退人工审批。",
+      approvalReviewerWarning:
+        "助手模型可能误判，敏感项目请保持关闭；已自动放行的调用可在会话的工具卡片上查看标注。",
       memoryTitle: "记忆",
       memoryDesc:
         "每次会话自动带上设备环境与用户习惯，Agent 不必重复探测路径和命令；也可以在对话里让它「记住……」。",
@@ -288,6 +307,17 @@ export default {
       deleteUserNoteTitle: "删除这条用户习惯？",
       deleteDeviceNoteTitle: "删除这条设备备注？",
       deleteNoteDesc: "「{text}」将从记忆中移除，后续会话不再携带。",
+      consolidateStats: "{count} 条 · {chars} 字符",
+      consolidate: "整固",
+      consolidateTitle: "整固记忆",
+      consolidateDesc:
+        "模型将合并「{scope}」中的重复与啰嗦条目，改写成精炼结构。确认应用后替换当前列表；取消或失败则保持原样。",
+      consolidateLoading: "正在生成整固预览…",
+      consolidateBefore: "当前（{count} 条）",
+      consolidateAfter: "整固后（{count} 条）",
+      consolidateApply: "确认应用",
+      consolidateNoChange: "模型未产生变化，无需应用",
+      consolidateFailed: "整固预览失败：{error}",
       webSearchTitle: "网络搜索",
       webSearchDesc: "未配置 Key 时默认使用免登录搜索（DuckDuckGo / Bing）；配置后优先使用对应供应商的搜索 API。",
       webSearchProvider: {
@@ -724,6 +754,26 @@ export default {
       cuaWarning:
         "High risk: once enabled, the Agent can operate your computer without per-action confirmation. Enable only when necessary and turn it off afterwards.",
       cuaOpenAccessibility: "Open Accessibility authorization",
+      approvalTitle: "Command Rules & Assistant Approval",
+      approvalDesc:
+        "Configure command prefix rules for terminal tools: commands matching an “Auto-approve” prefix skip the approval card; optionally let the assistant model auto-review approval requests.",
+      approvalRulesTitle: "Command prefix rules",
+      approvalRulesHint:
+        "Matched by prefix (case-insensitive, surrounding spaces ignored); the first matching rule wins — put specific rules above broad ones to override them.",
+      approvalRulePatternPlaceholder: "Command prefix, e.g. git status or pnpm test",
+      approvalDecisionAllow: "Auto-approve",
+      approvalDecisionAsk: "Always ask",
+      approvalDecisionAria: "Decision for the new rule",
+      approvalAddRule: "Add rule",
+      approvalRuleEmpty:
+        "No rules yet. Commands matching an “Auto-approve” prefix run without the approval card; the tool card notes why it was allowed.",
+      approvalDeleteRuleAria: "Delete rule {pattern}",
+      approvalReviewerTitle: "Approve for me",
+      approvalReviewerToggle: "Assistant model auto-reviews approval requests",
+      approvalReviewerDesc:
+        "When enabled, tool calls that need confirmation are first sent to the current model for a safety review: safe operations are auto-approved and labeled “Approved by assistant model” with the reason; failures, timeouts, or risky verdicts fall back to manual approval.",
+      approvalReviewerWarning:
+        "The assistant model can misjudge — keep this off for sensitive projects; auto-approved calls are labeled on the tool cards in chat.",
       memoryTitle: "Memory",
       memoryDesc:
         "Device environment and user habits are attached to every session, so the Agent doesn't re-probe paths and commands. You can also ask it to “remember …” in chat.",
@@ -749,6 +799,17 @@ export default {
       deleteUserNoteTitle: "Delete this user habit?",
       deleteDeviceNoteTitle: "Delete this device note?",
       deleteNoteDesc: "“{text}” will be removed from memory and no longer attached to future sessions.",
+      consolidateStats: "{count} notes · {chars} chars",
+      consolidate: "Consolidate",
+      consolidateTitle: "Consolidate memory",
+      consolidateDesc:
+        "The model merges duplicate and verbose entries in “{scope}” into a refined structure. Applying replaces the current list; canceling or any failure keeps it untouched.",
+      consolidateLoading: "Generating consolidation preview…",
+      consolidateBefore: "Current ({count})",
+      consolidateAfter: "After ({count})",
+      consolidateApply: "Apply",
+      consolidateNoChange: "The model produced no changes — nothing to apply",
+      consolidateFailed: "Consolidation preview failed: {error}",
       webSearchTitle: "Web Search",
       webSearchDesc:
         "Without API keys, sign-in-free search (DuckDuckGo / Bing) is used by default; configured providers take priority via their search APIs.",

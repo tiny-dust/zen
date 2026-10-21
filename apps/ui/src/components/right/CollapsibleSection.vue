@@ -18,10 +18,10 @@ defineEmits<{ toggle: [] }>();
 
 <template>
   <section class="flex min-h-0 flex-col" :class="open ? 'flex-1' : 'flex-none'">
-    <header class="flex h-7 flex-none items-center gap-0.5 select-none">
+    <header class="flex h-7 min-w-0 flex-none items-center gap-0.5 overflow-hidden select-none">
       <button
         type="button"
-        class="flex h-7 min-w-0 items-center gap-1 rounded-md px-1 text-left hover:bg-[var(--color-menu-hover)]"
+        class="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left hover:bg-[var(--color-menu-hover)]"
         :aria-expanded="open"
         @click="$emit('toggle')"
       >
@@ -36,9 +36,11 @@ defineEmits<{ toggle: [] }>();
         <span v-if="count" class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
           {{ count }}
         </span>
-        <!-- 头行补充信息（如 +N -M 统计） -->
-        <slot name="meta" />
       </button>
+      <!-- 头行补充信息（如 +N -M 统计）：置于折叠按钮外，窄宽度时随 header 裁剪，不与 actions 重叠 -->
+      <span v-if="$slots.meta" class="flex flex-none items-center" @click="$emit('toggle')">
+        <slot name="meta" />
+      </span>
       <slot name="actions" />
     </header>
     <div v-show="open" class="flex min-h-0 flex-1 flex-col gap-1 pt-0.5">

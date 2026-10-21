@@ -177,6 +177,57 @@ describe("运行中发送 = 排队编排", () => {
     expect(chat.queuedMessages).toHaveLength(0);
   });
 
+  it("后台正常结束的会话切回后：暂存的队列消息补续发", async () => {
+    vi.useFakeTimers();
+    const chat = useChatStore();
+    const firstId = chat.sessionId;
+
+    agentRun.mockResolvedValue({ ok: true });
+    chat.input = "长任务";
+    await chat.send();
+
+    chat.input = "补充指示";
+    await chat.send();
+    expect(chat.queuedMessages).toHaveLength(1);
+
+    // 切到新会话：原 run 后台继续跑，队列随会话暂存
+    await chat.newTask();
+    expect(chat.sessionId).not.toBe(firstId);
+    expect(chat.queuedMessages).toHaveLength(0);
+
+    // 原会话在后台正常结束：done 走后台分支（非当前会话）
+    chat.handleStreamEvent({ type: "done", sessionId: firstId, reason: "stop" });
+
+    // 切回原会话：队列从暂存恢复，会话已不在运行
+    const zen = window.zen;
+    (zen?.session.open as ReturnType<typeof vi.fn>).mockResolvedValue({
+      session: { id: firstId, title: "T", workspaceId: null, draft: "", mode: "interactive" },
+      messages: [],
+    });
+    await chat.loadSession({
+      id: firstId,
+      title: "T",
+      workspaceId: null,
+      draft: "",
+      pinned: false,
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(chat.queuedMessages.map((item) => item.text)).toEqual(["补充指示"]);
+    expect(chat.isRunning).toBe(false);
+
+    // 切回后应补一次队列续发：恢复的消息自动发出，不用再手动发送/插入
+    await vi.advanceTimersByTimeAsync(400);
+    const request = agentRun.mock.calls.at(-1)?.[0] as {
+      sessionId?: string;
+      userMessage?: string;
+    };
+    expect(request?.sessionId).toBe(firstId);
+    expect(request?.userMessage).toBe("补充指示");
+    expect(chat.queuedMessages).toHaveLength(0);
+  });
+
   it("带附件的排队消息不支持「立即插入」：不打断，等队列轮到自动发送", async () => {
     const chat = useChatStore();
 
