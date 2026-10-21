@@ -40,3 +40,17 @@ export interface MemorySnapshot {
   device: DeviceMemory | null;
   user: UserMemory;
 }
+
+/** 记忆整固（consolidation）：模型把累积 notes 合并/去重/改写成精炼结构 */
+export interface MemoryConsolidationResult {
+  /** 模型调用或 JSON 解析失败时为 false；此时绝不动原始数据 */
+  ok: boolean;
+  error?: string;
+  scope: MemoryScope;
+  /** 整固前的 notes（当前落盘内容） */
+  before: MemoryNote[];
+  /** 模型产出的整固后 notes（未落盘，待用户确认） */
+  after: MemoryNote[];
+  /** 内容有变化的条数（移除 + 新增/改写），0 表示模型认为无需整固 */
+  changedCount: number;
+}

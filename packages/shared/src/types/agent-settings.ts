@@ -41,6 +41,16 @@ export interface PromptSelection {
   version?: PromptViewVersion;
 }
 
+/**
+ * 命令前缀审批规则：命中 allow 前缀的执行类命令（runTerminal 等）自动放行，
+ * 不再逐次弹审批卡；ask=该前缀保持人工确认。
+ */
+export interface CommandApprovalRule {
+  /** 命令前缀（trim 后 startsWith 语义匹配，大小写不敏感） */
+  pattern: string;
+  decision: "allow" | "ask";
+}
+
 export interface AgentSettings {
   permissionMode: PermissionMode;
   sandboxMode: SandboxMode;
@@ -57,6 +67,10 @@ export interface AgentSettings {
   larkBridge: LarkBridgeSettings;
   /** CUA 桌面自动化（agent 的 cua.* 工具）总开关：默认关闭 */
   cuaEnabled: boolean;
+  /** 命令前缀审批规则表（向后兼容：旧配置缺省为空表） */
+  approvalRules: CommandApprovalRule[];
+  /** 帮我核准：审批请求先交助手模型自动审阅；off=关闭（默认） */
+  approvalReviewer: "off" | "assistant";
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -69,6 +83,8 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   syncRepo: null,
   larkBridge: DEFAULT_LARK_BRIDGE_SETTINGS,
   cuaEnabled: false,
+  approvalRules: [],
+  approvalReviewer: "off",
 };
 
 /** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */

@@ -17,5 +17,6 @@ export * from "./checkpoints";
 export * from "./scheduler";
 export * from "./id";
 export * from "./session-mode";
+export * from "./session-goal";
 export * from "./feature";
 export * from "./system-abilities";
