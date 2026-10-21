@@ -73,8 +73,14 @@ export interface AgentSessionConfig {
   cuaBridge?: CuaAgentBridge;
   /** 长驻服务桥（desktop 注入；runTerminal 进程组登记与收集，缺省不收集） */
   servicesBridge?: ServicesAgentBridge;
-  /** 文件快照桥（main 注入）：writeFile/editFile 实际写入前备份原文件；失败不阻塞写入 */
-  checkpointBridge?: { backupFile(relativePath: string): Promise<void> };
+  /**
+   * 文件快照桥（main 注入）：writeFile/editFile 实际写入前备份原文件（返回检查点 id，
+   * 新建/越界/失败返回 null），写入成功后备份改后副本（reapply 用）；失败不阻塞写入。
+   */
+  checkpointBridge?: {
+    backupFile(relativePath: string): Promise<string | null>;
+    afterFile?(relativePath: string, checkpointId: string | null): Promise<void>;
+  };
   /** 网络搜索 API Key（desktop 注入）：配置了的供应商优先于免登录抓取（DDG/Bing） */
   webSearchApiKeys?: Partial<Record<WebSearchApiProviderId, string>>;
   /**
@@ -99,6 +105,20 @@ export interface AgentSessionConfig {
   resourceLock?: ResourceLock;
   /** 资源锁 owner 标签；多 Agent 时应对齐 AgentNodeState.id 以驱动 busyResource */
   ownerLabel?: string;
+  /**
+   * 自动审批闸（desktop 注入）：默认流程判为需人工确认时先交给此闸——
+   * 命令前缀规则 / 助手模型核准在 main 侧实现。返回 approved=true 则本闸放行
+   * （SDK 直接执行工具，不产生 approval_request，UI 审批卡不出现，只发
+   * approval_resolved + 可选 tool_progress 标注）；返回 null / approved=false /
+   * 抛错一律回落现有人工审批。防递归：闸内模型调用由 main 侧 completeOnce
+   * 直连供应商，不经工具循环，不会再触发审批。
+   */
+  approvalGate?: (request: {
+    toolName: string;
+    /** runTerminal 等执行类工具的命令文本；无 command 字段时缺省 */
+    command?: string;
+    input: unknown;
+  }) => Promise<{ approved: boolean; note?: string } | null>;
   emit: (event: AgentStreamEvent) => void;
 }
 

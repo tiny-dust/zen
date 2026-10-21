@@ -103,12 +103,20 @@ export function buildToolSet(
           "write",
           async () => {
             // 检查点只是回退保障，备份失败不应让写入本身中断
+            let checkpointId: string | null = null;
             try {
-              await config.checkpointBridge?.backupFile(path);
+              checkpointId = (await config.checkpointBridge?.backupFile(path)) ?? null;
             } catch {
               // 忽略备份错误
             }
-            return writeWorkspaceFile(workspaceRoot, path, content);
+            const result = await writeWorkspaceFile(workspaceRoot, path, content);
+            // 写入成功后补改后副本（撤销后可重新套用）；失败不影响写入结果
+            try {
+              await config.checkpointBridge?.afterFile?.(path, checkpointId);
+            } catch {
+              // 忽略改后副本错误
+            }
+            return result;
           },
           abortSignal,
         );
@@ -127,8 +135,9 @@ export function buildToolSet(
         return exclusive(runtime, "write", async (signal) => {
           void signal;
           // 检查点只是回退保障，备份失败不应让写入本身中断
+          let checkpointId: string | null = null;
           try {
-            await config.checkpointBridge?.backupFile(path);
+            checkpointId = (await config.checkpointBridge?.backupFile(path)) ?? null;
           } catch {
             // 忽略备份错误
           }
@@ -143,6 +152,12 @@ export function buildToolSet(
             throw new Error(
               `oldString not found in ${path}; read the file first and copy exact text${result.hint ? ` (${result.hint})` : ""}`,
             );
+          }
+          // 写入成功后补改后副本（撤销后可重新套用）；失败不影响写入结果
+          try {
+            await config.checkpointBridge?.afterFile?.(path, checkpointId);
+          } catch {
+            // 忽略改后副本错误
           }
           return result;
         }, abortSignal);

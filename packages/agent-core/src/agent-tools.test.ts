@@ -136,20 +136,38 @@ describe("fs 工具", () => {
     ).rejects.toThrow(/oldString not found/);
   });
 
-  it("配置 checkpointBridge 时写入前先备份，备份失败不阻塞写入", async () => {
+  it("配置 checkpointBridge 时写入前备份、写入后记改后副本，备份失败不阻塞写入", async () => {
     const calls: string[] = [];
+    let seq = 0;
     const tools = build({
       checkpointBridge: {
         backupFile: async (relativePath) => {
-          calls.push(relativePath);
+          calls.push(`backup:${relativePath}`);
+          return `cp-${++seq}`;
+        },
+        afterFile: async (relativePath, checkpointId) => {
+          calls.push(`after:${relativePath}:${checkpointId}`);
         },
       },
     });
     await execTool(tools.writeFile, { path: "cp.txt", content: "v1" });
     await execTool(tools.editFile, { path: "cp.txt", oldString: "v1", newString: "v2" });
-    expect(calls).toEqual(["cp.txt", "cp.txt"]);
+    // 每次写入：先改前备份、写完带检查点 id 记改后副本（供撤销/重套用）
+    expect(calls).toEqual([
+      "backup:cp.txt",
+      "after:cp.txt:cp-1",
+      "backup:cp.txt",
+      "after:cp.txt:cp-2",
+    ]);
     await expect(execTool(tools.readFile, { path: "cp.txt" })).resolves.toBe("v2");
 
+    // editFile 未命中不产生改后副本（没有成功写入）
+    await expect(
+      execTool(tools.editFile, { path: "cp.txt", oldString: "missing", newString: "x" }),
+    ).rejects.toThrow(/oldString not found/);
+    expect(calls.filter((call) => call.startsWith("after:"))).toHaveLength(2);
+
+    // 备份抛错：写入照常完成（afterFile 未提供时不阻塞）
     const failing = build({
       checkpointBridge: {
         backupFile: async () => {
@@ -160,9 +178,9 @@ describe("fs 工具", () => {
     await expect(
       execTool(failing.writeFile, { path: "cp-fail.txt", content: "still-written" }),
     ).resolves.toMatchObject({ content: "still-written" });
-    await expect(execTool(failing.readFile, { path: "cp-fail.txt" })).resolves.toBe(
-      "still-written",
-    );
+    await expect(
+      execTool(failing.readFile, { path: "cp-fail.txt" }),
+    ).resolves.toBe("still-written");
   });
 });
 

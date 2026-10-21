@@ -284,7 +284,7 @@ export class AgentSession {
           .join("\n\n");
         return { ...options, instructions: merged || undefined };
       },
-      toolApproval: ({ toolCall }) => {
+      toolApproval: async ({ toolCall }) => {
         const toolName = toolCall.toolName ?? "";
         const args = (toolCall as { input?: unknown; args?: unknown }).input;
         const command =
@@ -295,7 +295,32 @@ export class AgentSession {
           remembered: this.rememberedTools.has(toolName),
           command,
         });
-        return verdict === "allow" ? undefined : "user-approval";
+        if (verdict === "allow") {
+          return undefined;
+        }
+        // 自动审批闸（命令前缀规则 / 助手模型核准）：放行则本步直接执行，
+        // 不产生 approval_request（UI 审批卡不出现）；异常/未放行回落人工
+        if (sessionConfig.approvalGate) {
+          try {
+            const gate = await sessionConfig.approvalGate({ toolName, command, input: args });
+            if (gate?.approved) {
+              const toolCallId = (toolCall as { toolCallId?: string }).toolCallId ?? "";
+              if (gate.note) {
+                // 标注（「已由助手模型核准：…」等）挂在工具调用的进行中状态上，
+                // 与落库共用 applyStreamToMessage 的 tool_progress 分支
+                emit({
+                  type: "tool_progress",
+                  sessionId: config.sessionId,
+                  event: { toolCallId, toolName, message: gate.note },
+                });
+              }
+              return { type: "approved" as const, ...(gate.note ? { reason: gate.note } : {}) };
+            }
+          } catch {
+            // 闸内异常（模型调用失败/超时等）回落人工审批
+          }
+        }
+        return "user-approval";
       },
     });
   }
