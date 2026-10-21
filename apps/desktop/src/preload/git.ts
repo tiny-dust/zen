@@ -38,7 +38,7 @@ export const gitApi = {
         autoMessage?: boolean;
         model?: GitCompletionModel;
       },
-    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> {
+    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string; aiNote?: string }> {
       return ipcRenderer.invoke("git:commit", cwd, message, files, options);
     },
     log(cwd?: string, ref?: string): Promise<GitLogEntry[]> {
@@ -58,7 +58,13 @@ export const gitApi = {
       cwd: string | undefined,
       files: string[],
       options?: { push?: boolean; model?: GitCompletionModel },
-    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> {
+    ): Promise<{
+      ok: boolean;
+      batches: GitCommitBatch[];
+      error?: string;
+      /** AI 规划失败原因：非空表示批次是目录兜底分组而非按内容分组 */
+      planNote?: string;
+    }> {
       return ipcRenderer.invoke("git:commit-batched", cwd, files, options);
     },
     aiMessage(cwd?: string, model?: GitCompletionModel): Promise<string> {

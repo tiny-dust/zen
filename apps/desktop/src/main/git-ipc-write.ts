@@ -36,11 +36,18 @@ export function registerGitWriteIpc(): void {
       const push = options?.push ?? false;
       const includeUnstaged = options?.includeUnstaged ?? true;
       let trimmed = (message ?? "").trim();
+      /** AI 生成失败原因：提交继续走兜底，但要让用户知道为什么不是 AI 生成 */
+      let aiNote = "";
 
       try {
         // 任意提交相关操作：空 message 一律现场生成（AI 优先，失败用变更摘要兜底）
         if (!trimmed && options?.autoMessage !== false) {
-          trimmed = (await generateAiMessage(workdir, options?.model).catch(() => "")).trim();
+          trimmed = (
+            await generateAiMessage(workdir, options?.model).catch((error: unknown) => {
+              aiNote = error instanceof Error && error.message ? error.message : "模型调用失败";
+              return "";
+            })
+          ).trim();
         }
         if (!trimmed && options?.autoMessage !== false) {
           trimmed = await fallbackCommitMessage(workdir);
@@ -58,9 +65,10 @@ export function registerGitWriteIpc(): void {
             ok: true,
             message: trimmed,
             output: `${commitOut.trim()}\n${pushOut.trim()}`.trim(),
+            ...(aiNote ? { aiNote } : {}),
           };
         }
-        return { ok: true, message: trimmed, output: commitOut.trim() };
+        return { ok: true, message: trimmed, output: commitOut.trim(), ...(aiNote ? { aiNote } : {}) };
       } catch (error) {
         const err = error as { stderr?: string; message?: string };
         return { ok: false, error: err.stderr?.trim() || err.message || "提交失败" };
@@ -108,7 +116,13 @@ export function registerGitWriteIpc(): void {
       cwd: string | undefined,
       files: string[],
       options?: { push?: boolean; model?: CompletionModel },
-    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }> => {
+    ): Promise<{
+      ok: boolean;
+      batches: GitCommitBatch[];
+      error?: string;
+      /** AI 规划失败原因：非空表示批次是目录兜底分组而非按内容分组 */
+      planNote?: string;
+    }> => {
       const workdir = cwd || process.cwd();
       const candidates = [...new Set(files.map((file) => file.trim()).filter(Boolean))];
       if (!candidates.length) {
@@ -117,8 +131,8 @@ export function registerGitWriteIpc(): void {
       const candidateSet = new Set(candidates);
       const committed: GitCommitBatch[] = [];
       try {
-        const plan = await planBatches(workdir, candidates, candidateSet, options?.model);
-        for (const batch of plan) {
+        const { batches, note } = await planBatches(workdir, candidates, candidateSet, options?.model);
+        for (const batch of batches) {
           // add 保证未跟踪文件入库；pathspec 限定 commit 只提交本批路径，不泄漏其它已暂存内容
           await git(workdir, ["add", "--", ...batch.files]);
           await git(workdir, ["commit", "-m", batch.message, "--", ...batch.files]);
@@ -131,7 +145,7 @@ export function registerGitWriteIpc(): void {
         if (options?.push) {
           await pushWithUpstream(workdir);
         }
-        return { ok: true, batches: committed };
+        return { ok: true, batches: committed, ...(note ? { planNote: note } : {}) };
       } catch (error) {
         const err = error as { stderr?: string; message?: string };
         return {

@@ -155,7 +155,7 @@ export interface ZenApi {
         autoMessage?: boolean;
         model?: GitCompletionModel;
       },
-    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }>;
+    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string; aiNote?: string }>;
     push(cwd?: string): Promise<{ ok: boolean; error?: string; output?: string }>;
     /** 刷新远端状态，返回当前分支 ahead/behind（无上游时缺省） */
     fetch(cwd?: string): Promise<GitSyncResult>;
@@ -182,7 +182,13 @@ export interface ZenApi {
       cwd: string | undefined,
       files: string[],
       options?: { push?: boolean; model?: GitCompletionModel },
-    ): Promise<{ ok: boolean; batches: GitCommitBatch[]; error?: string }>;
+    ): Promise<{
+      ok: boolean;
+      batches: GitCommitBatch[];
+      error?: string;
+      /** AI 规划失败原因：非空表示批次是目录兜底分组而非按内容分组 */
+      planNote?: string;
+    }>;
     aiMessage(cwd?: string, model?: GitCompletionModel): Promise<string>;
     createBranch(
       cwd: string | undefined,

@@ -9,6 +9,10 @@ function describeAiError(error: unknown): string {
 const AI_DIFF_LIMIT = 12 * 1024;
 
 const MAX_BATCHES = 6;
+/** 批次规划的超时：推理模型在真实规模工作区（几十文件）上需要 90-100s（实测），默认 120s 不够 */
+const BATCH_PLAN_TIMEOUT_MS = 180_000;
+/** 批次规划的输出预算：几十个文件的 JSON 批次计划本身要 4-6K token，4096 会截断（实测 finish=length） */
+const BATCH_PLAN_MAX_TOKENS = 8192;
 const BATCH_PLAN_SYSTEM_PROMPT = [
   "你是 git 分批提交规划器，全部输出就是一个 JSON 数组本身。",
   "数组元素形如 {\"message\":\"...\",\"files\":[\"...\"]}：message 为该批次的 commit message，files 为该批次包含的文件路径。",
@@ -20,26 +24,40 @@ export interface CompletionModel {
   modelId?: string;
 }
 
+/** 批次规划结果：note 非空表示 AI 规划失败走了目录兜底（附原因，供 UI 提示与排查） */
+export interface BatchPlan {
+  batches: Array<{ message: string; files: string[] }>;
+  note?: string;
+}
+
 /** 按变更内容规划提交批次：优先用模型分组，失败时按目录确定性兜底 */
 export async function planBatches(
   workdir: string,
   candidates: string[],
   candidateSet: Set<string>,
   model?: CompletionModel,
-): Promise<Array<{ message: string; files: string[] }>> {
-  const raw = await buildBatchPlanPrompt(workdir, candidates)
-    .then((prompt) =>
-      completeOnce(prompt, {
-        maxTokens: 2048,
-        system: BATCH_PLAN_SYSTEM_PROMPT,
-        providerId: model?.providerId,
-        modelId: model?.modelId,
-      }),
-    )
-    .catch(() => "");
+): Promise<BatchPlan> {
+  let raw = "";
+  let note = "";
+  try {
+    const prompt = await buildBatchPlanPrompt(workdir, candidates);
+    raw = await completeOnce(prompt, {
+      maxTokens: BATCH_PLAN_MAX_TOKENS,
+      system: BATCH_PLAN_SYSTEM_PROMPT,
+      timeoutMs: BATCH_PLAN_TIMEOUT_MS,
+      // 规划分组只需语义判断不需要深度推理：降到最低档，慢推理模型才能在超时窗口内完成
+      reasoningEffort: "lowest",
+      providerId: model?.providerId,
+      modelId: model?.modelId,
+    });
+  } catch (error) {
+    note = describeAiError(error);
+  }
   const plan = parseBatchPlan(raw, candidateSet);
   if (!plan.length) {
-    return fallbackBatches(candidates);
+    const reason = note || "模型输出无可解析的批次";
+    console.warn(`[git] AI 批次规划失败（${reason}），已按目录兜底分组`);
+    return { batches: fallbackBatches(candidates), note: reason };
   }
   // 覆盖兜底：模型遗漏的文件补成收尾批次
   const used = new Set(plan.flatMap((batch) => batch.files));
@@ -47,34 +65,49 @@ export async function planBatches(
   if (leftovers.length) {
     plan.push({ message: `chore: 其余 ${leftovers.length} 个变更文件`, files: leftovers });
   }
-  return plan.slice(0, MAX_BATCHES);
+  return { batches: plan.slice(0, MAX_BATCHES) };
 }
 
-/** 分组规划的输入材料：状态、行数增减与限量 diff */
+/**
+ * 分组规划的输入材料：每文件「状态码 路径 (+增 -删)」。
+ * 不携带 diff 正文——真实规模工作区（几十文件、12KB diff）下推理模型消化 diff 需要 >120s
+ * 且输出预算被推理+长 JSON 耗尽（实测带 diff 必超时/截断，不带 diff 约 100s 完成且分组质量良好）；
+ * 状态码与增删行数足以判断改动性质（新文件/功能点/重构）。
+ */
 async function buildBatchPlanPrompt(workdir: string, candidates: string[]): Promise<string> {
-  const [status, numstat, diffBody] = await Promise.all([
+  const [status, numstat] = await Promise.all([
     git(workdir, ["status", "--porcelain"]).catch(() => ""),
     git(workdir, ["diff", "HEAD", "--numstat"]).catch(() => ""),
-    git(workdir, ["diff", "HEAD", "--no-color", "-U1"]).catch(() => ""),
   ]);
-  const diff =
-    diffBody.length > AI_DIFF_LIMIT ? `${diffBody.slice(0, AI_DIFF_LIMIT)}\n… diff 已截断` : diffBody;
+  const statByPath = new Map<string, string>();
+  for (const line of numstat.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length === 3) {
+      statByPath.set(parts[2] ?? "", `+${parts[0]} -${parts[1]}`);
+    }
+  }
+  const markByPath = new Map<string, string>();
+  for (const line of status.split("\n")) {
+    const path = line.slice(3).replace(/^"|"$/g, "");
+    if (!path) {
+      continue;
+    }
+    const resolved = path.includes(" -> ") ? (path.split(" -> ").pop() ?? path) : path;
+    markByPath.set(resolved, line.slice(0, 2));
+  }
+  const perFile = candidates
+    .map((file) => `${markByPath.get(file) ?? "??"} ${file} (${statByPath.get(file) ?? "新文件"})`)
+    .join("\n");
   return [
     "把下面的 git 工作区变更文件按内容相关性分成 1-6 个提交批次，每个批次一条 commit message。",
     "message 用中文 Conventional Commits：type(scope): 主题（主题不超过 50 字），必要时空一行带 1-2 行正文。",
     "分组要求：同一功能、同一模块或同一目的的文件归入同一批次；目的明显不同的（如功能与格式化、代码与文档）拆开。",
+    "每行候选文件为「状态码 路径 (+增 -删)」：结合状态码与增删行数判断改动性质（?? 新文件、少量行变更多为功能点、大量行重排多为重构）。",
     "硬性要求：给出的文件列表必须与候选文件一致，每个文件必须且只能出现在一个批次中，不得遗漏、不得编造列表之外的文件。",
-    "未跟踪文件（??）按新文件对待。",
     "只输出 JSON 数组：[{\"message\":\"...\",\"files\":[\"...\"]}]，禁止解释、禁止 markdown 代码块。",
     "",
     "候选文件：",
-    candidates.join("\n") || "（无）",
-    "",
-    "状态与行数增减：",
-    [status, numstat].filter(Boolean).join("\n") || "（无）",
-    "",
-    "变更内容（diff 摘要）：",
-    diff || "（无）",
+    perFile || "（无）",
   ].join("\n");
 }
 
@@ -268,6 +301,9 @@ export async function generateAiMessage(
     await completeOnce(prompt, {
       maxTokens: 2048,
       system: SYSTEM_PROMPT,
+      // 单条 message 生成同样降最低推理档 + 放宽超时：真实规模 diff 下推理模型默认档会超时
+      timeoutMs: BATCH_PLAN_TIMEOUT_MS,
+      reasoningEffort: "lowest",
       providerId: model?.providerId,
       modelId: model?.modelId,
     }),

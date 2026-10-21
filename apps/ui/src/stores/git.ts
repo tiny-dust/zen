@@ -51,8 +51,8 @@ export const useGitStore = defineStore("git", () => {
   }
 
   /** commit AI 生成用的模型：当前会话生效模型（会话覆盖 > 全局默认）。
-   *  全局兜底会按名称排序取第一个启用模型，可能选中不合适的推理模型（实测 glm 把
-   *  输出预算全部耗在 reasoning 上导致永远走 fallback "chore: update ..."），显式传会话模型规避 */
+   *  全局兜底会按名称排序取第一个启用模型（当前是 glm-5.3 这类推理模型）：
+   *  completeOnce 已对补全任务自动降最低推理档 + 放宽超时，仍显式传会话模型保持确定性 */
   function completionModel(): { providerId?: string; modelId?: string } {
     const sel = useChatStore().effectiveSelection;
     return sel.providerId && sel.modelId
@@ -371,14 +371,14 @@ export const useGitStore = defineStore("git", () => {
       opBusy.value = "";
     }
     if (result.ok) {
-      feedback.value = options.push
+      const base = options.push
         ? i18n.global.t("app.git.committedAndPushed")
         : i18n.global.t("app.git.committed");
-      toast.ok(
-        options.push
-          ? i18n.global.t("app.git.committedAndPushed")
-          : i18n.global.t("app.git.committed"),
-      );
+      // AI 生成失败走了兜底时，提示里带出原因，避免「为什么又变成 chore」无处排查
+      feedback.value = result.aiNote
+        ? `${base}（${i18n.global.t("app.git.aiFallbackNote", { reason: result.aiNote })}）`
+        : base;
+      toast.ok(feedback.value);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? i18n.global.t("app.git.commitFailed");
@@ -406,7 +406,7 @@ export const useGitStore = defineStore("git", () => {
     }
     if (result.ok) {
       const hashes = result.batches.map((batch) => batch.hash).join(" ");
-      feedback.value = options.push
+      const base = options.push
         ? i18n.global.t("app.git.batchedPushed", {
             n: result.batches.length,
             hashes,
@@ -415,6 +415,10 @@ export const useGitStore = defineStore("git", () => {
             n: result.batches.length,
             hashes,
           });
+      // AI 规划失败走了目录兜底时，提示里带出原因，避免批次全是 chore: update 却不知为何
+      feedback.value = result.planNote
+        ? `${base}（${i18n.global.t("app.git.aiFallbackNote", { reason: result.planNote })}）`
+        : base;
       toast.ok(feedback.value);
     }
     if (!result.ok) {
