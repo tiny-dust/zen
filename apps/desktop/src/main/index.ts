@@ -40,6 +40,7 @@ import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
 import { startCliServer, stopCliServer } from "./cli-server";
+import { recordErrorReport, registerErrorReportsIpc } from "./error-reports";
 import { registerFeatureCatalogIpc } from "./feature-catalog";
 import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import { initDeviceMemory } from "./memory";
@@ -121,6 +122,12 @@ function createWindow(): BrowserWindow {
       // 先摘掉可能残留的 WebContentsView（全部工作区），再 reload
       shutdownBrowserService();
       window.webContents.reload();
+      // 异常退出落异常中心（clean-exit 视为正常退出，不记录）
+      void recordErrorReport(
+        "main",
+        "render-process-gone",
+        `渲染进程异常退出: ${details.reason} (exitCode=${details.exitCode})`,
+      ).catch(() => undefined);
     }
   });
 
@@ -402,6 +409,36 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
+// 主进程兜底异常采集：uncaught/unhandled 落异常中心（~/.zen/error-reports.json），
+// 保留 console.error 日志、不让进程退出；记录链路自身抛错就地吞掉，避免异常钩子死循环。
+process.on("uncaughtException", (error: Error) => {
+  console.error("[zen] uncaughtException:", error);
+  try {
+    void recordErrorReport(
+      "main",
+      "uncaught",
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+    ).catch(() => undefined);
+  } catch {
+    // 记录自身失败不再上抛
+  }
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("[zen] unhandledRejection:", reason);
+  try {
+    void recordErrorReport(
+      "main",
+      "unhandled",
+      reason instanceof Error ? reason.message : String(reason),
+      reason instanceof Error ? reason.stack : undefined,
+    ).catch(() => undefined);
+  } catch {
+    // 记录自身失败不再上抛
+  }
+});
+
 // dev 与生产 app 名称区分（dev 为 Zen Dev），避免安装生产包时与开发包混淆
 const isDevRenderer = Boolean(process.env.ELECTRON_RENDERER_URL);
 app.setName(isDevRenderer ? "Zen Dev" : "Zen");
@@ -445,6 +482,8 @@ app.whenReady().then(() => {
   registerMcpIpc();
   registerCacheIpc();
   registerSkillsMarketIpc();
+  // 异常中心：主/渲染层异常统一收集 + errors:* IPC（渲染层上报与异常中心面板）
+  registerErrorReportsIpc(broadcast);
   registerSyncIpc();
   registerUpdaterIpc();
   registerBrowserIpc(broadcast);

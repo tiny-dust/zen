@@ -26,9 +26,11 @@ function manifestFile(sessionId: string): string {
   return join(checkpointsDir(sessionId), "manifest.jsonl");
 }
 
-/** 备份文件名：`/` 换 `__` 保证平铺在 checkpoints 目录下，before/after 区分改前改后 */
+/** 备份文件名：`/` 换 `__` 保证平铺在 checkpoints 目录下，before/after 区分改前改后；
+ * 追加短随机后缀：同文件同毫秒内多次备份时 `createdAt-kind-rel` 会撞名互相覆盖，
+ * 撞名后最早改前副本内容被后续副本覆盖，撤销会恢复出错误版本 */
 function backupFileName(kind: "before" | "after", relativePath: string, createdAt: number): string {
-  return `${createdAt}-${kind}-${relativePath.replace(/\//g, "__")}`;
+  return `${createdAt}-${kind}-${randomUUID().slice(0, 8)}-${relativePath.replace(/\//g, "__")}`;
 }
 
 /** manifest 追加型日志里的非文件记录（文件记录即 FileCheckpoint 本体，无 kind 字段） */

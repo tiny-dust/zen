@@ -5,6 +5,7 @@ import { appApi } from "./app";
 import { authApi } from "./auth";
 import { browserApi } from "./browser";
 import { cacheApi } from "./cache";
+import { errorsApi } from "./errors";
 import { featureApi } from "./feature";
 import { gitApi } from "./git";
 import { larkApi } from "./lark";
@@ -38,6 +39,7 @@ const zen = {
   ...skillsApi,
   ...mcpApi,
   ...memoryApi,
+  ...errorsApi,
   ...syncApi,
   ...larkApi,
   ...workspaceApi,

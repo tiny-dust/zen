@@ -109,9 +109,10 @@ describe("session-checkpoints", () => {
     expect(restored.ok).toBe(false);
     expect(restored.error).toBeTruthy();
 
-    await expect(
-      backupWorkspaceFile(sessionId, workspaceRoot, "../outside.txt", 1),
-    ).resolves.toBeNull();
+    // 文件工具已支持工作区外路径：../ 越界路径同样入 manifest 记录（无既有文件则无改前副本）
+    const outside = await backupWorkspaceFile(sessionId, workspaceRoot, "../outside.txt", 1);
+    expect(outside).not.toBeNull();
+    expect(outside?.backupFile).toBeUndefined();
   });
 
   it("恢复不存在的 checkpoint id 返回 { ok:false, error }", async () => {
