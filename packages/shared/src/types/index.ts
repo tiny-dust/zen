@@ -20,3 +20,4 @@ export * from "./session-mode";
 export * from "./session-goal";
 export * from "./feature";
 export * from "./system-abilities";
+export * from "./error-reports";
