@@ -25,6 +25,18 @@ const COMPLETION_TIMEOUT_MS = 60_000;
 /** reasoning 模型的最小补全预算：思考会先消耗 token，预算太小会只输出思考内容 */
 const REASONING_MIN_TOKENS = 4096;
 
+/** 推理档位从低到高；供补全类任务降到最低档（规划分组不需要深度思考） */
+const EFFORT_TIERS = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/** 从模型支持的推理档位里取最低档；不支持或列表为空返回 undefined（不传参） */
+export function lowestReasoningEffort(efforts?: string[]): string | undefined {
+  const available = (efforts ?? []).filter((item) => EFFORT_TIERS.includes(item));
+  if (!available.length) {
+    return undefined;
+  }
+  return available.sort((a, b) => EFFORT_TIERS.indexOf(a) - EFFORT_TIERS.indexOf(b))[0];
+}
+
 /** 从 HTTP 错误响应体里取供应商给的错误消息，取不到退回状态码 */
 function httpErrorMessage(status: number, bodyText: string): string {
   let data: unknown = null;
@@ -201,17 +213,20 @@ function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   return `${base}/v1${path}`;
 }
 
-/** 补全请求的公共准备：解析供应商/模型、密钥、UA、token 预算与请求头 */
+/** 补全请求的公共准备：解析供应商/模型、密钥、UA、token 预算、推理档与请求头 */
 async function resolveCompletion(options?: {
   maxTokens?: number;
   providerId?: string;
   modelId?: string;
+  /** 推理档位："lowest" 自动取该模型支持的最低档；其余值按显式档位透传 */
+  reasoningEffort?: string;
 }): Promise<{
   provider: ProviderSummary;
   modelId: string;
   maxTokens: number;
   url: string;
   headers: Record<string, string>;
+  effort?: string;
 }> {
   const selection = await getSelection();
   const providerId = options?.providerId || selection.providerId;
@@ -227,12 +242,19 @@ async function resolveCompletion(options?: {
   const userAgent =
     sanitizeUserAgent((await loadProviderUserAgent(provider.id)) || provider.userAgent) ||
     DEFAULT_UA;
-  // reasoning 模型会先耗大量 token 思考；预算太小会导致 content 为空、只剩思考内容
-  const caps = inspectModelCapabilities(modelId);
+  // reasoning 模型会先耗大量 token 思考；预算太小会导致 content 为空、只剩思考内容。
+  // 能力优先读 DB 记录（自定义中转模型名如 27GX3RXP/glm-5.3 只有 DB 才有推理档列表）
+  const caps =
+    provider.models.find((item) => item.id === modelId)?.capabilities ??
+    inspectModelCapabilities(modelId);
   let maxTokens = options?.maxTokens ?? (caps.reasoning ? 4096 : 512);
   if (caps.reasoning) {
     maxTokens = Math.max(maxTokens, 4096);
   }
+  const effort =
+    options?.reasoningEffort === "lowest"
+      ? lowestReasoningEffort(caps.reasoningEfforts)
+      : options?.reasoningEffort;
   const headers: Record<string, string> =
     provider.protocol === "anthropic-messages"
       ? {
@@ -246,7 +268,7 @@ async function resolveCompletion(options?: {
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": userAgent,
         };
-  return { provider, modelId, maxTokens, url: chatUrl(provider.baseUrl, provider.protocol), headers };
+  return { provider, modelId, maxTokens, url: chatUrl(provider.baseUrl, provider.protocol), headers, effort };
 }
 
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
@@ -258,9 +280,11 @@ export async function completeOnce(
     timeoutMs?: number;
     providerId?: string;
     modelId?: string;
+    /** 推理档位："lowest" 自动取该模型支持的最低档；其余值按显式档位透传 */
+    reasoningEffort?: string;
   },
 ): Promise<string> {
-  const { provider, modelId, maxTokens, url, headers } = await resolveCompletion(options);
+  const { provider, modelId, maxTokens, url, headers, effort } = await resolveCompletion(options);
   // 补全（尤其推理模型 stream:false 全量缓冲）远慢于列表类请求，默认放宽到 120s
   const timeoutMs = options?.timeoutMs ?? 120_000;
 
@@ -302,6 +326,7 @@ export async function completeOnce(
         model: modelId,
         max_tokens: maxTokens,
         stream: false,
+        ...(effort ? { reasoning_effort: effort } : {}),
         messages: options?.system
           ? [
               { role: "system", content: options.system },
