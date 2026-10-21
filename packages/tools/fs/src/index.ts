@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import type { Dirent } from "node:fs";
 import { mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 
 export interface ReadFileResult {
@@ -69,6 +70,11 @@ function unquote(value: string): string {
   return match?.[2] ? match[2].trim() : trimmed;
 }
 
+/**
+ * 文件工具路径解析：相对路径基于工作区根，绝对路径（含工作区外）直接使用。
+ * `~` / `~/x` 展开为用户主目录。仅清洗后的空路径与 POSIX 上的 Windows 盘符
+ * 相对路径（C:/x，非绝对、join 会拼出怪路径）报错。
+ */
 export function resolveWorkspacePath(workspaceRoot: string, relativePath: string): string {
   if (isEmpty(relativePath)) {
     throw new Error("path is required (relative to the workspace root, e.g. src/main.ts)");
@@ -77,40 +83,26 @@ export function resolveWorkspacePath(workspaceRoot: string, relativePath: string
   // join 不会转换 \，会把 "a\b.ts" 当成单个文件名导致 not found）
   const cleaned = toSlash(unquote(relativePath));
   if (cleaned === "~" || cleaned.startsWith("~/")) {
-    throw new Error(
-      `path is outside the workspace: ${relativePath} (home directory paths are not allowed; use runTerminal for files outside the workspace)`,
-    );
+    return toSlash(normalize(join(homedir(), cleaned.slice(1))));
   }
   // POSIX 上 Windows 盘符路径（C:/x）不是绝对路径，join 会拼出奇怪的工作区内嵌套路径，
-  // 报错难以理解；直接按工作区外路径拒绝并给出指引
+  // 报错难以理解；直接拒绝并给出指引（Windows 上是真绝对路径，正常放行）
   if (!isAbsolute(cleaned) && /^[A-Za-z]:\//.test(cleaned)) {
     throw new Error(
-      `path is outside the workspace: ${relativePath} (readFile only accepts workspace files; use runTerminal for files outside the workspace)`,
+      `path is not valid on this platform: ${relativePath} (Windows drive-letter paths are not supported here; use runTerminal)`,
     );
   }
-  const root = toSlash(normalize(workspaceRoot));
   const candidate = isAbsolute(cleaned)
     ? toSlash(normalize(cleaned))
     : toSlash(normalize(join(workspaceRoot, cleaned)));
-  if (isAbsolute(cleaned) && candidate !== root && !candidate.startsWith(`${root}/`)) {
-    throw new Error(
-      `path is outside the workspace: ${relativePath} (readFile only accepts workspace files; use runTerminal for files outside the workspace)`,
-    );
-  }
-  if (!isAbsolute(cleaned)) {
-    const normalized = toSlash(normalize(cleaned));
-    if (normalized === ".." || normalized.startsWith("../")) {
-      throw new Error(`path escapes workspace: ${relativePath}`);
-    }
-  }
-  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
-    throw new Error(`path escapes workspace: ${relativePath}`);
+  if (!isAbsolute(candidate)) {
+    throw new Error(`path does not resolve to an absolute path: ${relativePath}`);
   }
   return candidate;
 }
 
-/** 结果展示路径：绝对路径输入转回工作区相对形式，去掉引号/空白 */
-function toDisplayPath(workspaceRoot: string, fullPath: string, rawInput: string): string {
+/** 结果展示路径：工作区内转回相对形式；工作区外用归一化绝对路径 */
+function toDisplayPath(workspaceRoot: string, fullPath: string, _rawInput: string): string {
   const root = toSlash(normalize(workspaceRoot));
   if (fullPath === root) {
     return ".";
@@ -118,7 +110,7 @@ function toDisplayPath(workspaceRoot: string, fullPath: string, rawInput: string
   if (fullPath.startsWith(`${root}/`)) {
     return fullPath.slice(root.length + 1);
   }
-  return rawInput;
+  return fullPath;
 }
 
 /** readFile 单次读取上限：超大文件只读前缀并附说明，避免整文件载入内存/上下文 */

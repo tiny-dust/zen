@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
@@ -8,6 +8,7 @@ import {
   editWorkspaceFile,
   listWorkspaceDir,
   readWorkspaceFile,
+  resolveWorkspacePath,
   searchWorkspaceFilesNode,
   writeWorkspaceFile,
 } from "./index.ts";
@@ -22,6 +23,11 @@ async function makeRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "zen-fs-"));
   roots.push(root);
   return root;
+}
+
+/** 断言用路径归一化：与实现的 toSlash(normalize()) 展示语义对齐（跨平台安全） */
+function toSlashPath(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 describe("workspace file snapshots", () => {
@@ -124,25 +130,47 @@ describe("workspace file snapshots", () => {
     assert.equal(await readFile(join(root, "file.txt"), "utf8"), "x x");
   });
 
-  it("retains workspace path validation", async () => {
+  it("allows paths outside the workspace via absolute form and ~ expansion", async () => {
     const root = await makeRoot();
-    await assert.rejects(writeWorkspaceFile(root, "../escape.txt", "content"), /escapes workspace/);
-    await assert.rejects(
-      editWorkspaceFile(root, "/definitely/outside.txt", "old", "new"),
-      /outside the workspace/,
+    // 工作区外绝对路径：读/写/编辑/列目录全部放行
+    const outside = await mkdtemp(join(tmpdir(), "zen-fs-outside-"));
+    roots.push(outside);
+    await writeFile(join(outside, "notes.txt"), "outside content");
+    const read = await readWorkspaceFile(root, join(outside, "notes.txt"));
+    assert.equal(read.content, "outside content");
+    assert.equal(read.path, toSlashPath(join(outside, "notes.txt")));
+    const written = await writeWorkspaceFile(root, join(outside, "more.txt"), "created outside");
+    assert.equal(await readFile(join(outside, "more.txt"), "utf8"), "created outside");
+    assert.equal(written.path, toSlashPath(join(outside, "more.txt")));
+    const edited = await editWorkspaceFile(root, join(outside, "notes.txt"), "outside", "OUTSIDE");
+    assert.equal(edited.replacements, 1);
+    const listing = await listWorkspaceDir(root, outside);
+    assert.deepEqual(
+      listing.entries.map((entry) => entry.name).sort(),
+      ["more.txt", "notes.txt"],
     );
-    // ~ 家目录与 Windows 盘符路径：按工作区外拒绝并给 runTerminal 指引
-    await assert.rejects(
-      writeWorkspaceFile(root, "~/notes.txt", "content"),
-      /outside the workspace.*use runTerminal/s,
+    // 相对路径跳出工作区（../）同样放行，展示为归一化绝对路径
+    const escape = await writeWorkspaceFile(root, "../escape-shared.txt", "escaped");
+    assert.equal(await readFile(join(tmpdir(), "escape-shared.txt"), "utf8"), "escaped");
+    assert.equal(escape.path, toSlashPath(join(tmpdir(), "escape-shared.txt")));
+    await rm(join(tmpdir(), "escape-shared.txt"), { force: true });
+    // ~ 家目录展开为绝对路径
+    assert.equal(
+      resolveWorkspacePath(root, "~/skills/coder"),
+      toSlashPath(join(homedir(), "skills/coder")),
     );
+    assert.equal(resolveWorkspacePath(root, "~"), toSlashPath(homedir()));
+  });
+
+  it("rejects POSIX Windows drive-letter paths with platform guidance", async () => {
+    const root = await makeRoot();
     await assert.rejects(
       readWorkspaceFile(root, "C:/Windows/system.ini"),
-      /outside the workspace/,
+      /not valid on this platform.*use runTerminal/s,
     );
   });
 
-  it("accepts workspace-absolute and quoted paths, rejects outside-workspace with guidance", async () => {
+  it("accepts workspace-absolute and quoted paths", async () => {
     const root = await makeRoot();
     await mkdir(join(root, "src"), { recursive: true });
     await writeFile(join(root, "src/main.ts"), "hello");
@@ -155,10 +183,10 @@ describe("workspace file snapshots", () => {
     assert.equal(quoted.content, "hello");
     const backslashed = await readWorkspaceFile(root, "src\\main.ts");
     assert.equal(backslashed.content, "hello");
-    // 工作区外：报错里给出 runTerminal 兜底指引
+    // 工作区外不存在的文件：按 ENOENT 友好报错（不再拒绝工作区外路径）
     await assert.rejects(
       readWorkspaceFile(root, join(root, "../elsewhere.txt")),
-      /use runTerminal/,
+      /file not found/,
     );
     // 空路径报错带示例
     await assert.rejects(readWorkspaceFile(root, ""), /path is required/);
