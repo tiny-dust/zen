@@ -77,8 +77,15 @@ export function buildToolSet(
 ): ToolSet {
   const toolSet: ToolSet = {
     readFile: tool({
-      description: "Read a UTF-8 text file inside the workspace.",
-      inputSchema: z.object({ path: z.string().describe("Path relative to the workspace root.") }),
+      description:
+        "Read a UTF-8 text file. Prefer paths relative to the workspace root; absolute paths " +
+        "(including files outside the workspace, e.g. ~/.agents/skills) are also allowed — " +
+        "~ expands to the home directory.",
+      inputSchema: z.object({
+        path: z
+          .string()
+          .describe("Path relative to the workspace root, or an absolute path (~/... allowed)."),
+      }),
       execute: async ({ path }) => {
         const result = await readWorkspaceFile(workspaceRoot, path);
         if (result.content.length <= MAX_TOOL_RESULT_CHARS) {
@@ -92,9 +99,13 @@ export function buildToolSet(
       },
     }),
     writeFile: tool({
-      description: "Create or overwrite a UTF-8 text file inside the workspace.",
+      description:
+        "Create or overwrite a UTF-8 text file. Relative paths resolve against the workspace root; " +
+        "absolute paths (including outside the workspace, ~/... allowed) are also supported.",
       inputSchema: z.object({
-        path: z.string().describe("Path relative to the workspace root."),
+        path: z
+          .string()
+          .describe("Path relative to the workspace root, or an absolute path (~/... allowed)."),
         content: z.string().describe("Full file content to write."),
       }),
       execute: async ({ path, content }, { abortSignal }) => {
@@ -126,7 +137,9 @@ export function buildToolSet(
       description:
         "Edit a file by exact string replacement. oldString must match exactly (and uniquely unless replaceAll=true). Prefer this over writeFile for small changes.",
       inputSchema: z.object({
-        path: z.string().describe("Path relative to the workspace root."),
+        path: z
+          .string()
+          .describe("Path relative to the workspace root, or an absolute path (~/... allowed)."),
         oldString: z.string().describe("Exact text to replace."),
         newString: z.string().describe("Replacement text."),
         replaceAll: z.boolean().optional().describe("Replace every occurrence (default false)."),
@@ -164,12 +177,14 @@ export function buildToolSet(
       },
     }),
     listDir: tool({
-      description: "List one directory level inside the workspace (no recursion).",
+      description:
+        "List one directory level (no recursion). Relative paths resolve against the workspace root; " +
+        "absolute paths (including outside the workspace) are also allowed. Omit or '' for the workspace root.",
       inputSchema: z.object({
         path: z
           .string()
           .optional()
-          .describe("Directory path relative to the workspace root. Omit or '' for root."),
+          .describe("Directory path relative to the workspace root or absolute. Omit or '' for root."),
       }),
       execute: async ({ path }) => {
         const result = await listWorkspaceDir(workspaceRoot, path ?? "");
