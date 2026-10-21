@@ -10,7 +10,8 @@ export type RightPanelKind =
   | "browser"
   | "git"
   | "agents"
-  | "terminals";
+  | "terminals"
+  | "errors";
 
 export interface RightPanelTab {
   id: string;
@@ -34,6 +35,9 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
   },
   get terminals() {
     return i18n.global.t("app.panel.terminals");
+  },
+  get errors() {
+    return i18n.global.t("app.panel.errors");
   },
 };
 

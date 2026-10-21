@@ -46,6 +46,7 @@ export default {
       git: "Git",
       agents: "Agents",
       terminals: "终端",
+      errors: "异常",
     },
     browser: {
       embeddedChromium: "内嵌 Chromium",
@@ -245,6 +246,7 @@ export default {
       git: "Git",
       agents: "Agents",
       terminals: "Terminals",
+      errors: "Errors",
     },
     browser: {
       embeddedChromium: "Embedded Chromium",

@@ -4,6 +4,7 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/fonts/misans/MiSans.css";
 import "./assets/fonts/fonts.css";
+import { installErrorReporter } from "./lib/error-reporter";
 import { installAppLinkInterceptor } from "./lib/open-link";
 import { i18n } from "./locales";
 import "./styles.css";
@@ -13,6 +14,9 @@ import "./styles.css";
 document.documentElement.classList.toggle("dark", localStorage.getItem("zen.theme.dark") !== "0");
 
 const pinia = createPinia();
-createApp(App).use(pinia).use(i18n).mount("#app");
+const app = createApp(App);
+// 运行时报错（window error / unhandledrejection / Vue errorHandler）统一上报异常中心
+installErrorReporter(app);
+app.use(pinia).use(i18n).mount("#app");
 // 网页链接统一在右栏浏览器打开（消息、参考、设置等所有 <a href>）
 installAppLinkInterceptor();

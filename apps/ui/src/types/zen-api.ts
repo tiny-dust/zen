@@ -7,6 +7,9 @@ import type {
   AppSettings,
   AskUserAnswer,
   AuthState,
+  ErrorReportAnalysis,
+  ErrorReportPayload,
+  ErrorReportRecord,
   OcrResult,
   TtsSpeakOptions,
   VoiceStartResult,
@@ -545,5 +548,16 @@ export interface ZenApi {
   /** CUA 桌面自动化：agent 工具域（cuaEnabled 总开关控制），此处仅 probe */
   cua: {
     probe(): Promise<AbilityProbe>;
+  };
+  /** 异常中心：主进程 + 渲染层运行时报错的统一收集（errors:* IPC） */
+  errors: {
+    report(payload: ErrorReportPayload): Promise<{ ok: boolean }>;
+    list(): Promise<ErrorReportRecord[]>;
+    /** ids 缺省清空全部；返回 { ok } */
+    clear(ids?: string[]): Promise<{ ok: boolean }>;
+    /** 本地启发式分析是否与软件（Zen 自身代码）相关；不可判定返回 null */
+    analyze(id: string): Promise<ErrorReportAnalysis | null>;
+    /** 异常记录变更广播（无载荷，收到后重新 list） */
+    onChanged(handler: () => void): () => void;
   };
 }
