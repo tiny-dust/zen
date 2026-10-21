@@ -144,12 +144,17 @@ function elementHoverTitle(ref: BrowserElementRef): string {
 }
 
 /** 用户气泡正文：隐藏 /skill: 与 $el: 内联 token（上方 tag 已呈现），原始内容保留供「编辑」回填 */
-const userText = computed(() =>
-  props.message.content
+const userText = computed(() => {
+  let text = props.message.content
     .replace(/\/skill:[^\s/]+\s?/g, "")
-    .replace(/\$el:[^\s$]+\s?/g, "")
-    .trim(),
-);
+    .replace(/\$el:[^\s$]+\s?/g, "");
+  // 已带附件的 `$名称` 引用同样隐藏（下方附件行已呈现文件/缩略图）；
+  // split/join 精确匹配，含空格/数字开头的文件名也能正常隐藏
+  for (const att of attachmentParts.value) {
+    text = text.split(`$${att.name}`).join("");
+  }
+  return text.trim();
+});
 
 /**
  * @文件引用分段：composer 里 @ 选中文件会以 `$相对路径` 写入正文，
@@ -384,6 +389,54 @@ function isImageAttachment(att: { name: string; path?: string }): boolean {
   return IMAGE_ATTACHMENT_RE.test(att.path ?? "") || IMAGE_ATTACHMENT_RE.test(att.name);
 }
 
+/**
+ * 图片附件缩略图：previewFile 读 dataUrl（绝对路径可用，工作区外的上传图也能出图）。
+ * 加载失败的图片回退到文件 chip 行展示，不丢任何附件信息。
+ */
+const imageThumbs = ref(new Map<string, string>());
+
+watch(
+  () => attachmentParts.value.filter((att) => att.path && isImageAttachment(att)).map((att) => att.path),
+  async (paths) => {
+    const zen = window.zen;
+    const wanted = new Set(paths);
+    for (const [path] of imageThumbs.value) {
+      if (!wanted.has(path)) {
+        imageThumbs.value.delete(path);
+      }
+    }
+    if (!zen) {
+      return;
+    }
+    for (const path of paths) {
+      if (!path || imageThumbs.value.has(path)) {
+        continue;
+      }
+      try {
+        const preview = await zen.workspace.previewFile(undefined, path);
+        if (preview?.kind === "image") {
+          imageThumbs.value.set(path, preview.dataUrl);
+        }
+      } catch {
+        // 读不出图：保持文件 chip 兜底展示
+      }
+    }
+  },
+  { immediate: true },
+);
+
+const imageThumbList = computed(() =>
+  [...imageThumbs.value.entries()].map(([path, url]) => {
+    const att = attachmentParts.value.find((item) => item.path === path);
+    return { path, url, name: att?.name ?? path };
+  }),
+);
+
+/** 文件 chip 行：非图片附件 + 缩略图没加载出来的附件（图片都进了缩略图行） */
+const fileAttachments = computed(() =>
+  attachmentParts.value.filter((att) => !imageThumbs.value.has(att.path ?? "")),
+);
+
 async function ocrAttachment(path: string) {
   try {
     const text = await recognizeImage(path);
@@ -445,8 +498,34 @@ async function ocrAttachment(path: string) {
           >
             <FileLabel :path="seg.path ?? ''" class="max-w-[240px]" variant="link" />
           </button></template><template v-else>{{ seg.text }}</template></template></div>
-      <div v-if="attachmentParts.length" class="mt-2 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1">
-        <template v-for="(att, index) in attachmentParts" :key="`${att.name}-${index}`">
+      <!-- 图片附件：真实缩略图（点击在右侧面板打开），悬浮出 OCR 识别入口 -->
+      <div v-if="imageThumbList.length" class="mt-2 flex max-w-full flex-wrap justify-end gap-1.5">
+        <div v-for="thumb in imageThumbList" :key="thumb.path" class="group/th relative">
+          <button
+            type="button"
+            class="block overflow-hidden rounded-lg border border-[var(--color-line)]"
+            :title="thumb.name"
+            @click="openFileRef(thumb.path)"
+          >
+            <img :src="thumb.url" :alt="thumb.name" class="max-h-40 max-w-full" loading="lazy">
+          </button>
+          <Button
+            v-if="ocrSupported"
+            variant="ghost"
+            size="icon-xs"
+            class="absolute right-1 top-1 rounded-md bg-[var(--color-side)]/85 opacity-0 transition-opacity group-hover/th:opacity-100"
+            :disabled="ocrRecognizing"
+            :aria-label="t('system-abilities.ocr.recognize')"
+            :title="ocrRecognizing ? t('system-abilities.ocr.recognizing') : t('system-abilities.ocr.recognizeTitle')"
+            @click="ocrAttachment(thumb.path)"
+          >
+            <ScanText class="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <!-- 文件附件 chip 行：非图片 + 缩略图没加载出来的（图片已进缩略图行） -->
+      <div v-if="fileAttachments.length" class="mt-2 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1">
+        <template v-for="(att, index) in fileAttachments" :key="`${att.name}-${index}`">
           <Button
             v-if="att.path"
             variant="link"
@@ -456,19 +535,6 @@ async function ocrAttachment(path: string) {
             <FileLabel :path="att.path" :name="att.name" variant="link" />
           </Button>
           <FileLabel v-else :path="att.name" class="text-[12px]" />
-          <!-- 图片附件：识别文字并填入输入框（OCR 平台不支持时隐藏） -->
-          <Button
-            v-if="ocrSupported && att.path && isImageAttachment(att)"
-            variant="ghost"
-            size="icon-xs"
-            class="rounded-md text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :disabled="ocrRecognizing"
-            :aria-label="t('system-abilities.ocr.recognize')"
-            :title="ocrRecognizing ? t('system-abilities.ocr.recognizing') : t('system-abilities.ocr.recognizeTitle')"
-            @click="ocrAttachment(att.path ?? '')"
-          >
-            <ScanText class="size-3.5" />
-          </Button>
         </template>
       </div>
     </div>

@@ -108,12 +108,38 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     }
   }
 
-  function onPickFiles(event: Event) {
+  /**
+   * 文件真实路径解析：pathForFile 拿不到（部分拖放来源/web 环境返回空）时
+   * 把内容落盘到 ~/.zen/cache 兜底——否则附件无路径，Agent 读不到、图片也不加载
+   * （与粘贴通道同一兜底策略）。
+   */
+  async function resolveFilePath(file: File): Promise<string> {
+    const zen = window.zen;
+    let path = zen ? zen.pathForFile(file) : "";
+    if (path || !zen?.cache?.savePaste) {
+      return path;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      const saved = await zen.cache.savePaste({
+        name: file.name || (file.type.startsWith("image/") ? "pasted-image.png" : "pasted.bin"),
+        mime: file.type,
+        data: buffer,
+      });
+      if (saved.ok && saved.path) {
+        path = saved.path;
+      }
+    } catch {
+      path = "";
+    }
+    return path;
+  }
+
+  async function onPickFiles(event: Event) {
     endFileDialog();
     const target = event.target as HTMLInputElement;
-    const zen = window.zen;
     for (const file of dedupeFileNames(Array.from(target.files ?? []))) {
-      const path = zen ? zen.pathForFile(file) : "";
+      const path = await resolveFilePath(file);
       addAttachment(file, path);
       insertAtCaret(`$${file.name} `);
     }
@@ -144,24 +170,8 @@ export function useComposerFiles(options: ComposerFilesOptions) {
       return;
     }
     event.preventDefault();
-    const zen = window.zen;
     for (const file of dedupeFileNames(files)) {
-      let path = zen ? zen.pathForFile(file) : "";
-      if (!path && zen?.cache?.savePaste) {
-        try {
-          const buffer = await file.arrayBuffer();
-          const saved = await zen.cache.savePaste({
-            name: file.name || (file.type.startsWith("image/") ? "pasted-image.png" : "pasted.bin"),
-            mime: file.type,
-            data: buffer,
-          });
-          if (saved.ok && saved.path) {
-            path = saved.path;
-          }
-        } catch {
-          path = "";
-        }
-      }
+      const path = await resolveFilePath(file);
       addAttachment(file, path);
       insertAtCaret(`$${file.name} `);
     }
@@ -193,7 +203,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
   }
 
   /** 文件落点：编辑器内按坐标插到光标处，壳内其他区域追加到末尾 */
-  function onDrop(event: DragEvent) {
+  async function onDrop(event: DragEvent) {
     dragDepth = 0;
     dragging.value = false;
     const files = Array.from(event.dataTransfer?.files ?? []);
@@ -201,10 +211,9 @@ export function useComposerFiles(options: ComposerFilesOptions) {
       return;
     }
     event.preventDefault();
-    const zen = window.zen;
     let refs = "";
     for (const file of dedupeFileNames(files)) {
-      const path = zen ? zen.pathForFile(file) : "";
+      const path = await resolveFilePath(file);
       addAttachment(file, path);
       refs += `$${file.name} `;
     }

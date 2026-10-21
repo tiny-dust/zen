@@ -253,4 +253,82 @@ describe("MessageBubble 文件引用", () => {
     expect(items).toEqual(["打开文件", "在 Finder 中显示"]);
     wrapper.unmount();
   });
+
+  it("已带附件的 $名称 token 从正文隐藏（附件行已呈现）", () => {
+    const wrapper = mountMessage({
+      id: "u-token",
+      role: "user",
+      content: "看下这个 $a.ts 谢谢",
+      createdAt: 1,
+      meta: { attachments: [{ name: "a.ts", path: "/tmp/upload/a.ts" }] },
+    });
+    expect(wrapper.text()).toContain("看下这个");
+    expect(wrapper.text()).toContain("谢谢");
+    expect(wrapper.text()).not.toContain("$a.ts");
+    wrapper.unmount();
+  });
+
+  it("含空格/数字开头的附件名同样隐藏 token", () => {
+    const wrapper = mountMessage({
+      id: "u-token2",
+      role: "user",
+      content: "$2026 报告.docx",
+      createdAt: 1,
+      meta: { attachments: [{ name: "2026 报告.docx", path: "/tmp/upload/2026 报告.docx" }] },
+    });
+    // 正文 token 隐藏；附件 chip 行照常显示文件名
+    expect(wrapper.text()).not.toContain("$");
+    expect(wrapper.text()).toContain("2026 报告.docx");
+    wrapper.unmount();
+  });
+
+  it("图片附件渲染缩略图（previewFile dataUrl），非图片附件保持 chip", async () => {
+    const previewFile = vi.fn(async () => ({
+      kind: "image",
+      dataUrl: "data:image/png;base64,QUJD",
+      size: 3,
+    }));
+    (window as { zen?: unknown }).zen = { workspace: { previewFile } };
+    const wrapper = mountMessage({
+      id: "u-img",
+      role: "user",
+      content: "看看这张 $shot.png 和这个文件",
+      createdAt: 1,
+      meta: {
+        attachments: [
+          { name: "shot.png", path: "/tmp/upload/shot.png" },
+          { name: "a.ts", path: "/tmp/upload/a.ts" },
+        ],
+      },
+    });
+    await flushPromises();
+    expect(previewFile).toHaveBeenCalledWith(undefined, "/tmp/upload/shot.png");
+    // 缩略图 img 带 max-h-40 类（FileIcon 的 img 是 16px 图标，区分开）
+    const img = wrapper.find("img.max-h-40");
+    expect(img.exists()).toBe(true);
+    expect(img.attributes("src")).toBe("data:image/png;base64,QUJD");
+    // 图片走缩略图后正文里不再出现 $shot.png；非图片附件保持 chip
+    expect(wrapper.text()).not.toContain("$shot.png");
+    expect(wrapper.find(".file-label").exists()).toBe(true);
+    // 点击缩略图在右侧面板打开
+    await img.trigger("click");
+    expect(revealFile).toHaveBeenCalledWith("/tmp/upload/shot.png");
+    wrapper.unmount();
+  });
+
+  it("缩略图加载失败回退文件 chip（附件信息不丢）", async () => {
+    const previewFile = vi.fn(async () => ({ kind: "unsupported", size: 9 }));
+    (window as { zen?: unknown }).zen = { workspace: { previewFile } };
+    const wrapper = mountMessage({
+      id: "u-img2",
+      role: "user",
+      content: "看图 $shot.png",
+      createdAt: 1,
+      meta: { attachments: [{ name: "shot.png", path: "/tmp/upload/shot.png" }] },
+    });
+    await flushPromises();
+    expect(wrapper.find("img.max-h-40").exists()).toBe(false);
+    expect(wrapper.find(".file-label").exists()).toBe(true);
+    wrapper.unmount();
+  });
 });
