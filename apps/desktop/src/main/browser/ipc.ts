@@ -15,12 +15,28 @@ import type {
   BrowserViewBounds,
 } from "@zen/shared";
 import { getBrowserRegistry, type BrowserService } from "./service";
+import { resolveElementSourceFiles } from "./element-source";
 import { loadBrowserSettings, saveBrowserSettings } from "../zen-dir";
+import { getWorkspace } from "../workspace-db";
 
 export function registerBrowserIpc(
   broadcast: (channel: string, payload: unknown) => void,
 ): BrowserAgentBridge {
   const registry = getBrowserRegistry();
+
+  // 元素源码解析：拾取后按 sourceHints 在对应工作区根目录做源码检索，
+  // 命中文件回填 sourceFiles（公共区 scope 无工作区 → 返回 null，按原 ref 广播）
+  registry.setElementSourceResolver(async (scope, ref) => {
+    const root = getWorkspace(scope)?.path;
+    if (!root || !ref.sourceHints?.length) {
+      return null;
+    }
+    const files = await resolveElementSourceFiles(ref.sourceHints, root);
+    if (!files.length) {
+      return null;
+    }
+    return { ...ref, sourceFiles: files };
+  });
 
   // 全局浏览器设置（UA/缩放/画中画几何，~/.zen/config.json）载入后对所有工作区服务生效
   void loadBrowserSettings()

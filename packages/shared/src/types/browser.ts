@@ -77,6 +77,14 @@ export interface BrowserElementRef {
   rect: { x: number; y: number; width: number; height: number };
   pageUrl: string;
   pageTitle: string;
+  /** 拾取时的前端路由（pathname+hash），切页后 Agent 可导航回原页面再定位 */
+  route?: string;
+  /** DOM 祖先链（如 body > div.app > main > button.btn.primary），selector 失效时的定位兜底 */
+  domPath?: string;
+  /** 源码定位线索：元素及祖先的 id / data-testid / 类名（已过滤通用工具类），供工作区文件检索 */
+  sourceHints?: string[];
+  /** 命中的工作区源码文件（相对工作区根的路径），供 Agent / 用户直接定位开发文件 */
+  sourceFiles?: string[];
 }
 
 export interface BrowserConsoleEntry {

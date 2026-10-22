@@ -18,6 +18,15 @@ export function formatElementForPrompt(ref: BrowserElementRef): string {
   if (ref.role) {
     bits.push(`role=${ref.role}`);
   }
+  if (ref.route) {
+    bits.push(`route=${ref.route}`);
+  }
+  if (ref.domPath) {
+    bits.push(`domPath=\`${ref.domPath}\``);
+  }
+  if (ref.sourceFiles?.length) {
+    bits.push(`file=${ref.sourceFiles.join(",")}`);
+  }
   bits.push(`rect=${ref.rect.width}x${ref.rect.height}@(${ref.rect.x},${ref.rect.y})`);
   bits.push(`page=${ref.pageUrl}`);
   return `[页面元素] ${bits.join(" ")}`;
@@ -67,6 +76,61 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
     return parts.join(" > ");
   }
 
+  // 源码定位线索过滤：通用布局/状态类与 tailwind 风格工具类（p-4 / text-lg / hover:x 等）不算线索
+  const GENERIC_CLASS_RE = /^(flex|grid|block|inline|hidden|container|wrapper|relative|absolute|fixed|sticky|active|open|selected|disabled)$/;
+  const UTILITY_CLASS_RE = /^(p|m|w|h|min|max|text|bg|border|items|justify|gap|space|font|rounded|shadow|opacity|z|col|row|overflow|transition|duration|hover|focus|sm|md|lg|xl)-/;
+
+  /** DOM 祖先链：最多 8 层，每层 tag + #id 或前 2 个类名，到 body 层停 */
+  function domPathFor(el) {
+    const parts = [];
+    let node = el;
+    let depth = 0;
+    while (node && node.nodeType === 1 && depth < 8) {
+      let part = node.tagName.toLowerCase();
+      if (node.id && !/^\\d/.test(node.id)) {
+        part += "#" + node.id;
+      } else {
+        const cls = (node.getAttribute("class") || "").split(/\\s+/).filter(Boolean).slice(0, 2);
+        if (cls.length) part += "." + cls.join(".");
+      }
+      parts.unshift(part);
+      if (node === document.body) break;
+      node = node.parentElement;
+      depth += 1;
+    }
+    return parts.join(" > ");
+  }
+
+  /** 源码定位线索：自身 id / testid + 自身与 4 层祖先的语义类名，去重后最多 16 条 */
+  function sourceHintsFor(el) {
+    const hints = [];
+    const seen = {};
+    function push(value) {
+      if (!value || value.length > 60) return;
+      const key = value.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+      hints.push(value);
+    }
+    if (el.id && !/^\\d/.test(el.id)) push(el.id);
+    const testId = el.getAttribute("data-testid") || el.getAttribute("data-test");
+    if (testId) push(testId);
+    let node = el;
+    let depth = 0;
+    while (node && node.nodeType === 1 && depth < 5) {
+      const raw = (node.getAttribute("class") || "").split(/\\s+/);
+      for (const cls of raw) {
+        if (!cls || cls.length < 4) continue;
+        if (cls.indexOf("data-v-") === 0) continue;
+        if (GENERIC_CLASS_RE.test(cls) || UTILITY_CLASS_RE.test(cls)) continue;
+        push(cls);
+      }
+      node = node.parentElement;
+      depth += 1;
+    }
+    return hints.slice(0, 16);
+  }
+
   function describe(el) {
     const rect = el.getBoundingClientRect();
     const text = (el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 120);
@@ -90,7 +154,10 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
       href: el.getAttribute("href") || "",
       rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
       pageUrl: location.href,
-      pageTitle: document.title
+      pageTitle: document.title,
+      route: location.pathname + location.hash,
+      domPath: domPathFor(el),
+      sourceHints: sourceHintsFor(el)
     };
   }
 

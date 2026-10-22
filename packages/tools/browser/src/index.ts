@@ -1,4 +1,5 @@
 export { ELEMENT_PICK_SCRIPT, ELEMENT_PICK_TEARDOWN, formatElementForPrompt } from "./selectors";
+export { expandElementTokens } from "./element-expand";
 
 import type {
   BrowserConsoleEntry,

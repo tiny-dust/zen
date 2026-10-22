@@ -296,6 +296,10 @@ export class BrowserServiceRegistry {
   private settings: BrowserSettings | null = null;
   private statusSink: ((status: BrowserStatus) => void) | null = null;
   private pickSink: ((ref: BrowserElementRef) => void) | null = null;
+  /** 元素源码解析器（ipc.ts 注入）：拾取后按 sourceHints 定位工作区源码文件 */
+  private elementSourceResolver:
+    | ((scope: string, ref: BrowserElementRef) => Promise<BrowserElementRef | null>)
+    | null = null;
 
   /** 渲染层事件出口（ipc.ts 注入 broadcast 门面） */
   setSinks(
@@ -304,6 +308,13 @@ export class BrowserServiceRegistry {
   ): void {
     this.statusSink = status;
     this.pickSink = pick;
+  }
+
+  /** 注册元素源码解析器：返回 null 表示未命中（按原 ref 广播） */
+  setElementSourceResolver(
+    fn: (scope: string, ref: BrowserElementRef) => Promise<BrowserElementRef | null>,
+  ): void {
+    this.elementSourceResolver = fn;
   }
 
   /** 切换当前工作区：旧工作区视图立即隐藏（画中画悬浮除外），页面后台保留 */
@@ -335,9 +346,23 @@ export class BrowserServiceRegistry {
         }
       });
       service.onElementPicked((ref) => {
-        if (scope === this.activeKey) {
-          this.pickSink?.(ref);
+        if (scope !== this.activeKey) {
+          return;
         }
+        const resolver = this.elementSourceResolver;
+        if (!resolver || !ref.sourceHints?.length) {
+          this.pickSink?.(ref);
+          return;
+        }
+        // 源码解析不阻塞拾取事件太久：成功拿到非 null 结果再广播增强后的 ref，
+        // 失败/超时回退直接广播原 ref（route/domPath/sourceHints 仍保留）
+        void withTimeout(resolver(scope, ref), 4000, "元素源码解析")
+          .then((resolved) => {
+            this.pickSink?.(resolved ?? ref);
+          })
+          .catch(() => {
+            this.pickSink?.(ref);
+          });
       });
       this.services.set(scope, service);
     }
