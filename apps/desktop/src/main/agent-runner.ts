@@ -37,9 +37,11 @@ import {
 import { appendGoalDirective, appendSessionModeDirective, resolveRunSessionMode } from "./session-mode";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
+import { expandElementTokens } from "@zen/tools-browser";
 import type {
   AgentRunRequest,
   AgentStreamEvent,
+  BrowserElementRef,
   ChatMessage,
   ChatTurn,
   SessionGoal,
@@ -115,12 +117,18 @@ export async function runAgentRequest(
 
     // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
     ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
+    // 落库优先用展示版（原始正文 + meta.elementMarks 等）：userMessage 是给 Agent 的展开文本，
+    // 直接落库会让切会话/重启后恢复的气泡丢失元素 tag
+    const userMeta: Record<string, unknown> = {
+      ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+      ...(request.display?.meta ?? {}),
+    };
     appendMessage(request.sessionId, {
       id: randomUUID(),
       role: "user",
-      content: request.userMessage,
+      content: request.display?.content ?? request.userMessage,
       createdAt: Date.now(),
-      meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
+      meta: Object.keys(userMeta).length ? userMeta : undefined,
     });
 
     await sessions.get(request.sessionId)?.cancel();
@@ -418,6 +426,18 @@ export function startLarkChat(
 /** 续聊历史取最近条数（含新消息走 runAgentRequest 的 userMessage） */
 const LARK_CONTINUE_HISTORY_LIMIT = 40;
 
+/** 从消息 meta.elementMarks 取可用标注（token + ref，防御式过滤无效条目） */
+function elementMarksOf(message: ChatMessage): Array<{ token: string; ref: BrowserElementRef }> {
+  const marks = message.meta?.elementMarks;
+  if (!Array.isArray(marks)) {
+    return [];
+  }
+  return marks.filter(
+    (item): item is { token: string; ref: BrowserElementRef } =>
+      Boolean(item) && typeof item.token === "string" && item.ref != null,
+  );
+}
+
 /**
  * 飞书「继续」/续聊入口：向已有会话追加消息。历史从 workspace-db 读最近约 40 条
  * user/assistant 轮次；会话不存在或已归档 → reason="missing"（网关回退新建）；
@@ -450,13 +470,21 @@ export function continueLarkChat(
         reason: "busy",
       };
     }
+    // 历史里 user 消息的 `$el:` token 需展开为完整元素描述再喂给 Agent
+    // （落库 content 保留原始 token，meta.elementMarks 里有对应 ref）
     const history: ChatTurn[] = record.messages
       .filter(
         (item): item is ChatMessage & { role: "user" | "assistant" } =>
           (item.role === "user" || item.role === "assistant") && item.content.trim().length > 0,
       )
       .slice(-LARK_CONTINUE_HISTORY_LIMIT)
-      .map((item) => ({ role: item.role, content: item.content }));
+      .map((item) => ({
+        role: item.role,
+        content:
+          item.role === "user"
+            ? expandElementTokens(item.content, elementMarksOf(item))
+            : item.content,
+      }));
     const request: AgentRunRequest = {
       sessionId,
       workspaceId: record.session.workspaceId ?? "common",

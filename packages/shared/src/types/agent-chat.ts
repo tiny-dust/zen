@@ -312,6 +312,8 @@ export interface AgentRunRequest {
   reasoningEffort?: ReasoningEffort;
   attachments?: AttachmentRef[];
   history?: ChatTurn[];
+  /** 气泡展示版消息（原始正文 + meta）：main 落库用它，userMessage 仍是展开后给 Agent 的文本 */
+  display?: { content: string; meta?: Record<string, unknown> };
   /** 计划模式批准：main 侧识别后把会话切回 interactive 再继续执行 */
   approvePlan?: boolean;
 }

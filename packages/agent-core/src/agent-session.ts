@@ -1,6 +1,6 @@
 import { isStepCount, ToolLoopAgent } from "ai";
 
-import type { ModelMessage } from "ai";
+import type { ModelMessage, Tool, ToolSet } from "ai";
 import type {
   AgentDoneReason,
   AgentStreamEvent,
@@ -121,6 +121,36 @@ const REINJECT_FILE_MAX_CHARS = 3000;
 const REINJECT_TOTAL_MAX_CHARS = 15_000;
 
 /**
+ * anthropic 协议下给最后一个工具定义打 cache_control 断点（工具排在请求前缀
+ * 的最前部，断点后 tools 全段可缓存）。断点预算 = anthropic 上限 4：
+ * tools(1) + system(1) + 末两条消息(2)。其余协议原样返回。
+ */
+function withToolCacheBreakpoint(tools: ToolSet, enabled: boolean): ToolSet {
+  if (!enabled) {
+    return tools;
+  }
+  const names = Object.keys(tools);
+  const lastName = names[names.length - 1];
+  if (!lastName) {
+    return tools;
+  }
+  const last = tools[lastName] as Tool & {
+    providerOptions?: Record<string, Record<string, unknown>>;
+  };
+  const marked: Tool = {
+    ...last,
+    providerOptions: {
+      ...last.providerOptions,
+      anthropic: {
+        ...(last.providerOptions?.anthropic),
+        cacheControl: { type: "ephemeral" },
+      },
+    },
+  };
+  return { ...tools, [lastName]: marked };
+}
+
+/**
  * 单个会话的有状态 Agent 运行时。
  *
  * 通过 AI SDK `ToolLoopAgent` 完成多步工具循环，并在需要审批的工具调用处暂停。
@@ -156,8 +186,10 @@ export class AgentSession {
   private lastUsageStep = -1;
   /** 最近一次主动压缩发生时的 lastUsageStep */
   private lastCompactStep = -1;
-  /** 会话最新任务清单（tasks_updated 捕获；注入 instructions，跨上下文压缩存活） */
+  /** 会话最新任务清单（tasks_updated 捕获；以 append-only 尾部消息进上下文） */
   private latestTasks: TaskItem[] = [];
+  /** 最近一次写入历史的任务清单快照文本（去重：清单未变不重复追加） */
+  private lastTaskListSnapshot: string | null = null;
   /** run 是否仍活跃：暂停/等审批时 start/runStep 已返回，但 run 未结束 */
   private runActive = false;
   /**
@@ -265,11 +297,14 @@ export class AgentSession {
       maxRetries: 5,
       // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
       repairToolCall: buildToolCallRepair(model, providerOptions),
-      tools: buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
-        resourceLock: this.resourceLock,
-        ownerLabel: config.ownerLabel ?? config.sessionId,
-        multiAgentTools,
-      }),
+      tools: withToolCacheBreakpoint(
+        buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
+          resourceLock: this.resourceLock,
+          ownerLabel: config.ownerLabel ?? config.sessionId,
+          multiAgentTools,
+        }),
+        sessionConfig.protocol === "anthropic-messages",
+      ),
       instructions: buildInstructions(config),
       // 每流一步：工具循环由 runStep 的外循环（continueLoop）逐步驱动，
       // 步间边界（真实 usage 可见、消息基线可改写）归 agent-session 掌控——
@@ -277,12 +312,20 @@ export class AgentSession {
       stopWhen: isStepCount(1),
       providerOptions,
       prepareCall: (options) => {
-        // history 的 system 轮并入 instructions（排在主指令之后），messages 保持无 system
+        // history 的 system 轮并入 instructions（排在主指令之后），messages 保持无 system。
+        // instructions 必须字节级稳定：它对应请求最前缀的 system 块，任何变化（如任务清单
+        // 每步更新）都会击穿整条 prompt 缓存前缀。动态内容一律走 append-only 的
+        // 尾部消息（appendTaskListSnapshot），instructions 只在压缩重写时变化（此时缓存
+        // 本来就因历史改写而失效，属可接受的一次性代价）。
         const base = typeof options.instructions === "string" ? options.instructions : undefined;
-        const merged = [base, this.historyInstructions ?? undefined, this.renderTaskList()]
+        const merged = [base, this.historyInstructions ?? undefined]
           .filter((part): part is string => !!part)
           .join("\n\n");
-        return { ...options, instructions: merged || undefined };
+        return {
+          ...options,
+          instructions: merged || undefined,
+          messages: this.withCacheBreakpoints(options.messages),
+        };
       },
       toolApproval: async ({ toolCall }) => {
         const toolName = toolCall.toolName ?? "";
@@ -925,6 +968,7 @@ export class AgentSession {
       .filter((part): part is string => !!part)
       .join("\n\n");
     this.messages = compacted.messages;
+    this.ensureTaskListAfterRewrite();
     this.config.emit({
       type: "context_overflow",
       sessionId: this.sessionId,
@@ -1080,6 +1124,8 @@ export class AgentSession {
     const responseMessages = await stream.responseMessages;
     if (responseMessages.length) {
       this.messages.push(...responseMessages);
+      // 任务清单快照追加在本步产出之后（因果顺序正确），且 append-only 保前缀稳定
+      this.appendTaskListSnapshot();
     }
 
     if (state.approvalRequested) {
@@ -1144,6 +1190,7 @@ export class AgentSession {
         .filter((part): part is string => !!part)
         .join("\n\n");
       this.messages = tail;
+      this.ensureTaskListAfterRewrite();
       this.lastCompactStep = this.lastUsageStep;
       this.config.emit({
         type: "context_compacted",
@@ -1159,6 +1206,7 @@ export class AgentSession {
       return false;
     }
     this.messages = compacted.messages;
+    this.ensureTaskListAfterRewrite();
     this.lastCompactStep = this.lastUsageStep;
     this.config.emit({
       type: "context_compacted",
@@ -1170,7 +1218,7 @@ export class AgentSession {
     return true;
   }
 
-  /** 当前任务清单渲染进 instructions：压缩摘要可能丢任务细节，清单由此跨压缩存活 */
+  /** 当前任务清单渲染为尾部消息文本：压缩摘要可能丢任务细节，清单快照由此跨压缩存活 */
   private renderTaskList(): string | undefined {
     if (!this.latestTasks.length) {
       return undefined;
@@ -1183,6 +1231,71 @@ export class AgentSession {
       "跨上下文压缩保留，推进任务后记得对照更新）：\n" +
       lines
     );
+  }
+
+  /**
+   * 任务清单快照以 append-only 消息进入历史（替代旧的 instructions 注入）：
+   * 清单变化只新增尾部消息，system + 历史前缀保持字节稳定以命中 prompt 缓存；
+   * 模型始终能在最近的上下文里看到最新清单，语义与旧注入等价。
+   */
+  private appendTaskListSnapshot(): void {
+    const text = this.renderTaskList();
+    if (!text || text === this.lastTaskListSnapshot) {
+      return;
+    }
+    this.lastTaskListSnapshot = text;
+    this.messages.push({ role: "user", content: text });
+  }
+
+  /**
+   * 历史/上下文被压缩或裁剪重写后补清单：快照若仍在保留的尾部就不重复追加，
+   * 否则重置去重标记重新追加一份（此时前缀已因重写失效，追加无额外缓存代价）。
+   */
+  private ensureTaskListAfterRewrite(): void {
+    const kept = this.lastTaskListSnapshot;
+    if (
+      kept &&
+      this.messages.some((message) => message.role === "user" && message.content === kept)
+    ) {
+      return;
+    }
+    this.lastTaskListSnapshot = null;
+    this.appendTaskListSnapshot();
+  }
+
+  /**
+   * anthropic 协议下给最后两条消息打 cache_control 断点（滚动双断点）：
+   * 步间请求每次向前追加消息，本请求的末条在下一次请求退居次末——两处都
+   * 打断点，下一次请求才能在次末位置读到本请求写入的缓存前缀（对齐
+   * MiMo/Claude Code 的 rolling double buffer）。其余协议走服务端隐式
+   * 前缀缓存（无需标记），原样返回。
+   */
+  private withCacheBreakpoints(
+    messages: ModelMessage[] | undefined,
+  ): ModelMessage[] | undefined {
+    if (!messages || messages.length === 0 || this.config.protocol !== "anthropic-messages") {
+      return messages;
+    }
+    const marked = [...messages];
+    for (const index of [marked.length - 1, marked.length - 2]) {
+      if (index < 0) {
+        continue;
+      }
+      const message = marked[index] as ModelMessage & {
+        providerOptions?: Record<string, Record<string, unknown>>;
+      };
+      marked[index] = {
+        ...message,
+        providerOptions: {
+          ...message.providerOptions,
+          anthropic: {
+            ...(message.providerOptions?.anthropic),
+            cacheControl: { type: "ephemeral" },
+          },
+        },
+      };
+    }
+    return marked;
   }
 
   /**

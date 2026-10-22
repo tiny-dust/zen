@@ -140,7 +140,20 @@ const elementParts = computed(() => {
 });
 
 function elementHoverTitle(ref: BrowserElementRef): string {
-  return formatElementDetail(ref);
+  const detail = formatElementDetail(ref);
+  // 已定位到源码文件：title 尾部追加点击提示（chip 变为可点击）
+  if (ref.sourceFiles?.length) {
+    return `${detail}\n${t("chat.bubble.elementRevealSource")}`;
+  }
+  return detail;
+}
+
+/** 元素 tag chip 点击：在右侧文件面板定位命中的第一个源码文件 */
+function revealElementSource(mark: ComposerElementMark): void {
+  const file = mark.ref.sourceFiles?.[0];
+  if (file) {
+    rightPanel.revealFile(file);
+  }
 }
 
 /** 用户气泡正文：隐藏 /skill: 与 $el: 内联 token（上方 tag 已呈现），原始内容保留供「编辑」回填 */
@@ -480,15 +493,27 @@ async function ocrAttachment(path: string) {
           <Sparkles class="size-3 shrink-0 text-[var(--color-mut)]" />
           <span class="truncate">{{ skill.name }}</span>
         </span>
-        <span
-          v-for="el in elementParts"
-          :key="el.id"
-          class="inline-flex max-w-[220px] items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] py-0.5 pl-1.5 pr-2 text-[11px] text-[var(--color-txt)]"
-          :title="elementHoverTitle(el.ref)"
-        >
-          <Globe class="size-3 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
-          <span class="truncate">{{ el.label }}</span>
-        </span>
+        <template v-for="el in elementParts" :key="el.id">
+          <!-- 已定位到源码文件：chip 可点击，在右侧文件面板定位 -->
+          <button
+            v-if="el.ref.sourceFiles?.length"
+            type="button"
+            class="inline-flex max-w-[220px] cursor-pointer items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] py-0.5 pl-1.5 pr-2 text-left text-[11px] text-[var(--color-txt)]"
+            :title="elementHoverTitle(el.ref)"
+            @click="revealElementSource(el)"
+          >
+            <Globe class="size-3 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+            <span class="truncate">{{ el.label }}</span>
+          </button>
+          <span
+            v-else
+            class="inline-flex max-w-[220px] items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] py-0.5 pl-1.5 pr-2 text-[11px] text-[var(--color-txt)]"
+            :title="elementHoverTitle(el.ref)"
+          >
+            <Globe class="size-3 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+            <span class="truncate">{{ el.label }}</span>
+          </span>
+        </template>
       </div>
       <div class="m-0 whitespace-pre-wrap break-words"><template v-for="(seg, index) in userSegments" :key="index"><template v-if="seg.type === 'file'"><button
             type="button"

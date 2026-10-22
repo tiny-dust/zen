@@ -54,7 +54,75 @@ vi.mock("./workspace-db", () => ({
 }));
 
 import { runAgentRequest } from "./agent-runner";
-import { setSessionMode } from "./workspace-db";
+import { appendMessage, setSessionMode } from "./workspace-db";
+
+describe("display 落库优先级", () => {
+  it("带 display 的请求：落库 content 用 display.content，meta 合并 display.meta", async () => {
+    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+
+    const result = await runAgentRequest(
+      {
+        sessionId: "s1",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "点击 [页面元素] selector=`#login` …",
+        history: [],
+        display: {
+          content: "点击 $el:登录 按钮",
+          meta: {
+            elementMarks: [{ token: "$el:登录", ref: { selector: "#login", tag: "button" } }],
+          },
+        },
+      },
+      { sessions: new Map() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(appendMessage).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        role: "user",
+        // 展示版正文（原始 token）落库，气泡 tag 依赖它恢复
+        content: "点击 $el:登录 按钮",
+        meta: expect.objectContaining({
+          elementMarks: [{ token: "$el:登录", ref: { selector: "#login", tag: "button" } }],
+        }),
+      }),
+    );
+  });
+
+  it("无 display 的请求：沿用 userMessage，仅 attachments 进 meta（与旧行为一致）", async () => {
+    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+
+    await runAgentRequest(
+      {
+        sessionId: "s1",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "你好",
+        history: [],
+        attachments: [{ name: "a.png", path: "/tmp/a.png" }],
+      },
+      { sessions: new Map() },
+    );
+
+    expect(appendMessage).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        role: "user",
+        content: "你好",
+        meta: { attachments: [{ name: "a.png", path: "/tmp/a.png" }] },
+      }),
+    );
+
+    // 空附件 + 无 display：meta 不写（保持旧的 undefined 语义）
+    await runAgentRequest(
+      { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "你好", history: [] },
+      { sessions: new Map() },
+    );
+    expect(vi.mocked(appendMessage).mock.lastCall?.[1]?.meta).toBeUndefined();
+  });
+});
 
 describe("runAgentRequest 前置失败契约", () => {
   it("落库抛错返回 {ok:false} 而不是 reject", async () => {

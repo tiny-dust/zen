@@ -1,5 +1,7 @@
 // chat store 的附属类型与纯函数：与 store 分离以控制单文件规模
 import type { ChatMessage, ChatTurn, ToolCallMessageMeta, ToolCallState } from "@zen/shared";
+import { expandBrowserElementTokens } from "@/lib/browser-element";
+import type { ComposerElementMark } from "@/lib/browser-element";
 
 export type RunPhase = "thinking" | "answering";
 
@@ -54,13 +56,30 @@ export interface SelectedSkill {
   source?: "builtin" | "user";
 }
 
-/** 取用户/助手可发送历史（去掉系统消息与工具消息） */
+/** 历史消息里可用的元素标注（防御式过滤 null / 缺字段条目） */
+function elementMarksOf(message: ChatMessage): ComposerElementMark[] {
+  const marks = message.meta?.elementMarks;
+  if (!Array.isArray(marks)) {
+    return [];
+  }
+  return marks.filter(
+    (item): item is ComposerElementMark =>
+      Boolean(item) && typeof item.token === "string" && item.ref != null,
+  );
+}
+
+/** user 消息历史正文：落库 content 保留 `$el:` token，发给 Agent 前按 meta 展开 */
+function expandUserContent(message: ChatMessage): string {
+  return expandBrowserElementTokens(message.content, elementMarksOf(message));
+}
+
+/** 取用户/助手可发送历史（去掉系统消息与工具消息；user 正文展开元素 token） */
 export function buildHistory(messages: ChatMessage[]): ChatTurn[] {
   return messages
     .filter((item) => item.role === "user" || item.role === "assistant")
     .map((item) => ({
       role: item.role as "user" | "assistant",
-      content: item.content,
+      content: item.role === "user" ? expandUserContent(item) : item.content,
     }));
 }
 

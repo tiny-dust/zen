@@ -59,4 +59,30 @@ describe("browser element chips", () => {
     expect(detail).toContain("https://example.com/");
     expect(formatElementForPrompt(ref)).toContain("[页面元素]");
   });
+
+  it("route / domPath / sourceFiles 出现在 prompt 与 tooltip 明细", () => {
+    const full: BrowserElementRef = {
+      ...ref,
+      route: "/login#form",
+      domPath: "body > div.app > button.btn.primary",
+      sourceFiles: ["src/views/Login.vue", "src/components/LoginCard.vue"],
+    };
+    const prompt = formatElementForPrompt(full);
+    expect(prompt).toContain("route=/login#form");
+    expect(prompt).toContain("domPath=`body > div.app > button.btn.primary`");
+    expect(prompt).toContain("file=src/views/Login.vue,src/components/LoginCard.vue");
+    expect(prompt).toContain("selector失效时可用domPath兜底");
+    expect(prompt).toContain("file为工作区源码文件可直接打开");
+    const detail = formatElementDetail(full);
+    expect(detail).toContain("路由：/login#form");
+    expect(detail).toContain("DOM 层级：body > div.app > button.btn.primary");
+    expect(detail).toContain("源码文件：src/views/Login.vue，src/components/LoginCard.vue");
+    // 旧 ref（无新字段）不输出对应段落与扩展提示
+    const legacy = formatElementForPrompt(ref);
+    expect(legacy).not.toContain("route=");
+    expect(legacy).not.toContain("domPath=");
+    expect(legacy).not.toContain("file=");
+    expect(legacy).not.toContain("domPath兜底");
+    expect(legacy).not.toContain("源码文件");
+  });
 });

@@ -67,28 +67,40 @@ export function buildProviderOptions(config: AgentSessionConfig): Record<string,
   const effort = config.reasoningEffort;
 
   if (config.protocol === "anthropic-messages") {
+    // prompt 缓存断点（system 块）：anthropic 顶层 providerOptions 的 cacheControl
+    // 会被 provider 映射到 system 文本块；instructions 字节级稳定时 tools+system
+    // 整段前缀可命中（ephemeral 断点滚动续期，步间请求间隔内有效）
+    const cache = { cacheControl: { type: "ephemeral" as const } };
     // 旧 Claude（haiku-4-5 / sonnet-4-5 / 4-1 / 4 / 3 系）只认 enabled/budget_tokens，
     // 对它们下发 adaptive 会收到对称的 400；不下发 thinking，交给服务端默认（旧模型默认关闭）。
     // 非推理模型（capabilities.reasoning=false）同样不下发。
     if (!supportsAdaptiveThinking(config.model) || !config.reasoning) {
-      return {};
+      return { anthropic: cache };
     }
     // display: summarized —— Opus 4.7+ / Fable 默认省略思考正文，不显式要回则 UI 看不到推理过程
     if (!effort || effort === "off") {
       // 未选档位（off 仅作缺省值出现）：adaptive 思考交给服务端默认强度
-      return { anthropic: { thinking: { type: "adaptive", display: "summarized" } } };
+      return { anthropic: { thinking: { type: "adaptive", display: "summarized" }, ...cache } };
     }
     // anthropic 不接受 "minimal" 映射到 "low"；sonnet-4-6/opus-4-6 不支持 "xhigh" 映射到 "max"
     const mapped = effort === "minimal" ? "low" : effort;
     const capped = mapped === "xhigh" && NO_XHIGH_EFFORT_CLAUDE.test(config.model) ? "max" : mapped;
-    return { anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: capped } };
+    return {
+      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: capped, ...cache },
+    };
   }
 
+  if (config.protocol === "openai-responses") {
+    // prompt_cache_key = 会话 id：同会话请求路由到同一缓存节点（前缀缓存亲和）。
+    // 子会话 sessionId 带 :: 后缀，天然与父会话隔离（对齐 Codex 的 SessionDerived 策略）
+    const options: Record<string, unknown> = { promptCacheKey: config.sessionId };
+    if (effort && effort !== "off") {
+      options.reasoningEffort = effort;
+    }
+    return { openai: options };
+  }
   if (!effort || effort === "off") {
     return {};
-  }
-  if (config.protocol === "openai-responses") {
-    return { openai: { reasoningEffort: effort } };
   }
   return { zenProvider: { reasoningEffort: effort } };
 }

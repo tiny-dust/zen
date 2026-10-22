@@ -103,6 +103,28 @@ describe("formatElementForPrompt / formatElementDetail 可选字段", () => {
       expect(detail).toContain(line);
     }
   });
+
+  it("route / domPath / sourceFiles 缺失时省略、存在时输出", () => {
+    const minimal = refOf({});
+    const prompt = formatElementForPrompt(minimal);
+    const detail = formatElementDetail(minimal);
+    for (const text of ["route=", "domPath=", "file=", "路由：", "DOM 层级：", "源码文件：", "domPath兜底", "源码文件可直接打开"]) {
+      expect(prompt).not.toContain(text);
+      expect(detail).not.toContain(text);
+    }
+    const full = refOf({
+      route: "/settings#account",
+      domPath: "body > main > form.user-form",
+      sourceFiles: ["src/pages/Settings.vue"],
+    });
+    expect(formatElementForPrompt(full)).toContain("route=/settings#account");
+    expect(formatElementForPrompt(full)).toContain("domPath=`body > main > form.user-form`");
+    expect(formatElementForPrompt(full)).toContain("file=src/pages/Settings.vue");
+    const fullDetail = formatElementDetail(full);
+    expect(fullDetail).toContain("路由：/settings#account");
+    expect(fullDetail).toContain("DOM 层级：body > main > form.user-form");
+    expect(fullDetail).toContain("源码文件：src/pages/Settings.vue");
+  });
 });
 
 describe("expandBrowserElementTokens / ELEMENT_TOKEN_RE", () => {

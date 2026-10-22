@@ -796,25 +796,28 @@ export const useChatStore = defineStore("chat", () => {
       }
     }
 
+    // 用户消息 meta：本地气泡与 main 落库共用（skills/attachments/elementMarks 三段条件拼接）
+    const userMeta: Record<string, unknown> = {
+      ...(skills.length ? { skills } : {}),
+      ...(attachmentRefs.length ? { attachments: attachmentRefs } : {}),
+      ...(usedMarks.length
+        ? {
+            elementMarks: usedMarks.map((mark) => ({
+              id: mark.id,
+              label: mark.label,
+              token: mark.token,
+              ref: mark.ref,
+            })),
+          }
+        : {}),
+    };
+
     appendMessage({
       id: uuid(),
       role: "user",
       content: text,
       createdAt: Date.now(),
-      meta: {
-        ...(skills.length ? { skills } : {}),
-        ...(attachmentRefs.length ? { attachments: attachmentRefs } : {}),
-        ...(usedMarks.length
-          ? {
-              elementMarks: usedMarks.map((mark) => ({
-                id: mark.id,
-                label: mark.label,
-                token: mark.token,
-                ref: mark.ref,
-              })),
-            }
-          : {}),
-      },
+      meta: userMeta,
     });
     // 发起对话即置顶：main 落库时会同步 updated_at，本地侧栏排序也立即跟上
     useWorkspaceStore().touchSessionLocal(sessionId.value);
@@ -848,6 +851,12 @@ export const useChatStore = defineStore("chat", () => {
         reasoningEffort: effort.value,
         attachments: attachmentRefs.length ? attachmentRefs : undefined,
         history: compression.turns,
+        // 展示版消息（原始正文 + meta）：main 落库优先用它，气泡 tag（元素/技能/附件）
+        // 切会话/重启后才能恢复；「继续」等系统续发不带 composer 状态，无 meta 可给。
+        // 过桥前 JSON 序列化成纯对象，防 elementMarks 的响应式 Proxy 触发 clone 报错
+        display: continued
+          ? undefined
+          : { content: text, meta: JSON.parse(JSON.stringify(userMeta)) as Record<string, unknown> },
         // 计划模式批准标记：main 侧识别后把会话切回 interactive 再继续执行
         approvePlan: options?.approvePlan === true ? true : undefined,
       });

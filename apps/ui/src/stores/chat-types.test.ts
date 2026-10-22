@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONTEXT_OVERHEAD_TOKENS,
+  buildHistory,
   compressHistory,
   estimateHistoryTokens,
   estimateTokens,
 } from "./chat-types";
-import type { ChatTurn } from "@zen/shared";
+import type { BrowserElementRef, ChatMessage, ChatTurn } from "@zen/shared";
 
 function turns(n: number): ChatTurn[] {
   const list: ChatTurn[] = [];
@@ -18,6 +19,66 @@ function turns(n: number): ChatTurn[] {
   }
   return list;
 }
+
+function elementRef(selector: string, text: string): BrowserElementRef {
+  return {
+    selector,
+    selectorCandidates: [selector],
+    tag: "button",
+    id: "",
+    className: "",
+    text,
+    name: "",
+    type: "",
+    placeholder: "",
+    ariaLabel: "",
+    role: "",
+    href: "",
+    rect: { x: 10, y: 20, width: 80, height: 32 },
+    pageUrl: "https://example.com/login",
+    pageTitle: "登录",
+  };
+}
+
+function userMessage(content: string, meta?: Record<string, unknown>): ChatMessage {
+  return { id: "m1", role: "user", content, createdAt: 1, meta };
+}
+
+describe("buildHistory", () => {
+  it("user 正文里的 `$el:` token 按 meta.elementMarks 展开为完整元素描述", () => {
+    const messages: ChatMessage[] = [
+      userMessage("点击 $el:登录 按钮", {
+        elementMarks: [{ token: "$el:登录", ref: elementRef("#login", "登录") }],
+      }),
+      { id: "m2", role: "assistant", content: "已点击", createdAt: 2 },
+    ];
+    const history = buildHistory(messages);
+    expect(history).toHaveLength(2);
+    expect(history[0]?.role).toBe("user");
+    // token 被替换成 [页面元素] 描述，Agent 不再看到裸 token
+    expect(history[0]?.content).toContain("[页面元素]");
+    expect(history[0]?.content).toContain("selector=`#login`");
+    expect(history[0]?.content).not.toContain("$el:登录");
+    expect(history[1]?.content).toBe("已点击");
+  });
+
+  it("无 meta / meta 脏数据 / 正文无 token 时原样返回", () => {
+    const dirty: Array<{ token?: unknown; ref?: unknown } | null> = [
+      null,
+      { token: "$el:登录" },
+      { ref: elementRef("#a", "a") },
+    ];
+    const history = buildHistory([
+      userMessage("没有标注的正文 $el:登录"),
+      userMessage("带脏数据 $el:登录", { elementMarks: dirty }),
+      { id: "m3", role: "system", content: "系统消息不入历史", createdAt: 3 },
+    ]);
+    expect(history).toHaveLength(2);
+    // 无 meta 与脏 meta 均展开不了 token，正文原样保留
+    expect(history[0]?.content).toBe("没有标注的正文 $el:登录");
+    expect(history[1]?.content).toBe("带脏数据 $el:登录");
+  });
+});
 
 const baseOpts = {
   tasks: [],

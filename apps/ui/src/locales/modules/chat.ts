@@ -277,6 +277,7 @@ export default {
       dateWithTime: "{m}月{d}日 {time}",
       secondsShort: "{n} 秒",
       minutesSeconds: "{m} 分 {s} 秒",
+      elementRevealSource: "点击定位源码文件",
     },
 
     /* 思考块 / 本地图片（ai-elements） */
@@ -566,6 +567,7 @@ export default {
       dateWithTime: "{m}/{d} {time}",
       secondsShort: "{n}s",
       minutesSeconds: "{m}m {s}s",
+      elementRevealSource: "Click to open the source file",
     },
 
     /* Reasoning block / local image (ai-elements) */

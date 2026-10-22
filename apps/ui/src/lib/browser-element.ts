@@ -55,9 +55,15 @@ export function formatElementForPrompt(ref: BrowserElementRef): string {
   if (ref.ariaLabel) bits.push(`aria-label="${ref.ariaLabel}"`);
   if (ref.placeholder) bits.push(`placeholder="${ref.placeholder}"`);
   if (ref.role) bits.push(`role=${ref.role}`);
+  if (ref.route) bits.push(`route=${ref.route}`);
+  if (ref.domPath) bits.push(`domPath=\`${ref.domPath}\``);
+  if (ref.sourceFiles?.length) bits.push(`file=${ref.sourceFiles.join(",")}`);
   bits.push(`rect=${ref.rect.width}x${ref.rect.height}@(${ref.rect.x},${ref.rect.y})`);
   bits.push(`page=${ref.pageUrl}`);
-  bits.push(`提示=browserOpen(page)后用browserClick(selector)`);
+  let hint = "提示=browserOpen(page)后用browserClick(selector)";
+  if (ref.domPath) hint += "，selector失效时可用domPath兜底";
+  if (ref.sourceFiles?.length) hint += "，file为工作区源码文件可直接打开";
+  bits.push(hint);
   return `[页面元素] ${bits.join(" ")}`;
 }
 
@@ -72,6 +78,9 @@ export function formatElementDetail(ref: BrowserElementRef): string {
   if (ref.placeholder) lines.push(`placeholder：${ref.placeholder}`);
   if (ref.name) lines.push(`name：${ref.name}`);
   if (ref.role) lines.push(`role：${ref.role}`);
+  if (ref.route) lines.push(`路由：${ref.route}`);
+  if (ref.domPath) lines.push(`DOM 层级：${ref.domPath}`);
+  if (ref.sourceFiles?.length) lines.push(`源码文件：${ref.sourceFiles.join("，")}`);
   lines.push(`位置：${ref.rect.width}×${ref.rect.height} @ (${ref.rect.x}, ${ref.rect.y})`);
   lines.push(`页面：${ref.pageUrl}`);
   return lines.join("\n");

@@ -79,13 +79,13 @@ describe("buildProviderOptions", () => {
   it("按 protocol 分支下发推理参数（openai 系）", () => {
     expect(
       buildProviderOptions(config({ protocol: "openai-responses", reasoningEffort: "low" })),
-    ).toEqual({ openai: { reasoningEffort: "low" } });
+    ).toEqual({ openai: { promptCacheKey: "s", reasoningEffort: "low" } });
     expect(
       buildProviderOptions(config({ protocol: "openai-chat", reasoningEffort: "medium" })),
     ).toEqual({ zenProvider: { reasoningEffort: "medium" } });
   });
 
-  it("anthropic adaptive 族：推理模型下发 adaptive + summarized + effort", () => {
+  it("anthropic adaptive 族：推理模型下发 adaptive + summarized + effort + 缓存断点", () => {
     expect(
       buildProviderOptions(
         config({
@@ -96,7 +96,11 @@ describe("buildProviderOptions", () => {
         }),
       ),
     ).toEqual({
-      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
+      anthropic: {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "high",
+        cacheControl: { type: "ephemeral" },
+      },
     });
   });
 
@@ -111,7 +115,11 @@ describe("buildProviderOptions", () => {
         }),
       ),
     ).toEqual({
-      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "low" },
+      anthropic: {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "low",
+        cacheControl: { type: "ephemeral" },
+      },
     });
     expect(
       buildProviderOptions(
@@ -123,7 +131,11 @@ describe("buildProviderOptions", () => {
         }),
       ),
     ).toEqual({
-      anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "max" },
+      anthropic: {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "max",
+        cacheControl: { type: "ephemeral" },
+      },
     });
   });
 
@@ -132,7 +144,9 @@ describe("buildProviderOptions", () => {
       buildProviderOptions(
         config({ protocol: "anthropic-messages", model: "claude-fable-5", reasoning: true }),
       ),
-    ).toEqual({ anthropic: { thinking: { type: "adaptive", display: "summarized" } } });
+    ).toEqual({
+      anthropic: { thinking: { type: "adaptive", display: "summarized" }, cacheControl: { type: "ephemeral" } },
+    });
     expect(
       buildProviderOptions(
         config({
@@ -142,13 +156,15 @@ describe("buildProviderOptions", () => {
           reasoningEffort: "off",
         }),
       ),
-    ).toEqual({ anthropic: { thinking: { type: "adaptive", display: "summarized" } } });
-    // 模型被标记为非推理（如手动关闭 reasoning 能力）：不下发 thinking
+    ).toEqual({
+      anthropic: { thinking: { type: "adaptive", display: "summarized" }, cacheControl: { type: "ephemeral" } },
+    });
+    // 模型被标记为非推理（如手动关闭 reasoning 能力）：不下发 thinking，只留缓存断点
     expect(
       buildProviderOptions(
         config({ protocol: "anthropic-messages", model: "claude-fable-5", reasoningEffort: "high" }),
       ),
-    ).toEqual({});
+    ).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
   });
 
   it("anthropic 旧 Claude：无论档位都不下发 thinking（enabled 族交给服务端默认）", () => {
@@ -161,7 +177,7 @@ describe("buildProviderOptions", () => {
           reasoningEffort: "high",
         }),
       ),
-    ).toEqual({});
+    ).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
     expect(
       buildProviderOptions(
         config({
@@ -171,7 +187,7 @@ describe("buildProviderOptions", () => {
           reasoningEffort: "medium",
         }),
       ),
-    ).toEqual({});
+    ).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
   });
 });
 
