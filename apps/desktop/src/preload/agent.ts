@@ -88,6 +88,13 @@ export const agentApi = {
     ): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("agent:checkpoints:restore", sessionId, checkpointId);
     },
+    /** 删除一轮快照记录与备份文件（只清磁盘占用，不动工作区文件） */
+    deleteTurnCheckpoints(
+      sessionId: string,
+      run: number,
+    ): Promise<{ ok: boolean; error?: string; removed?: number }> {
+      return ipcRenderer.invoke("agent:checkpoints:delete-turn", sessionId, run);
+    },
     getSettings(): Promise<AgentSettings> {
       return ipcRenderer.invoke("agent:get-settings");
     },

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { resolveWorkspacePath } from "@zen/tools-fs";
@@ -269,6 +269,81 @@ export async function listTurnCheckpoints(sessionId: string): Promise<TurnCheckp
       fileCount: group.paths.size,
       undone: data.turnStates.get(run)?.state === "undone",
     }));
+}
+
+/**
+ * 删除一轮的全部快照记录与备份文件（清理磁盘占用）。
+ * 保留该轮的 turn 标记：run 序号按标记最大值自增，标记一并删除会让下一轮复用旧序号，
+ * 新旧快照混在同一格里。备份文件删除失败不阻断（记录已移除，文件残留无害）。
+ */
+export async function deleteTurnCheckpoints(
+  sessionId: string,
+  run: number,
+): Promise<{ ok: boolean; error?: string; removed?: number }> {
+  let raw: string;
+  try {
+    raw = await readFile(manifestFile(sessionId), "utf8");
+  } catch {
+    return { ok: false, error: "该轮快照不存在" };
+  }
+  interface RawLine {
+    text: string;
+    record: unknown;
+  }
+  const lines: RawLine[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      lines.push({ text: line, record: JSON.parse(line) });
+    } catch {
+      // 坏行直接丢弃（与 readManifest 一致）
+    }
+  }
+  const targetFiles = lines
+    .map((line) => line.record)
+    .filter((record): record is FileCheckpoint => isFileCheckpoint(record) && (record.run ?? 1) === run);
+  if (!targetFiles.length) {
+    return { ok: false, error: "该轮没有可删除的快照" };
+  }
+  const targetIds = new Set(targetFiles.map((item) => item.id));
+  const backupPaths = targetFiles.map((item) => item.backupFile).filter(Boolean) as string[];
+
+  const kept: string[] = [];
+  for (const line of lines) {
+    const record = line.record;
+    if (isFileCheckpoint(record)) {
+      if (targetIds.has(record.id)) {
+        continue;
+      }
+    } else if (isAfterCopyRecord(record)) {
+      if (targetIds.has(record.checkpointId)) {
+        backupPaths.push(record.afterFile);
+        continue;
+      }
+    } else if (
+      typeof record === "object" &&
+      record !== null &&
+      (record as Record<string, unknown>)["kind"] === "turn_state" &&
+      (record as Record<string, unknown>)["run"] === run
+    ) {
+      continue;
+    }
+    kept.push(line.text);
+  }
+
+  // 重写 manifest（临时文件 + rename，避免中途失败留下半个文件）
+  const dir = checkpointsDir(sessionId);
+  const target = manifestFile(sessionId);
+  const temp = `${target}.tmp`;
+  await writeFile(temp, kept.length ? `${kept.join("\n")}\n` : "", "utf8");
+  await rename(temp, target);
+
+  for (const path of backupPaths) {
+    await rm(path, { force: true }).catch(() => undefined);
+  }
+  return { ok: true, removed: targetFiles.length };
 }
 
 /** 把备份复制回工作区原路径（必要时补目录）；找不到 id 或复制失败返回 { ok:false } */

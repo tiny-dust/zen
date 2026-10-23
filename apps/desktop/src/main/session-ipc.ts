@@ -9,6 +9,7 @@ import { completeOnce } from "./model-api";
 import { renderSessionHtml } from "./session-export";
 import {
   appendMessage,
+  clearSessionModelHistory,
   createSession,
   createWorkspace,
   deleteSession,
@@ -205,6 +206,9 @@ export function registerSessionIpc(): void {
         return { ok: false, error: "invalid trim request" };
       }
       trimMessagesFrom(sessionId, fromCreatedAt);
+      // 模型历史与展示历史就此分叉：模型历史无时间戳无法对齐裁剪，整体清除
+      // 回落 ChatTurn 兜底，下一轮 run 用展示历史重建基线
+      clearSessionModelHistory(sessionId);
       return { ok: true };
     },
   );

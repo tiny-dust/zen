@@ -15,6 +15,7 @@ import {
   backupAfterWrite,
   backupWorkspaceFile,
   beginTurnCheckpoint,
+  deleteTurnCheckpoints,
   listFileCheckpoints,
   listTurnCheckpoints,
   reapplyTurnCheckpoints,
@@ -287,5 +288,42 @@ describe("session-checkpoints", () => {
     const undone = await undoTurnCheckpoints(sessionId, workspaceRoot, run);
     expect(undone.ok).toBe(false);
     expect(undone.error).toBeTruthy();
+  });
+
+  it("删除一轮：清记录与副本、保留轮标记续号、其他轮不受影响", async () => {
+    const sessionId = "sess-cp-delete";
+    writeFileSync(join(workspaceRoot, "d.txt"), "d0");
+    const run1 = await beginTurnCheckpoint(sessionId);
+    await writeTracked(sessionId, run1, "d.txt", "d1");
+    const run2 = await beginTurnCheckpoint(sessionId);
+    await writeTracked(sessionId, run2, "d.txt", "d2");
+
+    const before = await listFileCheckpoints(sessionId);
+    const run2Backups = before
+      .filter((item) => (item.run ?? 1) === run2)
+      .map((item) => item.backupFile)
+      .filter(Boolean) as string[];
+    expect(run2Backups.length).toBeGreaterThan(0);
+    const run1Backup = before.find((item) => (item.run ?? 1) === run1)?.backupFile ?? "";
+    expect(existsSync(run1Backup)).toBe(true);
+
+    const result = await deleteTurnCheckpoints(sessionId, run1);
+    expect(result.ok).toBe(true);
+    expect(result.removed).toBe(1);
+    // 备份副本被清、工作区文件不动
+    expect(existsSync(run1Backup)).toBe(false);
+    expect(readWorkspace("d.txt")).toBe("d2");
+
+    const turns = await listTurnCheckpoints(sessionId);
+    expect(turns.map((group) => group.run)).toEqual([run2]);
+    // 轮标记保留：下一轮序号继续自增，不复用已删的 run
+    const run3 = await beginTurnCheckpoint(sessionId);
+    expect(run3).toBe(run2 + 1);
+
+    // 已删轮再删/不存在轮返回失败，不误伤其余轮
+    expect((await deleteTurnCheckpoints(sessionId, run1)).ok).toBe(false);
+    for (const path of run2Backups) {
+      expect(existsSync(path)).toBe(true);
+    }
   });
 });

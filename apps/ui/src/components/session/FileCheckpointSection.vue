@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Redo2, RotateCcw, Undo2 } from "@lucide/vue";
+import { History, Redo2, RotateCcw, Trash2, Undo2 } from "@lucide/vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -21,6 +21,9 @@ const feedback = ref("");
 const undoTarget = ref<TurnCheckpointGroup | null>(null);
 const undoPending = ref(false);
 const reapplyPending = ref(0);
+/** 待二次确认的删除目标轮：只清快照记录与备份副本，不动工作区文件 */
+const deleteTarget = ref<TurnCheckpointGroup | null>(null);
+const deletePending = ref(false);
 
 /** 展开时才拉取：快照随写文件持续增长，折叠态不值得轮询 */
 async function toggle() {
@@ -124,6 +127,25 @@ async function restore(checkpoint: FileCheckpoint): Promise<void> {
   }
 }
 
+/** 删除一轮快照：仅清磁盘上的备份副本与记录，工作区文件不受影响 */
+async function confirmDelete(): Promise<void> {
+  const zen = window.zen;
+  const target = deleteTarget.value;
+  if (!zen || !target) {
+    return;
+  }
+  deletePending.value = true;
+  const result = await zen.agent.deleteTurnCheckpoints(chatStore.sessionId, target.run);
+  deletePending.value = false;
+  deleteTarget.value = null;
+  feedback.value = result.ok
+    ? t("shell.turnDeleteOk", { n: target.run, count: result.removed ?? 0 })
+    : (result.error || t("shell.checkpointRestoreFailed"));
+  if (result.ok) {
+    await refresh();
+  }
+}
+
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString();
 }
@@ -136,6 +158,7 @@ function formatTime(ts: number): string {
       :title="t('shell.fileSnapshots')"
       :open="open"
       :count="items.length ? String(items.length) : undefined"
+      :hint="t('shell.fileSnapshotsHelp')"
       @toggle="toggle"
     />
     <div v-if="open" class="mt-1 flex flex-col gap-2">
@@ -185,6 +208,16 @@ function formatTime(ts: number): string {
             @click="reapply(group)"
           >
             <Redo2 class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            class="h-auto flex-none px-1 py-0.5 font-normal dark:hover:bg-[var(--color-menu-hover)]"
+            :disabled="deletePending"
+            :aria-label="t('shell.turnDelete', { n: group.run })"
+            :title="t('shell.turnDelete', { n: group.run })"
+            @click="deleteTarget = group"
+          >
+            <Trash2 class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
           </Button>
         </div>
         <ul class="m-0 flex list-none flex-col p-0">
@@ -236,6 +269,18 @@ function formatTime(ts: number): string {
       :pending="undoPending"
       @update:open="(next) => !next && (undoTarget = null)"
       @confirm="confirmUndo"
+    />
+
+    <ConfirmDialog
+      :open="!!deleteTarget"
+      :title="deleteTarget ? t('shell.turnDeleteConfirmTitle', { n: deleteTarget.run }) : ''"
+      :description="
+        deleteTarget ? t('shell.turnDeleteConfirmDesc', { count: deleteTarget.fileCount }) : ''
+      "
+      :confirm-label="t('shell.turnDelete', { n: deleteTarget?.run ?? 0 })"
+      :pending="deletePending"
+      @update:open="(next) => !next && (deleteTarget = null)"
+      @confirm="confirmDelete"
     />
   </section>
 </template>
