@@ -6,6 +6,7 @@ import type {
   CatalogModel,
   CatalogRefreshResult,
   CatalogVendor,
+  ChatGptAuthStatus,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
@@ -75,6 +76,19 @@ export const modelsApi = {
     },
     catalogUpdatedAt(): Promise<number> {
       return ipcRenderer.invoke("models:catalog-updated-at");
+    },
+    /** ChatGPT 账号 OAuth 登录（无 providerId 时自动创建 ChatGPT 供应商） */
+    chatgptLogin(providerId?: string): Promise<{
+      status: ChatGptAuthStatus;
+      provider: ProviderSummary | null;
+    }> {
+      return ipcRenderer.invoke("models:chatgpt-login", providerId);
+    },
+    chatgptStatus(providerId: string): Promise<ChatGptAuthStatus> {
+      return ipcRenderer.invoke("models:chatgpt-status", providerId);
+    },
+    chatgptLogout(providerId: string): Promise<ChatGptAuthStatus> {
+      return ipcRenderer.invoke("models:chatgpt-logout", providerId);
     },
   },
 };

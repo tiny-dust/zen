@@ -1,7 +1,9 @@
 import { ipcMain } from "electron";
 
+import { chatgptLogin, chatgptLogout, getChatGptAuthStatus } from "./chatgpt-auth";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
+import { ensureChatGptProvider } from "./model-db";
 import {
   getCatalogUpdatedAt,
   listCatalogModels,
@@ -125,4 +127,23 @@ export function registerModelIpc(): void {
   ipcMain.handle("models:catalog-refresh", async () => refreshCatalogFromRemote());
 
   ipcMain.handle("models:catalog-updated-at", async () => getCatalogUpdatedAt());
+
+  // ---------- ChatGPT 账号登录 ----------
+
+  /** 登录：无 providerId 时自动创建 ChatGPT 供应商（带预置 Codex 模型） */
+  ipcMain.handle("models:chatgpt-login", async (_event, providerId?: string) => {
+    const target = providerId ?? (await ensureChatGptProvider()).id;
+    const status = await chatgptLogin(target);
+    const providers = await listProviders();
+    return { status, provider: providers.find((item) => item.id === target) ?? null };
+  });
+
+  ipcMain.handle("models:chatgpt-status", async (_event, providerId: string) => {
+    return getChatGptAuthStatus(providerId);
+  });
+
+  ipcMain.handle("models:chatgpt-logout", async (_event, providerId: string) => {
+    chatgptLogout(providerId);
+    return getChatGptAuthStatus(providerId);
+  });
 }

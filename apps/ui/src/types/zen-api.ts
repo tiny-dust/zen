@@ -30,6 +30,7 @@ import type {
   CatalogModel,
   CatalogRefreshResult,
   CatalogVendor,
+  ChatGptAuthStatus,
   ChatMessage,
   DeviceCodeInfo,
   DirEntry,
@@ -239,6 +240,13 @@ export interface ZenApi {
     catalogMatch(modelId: string): Promise<CatalogMatch>;
     catalogRefresh(): Promise<CatalogRefreshResult>;
     catalogUpdatedAt(): Promise<number>;
+    /** ChatGPT 账号 OAuth 登录（无 providerId 时自动创建 ChatGPT 供应商） */
+    chatgptLogin(providerId?: string): Promise<{
+      status: ChatGptAuthStatus;
+      provider: ProviderSummary | null;
+    }>;
+    chatgptStatus(providerId: string): Promise<ChatGptAuthStatus>;
+    chatgptLogout(providerId: string): Promise<ChatGptAuthStatus>;
   };
   agent: {
     run(request: AgentRunRequest): Promise<{ ok: boolean; error?: string }>;
@@ -285,6 +293,11 @@ export interface ZenApi {
       sessionId: string,
       checkpointId: string,
     ): Promise<{ ok: boolean; error?: string }>;
+    /** 删除一轮快照记录与备份文件（只清磁盘占用，不动工作区文件） */
+    deleteTurnCheckpoints(
+      sessionId: string,
+      run: number,
+    ): Promise<{ ok: boolean; error?: string; removed?: number }>;
     pickDirectory(): Promise<string | null>;
     promptPresets(): Promise<PromptPreset[]>;
     sandboxDir(): Promise<string>;

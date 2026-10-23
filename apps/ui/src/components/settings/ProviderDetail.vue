@@ -23,6 +23,7 @@ import { PROVIDER_PROTOCOLS } from "@zen/shared";
 
 import type {
   CatalogModel,
+  ChatGptAuthStatus,
   ModelCapabilities,
   ProviderModel,
   ProviderProtocol,
@@ -81,6 +82,59 @@ const formTemplate = ref<CatalogModel | null>(null);
 const formPresetId = ref("");
 const editingModel = ref<ProviderModel | null>(null);
 const knownIds = computed(() => new Set(props.provider.models.map((item) => item.id)));
+
+// ChatGPT 账号登录状态（仅 chatgpt-oauth 供应商展示）
+const chatgpt = ref<ChatGptAuthStatus | null>(null);
+const loginPending = ref(false);
+
+const isChatGpt = computed(() => props.provider.authMode === "chatgpt-oauth");
+
+async function refreshChatGptStatus() {
+  if (!isChatGpt.value || !window.zen?.models) {
+    chatgpt.value = null;
+    return;
+  }
+  try {
+    chatgpt.value = await window.zen.models.chatgptStatus(props.provider.id);
+  } catch {
+    chatgpt.value = null;
+  }
+}
+
+async function onChatGptLogin() {
+  if (loginPending.value || !window.zen?.models) {
+    return;
+  }
+  loginPending.value = true;
+  try {
+    await window.zen.models.chatgptLogin(props.provider.id);
+    await refreshChatGptStatus();
+  } catch (error) {
+    console.warn("[chatgpt] 登录失败:", error);
+    await refreshChatGptStatus();
+    throw error;
+  } finally {
+    loginPending.value = false;
+  }
+}
+
+async function onChatGptLogout() {
+  if (!window.zen?.models) {
+    await refreshChatGptStatus();
+    return;
+  }
+  try {
+    chatgpt.value = await window.zen.models.chatgptLogout(props.provider.id);
+  } catch {
+    await refreshChatGptStatus();
+  }
+}
+
+watch(
+  () => props.provider.id,
+  () => void refreshChatGptStatus(),
+  { immediate: true },
+);
 
 function syncFromProvider() {
   form.name = props.provider.name;
@@ -217,7 +271,27 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
         <Label for="pd-base" :class="fieldLabel">{{ t("settings.models.baseUrlLabel") }}</Label>
         <Input id="pd-base" v-model="form.baseUrl" :class="ctrl" @input="markDirty" />
       </div>
-      <div class="field-row">
+      <div v-if="isChatGpt" class="field-row">
+        <Label :class="fieldLabel">{{ t("settings.models.chatgptAccount") }}</Label>
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <template v-if="chatgpt?.loggedIn">
+            <span class="min-w-0 truncate text-[13px] text-[var(--color-txt)]">
+              {{ chatgpt.email || t("settings.models.chatgptLoggedIn") }}
+              <span v-if="chatgpt.planType" class="text-[11px] text-[var(--color-dim)]">({{ chatgpt.planType }})</span>
+            </span>
+            <Button variant="outline" size="sm" @click="onChatGptLogout">
+              {{ t("settings.models.chatgptLogout") }}
+            </Button>
+          </template>
+          <template v-else>
+            <span class="text-[13px] text-[var(--color-dim)]">{{ t("settings.models.chatgptLoggedOut") }}</span>
+            <Button size="sm" :disabled="loginPending" @click="onChatGptLogin">
+              {{ loginPending ? t("settings.models.chatgptPending") : t("settings.models.chatgptLogin") }}
+            </Button>
+          </template>
+        </div>
+      </div>
+      <div v-else class="field-row">
         <Label for="pd-key" :class="fieldLabel">{{ t("settings.models.apiKey") }}</Label>
         <Input
           id="pd-key"
