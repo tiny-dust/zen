@@ -21,6 +21,15 @@ function withVersionSegment(baseUrl: string): string {
   return `${base}/v1`;
 }
 
+/** openai-responses 的 baseURL 直连策略：含路径段的网关（如 ChatGPT backend-api）原样使用，不补 /v1 */
+function withResponsesBaseUrl(baseUrl: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (/\/v\d+$/.test(base) || /\/(responses|chat|completions|backend-api)/.test(base)) {
+    return base;
+  }
+  return `${base}/v1`;
+}
+
 /**
  * 仅支持 adaptive 思考的新一代 Claude（fable / opus-5 / sonnet-5 / 4.6+）。
  * 这些模型拒绝 thinking: {type:"enabled"}，只认 thinking adaptive + output_config.effort。
@@ -43,22 +52,29 @@ export function supportsAdaptiveThinking(modelId: string): boolean {
 }
 
 export function createLanguageModel(config: AgentSessionConfig): LanguageModel {
-  const baseURL = withVersionSegment(config.baseUrl);
-
   if (config.protocol === "anthropic-messages") {
-    const anthropic = createAnthropic({ apiKey: config.apiKey, baseURL });
+    const anthropic = createAnthropic({
+      apiKey: config.apiKey,
+      baseURL: withVersionSegment(config.baseUrl),
+      headers: config.authHeaders,
+    });
     return anthropic(config.model);
   }
 
   if (config.protocol === "openai-responses") {
-    const openai = createOpenAI({ apiKey: config.apiKey, baseURL });
+    const openai = createOpenAI({
+      apiKey: config.apiKey,
+      baseURL: withResponsesBaseUrl(config.baseUrl),
+      headers: config.authHeaders,
+    });
     return openai.responses(config.model);
   }
 
   const compatible = createOpenAICompatible({
     name: "zen-provider",
     apiKey: config.apiKey,
-    baseURL,
+    baseURL: withVersionSegment(config.baseUrl),
+    headers: config.authHeaders,
   });
   return compatible.chatModel(config.model);
 }

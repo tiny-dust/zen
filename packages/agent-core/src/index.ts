@@ -12,6 +12,10 @@
  */
 export { AgentSession, insertUserContent, steerUserContent } from "./agent-session";
 export type { AgentImageAttachment } from "./agent-session";
+export { sanitizePersistedModelHistory } from "./model-history";
+export type { ModelHistoryStore, PersistedModelHistory } from "./model-history";
+// ModelMessage 仅为类型：desktop 的 workspace-db 复用而不直接依赖 ai
+export type { ModelMessage } from "ai";
 export { runMockAgent } from "./mock-agent";
 export { registerMcpRuntime } from "./mcp-runtime";
 export { supportsAdaptiveThinking } from "./agent-model";

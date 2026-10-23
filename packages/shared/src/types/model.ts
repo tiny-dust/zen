@@ -2,6 +2,12 @@ import { enumOf } from "../utils/enum";
 
 export type ProviderProtocol = "openai-chat" | "openai-responses" | "anthropic-messages";
 
+/**
+ * 供应商认证模式：api-key（静态密钥）或 chatgpt-oauth（ChatGPT 账号 OAuth，
+ * 访问/刷新令牌本地加密存储，运行前自动刷新）。
+ */
+export type ProviderAuthMode = "api-key" | "chatgpt-oauth";
+
 export const ProviderProtocolEnum = enumOf({
   OpenAiChat: { value: "openai-chat" as ProviderProtocol, label: "OpenAI Chat Completions" },
   OpenAiResponses: {
@@ -85,6 +91,20 @@ export interface PreviewModelsInput {
   userAgent?: string;
 }
 
+/** ChatGPT OAuth 登录状态（UI 展示；不含任何令牌明文） */
+export interface ChatGptAuthStatus {
+  /** 已登录（存在刷新令牌） */
+  loggedIn: boolean;
+  /** 账号邮箱（id_token claims；未解析到为空） */
+  email?: string;
+  /** ChatGPT 账号/组织 id（chatgpt-account-id 请求头来源） */
+  accountId?: string;
+  /** 订阅类型（plus / team / business / enterprise…） */
+  planType?: string;
+  /** access_token 过期时间戳（ms；0 表示未知） */
+  expiresAt: number;
+}
+
 /** UI-facing provider：apiKey 不回传明文，仅 hasApiKey / apiKeyMask */
 export interface ProviderSummary {
   id: string;
@@ -93,6 +113,8 @@ export interface ProviderSummary {
   baseUrl: string;
   userAgent?: string;
   enabled: boolean;
+  /** 认证模式：api-key（默认）或 chatgpt-oauth */
+  authMode?: ProviderAuthMode;
   hasApiKey: boolean;
   apiKeyMask: string;
   models: ProviderModel[];
@@ -107,6 +129,8 @@ export interface ProviderInput {
   apiKey?: string;
   userAgent?: string;
   enabled?: boolean;
+  /** 认证模式；缺省 api-key。chatgpt-oauth 时 apiKey 可为空（令牌由登录流程写入） */
+  authMode?: ProviderAuthMode;
   /** 新增时随供应商一并写入的模型 */
   models?: Array<{
     id: string;

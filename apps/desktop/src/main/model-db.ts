@@ -42,6 +42,8 @@ interface ProviderRow {
   api_key_enc: string;
   api_key_mask: string;
   user_agent: string | null;
+  auth_mode: string | null;
+  oauth_enc: string | null;
   enabled: number;
   created_at: number;
   updated_at: number;
@@ -77,6 +79,7 @@ function toProviderSummary(row: ProviderRow, models: ProviderModel[]): ProviderS
     baseUrl: row.base_url,
     userAgent: row.user_agent || undefined,
     enabled: row.enabled !== 0,
+    authMode: (row.auth_mode as ProviderSummary["authMode"]) ?? "api-key",
     hasApiKey: Boolean(row.api_key_enc),
     apiKeyMask: row.api_key_mask || "••••",
     models,
@@ -206,25 +209,26 @@ export async function addProvider(input: ProviderInput): Promise<ProviderSummary
   if (!baseUrl) {
     throw new Error("请填写 Base URL");
   }
-  if (!input.apiKey?.trim()) {
+  const authMode = input.authMode ?? "api-key";
+  if (authMode !== "chatgpt-oauth" && !input.apiKey?.trim()) {
     throw new Error("请填写 API Key");
   }
 
   const id = crypto.randomUUID();
   const now = Date.now();
-  const plainKey = input.apiKey.trim();
-  const apiKeyEnc = await encryptSecret(plainKey);
-  const apiKeyMask = maskSecret(plainKey);
+  const plainKey = input.apiKey?.trim() ?? "";
+  const apiKeyEnc = plainKey ? await encryptSecret(plainKey) : "";
+  const apiKeyMask = plainKey ? maskSecret(plainKey) : "";
   const userAgent = sanitizeUserAgent(input.userAgent);
   const enabled = input.enabled === false ? 0 : 1;
 
   getDb()
     .prepare(
       `INSERT INTO model_providers
-        (id, name, protocol, base_url, api_key_enc, api_key_mask, user_agent, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, name, protocol, base_url, api_key_enc, api_key_mask, user_agent, auth_mode, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, name, input.protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, enabled, now, now);
+    .run(id, name, input.protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, authMode, enabled, now, now);
 
   const insertModel = getDb().prepare(
     `INSERT INTO provider_models (provider_id, id, name, enabled, custom, capabilities_json, created_at, updated_at)
@@ -271,6 +275,7 @@ export async function updateProvider(
   const userAgent =
     patch.userAgent !== undefined ? sanitizeUserAgent(patch.userAgent) : row.user_agent;
   const enabled = patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : row.enabled;
+  const authMode = patch.authMode ?? (row.auth_mode as ProviderInput["authMode"]) ?? "api-key";
   let apiKeyEnc = row.api_key_enc;
   let apiKeyMask = row.api_key_mask;
   if (patch.apiKey?.trim()) {
@@ -283,10 +288,10 @@ export async function updateProvider(
   getDb()
     .prepare(
       `UPDATE model_providers
-       SET name = ?, protocol = ?, base_url = ?, api_key_enc = ?, api_key_mask = ?, user_agent = ?, enabled = ?, updated_at = ?
+       SET name = ?, protocol = ?, base_url = ?, api_key_enc = ?, api_key_mask = ?, user_agent = ?, auth_mode = ?, enabled = ?, updated_at = ?
        WHERE id = ?`,
     )
-    .run(name, protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, enabled, now, id);
+    .run(name, protocol, baseUrl, apiKeyEnc, apiKeyMask, userAgent, authMode, enabled, now, id);
 
   return toProviderSummary(
     {
@@ -297,6 +302,7 @@ export async function updateProvider(
       api_key_enc: apiKeyEnc,
       api_key_mask: apiKeyMask,
       user_agent: userAgent,
+      auth_mode: authMode,
       enabled,
       updated_at: now,
     },
@@ -471,4 +477,41 @@ export async function migrateProviderSecrets(): Promise<void> {
       getDb().prepare(`UPDATE model_providers SET api_key_enc = ? WHERE id = ?`).run(next, row.id);
     }
   }
+}
+
+// ---------- ChatGPT 账号登录供应商 ----------
+
+/** ChatGPT 后端（Responses 协议；对齐 Codex CLI 的 chatgpt_base_url） */
+export const CHATGPT_PROVIDER_BASE_URL = "https://chatgpt.com/backend-api/codex";
+
+/** 预置的 Codex 系模型（登录后即可用；模型列表以 /v1/models 拉取为准） */
+export const CHATGPT_SEED_MODEL_IDS = ["gpt-5.2", "gpt-5.1-codex", "gpt-5.1-codex-mini"];
+
+/** 供应商是否走 ChatGPT 账号登录（令牌认证 + ChatGPT 后端头） */
+export function isChatGptAuthProvider(provider: ProviderSummary): boolean {
+  return provider.authMode === "chatgpt-oauth";
+}
+
+/**
+ * 取（或建）ChatGPT 登录供应商：首次登录时自动创建，带预置 Codex 模型。
+ * 令牌由 chatgpt-auth.ts 登录流程写入；幂等——已存在时仅补缺失的种子模型。
+ */
+export async function ensureChatGptProvider(): Promise<ProviderSummary> {
+  const existing = (await listProviders()).find(isChatGptAuthProvider);
+  if (existing) {
+    const known = new Set(existing.models.map((item) => item.id));
+    const missing = CHATGPT_SEED_MODEL_IDS.filter((id) => !known.has(id));
+    let provider = existing;
+    for (const id of missing) {
+      provider = await addModel({ providerId: existing.id, id, enabled: true });
+    }
+    return provider;
+  }
+  return addProvider({
+    name: "ChatGPT",
+    protocol: "openai-responses",
+    baseUrl: CHATGPT_PROVIDER_BASE_URL,
+    authMode: "chatgpt-oauth",
+    models: CHATGPT_SEED_MODEL_IDS.map((id) => ({ id, enabled: true })),
+  });
 }

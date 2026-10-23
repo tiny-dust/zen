@@ -48,6 +48,25 @@ function startAdd() {
   mode.value = "add";
 }
 
+/** ChatGPT 账号登录：已存在 chatgpt-oauth 供应商时直接对其发起；否则自动创建（带预置 Codex 模型）后登录 */
+async function onChatGptLogin() {
+  const zen = window.zen;
+  if (!zen?.models) {
+    return;
+  }
+  const existing = providers.value.find((p) => p.authMode === "chatgpt-oauth");
+  try {
+    const { provider } = await zen.models.chatgptLogin(existing?.id);
+    await modelsStore.refresh();
+    if (provider) {
+      modelsStore.setActiveProvider(provider.id);
+    }
+    mode.value = "view";
+  } catch (error) {
+    console.warn("[chatgpt] 登录失败:", error);
+  }
+}
+
 function selectProvider(provider: ProviderSummary) {
   modelsStore.setActiveProvider(provider.id);
   mode.value = "view";
@@ -191,9 +210,20 @@ async function confirmRemoveModel() {
     <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" :aria-label="t('settings.models.providerListAria')">
       <div class="flex h-[var(--panel-head-h)] items-center justify-between gap-1.5 border-b border-[var(--color-line)] px-[5px] pl-2.5">
         <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
-        <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
-          <Plus />
-        </Button>
+        <div class="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :title="t('settings.models.chatgptLogin')"
+            :aria-label="t('settings.models.chatgptLogin')"
+            @click="onChatGptLogin"
+          >
+            <VendorLogo vendor="ChatGPT" :size="14" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
+            <Plus />
+          </Button>
+        </div>
       </div>
       <div class="flex flex-col gap-0.5 p-[5px]">
         <Button

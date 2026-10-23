@@ -1,4 +1,5 @@
 import { multiAgentInstructions } from "./multi-agent-instructions";
+import type { ModelHistoryStore } from "./model-history";
 import type { ResourceLock } from "./resource-lock";
 
 import { mcpToolWireName } from "@zen/shared";
@@ -53,6 +54,11 @@ export interface AgentSessionConfig {
   reasoningEffort?: ReasoningEffort;
   /** 模型是否具备推理能力（用于 Anthropic adaptive 思考与推理档位映射） */
   reasoning?: boolean;
+  /**
+   * 自定义请求头（desktop 注入）：随每个模型请求发送。ChatGPT 账号登录用它带
+   * chatgpt-account-id 等后端识别头（access_token 走 apiKey 通道即可）。
+   */
+  authHeaders?: Record<string, string>;
   /** 权限模式（ADR-004）：default / smart / full */
   permissionMode: PermissionMode;
   /** 系统提示词全文（设置页选择的预设或自定义） */
@@ -119,6 +125,12 @@ export interface AgentSessionConfig {
     command?: string;
     input: unknown;
   }) => Promise<{ approved: boolean; note?: string } | null>;
+  /**
+   * 模型历史持久化桥（desktop 注入 SQLite）：跨轮 prompt 缓存命中的落点——
+   * run 内消息变更（步产出/审批响应/插入消息）append，压缩/裁剪整体重写时 rewrite。
+   * 子 Agent 不继承（子会话历史一次性，无需跨轮）。
+   */
+  modelHistoryStore?: ModelHistoryStore;
   emit: (event: AgentStreamEvent) => void;
 }
 

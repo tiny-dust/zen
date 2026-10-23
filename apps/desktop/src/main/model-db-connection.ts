@@ -135,6 +135,18 @@ function migrate(conn: Database.Database) {
       PRIMARY KEY (session_id, version),
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS session_model_messages (
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      message_json TEXT NOT NULL,
+      PRIMARY KEY (session_id, seq),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS session_model_instructions (
+      session_id TEXT NOT NULL PRIMARY KEY,
+      instructions TEXT,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
   `);
 
   // 公共区：内置工作区，不绑定目录，不可删除
@@ -156,6 +168,16 @@ function migrate(conn: Database.Database) {
   }
   if (!providerCols.some((col) => col.name === "enabled")) {
     conn.exec(`ALTER TABLE model_providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
+  }
+  // ChatGPT OAuth：认证模式 + 加密令牌（aes:v1）+ 落库时间
+  if (!providerCols.some((col) => col.name === "auth_mode")) {
+    conn.exec(`ALTER TABLE model_providers ADD COLUMN auth_mode TEXT`);
+  }
+  if (!providerCols.some((col) => col.name === "oauth_enc")) {
+    conn.exec(`ALTER TABLE model_providers ADD COLUMN oauth_enc TEXT`);
+  }
+  if (!providerCols.some((col) => col.name === "oauth_updated_at")) {
+    conn.exec(`ALTER TABLE model_providers ADD COLUMN oauth_updated_at INTEGER`);
   }
 
   const modelCols = conn.prepare(`PRAGMA table_info(provider_models)`).all() as Array<{

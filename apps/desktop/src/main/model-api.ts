@@ -1,4 +1,5 @@
 import { extractChatText } from "./model-api-transform";
+import { resolveChatGptCredentials } from "./chatgpt-auth";
 import { inspectModelCapabilities, mergeApiModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
@@ -238,7 +239,20 @@ async function resolveCompletion(options?: {
   if (!provider) {
     throw new Error("未配置模型，无法生成");
   }
-  const apiKey = await loadProviderApiKey(provider.id);
+  // ChatGPT 账号登录：access_token 当 API Key 用（Bearer），补上后端识别头；
+  // 其余供应商走静态 API Key
+  let apiKey: string;
+  let extraHeaders: Record<string, string> = {};
+  if (provider.authMode === "chatgpt-oauth") {
+    const credentials = await resolveChatGptCredentials(provider.id);
+    apiKey = credentials.accessToken;
+    extraHeaders = { originator: "zen_desktop" };
+    if (credentials.accountId) {
+      extraHeaders["chatgpt-account-id"] = credentials.accountId;
+    }
+  } else {
+    apiKey = await loadProviderApiKey(provider.id);
+  }
   const userAgent =
     sanitizeUserAgent((await loadProviderUserAgent(provider.id)) || provider.userAgent) ||
     DEFAULT_UA;
@@ -262,11 +276,13 @@ async function resolveCompletion(options?: {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
           "User-Agent": userAgent,
+          ...extraHeaders,
         }
       : {
           "content-type": "application/json",
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": userAgent,
+          ...extraHeaders,
         };
   return { provider, modelId, maxTokens, url: chatUrl(provider.baseUrl, provider.protocol), headers, effort };
 }

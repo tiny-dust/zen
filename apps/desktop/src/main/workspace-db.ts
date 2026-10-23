@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
+import type { ModelMessage, PersistedModelHistory } from "@zen/agent-core";
 import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionGoal, normalizeSessionMode, uuidv7 } from "@zen/shared";
 
 import { getDb } from "./model-db-connection";
@@ -461,4 +462,94 @@ export function trimMessagesFrom(sessionId: string, fromCreatedAt: number): void
     .prepare("DELETE FROM chat_messages WHERE session_id = ? AND created_at >= ?")
     .run(sessionId, fromCreatedAt);
   getDb().prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").run(Date.now(), sessionId);
+}
+
+/**
+ * 模型历史（跨轮 prompt 缓存命中用）：读取持久化的全量 ModelMessage 与
+ * instructions 增量。无任何记录返回 null（调用方回落 ChatTurn 兜底）。
+ * 脏 JSON 行丢弃，顺序按 seq 升序。
+ */
+export function loadSessionModelHistory(sessionId: string): PersistedModelHistory | null {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT message_json FROM session_model_messages WHERE session_id = ? ORDER BY seq ASC")
+    .all(sessionId) as Array<{ message_json: string }>;
+  const messages: ModelMessage[] = [];
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.message_json) as ModelMessage;
+      // 结构校验：非 ModelMessage 形状的脏行丢弃，不让坏数据炸掉下一次请求
+      if (parsed && typeof parsed.role === "string" && "content" in parsed) {
+        messages.push(parsed);
+      }
+    } catch {
+      // 忽略脏数据
+    }
+  }
+  if (messages.length === 0) {
+    return null;
+  }
+  const instructionsRow = db
+    .prepare("SELECT instructions FROM session_model_instructions WHERE session_id = ?")
+    .get(sessionId) as { instructions: string | null } | undefined;
+  return {
+    messages,
+    instructions: instructionsRow?.instructions ?? null,
+  };
+}
+
+/** 模型历史增量落库：seq 从当前最大值续排（与请求前缀同构的 append-only） */
+export function appendSessionModelHistory(sessionId: string, messages: ModelMessage[]): void {
+  if (messages.length === 0) {
+    return;
+  }
+  const db = getDb();
+  const insert = db.prepare(
+    "INSERT INTO session_model_messages (session_id, seq, message_json) VALUES (?, ?, ?)",
+  );
+  const appendTx = db.transaction(() => {
+    const { maxSeq } = db
+      .prepare("SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM session_model_messages WHERE session_id = ?")
+      .get(sessionId) as { maxSeq: number };
+    let seq = maxSeq;
+    for (const message of messages) {
+      seq += 1;
+      insert.run(sessionId, seq, JSON.stringify(message));
+    }
+  });
+  appendTx();
+}
+
+/** 模型历史整体重写（压缩/裁剪后基线重建）：删旧行按新序列重灌，instructions 同步覆盖 */
+export function rewriteSessionModelHistory(sessionId: string, history: PersistedModelHistory): void {
+  const db = getDb();
+  const insert = db.prepare(
+    "INSERT INTO session_model_messages (session_id, seq, message_json) VALUES (?, ?, ?)",
+  );
+  const rewriteTx = db.transaction(() => {
+    db.prepare("DELETE FROM session_model_messages WHERE session_id = ?").run(sessionId);
+    let seq = 0;
+    for (const message of history.messages) {
+      seq += 1;
+      insert.run(sessionId, seq, JSON.stringify(message));
+    }
+    db.prepare(
+      `INSERT INTO session_model_instructions (session_id, instructions) VALUES (?, ?)
+       ON CONFLICT(session_id) DO UPDATE SET instructions = excluded.instructions`,
+    ).run(sessionId, history.instructions ?? null);
+  });
+  rewriteTx();
+}
+
+/**
+ * 模型历史整体清除（编辑插入/重试分叉后模型历史与展示历史分叉，无法按时间对齐，
+ * 直接清空回落 ChatTurn 兜底；清空后下一轮 run 重建基线）。删除会话走 FK 级联，不经此。
+ */
+export function clearSessionModelHistory(sessionId: string): void {
+  const db = getDb();
+  const clearTx = db.transaction(() => {
+    db.prepare("DELETE FROM session_model_messages WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM session_model_instructions WHERE session_id = ?").run(sessionId);
+  });
+  clearTx();
 }

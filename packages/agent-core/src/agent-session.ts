@@ -36,6 +36,8 @@ import {
 } from "./context-overflow";
 import { processStreamPart } from "./agent-stream";
 import type { StreamPartState } from "./agent-stream";
+import { sanitizePersistedModelHistory } from "./model-history";
+import type { PersistedModelHistory } from "./model-history";
 import { subAgentInstructions } from "./multi-agent-instructions";
 import { MultiAgentOrchestrator, ResourceLock } from "./multi-agent";
 import { SubAgentTranscript } from "./sub-agent-transcript";
@@ -215,6 +217,13 @@ export class AgentSession {
   private readonly childSessions = new Map<string, AgentSession>();
   /** tasks_updated 版本归一化的 emit：子会话侧信道事件复用「更新当前版」语义 */
   private readonly emitNormalized: (event: AgentStreamEvent) => void;
+  /** 已写入 modelHistoryStore 的消息数（append 增量切分基线） */
+  private persistedCount = 0;
+  /**
+   * 持久化开关：cancel() 同步关闭——新 run 会在旧会话残留 step 收尾前
+   * 载入快照建新基线，旧会话此后的写回会用陈旧历史覆盖新基线（竞态），必须挡住。
+   */
+  private historyPersistEnabled = true;
 
   constructor(config: AgentSessionConfig) {
     // Claude 新一代模型（fable/opus-5/sonnet-5/4.6+）只认 thinking adaptive + output_config.effort；
@@ -437,6 +446,8 @@ export class AgentSession {
       sessionId: `${this.config.sessionId}::${spec.agentId}`,
       multiAgent: false,
       permissionMode: "full",
+      // 子会话历史一次性（随父 run 结束即弃），不回放也不持久化
+      modelHistoryStore: undefined,
       // 共享父资源锁 + owner 对齐节点 id，保证写/终端/浏览器跨 Agent 互斥且 UI 可显示占用
       resourceLock: this.resourceLock,
       ownerLabel: spec.agentId,
@@ -586,20 +597,47 @@ export class AgentSession {
     userMessage: string,
     history?: ChatTurn[],
     images?: AgentImageAttachment[],
+    modelHistory?: PersistedModelHistory,
   ): Promise<void> {
-    // system 轮（如压缩摘要）抽出并入 instructions，messages 只留 user/assistant
-    const systemTurns = (history ?? []).filter((item) => item.role === "system");
-    this.historyInstructions =
-      systemTurns
-        .map((item) => item.content.trim())
-        .filter(Boolean)
-        .join("\n\n") || null;
-    this.messages = (history ?? [])
-      .filter((item) => item.role !== "system")
-      .map((item) => ({
-        role: item.role as "user" | "assistant",
-        content: item.content,
-      }));
+    // 跨轮回放优先：全量 ModelMessage（含工具调用/结果）与上一轮字节一致，
+    // 前缀命中服务商 prompt 缓存；ChatTurn 仅作无持久化历史时的兜底（旧会话/分叉重发）。
+    if (modelHistory && modelHistory.messages.length) {
+      const sanitized = sanitizePersistedModelHistory(modelHistory.messages);
+      this.messages = sanitized;
+      this.historyInstructions = modelHistory.instructions ?? null;
+      // 任务清单快照去重：从回放历史找回最近一份快照文本，避免清单未变时重复追加
+      this.lastTaskListSnapshot = null;
+      for (const message of sanitized) {
+        if (
+          message.role === "user" &&
+          typeof message.content === "string" &&
+          message.content.startsWith("[上下文任务清单]")
+        ) {
+          this.lastTaskListSnapshot = message.content;
+        }
+      }
+      this.persistedCount = sanitized.length;
+      if (sanitized.length !== modelHistory.messages.length) {
+        // 净化截断了悬空尾部：存储里还留着陈旧行，重写基线防止其在下次 append 后复活
+        this.persistRewrite();
+      }
+    } else {
+      // system 轮（如压缩摘要）抽出并入 instructions，messages 只留 user/assistant
+      const systemTurns = (history ?? []).filter((item) => item.role === "system");
+      this.historyInstructions =
+        systemTurns
+          .map((item) => item.content.trim())
+          .filter(Boolean)
+          .join("\n\n") || null;
+      this.messages = (history ?? [])
+        .filter((item) => item.role !== "system")
+        .map((item) => ({
+          role: item.role as "user" | "assistant",
+          content: item.content,
+        }));
+      // 基线整体写入（首次 rewrite），此后本 run 内全部走 append
+      this.persistRewrite();
+    }
     // 支持视觉的模型：附件图片作为原生多模态 part 随用户消息发出
     if (images?.length) {
       const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [
@@ -612,6 +650,8 @@ export class AgentSession {
     } else {
       this.messages.push({ role: "user", content: userMessage });
     }
+    // 新用户消息进入历史（append-only；含附件图片等原生多模态 part）
+    this.persistAppend();
     this.paused = false;
     this.step = 0;
     this.overflowRetried = false;
@@ -650,6 +690,7 @@ export class AgentSession {
         },
       ],
     });
+    this.persistAppend();
     this.pending = null;
     // 批准只解阻，不伪造 tool_end；拒绝才有 denied 终态
     this.config.emit({
@@ -782,6 +823,7 @@ export class AgentSession {
       role: "user",
       content: steer ? steerUserContent(text) : insertUserContent(text),
     });
+    this.persistAppend();
     this.inserting = true;
     this.config.emit({
       type: "insert_started",
@@ -840,6 +882,9 @@ export class AgentSession {
 
   async cancel(): Promise<void> {
     const waiting = this.paused || this.pending != null || this.pendingAsks.size > 0;
+    // 同步关闭持久化：新 run 随后（await cancel() 返回后）载入快照建新基线，
+    // 本会话残留 step 的迟滞写回不得再覆盖它
+    this.historyPersistEnabled = false;
     this.orchestrator?.dispose();
     if (this.controller) {
       this.controller.abort();
@@ -929,6 +974,46 @@ export class AgentSession {
     await this.runStep();
   }
 
+  /** 消息变更写回存储（append 增量）：存储失败只告警，不影响 run */
+  private persistAppend(): void {
+    const store = this.config.modelHistoryStore;
+    if (!store || !this.historyPersistEnabled) {
+      return;
+    }
+    const fresh = this.messages.slice(this.persistedCount);
+    if (fresh.length === 0) {
+      return;
+    }
+    this.persistedCount = this.messages.length;
+    this.runStoreTask(() => store.append(fresh));
+  }
+
+  /** 历史整体重写写回存储（压缩/裁剪/回放基线重建）：失败只告警，不影响 run */
+  private persistRewrite(): void {
+    const store = this.config.modelHistoryStore;
+    if (!store || !this.historyPersistEnabled) {
+      return;
+    }
+    this.persistedCount = this.messages.length;
+    this.runStoreTask(() =>
+      store.rewrite({ messages: this.messages, instructions: this.historyInstructions }),
+    );
+  }
+
+  /** 存储回调容错：同步抛错捕获，异步拒绝补 catch，均不外抛 */
+  private runStoreTask(task: () => void | Promise<void>): void {
+    try {
+      const result = task();
+      if (result instanceof Promise) {
+        result.catch((error: unknown) => {
+          console.warn("[model-history] 持久化失败:", error);
+        });
+      }
+    } catch (error) {
+      console.warn("[model-history] 持久化失败:", error);
+    }
+  }
+
   /**
    * 溢出恢复：provider 报上下文超限时确定性裁剪历史并重试一次。
    * 返回 true 表示已接管（调用方直接 return）；false 表示不恢复
@@ -969,6 +1054,7 @@ export class AgentSession {
       .join("\n\n");
     this.messages = compacted.messages;
     this.ensureTaskListAfterRewrite();
+    this.persistRewrite();
     this.config.emit({
       type: "context_overflow",
       sessionId: this.sessionId,
@@ -1126,6 +1212,8 @@ export class AgentSession {
       this.messages.push(...responseMessages);
       // 任务清单快照追加在本步产出之后（因果顺序正确），且 append-only 保前缀稳定
       this.appendTaskListSnapshot();
+      // 步产出与清单快照一并增量落库（悬空审批步不会走到这里，存储始终完整可回放）
+      this.persistAppend();
     }
 
     if (state.approvalRequested) {
@@ -1191,6 +1279,7 @@ export class AgentSession {
         .join("\n\n");
       this.messages = tail;
       this.ensureTaskListAfterRewrite();
+      this.persistRewrite();
       this.lastCompactStep = this.lastUsageStep;
       this.config.emit({
         type: "context_compacted",
@@ -1207,6 +1296,7 @@ export class AgentSession {
     }
     this.messages = compacted.messages;
     this.ensureTaskListAfterRewrite();
+    this.persistRewrite();
     this.lastCompactStep = this.lastUsageStep;
     this.config.emit({
       type: "context_compacted",
