@@ -14,6 +14,7 @@ import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerShellIpc } from "./shell-ipc";
 import {
+  deleteTurnCheckpoints,
   listFileCheckpoints,
   listTurnCheckpoints,
   reapplyTurnCheckpoints,
@@ -381,6 +382,11 @@ function registerIpc(): void {
       }
       return reapplyTurnCheckpoints(sessionId, workspaceRoot, run);
     },
+  );
+
+  // 删除一轮快照（记录 + 备份文件）：只清磁盘占用，不动工作区文件
+  ipcMain.handle("agent:checkpoints:delete-turn", (_event, sessionId: string, run: number) =>
+    deleteTurnCheckpoints(sessionId, run),
   );
 
   // 飞书桥接：lark:status 查询 + 答案写回（遍历 sessions Map）/ 会话状态快照

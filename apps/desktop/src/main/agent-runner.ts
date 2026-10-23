@@ -9,11 +9,12 @@ import { getAgentServicesRegistry } from "./agent-services";
 import { buildApprovalGate } from "./approval-gate";
 import { getCuaService } from "./abilities/cua";
 import { getBrowserService } from "./browser/service";
+import { resolveChatGptCredentials } from "./chatgpt-auth";
 import { notifyLarkEvent } from "./lark/ipc";
 import { appendMemoryNote, readMemorySnapshot, renderMemoryContext } from "./memory";
 import { enabledMcpTools } from "./mcp-ipc";
 import { inspectModelCapabilities } from "./model-capabilities";
-import { getSelection, listProviders, loadProviderApiKey } from "./model-db";
+import { getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import {
@@ -24,6 +25,7 @@ import {
 import { getWebSearchApiKeys } from "./websearch-auth-store";
 import { loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import {
+  appendSessionModelHistory,
   appendMessage,
   createSession,
   createWorkspace,
@@ -31,6 +33,8 @@ import {
   getSession as loadSessionRecord,
   getWorkspace,
   listWorkspaceGroups,
+  loadSessionModelHistory,
+  rewriteSessionModelHistory,
   saveTaskList,
   setSessionMode,
 } from "./workspace-db";
@@ -167,6 +171,15 @@ export async function runAgentRequest(
     persisted = false;
   };
   const emitTo = (streamEvent: AgentStreamEvent) => {
+    // 长驻服务的终端输出尾部：runTerminal 的流式进度同步进服务登记表，
+    // 右栏「服务」面板据此展示实时输出（面板点击条目打开）
+    if (
+      streamEvent.type === "tool_progress" &&
+      streamEvent.event.toolName === "runTerminal" &&
+      streamEvent.event.outputTail
+    ) {
+      getAgentServicesRegistry()?.appendOutput(streamEvent.sessionId, streamEvent.event.outputTail);
+    }
     // 飞书桥接：ask_user / ask_resolved / done 事件喂给网关（推送与待答清理）
     notifyLarkEvent(streamEvent);
     if (streamEvent.sessionId !== request.sessionId) {
@@ -233,7 +246,20 @@ export async function runAgentRequest(
     // 工作区外的上传文件（视觉模型看到的图片同样需要路径来保存/处理）
     runUserMessage = withAttachmentManifest(runUserMessage, request.attachments);
 
-    const apiKey = await loadProviderApiKey(provider.id);
+    // ChatGPT 账号登录：access_token 走 apiKey 通道（Bearer），附带后端识别头；
+    // 其余供应商走静态 API Key
+    let apiKey: string;
+    let authHeaders: Record<string, string> | undefined;
+    if (isChatGptAuthProvider(provider)) {
+      const credentials = await resolveChatGptCredentials(provider.id);
+      apiKey = credentials.accessToken;
+      authHeaders = { originator: "zen_desktop" };
+      if (credentials.accountId) {
+        authHeaders["chatgpt-account-id"] = credentials.accountId;
+      }
+    } else {
+      apiKey = await loadProviderApiKey(provider.id);
+    }
 
     // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
     const agentSettings = await loadAgentSettings();
@@ -268,6 +294,16 @@ export async function runAgentRequest(
       console.warn("[checkpoints] turn 标记失败:", error);
     }
 
+    // 跨轮回放：上一轮持久化的全量 ModelMessage（含工具调用/结果）字节级重发，
+    // 前缀命中服务商 prompt 缓存；旧会话/分叉重发后无记录则回落 ChatTurn 兜底。
+    // 读取放在旧会话 cancel 之后（旧会话残留 step 的迟滞写回已被持久化开关挡住）
+    let modelHistory = null;
+    try {
+      modelHistory = loadSessionModelHistory(request.sessionId);
+    } catch (error) {
+      console.warn("[model-history] 载入失败，回落 ChatTurn 历史:", error);
+    }
+
     const session = new AgentSession({
       sessionId: request.sessionId,
       workspaceRoot,
@@ -279,6 +315,7 @@ export async function runAgentRequest(
       contextWindow: capabilities.contextWindow,
       reasoningEffort: request.reasoningEffort,
       reasoning: capabilities.reasoning === true,
+      authHeaders,
       permissionMode: agentSettings.permissionMode,
       // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）；
       // 目标指令再追加在其后（仅 active 目标注入，预算不进提示词）
@@ -351,10 +388,27 @@ export async function runAgentRequest(
       },
       // 网络搜索供应商 Key：密文读回，失败按无 key 处理
       webSearchApiKeys: await getWebSearchApiKeys().catch(() => ({})),
+      // 模型历史持久化桥（SQLite）：run 内 append / 压缩 rewrite，存储失败只告警
+      modelHistoryStore: {
+        append: (messages) => {
+          try {
+            appendSessionModelHistory(request.sessionId, messages);
+          } catch (error) {
+            console.warn("[model-history] 追加失败:", error);
+          }
+        },
+        rewrite: (history) => {
+          try {
+            rewriteSessionModelHistory(request.sessionId, history);
+          } catch (error) {
+            console.warn("[model-history] 重写失败:", error);
+          }
+        },
+      },
       emit: emitTo,
     });
     sessions.set(request.sessionId, session);
-    await session.start(runUserMessage, request.history, sessionImages);
+    await session.start(runUserMessage, request.history, sessionImages, modelHistory ?? undefined);
     // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
     return { ok: true };
   } catch (error) {

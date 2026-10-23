@@ -43,12 +43,15 @@ vi.mock("./workspace-db", () => ({
       throw state.appendError;
     }
   }),
+  appendSessionModelHistory: vi.fn(),
   createSession: vi.fn(),
   createWorkspace: vi.fn(),
   ensureSessionTitle: vi.fn(),
   getSession: vi.fn(() => state.sessionRecord),
   getWorkspace: vi.fn(() => null),
   listWorkspaceGroups: vi.fn(() => []),
+  loadSessionModelHistory: vi.fn(() => null),
+  rewriteSessionModelHistory: vi.fn(),
   saveTaskList: vi.fn(),
   setSessionMode: vi.fn(),
 }));

@@ -98,6 +98,11 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     expandedId.value = expandedId.value === id ? "" : id;
   }
 
+  /** 直接聚焦某个服务（信息面板点击条目 → 右栏「服务」定位展开） */
+  function focus(id: string) {
+    expandedId.value = id;
+  }
+
   /** 「已运行 xx」相对时长标签 */
   function durationLabel(startedAt: number): string {
     const { t } = i18n.global;
@@ -124,6 +129,7 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     refresh,
     kill,
     toggle,
+    focus,
     durationLabel,
   };
 });

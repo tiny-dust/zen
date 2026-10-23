@@ -9,6 +9,7 @@ function service(id: string): AgentServiceInfo {
   return {
     id,
     sessionId: "session-1",
+    label: "npm run dev",
     command: "npm run dev",
     cwd: "/tmp/project",
     startedAt: Date.now(),

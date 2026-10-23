@@ -11,12 +11,33 @@ interface TrackedService {
   id: string;
   sessionId: string;
   command: string;
+  /** 友好展示名（信息面板只显示它，完整命令在悬停/右栏查看） */
+  label: string;
   cwd: string;
   startedAt: number;
   /** 启动 shell 的 pid（detached，即进程组 id）；settle 后 shell 已死，仅作组 id 使用 */
   pgid: number;
   /** settle 检出的存活进程；list 时刷新，空数组表示尚未 settle */
   pids: number[];
+  /** 终端输出尾部（runTerminal 的 outputTail 累计，仅保留尾部限量） */
+  output: string;
+}
+
+/** 输出保留上限（字符）：够看启动日志与最近报错，不撑爆 IPC 载荷 */
+const OUTPUT_TAIL_LIMIT = 8000;
+
+/**
+ * 从命令提炼展示名：去掉 `cd ... &&` / 环境变量前缀，丢弃参数里以 - 开头的项，
+ * 最多保留 3 个 token；空结果回退命令原文切片。
+ * 例：`cd ~/proj && pnpm run dev --host 0.0.0.0` → `pnpm run dev`
+ */
+export function serviceLabel(command: string): string {
+  const lastSegment = command.split(/&&|\|\||;/).pop()?.trim() ?? command.trim();
+  const withoutEnv = lastSegment.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "");
+  const tokens = withoutEnv.split(/\s+/).filter(Boolean);
+  const meaningful = tokens.filter((token, index) => index === 0 || !token.startsWith("-"));
+  const label = meaningful.slice(0, 3).join(" ");
+  return label || command.trim().slice(0, 40);
 }
 
 /** 解析 `ps -axo pid=,pgid=,stat=` 输出，取指定进程组内存活（非僵尸）的 pid */
@@ -46,6 +67,8 @@ export class AgentServicesRegistry {
   private entries = new Map<number, TrackedService>();
   private broadcast: (channel: string, payload: unknown) => void = () => undefined;
   private sweepTimer: NodeJS.Timeout | null = null;
+  /** 输出推送节流时间戳（appendOutput 高频调用时限制广播频率） */
+  private lastOutputEmitAt = 0;
 
   setBroadcast(fn: (channel: string, payload: unknown) => void): void {
     this.broadcast = fn;
@@ -66,11 +89,42 @@ export class AgentServicesRegistry {
       id: randomUUID(),
       sessionId: request.sessionId,
       command: request.command,
+      label: serviceLabel(request.command),
       cwd: request.cwd,
       startedAt: Date.now(),
       pgid: request.pid,
       pids: [],
+      output: "",
     });
+  }
+
+  /**
+   * 终端输出尾部更新（agent-runner 从 runTerminal 的 tool_progress.outputTail 转发）：
+   * 归到该会话最近登记的服务条目；节流 500ms 推送，避免高频流刷爆 IPC。
+   */
+  appendOutput(sessionId: string, tail: string): void {
+    if (!sessionId || !tail) {
+      return;
+    }
+    let target: TrackedService | null = null;
+    for (const entry of this.entries.values()) {
+      if (entry.sessionId !== sessionId) {
+        continue;
+      }
+      if (!target || entry.startedAt >= target.startedAt) {
+        target = entry;
+      }
+    }
+    if (!target) {
+      return;
+    }
+    target.output = tail.slice(-OUTPUT_TAIL_LIMIT);
+    const now = Date.now();
+    if (now - this.lastOutputEmitAt < 500) {
+      return;
+    }
+    this.lastOutputEmitAt = now;
+    this.emit();
   }
 
   /** runTerminal 结束：进程组仍有存活者（不含已死的 shell）→ 收集为长驻服务 */
@@ -199,9 +253,11 @@ export class AgentServicesRegistry {
         id: entry.id,
         sessionId: entry.sessionId,
         command: entry.command,
+        label: entry.label,
         cwd: entry.cwd,
         startedAt: entry.startedAt,
         pids: [...entry.pids],
+        output: entry.output || undefined,
       }));
   }
 
