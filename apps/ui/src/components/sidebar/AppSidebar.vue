@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, Plus, Search, Sparkles } from "@lucide/vue";
+  import { Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
   import { useI18n } from "vue-i18n";
@@ -21,6 +21,7 @@
   } from "@/components/ui/dialog";
   import { Input } from "@/components/ui/input";
   import { useChatStore } from "@/stores/chat";
+  import { useSessionStatusStore } from "@/stores/session-status";
   import { useWorkspaceStore } from "@/stores/workspace";
 
   import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
@@ -272,6 +273,24 @@
   /** 工作区区块是否展开（折叠后只显示区块头，隐藏全部目录与目录内会话） */
   const workspacesZoneOpen = computed(() => !workspaceStore.isCollapsed(WORKSPACES_ZONE_KEY));
 
+  /** 区块折叠时全部工作区里仍在运行的会话数：组头补 spinner，折叠后也能看到有任务在跑 */
+  const sessionStatus = useSessionStatusStore();
+  const { byId: statusById } = storeToRefs(sessionStatus);
+  const zoneRunningCount = computed(() => {
+    if (workspacesZoneOpen.value) {
+      return 0;
+    }
+    let count = 0;
+    for (const group of workspaceGroups.value) {
+      for (const session of group.sessions) {
+        if (!session.archived && statusById.value[session.id] === "running") {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  });
+
   function toggleWorkspacesZone() {
     workspaceStore.toggleCollapsed(WORKSPACES_ZONE_KEY);
   }
@@ -399,6 +418,14 @@
                   {{ t("sidebar.workspaces") }}
                 </span>
               </Button>
+              <!-- 折叠态运行汇总：区块折叠时组内仍有会话在跑 -->
+              <span v-if="zoneRunningCount"
+                class="flex flex-none items-center gap-1 rounded-full bg-[var(--color-side-chip)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-accent)]"
+                :title="t('sidebar.collapsedRunning', { n: zoneRunningCount })"
+                :aria-label="t('sidebar.collapsedRunning', { n: zoneRunningCount })" role="status">
+                <LoaderCircle class="size-3 shrink-0 animate-spin" aria-hidden="true" />
+                <span v-if="zoneRunningCount > 1" class="font-[family-name:var(--font-mono)]">{{ zoneRunningCount }}</span>
+              </span>
               <!-- 悬浮快捷操作：新建工作区 -->
               <Button variant="ghost" size="icon-sm"
                 class="size-5 text-[var(--color-dim)] opacity-0 transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/zone:opacity-100 dark:hover:text-[var(--color-txt-strong)]"

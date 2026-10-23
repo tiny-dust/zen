@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Bug, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
+import { Bot, Bug, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, Server, Sparkles, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -11,6 +11,8 @@ import ErrorsPanel from "@/components/right/ErrorsPanel.vue";
 import FilePanel from "@/components/right/FilePanel.vue";
 import GitPanel from "@/components/right/GitPanel.vue";
 import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
+import ServicesPanel from "@/components/right/ServicesPanel.vue";
+import SkillPanel from "@/components/right/SkillPanel.vue";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -72,6 +74,8 @@ const PANEL_ITEMS: { kind: RightPanelKind; icon: Component }[] = [
   { kind: "git", icon: GitBranch },
   { kind: "agents", icon: Bot },
   { kind: "terminals", icon: SquareTerminal },
+  { kind: "services", icon: Server },
+  { kind: "skill", icon: Sparkles },
   { kind: "errors", icon: Bug },
 ];
 
@@ -178,6 +182,8 @@ function tabCls(id: string) {
       <GitPanel v-else-if="activeTab?.kind === 'git'" />
       <AgentsPanel v-else-if="activeTab?.kind === 'agents'" />
       <RightTerminalsPanel v-else-if="activeTab?.kind === 'terminals'" />
+      <ServicesPanel v-else-if="activeTab?.kind === 'services'" />
+      <SkillPanel v-else-if="activeTab?.kind === 'skill'" />
       <ErrorsPanel v-else-if="activeTab?.kind === 'errors'" />
     </div>
   </aside>

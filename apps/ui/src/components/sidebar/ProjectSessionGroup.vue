@@ -1,5 +1,6 @@
 <script setup lang="ts">
-  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
+  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
+  import { storeToRefs } from "pinia";
   import { computed, ref } from "vue";
   import { useI18n } from "vue-i18n";
 
@@ -13,6 +14,7 @@
     ContextMenuSeparator,
     ContextMenuTrigger,
   } from "@/components/ui/context-menu";
+  import { useSessionStatusStore } from "@/stores/session-status";
   import { useWorkspaceStore } from "@/stores/workspace";
 
   import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
@@ -66,6 +68,16 @@
   );
   const showExpandToggle = computed(
     () => !batchMode.value && props.sessions.length > previewCount,
+  );
+
+  // ---------- 折叠态运行反馈 ----------
+  /** 行内 spinner 在折叠时不可见：组头补一个汇总指示，避免「会话在跑却看不到」 */
+  const sessionStatus = useSessionStatusStore();
+  const { byId: statusById } = storeToRefs(sessionStatus);
+  const runningCount = computed(() =>
+    props.open
+      ? 0
+      : props.sessions.filter((item) => statusById.value[item.id] === "running").length,
   );
 
   // ---------- 批量管理模式（本组内多选 → 置顶 / 归档 / 删除） ----------
@@ -157,6 +169,16 @@
               <span class="min-w-0 flex-1 truncate text-[12px] font-medium">{{ group.name }}</span>
             </template>
           </Button>
+          <!-- 折叠态运行汇总：组内会话在跑时组头补 spinner（展开时行内已有指示） -->
+          <span
+            v-if="runningCount"
+            class="flex flex-none items-center gap-1 rounded-full bg-[var(--color-side-chip)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-accent)]"
+            :title="t('sidebar.collapsedRunning', { n: runningCount })"
+            :aria-label="t('sidebar.collapsedRunning', { n: runningCount })"
+            role="status">
+            <LoaderCircle class="size-3 shrink-0 animate-spin" aria-hidden="true" />
+            <span v-if="runningCount > 1" class="font-[family-name:var(--font-mono)]">{{ runningCount }}</span>
+          </span>
           <!-- 悬浮快捷操作：图标按钮 hover 只提亮图标不出底色，键盘聚焦时保持可见 -->
           <div
             class="flex flex-none items-center gap-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] focus-within:opacity-100 group-hover/row:opacity-100">

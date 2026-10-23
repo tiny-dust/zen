@@ -11,6 +11,8 @@ export type RightPanelKind =
   | "git"
   | "agents"
   | "terminals"
+  | "services"
+  | "skill"
   | "errors";
 
 export interface RightPanelTab {
@@ -36,6 +38,12 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
   get terminals() {
     return i18n.global.t("app.panel.terminals");
   },
+  get services() {
+    return i18n.global.t("app.panel.services");
+  },
+  get skill() {
+    return i18n.global.t("app.panel.skill");
+  },
   get errors() {
     return i18n.global.t("app.panel.errors");
   },
@@ -51,6 +59,8 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
   const activeId = ref("files");
   /** 待定位文件路径：消息流点击文件名时设置，FilePanel 消费后清空 */
   const pendingReveal = ref("");
+  /** 技能文档面板目标：输入框技能 tag 点击时设置（name 展示、dir 取文件） */
+  const skillPreview = ref<{ name: string; dir: string } | null>(null);
 
   /** 单个工作区的右栏 Tab 布局（分桶快照） */
   interface PanelBucketState {
@@ -127,10 +137,19 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     ensureTab("files");
   }
 
+  /** 打开技能文档面板并切到指定技能（输入框技能 tag 点击） */
+  function openSkill(name: string, dir: string) {
+    skillPreview.value = { name, dir };
+    const tab = ensureTab("skill");
+    tab.title = name;
+    return tab;
+  }
+
   return {
     tabs,
     activeId,
     pendingReveal,
+    skillPreview,
     activeTab,
     kinds,
     hasKind,
@@ -138,6 +157,7 @@ export const useRightPanelStore = defineStore("rightPanel", () => {
     ensureTab,
     closeTab,
     revealFile,
+    openSkill,
     bindWorkspaceScope,
   };
 });

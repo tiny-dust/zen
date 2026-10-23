@@ -32,6 +32,13 @@ export default {
     turnReapply: "重新套用第 {n} 轮改动",
     turnReapplyOk: "已重新套用第 {n} 轮改动（{applied} 个文件）",
     turnSkippedSuffix: "，{n} 个文件副本缺失已跳过",
+    fileSnapshotsHelp:
+      "Agent 每次写/改文件前，会把原文件备份到本机 ~/.zen/cache 下，用于撤销该轮改动或单项恢复；不影响 git 与工作区文件。",
+    turnDelete: "删除第 {n} 轮快照",
+    turnDeleteConfirmTitle: "删除第 {n} 轮快照？",
+    turnDeleteConfirmDesc:
+      "将删除本轮 {count} 个文件的备份副本与记录，只释放磁盘占用，不影响工作区当前文件；删除后无法再撤销或重新套用该轮。",
+    turnDeleteOk: "已删除第 {n} 轮快照（{count} 个文件）",
     changedFiles: "变更文件",
     commitOrPush: "提交或推送",
     committing: "提交中…",
@@ -171,6 +178,13 @@ export default {
     turnReapply: "Reapply turn {n}",
     turnReapplyOk: "Turn {n} reapplied ({applied} files)",
     turnSkippedSuffix: ", {n} files skipped (missing copies)",
+    fileSnapshotsHelp:
+      "Before the agent writes or edits a file, the original is copied under ~/.zen/cache so you can undo a whole turn or restore a single file. Git and your workspace files are untouched.",
+    turnDelete: "Delete snapshots of turn {n}",
+    turnDeleteConfirmTitle: "Delete snapshots of turn {n}?",
+    turnDeleteConfirmDesc:
+      "Deletes the backup copies and records for the {count} files in this turn. Only disk space is freed — your current files are untouched. After deleting, this turn can no longer be undone or reapplied.",
+    turnDeleteOk: "Deleted snapshots of turn {n} ({count} files)",
     changedFiles: "Changed files",
     commitOrPush: "Commit or push",
     committing: "Committing…",
