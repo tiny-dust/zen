@@ -84,6 +84,19 @@ export const sessionApi = {
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
       return ipcRenderer.invoke("session:export-html", id);
     },
+    /** 会话导出 Markdown：主进程弹保存框并写 .md；取消返回 { ok, canceled } */
+    exportMarkdown(
+      id: string,
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
+      return ipcRenderer.invoke("session:export-md", id);
+    },
+    /** 从某条消息分叉：新建会话复制该消息及之前的对话，原会话不变 */
+    fork(
+      id: string,
+      messageId: string,
+    ): Promise<{ ok: boolean; sessionId?: string; messageCount?: number; error?: string }> {
+      return ipcRenderer.invoke("session:fork", id, messageId);
+    },
     /** CLI `zen-cli open <sessionId>`：主进程广播请求，渲染层切到目标会话 */
     onOpenRequest(handler: (sessionId: string) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, sessionId: string) => {

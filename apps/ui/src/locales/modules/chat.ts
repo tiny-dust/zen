@@ -272,6 +272,8 @@ export default {
       editInsert: "编辑并插入对话",
       retryTitle: "重新生成本轮回复（丢弃本轮历史重跑）",
       retryTooltip: "重试：丢弃本轮，从上一条消息重新生成",
+      forkTitle: "从这里分叉出新会话",
+      forkTooltip: "分叉：新建会话并复制到这条消息为止的对话，原会话保持不变",
       continueTitle: "继续执行：保留历史，从已完成进度接着做",
       continueTooltip: "继续：保留历史，从上次中断的进度接着执行（不重跑本轮）",
       dateWithTime: "{m}月{d}日 {time}",
@@ -561,6 +563,8 @@ export default {
       editInsert: "Edit and insert into conversation",
       retryTitle: "Regenerate this reply (discards this turn's history and reruns)",
       retryTooltip: "Retry: discard this turn and regenerate from the previous message",
+      forkTitle: "Fork a new session from here",
+      forkTooltip: "Fork: create a new session containing the conversation up to this message; the current session stays as is",
       continueTitle: "Continue: keeps history and picks up from where it stopped",
       continueTooltip:
         "Continue: keeps history and resumes from the interruption (doesn't rerun this turn)",

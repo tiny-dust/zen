@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ChatMessage } from "@zen/shared";
 
-import { escapeHtml, renderMarkdownLite, renderSessionHtml } from "./session-export";
+import { escapeHtml, renderMarkdownLite, renderSessionHtml, renderSessionMarkdown } from "./session-export";
 
 function message(
   id: string,
@@ -183,5 +183,37 @@ describe("renderSessionHtml", () => {
     const html = renderSessionHtml({ session, messages: [] });
     expect(html).toContain("（无消息）");
     expect(html).toContain("0 条消息");
+  });
+});
+
+describe("renderSessionMarkdown", () => {
+  const session = { title: "导出测试", createdAt: 1_700_000_000_000, updatedAt: 1_700_000_100_000 };
+
+  it("按角色分节，保留正文 Markdown 与附件列表，跳过工具消息", () => {
+    const md = renderSessionMarkdown({
+      session,
+      messages: [
+        message("m1", "user", "你好"),
+        message("m2", "assistant", "回答 **要点**"),
+        message("m3", "tool", "工具消息不导出"),
+      ],
+      exportedAt: 1_700_000_200_000,
+    });
+    expect(md.startsWith("# 导出测试")).toBe(true);
+    expect(md).toContain("## 用户 ·");
+    expect(md).toContain("## 助手 ·");
+    expect(md).toContain("回答 **要点**");
+    expect(md).not.toContain("工具消息不导出");
+    expect(md).toContain("2 条消息");
+  });
+
+  it("附件以行内代码列出；空会话给占位", () => {
+    const withAttachment = message("m1", "user", "看图");
+    withAttachment.meta = { attachments: [{ name: "a.png" }] };
+    const md = renderSessionMarkdown({ session, messages: [withAttachment], exportedAt: 1 });
+    expect(md).toContain("附件：`a.png`");
+
+    const empty = renderSessionMarkdown({ session, messages: [], exportedAt: 1 });
+    expect(empty).toContain("（无消息）");
   });
 });

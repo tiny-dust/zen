@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, Ban, Check, CircleAlert, Copy, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
+import { AudioLines, Ban, Check, CircleAlert, Copy, GitBranch, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -17,6 +17,7 @@ import { groupMessageParts } from "@/components/chat/message-groups";
 import FileLabel from "@/components/files/FileLabel.vue";
 import { Button } from "@/components/ui/button";
 import { formatElementDetail } from "@/lib/browser-element";
+import { openSessionById } from "@/lib/open-session";
 import { useOcr, useTts } from "@/composables/useSystemAbilities";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
@@ -373,6 +374,14 @@ async function copyContent() {
   }
 }
 
+/** 从该条消息分叉：新会话复制到这里为止的对话，原会话不变；成功后切过去继续 */
+async function forkFromHere() {
+  const forkedId = await chatStore.forkFrom(props.message.id);
+  if (forkedId) {
+    await openSessionById(forkedId);
+  }
+}
+
 /** 编辑并插入对话：内容回填输入框，发送时从该条分叉（其后旧分支被替换） */
 function editContent() {
   chatStore.startEditFrom(props.message);
@@ -594,6 +603,16 @@ async function ocrAttachment(path: string) {
       >
         <Pencil class="size-3.5" />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        :aria-label="t('chat.bubble.forkTitle')"
+        :title="t('chat.bubble.forkTooltip')"
+        @click="forkFromHere"
+      >
+        <GitBranch class="size-3.5" />
+      </Button>
     </div>
   </div>
 
@@ -726,6 +745,16 @@ async function ocrAttachment(path: string) {
         @click="chatStore.retryFrom(message.id)"
       >
         <RefreshCw class="size-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        :aria-label="t('chat.bubble.forkTitle')"
+        :title="t('chat.bubble.forkTooltip')"
+        @click="forkFromHere"
+      >
+        <GitBranch class="size-3.5" />
       </Button>
       <!-- 朗读：TTS 播报本条消息（平台不支持时隐藏；播放中变停止） -->
       <Button

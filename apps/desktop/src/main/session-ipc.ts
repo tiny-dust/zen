@@ -6,7 +6,7 @@ import { SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
-import { renderSessionHtml } from "./session-export";
+import { renderSessionHtml, renderSessionMarkdown } from "./session-export";
 import {
   appendMessage,
   clearSessionModelHistory,
@@ -256,8 +256,53 @@ export function registerSessionIpc(): void {
     deleteSession(id);
   });
 
-  // 会话分享导出：渲染自包含单文件 HTML（深色 MiMo 风格），保存位置由系统保存弹窗选择
-  ipcMain.handle("session:export-html", async (event, sessionId: string) => {
+  /**
+   * 从某条消息分叉出新会话：复制该消息及之前的可见对话，原会话保持不变。
+   * 分叉点之后的消息（含同轮的后续轮次）不复制；新会话继承工作区、模型覆盖与模式，
+   * 标题加「分叉」后缀。返回新会话 id，渲染层随后切过去继续对话。
+   */
+  ipcMain.handle("session:fork", (_event, sessionId: string, messageId: string) => {
+    if (typeof sessionId !== "string" || typeof messageId !== "string") {
+      return { ok: false, error: "invalid fork request" };
+    }
+    const record = getSession(sessionId);
+    if (!record) {
+      return { ok: false, error: "session not found" };
+    }
+    const index = record.messages.findIndex((message) => message.id === messageId);
+    if (index < 0) {
+      return { ok: false, error: "message not found" };
+    }
+    // 截到分叉点为止；去掉尾部工具消息，避免分叉尾巴挂着没有父消息的工具结果
+    const slice = record.messages.slice(0, index + 1);
+    while (slice.length && slice[slice.length - 1]?.role === "tool") {
+      slice.pop();
+    }
+    if (!slice.some((message) => message.role === "user")) {
+      return { ok: false, error: "fork point has no user message" };
+    }
+    const fork = createSession(record.session.workspaceId);
+    const baseTitle = record.session.title?.trim() || "会话";
+    renameSession(fork.id, `${baseTitle.slice(0, 60)}（分叉）`);
+    if (record.session.modelProviderId && record.session.modelId) {
+      setSessionModel(fork.id, record.session.modelProviderId, record.session.modelId);
+    }
+    setSessionMode(fork.id, record.session.mode ?? "interactive");
+    for (const message of slice) {
+      appendMessage(fork.id, message);
+    }
+    return { ok: true, sessionId: fork.id, messageCount: slice.length };
+  });
+
+  /**
+   * 会话导出（HTML / Markdown 共用）：渲染文本 → 系统保存弹窗选路径 → 落盘。
+   * 文件名取会话标题，剥掉路径非法字符；取消保存返回 { ok:true, canceled:true }。
+   */
+  async function exportSessionFile(
+    event: Electron.IpcMainInvokeEvent,
+    sessionId: string,
+    format: "html" | "md",
+  ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
     if (typeof sessionId !== "string" || !sessionId.trim()) {
       return { ok: false, error: "invalid session id" };
     }
@@ -265,28 +310,40 @@ export function registerSessionIpc(): void {
     if (!record) {
       return { ok: false, error: "session not found" };
     }
-    const html = renderSessionHtml({
-      session: record.session,
-      messages: record.messages,
-    });
-    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.html`.replace(
+    const payload = { session: record.session, messages: record.messages };
+    const text = format === "html" ? renderSessionHtml(payload) : renderSessionMarkdown(payload);
+    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.${format}`.replace(
       /[\\/:*?"<>|]/g,
       "_",
     );
     const parent = BrowserWindow.fromWebContents(event.sender);
     const result = await showSaveDialogSafe(parent, {
-      title: "导出会话 HTML",
+      title: format === "html" ? "导出会话 HTML" : "导出会话 Markdown",
       defaultPath: defaultName,
-      filters: [{ name: "HTML", extensions: ["html"] }],
+      filters: [
+        format === "html"
+          ? { name: "HTML", extensions: ["html"] }
+          : { name: "Markdown", extensions: ["md", "markdown"] },
+      ],
     });
     if (result.canceled || !result.filePath) {
       return { ok: true, canceled: true };
     }
     try {
-      await writeFile(result.filePath, html, "utf8");
+      await writeFile(result.filePath, text, "utf8");
       return { ok: true, path: result.filePath };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-  });
+  }
+
+  // 会话分享导出：自包含单文件 HTML（深色 MiMo 风格），保存位置由系统保存弹窗选择
+  ipcMain.handle("session:export-html", (event, sessionId: string) =>
+    exportSessionFile(event, sessionId, "html"),
+  );
+
+  // 会话导出 Markdown：纯文本，便于贴进笔记 / Issue / PR
+  ipcMain.handle("session:export-md", (event, sessionId: string) =>
+    exportSessionFile(event, sessionId, "md"),
+  );
 }

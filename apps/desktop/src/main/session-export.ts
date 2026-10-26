@@ -382,3 +382,57 @@ ${body || `<p class="empty">（无消息）</p>`}
 </html>
 `;
 }
+
+/**
+ * 渲染 Markdown 导出（与 HTML 导出同口径：只收 user/assistant 非空消息，附件以列表行附在正文后）。
+ * 正文原样保留 Markdown（助手回复本就是 Markdown；用户输入也按原文呈现，不做二次转义）。
+ */
+export function renderSessionMarkdown(input: {
+  session: Pick<SessionRecord, "title" | "createdAt" | "updatedAt">;
+  messages: ChatMessage[];
+  /** 导出时间戳，缺省取调用时刻；测试可注入固定值 */
+  exportedAt?: number;
+}): string {
+  const exportedAt = input.exportedAt ?? Date.now();
+  const title = input.session.title?.trim() || "未命名会话";
+  const items: Array<{ role: "user" | "assistant"; content: string; createdAt: number; attachments: string[] }> = [];
+  for (const message of input.messages) {
+    if (message.role !== "user" && message.role !== "assistant") {
+      continue;
+    }
+    const content = message.content?.trim();
+    if (!content) {
+      continue;
+    }
+    const meta = message.meta as { attachments?: Array<{ name?: string }> } | undefined;
+    const attachments = Array.isArray(meta?.attachments)
+      ? meta.attachments.map((item) => item?.name).filter((name): name is string => !!name)
+      : [];
+    items.push({ role: message.role, content, createdAt: message.createdAt, attachments });
+  }
+  const timeRange =
+    items.length && input.session.updatedAt
+      ? `${formatExportTime(input.session.createdAt)} — ${formatExportTime(input.session.updatedAt)}`
+      : formatExportTime(input.session.createdAt);
+  const body = items
+    .map((item) => {
+      const heading = `## ${item.role === "user" ? "用户" : "助手"} · ${formatExportTime(item.createdAt)}`;
+      const lines = [heading, "", item.content];
+      if (item.attachments.length) {
+        lines.push("", `附件：${item.attachments.map((name) => `\`${name}\``).join("、")}`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n---\n\n");
+  return [
+    `# ${title}`,
+    "",
+    `> ${timeRange} · ${items.length} 条消息 · 由 Zen 导出`,
+    `> 导出于 ${formatExportTime(exportedAt)}`,
+    "",
+    "---",
+    "",
+    body || "（无消息）",
+    "",
+  ].join("\n");
+}
