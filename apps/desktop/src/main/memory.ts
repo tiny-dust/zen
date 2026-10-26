@@ -249,6 +249,40 @@ export async function removeMemoryNote(scope: MemoryScope, id: string): Promise<
 /** 整固输出的 token 预算：条目多时合并结果可能较长，取安全余量 */
 const CONSOLIDATE_MAX_TOKENS = 8192;
 
+/**
+ * 单批送模型的备注正文上限（字符）。中文大致 1 token/字，6000 字符的一批改写后
+ * 仍装得进 CONSOLIDATE_MAX_TOKENS；超过就切批，避免整段输出被模型输出上限截断。
+ */
+const CONSOLIDATE_BATCH_CHARS = 6000;
+
+const CONSOLIDATE_SYSTEM_PROMPT = [
+  "你是记忆整理助手。把输入的备注列表合并、去重、改写成精炼且保留全部长期信息的条目。",
+  '每条形如 {"id":string,"text":string}（不要输出 createdAt 等其它字段，程序会补）。',
+  "id 沿用输入（合并多条时取其中一个），text 可改写但不得编造输入中不存在的事实、不得丢弃任何有用信息。",
+  "输出必须以 [ 开头、以 ] 结尾，是单个完整可直接解析的 JSON 数组；",
+  "禁止输出任何解释、前缀、后缀或 Markdown 代码块，绝不截断。",
+].join("");
+
+/** 按正文长度把备注切成若干批（保持原有顺序，单条超限也独占一批） */
+function splitIntoBatches(notes: MemoryNote[]): MemoryNote[][] {
+  const batches: MemoryNote[][] = [];
+  let current: MemoryNote[] = [];
+  let chars = 0;
+  for (const note of notes) {
+    if (current.length && chars + note.text.length > CONSOLIDATE_BATCH_CHARS) {
+      batches.push(current);
+      current = [];
+      chars = 0;
+    }
+    current.push(note);
+    chars += note.text.length;
+  }
+  if (current.length) {
+    batches.push(current);
+  }
+  return batches;
+}
+
 /** 原子写回：先写临时文件再 rename，进程中断不会留下半个 JSON */
 async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
   await mkdir(zenMemoryDir(), { recursive: true });
@@ -257,29 +291,130 @@ async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
   await rename(temp, file);
 }
 
-/** 模型输出里剥掉 Markdown 代码围栏后解析 JSON；数组或 {notes:[]} 均接受 */
-function parseModelJson(raw: string): MemoryNote[] {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripped);
-  } catch {
-    // 截断的 JSON（Unexpected end of JSON input）大多因推理模型烧尽输出预算；
-    // 原始 SyntaxError 文案对用户毫无信息量，翻译成可行动的提示
-    throw new Error(
-      `模型输出不是完整 JSON（收到 ${stripped.length} 字符，开头为「${stripped.slice(0, 50)}…」，疑似被输出预算截断）。` +
-        "可重试一次；若仍失败，请到设置中换用非推理/轻量模型作为默认模型",
-    );
+/**
+ * 从模型自由文本里截取第一段结构完整的 JSON（数组或对象）。
+ *
+ * 推理模型常先输出「Let me organize these notes…」之类的说明再给 JSON，甚至把 JSON
+ * 包在 Markdown 围栏里；直接 JSON.parse 整段必然失败。这里做一次括号配平扫描
+ * （跳过字符串内的括号与转义），只取第一段闭合完整的内容；没闭合则原样返回，
+ * 由调用方按「截断」报错。
+ */
+function sliceBalancedJson(text: string, start: number): string | null {
+  const open = text[start];
+  const close = open === "[" ? "]" : "}";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === open) {
+      depth += 1;
+    } else if (char === close) {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+    }
   }
+  return null;
+}
+
+/** 截断/不可解析的统一提示：给出收到的字符数与开头，便于判断换模型 */
+function truncatedPayloadError(payload: string): Error {
+  return new Error(
+    `模型输出不是完整 JSON（收到 ${payload.length} 字符，开头为「${payload.slice(0, 50)}…」，疑似被输出预算截断）。` +
+      "可重试一次；若仍失败，请到设置中换用非推理/轻量模型作为默认模型",
+  );
+}
+
+/** JSON.parse 的安全版本：解析失败返回 null，由调用方决定是否继续尝试其它片段 */
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** 解析结果归一化成 notes：数组本体或 {notes:[...]} 都接受 */
+function toNotes(parsed: unknown): MemoryNote[] {
   const list = Array.isArray(parsed)
     ? parsed
     : Array.isArray((parsed as { notes?: unknown })?.notes)
       ? (parsed as { notes: unknown[] }).notes
       : [];
   return normalizeNotes(list as MemoryNote[]);
+}
+
+/**
+ * 解析模型输出：优先找 JSON 数组（整固输出约定必须是数组）。
+ *
+ * 推理模型常先写「Let me organize these notes…」再给 JSON（可能带 Markdown 围栏），
+ * 所以从每个 `[` 起点做括号配平尝试；**最早的数组起点若未闭合就判定为输出截断**，
+ * 不再往后找——截断数组内部的单个对象仍能被配平，误用会拿到残缺结果。
+ * 完全没有数组时才退回 `{notes:[...]}` 形态。
+ */
+function parseModelJson(raw: string): MemoryNote[] {
+  const text = raw.trim();
+  const arrayStarts: number[] = [];
+  for (let index = text.indexOf("["); index >= 0; index = text.indexOf("[", index + 1)) {
+    arrayStarts.push(index);
+  }
+  let sawCompleteArray = false;
+  for (const start of arrayStarts) {
+    const slice = sliceBalancedJson(text, start);
+    if (!slice) {
+      throw truncatedPayloadError(text.slice(start));
+    }
+    sawCompleteArray = true;
+    const notes = toNotes(safeJsonParse(slice));
+    if (notes.length) {
+      return notes;
+    }
+  }
+  if (!sawCompleteArray) {
+    const objectStart = text.indexOf("{");
+    if (objectStart >= 0) {
+      const slice = sliceBalancedJson(text, objectStart);
+      if (slice) {
+        const notes = toNotes(safeJsonParse(slice));
+        if (notes.length) {
+          return notes;
+        }
+      }
+    }
+    throw truncatedPayloadError(text);
+  }
+  // 数组完整但没有任何有效条目：模型把内容清空了，交由调用方按失败处理
+  throw new Error("模型未返回任何有效条目");
+}
+
+/**
+ * 模型只回 id/text：createdAt 按 id（其次按原文）从输入回填，保持列表时序稳定；
+ * 都匹配不上（模型新写的条目）用当前时间。
+ */
+function withInheritedTimestamp(notes: MemoryNote[], before: MemoryNote[]): MemoryNote[] {
+  const byId = new Map(before.map((note) => [note.id, note.createdAt]));
+  const byText = new Map(before.map((note) => [note.text, note.createdAt]));
+  const now = Date.now();
+  return notes.map((note) => ({
+    ...note,
+    createdAt: byId.get(note.id) ?? byText.get(note.text) ?? now,
+  }));
 }
 
 /** 变化条数：before 中被移除/改写的 + after 中新增/改写的（文本比对） */
@@ -312,26 +447,40 @@ export async function consolidateMemory(scope: MemoryScope): Promise<MemoryConso
     return unchanged;
   }
   try {
-    const raw = await completeOnce(
-      `以下是待整理的记忆备注（JSON 数组）。请合并重复项、改写啰嗦表述，输出整固后的同 schema JSON 数组。\n\n${JSON.stringify(before, null, 2)}`,
-      {
-        maxTokens: CONSOLIDATE_MAX_TOKENS,
-        // 推理模型默认档位会把输出预算烧在思考上（实测 glm-5.3 高档截断 JSON）：
-        // 整固是结构改写任务，降到最低推理档 + 放宽超时（与 commit 生成同款验证过的参数）
-        reasoningEffort: "lowest",
-        timeoutMs: 180_000,
-        system:
-          "你是记忆整理助手。把输入的备注列表合并、去重、改写成精炼且保留全部长期信息的条目。" +
-          '只输出 JSON 数组，不要输出任何解释或 Markdown 代码块。每条形如 {"id":string,"text":string,"createdAt":number}；' +
-          "id 与 createdAt 尽量沿用输入（合并时取较早的 createdAt），text 可改写但不得编造输入中不存在的事实、不得丢弃任何有用信息。" +
-          "输出必须是单个完整、可直接解析的 JSON 数组，绝不截断。",
-      },
-    );
-    const after = parseModelJson(raw);
-    if (!after.length) {
-      // 模型清空了全部条目：视为失败，宁可不动也不误删
-      throw new Error("模型未返回任何有效条目");
+    // 分批整固：一次请求只处理一批备注（每批正文 ≤ CONSOLIDATE_BATCH_CHARS）。
+    // 输入只带 id/text，createdAt 这类长数字由本地按 id 回填，省下的输出预算留给正文。
+    const merged: MemoryNote[] = [];
+    for (const batch of splitIntoBatches(before)) {
+      const payload = batch.map((note) => ({ id: note.id, text: note.text }));
+      const raw = await completeOnce(
+        `以下是待整理的记忆备注（JSON 数组，字段 id/text）。请合并重复项、改写啰嗦表述，输出整固后的同 schema JSON 数组。\n\n${JSON.stringify(payload)}`,
+        {
+          maxTokens: CONSOLIDATE_MAX_TOKENS,
+          // 推理模型默认档位会把输出预算烧在思考上（实测 glm-5.3 高档截断 JSON）：
+          // 整固是结构改写任务，降到最低推理档 + 放宽超时（与 commit 生成同款验证过的参数）
+          reasoningEffort: "lowest",
+          timeoutMs: 180_000,
+          system: CONSOLIDATE_SYSTEM_PROMPT,
+        },
+      );
+      const part = parseModelJson(raw);
+      if (!part.length) {
+        // 模型清空了这一批的条目：视为失败，宁可不动也不误删
+        throw new Error("模型未返回任何有效条目");
+      }
+      merged.push(...part);
     }
+    // 分批之间无法互相合并：做一次精确去重（同文本保留首条），再回填 createdAt
+    const seen = new Set<string>();
+    const deduped = merged.filter((note) => {
+      const key = note.text.trim();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+    const after = withInheritedTimestamp(deduped, before);
     return { ...unchanged, after, changedCount: countChangedNotes(before, after) };
   } catch (error) {
     return {

@@ -145,6 +145,65 @@ describe("consolidateMemory 预览与失败安全", () => {
     expect(readUserNotes()).toHaveLength(3);
   });
 
+  it("模型先输出说明再给围栏 JSON：仍能解析，createdAt 按 id 回填", async () => {
+    writeUserNotes(NOTES);
+    // 复现真实报错形态：模型先写「Let me organize these notes.」再给 JSON
+    state.completeOnce.mockResolvedValue(
+      'Let me organize these notes. I need to merge duplicates.\n```json\n' +
+        '[{"id":"n1","text":"全局依赖用 pnpm"},{"id":"n3","text":"默认 shell 是 /bin/zsh"}]\n```',
+    );
+
+    const result = await consolidateMemory("user");
+
+    expect(result.ok).toBe(true);
+    expect(result.after.map((note) => note.text)).toEqual([
+      "全局依赖用 pnpm",
+      "默认 shell 是 /bin/zsh",
+    ]);
+    // 紧凑输出不带 createdAt：按 id 沿用输入（列表时序稳定），不是解析时刻
+    expect(result.after.map((note) => note.createdAt)).toEqual([1000, 3000]);
+    expect(readUserNotes()).toHaveLength(3);
+  });
+
+  it("说明文字里先出现未闭合的 {…} 片段：仍能定位到后面完整的 JSON 数组", async () => {
+    writeUserNotes(NOTES);
+    state.completeOnce.mockResolvedValue(
+      '每条记录形如 {id, text}（示意），整理结果如下：\n[{"id":"n1","text":"全局依赖用 pnpm"}]',
+    );
+
+    const result = await consolidateMemory("user");
+
+    expect(result.ok).toBe(true);
+    expect(result.after.map((note) => note.text)).toEqual(["全局依赖用 pnpm"]);
+  });
+
+  it("备注超过单批上限时自动分批调用，合并结果按文本去重", async () => {
+    // 单条文本上限 500 字（normalizeNotes），20 条合计 1 万字 > 单批 6000 上限
+    const many: Note[] = Array.from({ length: 20 }, (_, index) => ({
+      id: `m${index}`,
+      text: `${index}-${"字".repeat(498)}`,
+      createdAt: index + 1,
+    }));
+    writeUserNotes(many);
+    // 每批原样回显（模拟模型保留条目）
+    state.completeOnce.mockImplementation(async (prompt: string) => {
+      const payload = JSON.parse(prompt.slice(prompt.indexOf("["))) as Array<{
+        id: string;
+        text: string;
+      }>;
+      return JSON.stringify(payload);
+    });
+
+    const result = await consolidateMemory("user");
+
+    expect(result.ok).toBe(true);
+    expect(state.completeOnce.mock.calls.length).toBeGreaterThan(1);
+    expect(result.after).toHaveLength(20);
+    expect(result.after.map((note) => note.createdAt)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
+  });
+
   it("该域无备注：直接返回无变化，不调用模型", async () => {
     const result = await consolidateMemory("user");
 
