@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { readFile } from "node:fs/promises";
 
 import type {
   BrowserActionResult,
@@ -6,6 +7,7 @@ import type {
   BrowserElementRef,
   BrowserEvalResult,
   BrowserExtractResult,
+  BrowserImportSourceId,
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
@@ -13,9 +15,19 @@ import type {
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
+  PasswordImportResult,
 } from "@zen/shared";
 import { getBrowserRegistry, type BrowserService } from "./service";
 import { resolveElementSourceFiles } from "./element-source";
+import { importBookmarks, importHistory, listImportSources, parsePasswordCsv } from "./import";
+import {
+  clearPasswords,
+  listStoredPasswords,
+  removePassword,
+  revealPassword,
+  upsertPasswords,
+} from "./passwords";
+import { showOpenDialogSafe } from "../dialog-safe";
 import { loadBrowserSettings, saveBrowserSettings } from "../zen-dir";
 import { getWorkspace } from "../workspace-db";
 
@@ -245,6 +257,57 @@ export function registerBrowserIpc(
   ipcMain.handle("browser:pip-hide", async (event, scope?: string) =>
     serviceFor(event, scope).hidePip(),
   );
+
+  // ===== 从系统浏览器导入书签 / 历史 / 密码 =====
+  ipcMain.handle("browser:import-sources", () => listImportSources());
+
+  ipcMain.handle("browser:import-bookmarks", (_event, sourceId: BrowserImportSourceId) =>
+    importBookmarks(sourceId),
+  );
+
+  ipcMain.handle("browser:import-history", (_event, sourceId: BrowserImportSourceId) =>
+    importHistory(sourceId),
+  );
+
+  // 密码：只支持浏览器导出的 CSV（Chrome/Edge：设置 → 密码 → 导出）
+  ipcMain.handle("browser:import-passwords-csv", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const picked = await showOpenDialogSafe(parent, {
+      title: "选择浏览器导出的密码 CSV",
+      properties: ["openFile"],
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    const file = picked.filePaths[0];
+    if (picked.canceled || !file) {
+      return { ok: true, canceled: true } satisfies PasswordImportResult;
+    }
+    try {
+      const text = await readFile(file, "utf8");
+      const parsed = parsePasswordCsv(text);
+      if (!parsed.ok) {
+        return { ok: false, error: parsed.error ?? "CSV 解析失败", skipped: parsed.skipped };
+      }
+      const { imported, skipped } = await upsertPasswords(parsed.rows);
+      return {
+        ok: true,
+        imported,
+        skipped: skipped + parsed.skipped,
+      } satisfies PasswordImportResult;
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies PasswordImportResult;
+    }
+  });
+
+  ipcMain.handle("browser:passwords-list", () => listStoredPasswords());
+  ipcMain.handle("browser:passwords-reveal", (_event, id: string) => revealPassword(id));
+  ipcMain.handle("browser:passwords-remove", (_event, id: string) => removePassword(id));
+  ipcMain.handle("browser:passwords-clear", () => {
+    clearPasswords();
+    return true;
+  });
 
   return registry.active();
 }

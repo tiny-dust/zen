@@ -19,6 +19,9 @@ import type {
   BrowserElementRef,
   BrowserEvalResult,
   BrowserExtractResult,
+  BrowserHistoryItem,
+  BrowserImportSource,
+  BrowserImportSourceId,
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
@@ -26,6 +29,9 @@ import type {
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
+  ImportedBookmark,
+  PasswordImportResult,
+  StoredPasswordEntry,
   CatalogMatch,
   CatalogModel,
   CatalogRefreshResult,
@@ -447,6 +453,15 @@ export interface ZenApi {
     exportHtml(
       id: string,
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    /** 会话导出 Markdown：主进程弹保存框并写 .md；取消返回 { ok, canceled } */
+    exportMarkdown(
+      id: string,
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    /** 从某条消息分叉出新会话（复制该消息及之前的对话，原会话不变） */
+    fork(
+      id: string,
+      messageId: string,
+    ): Promise<{ ok: boolean; sessionId?: string; messageCount?: number; error?: string }>;
     /** CLI `zen-cli open <sessionId>`：主进程广播请求，渲染层切到目标会话 */
     onOpenRequest(handler: (sessionId: string) => void): () => void;
   };
@@ -487,6 +502,21 @@ export interface ZenApi {
     pipHide(): Promise<BrowserStatus>;
     onStatus(handler: (status: BrowserStatus) => void): () => void;
     onElementPicked(handler: (ref: BrowserElementRef) => void): () => void;
+    /** 本机可导入的系统浏览器（存在数据文件的才返回） */
+    importSources(): Promise<BrowserImportSource[]>;
+    importBookmarks(
+      sourceId: BrowserImportSourceId,
+    ): Promise<{ ok: boolean; bookmarks: ImportedBookmark[]; error?: string }>;
+    importHistory(
+      sourceId: BrowserImportSourceId,
+    ): Promise<{ ok: boolean; entries: BrowserHistoryItem[]; error?: string }>;
+    /** 导入密码：主进程弹文件框选浏览器导出的 CSV */
+    importPasswordsCsv(): Promise<PasswordImportResult>;
+    listPasswords(): Promise<StoredPasswordEntry[]>;
+    /** 取单条明文密码（复制按钮触发） */
+    revealPassword(id: string): Promise<string | null>;
+    removePassword(id: string): Promise<boolean>;
+    clearPasswords(): Promise<boolean>;
   };
   terminal: {
     shell(): Promise<TerminalShellInfo>;

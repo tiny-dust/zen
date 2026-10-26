@@ -197,3 +197,48 @@ export interface BrowserAgentBridge {
   screenshot(): Promise<BrowserScreenshotResult>;
   evaluate(expression: string): Promise<BrowserEvalResult>;
 }
+
+/** 可导入数据的系统浏览器（按本机实际存在的 Profile 探测，未安装不出现） */
+export type BrowserImportSourceId = "chrome" | "edge" | "brave" | "firefox" | "safari";
+
+export interface BrowserImportSource {
+  id: BrowserImportSourceId;
+  name: string;
+  /** 本机存在书签数据文件 */
+  bookmarks: boolean;
+  /** 本机存在历史记录数据文件 */
+  history: boolean;
+}
+
+/** 导入的书签条目（渲染层按工作区存本地，行为同浏览历史） */
+export interface ImportedBookmark {
+  title: string;
+  url: string;
+}
+
+export interface BrowserBookmarkItem {
+  title: string;
+  url: string;
+  /** 导入/收藏时间 */
+  createdAt: number;
+}
+
+/** 已保存的密码条目：不含明文，明文按需单独取 */
+export interface StoredPasswordEntry {
+  id: string;
+  /** 站点 origin（协议 + 主机 + 端口） */
+  origin: string;
+  /** 显示名（导入 CSV 的 name，缺省为主机名） */
+  title: string;
+  username: string;
+  createdAt: number;
+}
+
+/** 密码 CSV 导入结果 */
+export interface PasswordImportResult {
+  ok: boolean;
+  imported?: number;
+  skipped?: number;
+  canceled?: boolean;
+  error?: string;
+}

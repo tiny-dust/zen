@@ -6,6 +6,9 @@ import type {
   BrowserElementRef,
   BrowserEvalResult,
   BrowserExtractResult,
+  BrowserHistoryItem,
+  BrowserImportSource,
+  BrowserImportSourceId,
   BrowserOpenResult,
   BrowserPerformanceMetrics,
   BrowserScreenshotResult,
@@ -13,6 +16,9 @@ import type {
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
+  ImportedBookmark,
+  PasswordImportResult,
+  StoredPasswordEntry,
 } from "@zen/shared";
 
 /**
@@ -156,6 +162,37 @@ export const browserApi = {
       return () => {
         ipcRenderer.removeListener("browser:element-picked", listener);
       };
+    },
+    /** 本机可导入的系统浏览器（存在数据文件的才返回） */
+    importSources(): Promise<BrowserImportSource[]> {
+      return ipcRenderer.invoke("browser:import-sources");
+    },
+    importBookmarks(
+      sourceId: BrowserImportSourceId,
+    ): Promise<{ ok: boolean; bookmarks: ImportedBookmark[]; error?: string }> {
+      return ipcRenderer.invoke("browser:import-bookmarks", sourceId);
+    },
+    importHistory(
+      sourceId: BrowserImportSourceId,
+    ): Promise<{ ok: boolean; entries: BrowserHistoryItem[]; error?: string }> {
+      return ipcRenderer.invoke("browser:import-history", sourceId);
+    },
+    /** 导入密码：主进程弹文件框选浏览器导出的 CSV */
+    importPasswordsCsv(): Promise<PasswordImportResult> {
+      return ipcRenderer.invoke("browser:import-passwords-csv");
+    },
+    listPasswords(): Promise<StoredPasswordEntry[]> {
+      return ipcRenderer.invoke("browser:passwords-list");
+    },
+    /** 取单条明文密码（复制按钮触发） */
+    revealPassword(id: string): Promise<string | null> {
+      return ipcRenderer.invoke("browser:passwords-reveal", id);
+    },
+    removePassword(id: string): Promise<boolean> {
+      return ipcRenderer.invoke("browser:passwords-remove", id);
+    },
+    clearPasswords(): Promise<boolean> {
+      return ipcRenderer.invoke("browser:passwords-clear");
     },
   },
 };
