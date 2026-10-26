@@ -442,15 +442,48 @@ export function buildToolSet(
                 .string()
                 .max(500)
                 .describe("One concise note (a single sentence or bullet)."),
+              category: z
+                .enum(["project", "hardware", "env", "tool", "other"])
+                .optional()
+                .describe(
+                  "device scope only: group the note (project/hardware/env/tool/other). Omit to let Zen infer it.",
+                ),
             }),
-            execute: async ({ scope, text }) => {
-              const result = await config.memoryBridge?.appendNote(scope, text);
+            execute: async ({ scope, text, category }) => {
+              const result = await config.memoryBridge?.appendNote(scope, text, category);
               if (!result?.ok) {
                 throw new Error(result?.error ?? "memory write failed");
               }
               return { ok: true };
             },
           }),
+          ...(config.memoryBridge.readNotes
+            ? {
+                readMemory: tool({
+                  description:
+                    "Read long-term memory note bodies. The system prompt only carries a category index for device notes " +
+                    "(project / hardware / env / tool / other, counts + short previews). Before relying on concrete paths, " +
+                    "commands or project facts, call this to read the notes of the relevant category instead of guessing.",
+                  inputSchema: z.object({
+                    scope: z
+                      .enum(["device", "user"])
+                      .default("device")
+                      .describe("device = environment facts (grouped); user = preferences/habits (flat list)."),
+                    category: z
+                      .enum(["project", "hardware", "env", "tool", "other"])
+                      .optional()
+                      .describe("device scope only; omit to read every note of that scope."),
+                  }),
+                  execute: async ({ scope, category }) => {
+                    const notes = await config.memoryBridge?.readNotes?.(scope, category);
+                    if (!notes) {
+                      throw new Error("memory read failed");
+                    }
+                    return { count: notes.length, notes };
+                  },
+                }),
+              }
+            : {}),
         }
       : {}),
     updateTasks: tool({

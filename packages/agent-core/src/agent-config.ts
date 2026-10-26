@@ -8,6 +8,7 @@ import type {
   AgentStreamEvent,
   BrowserAgentBridge,
   CuaAgentBridge,
+  MemoryCategory,
   PermissionMode,
   ProviderProtocol,
   ReasoningEffort,
@@ -33,7 +34,16 @@ export interface MemoryAgentBridge {
   appendNote(
     scope: "device" | "user",
     text: string,
+    category?: MemoryCategory,
   ): Promise<{ ok: boolean; error?: string }>;
+  /**
+   * 按分类读取备注正文：会话提示词里设备备注只有分类索引（数量 + 摘要），
+   * 需要具体路径/命令/项目事实时由 readMemory 工具按需读取。
+   */
+  readNotes?(
+    scope: "device" | "user",
+    category?: MemoryCategory,
+  ): Promise<Array<{ text: string; category?: MemoryCategory }>>;
 }
 
 /** 长驻服务桥（main 侧登记 runTerminal 进程组；settle 后收集存活服务） */
@@ -173,8 +183,10 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
   if (config.memoryBridge) {
     parts.push(
       `长期记忆：当前会话已注入「设备环境记忆」与「用户习惯记忆」（若有）。` +
+        `设备备注在提示词里只给分类索引（项目 / 硬件 / 环境变量 / 工具链 / 其他，含条数与摘要）——` +
+        `需要具体路径、命令或项目事实时，先用 readMemory 读取对应分类，不要凭摘要推断。` +
         `当用户明确要求记住某事，或出现值得长期保留的稳定事实（设备路径/命令、用户偏好与工作习惯）时，` +
-        `用 updateMemory 工具追加一条简洁备注；只记录长期有效的信息，不记录一次性任务细节。`,
+        `用 updateMemory 工具追加一条简洁备注（设备事实建议带上 category）；只记录长期有效的信息，不记录一次性任务细节。`,
     );
   }
   parts.push(
