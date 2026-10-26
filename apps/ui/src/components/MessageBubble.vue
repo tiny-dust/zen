@@ -658,6 +658,7 @@ async function ocrAttachment(path: string) {
       <Response
         v-else-if="part.type === 'text'"
         :content="part.text"
+        :streaming="streaming && part.index === parts.length - 1"
         class="md-content w-full min-w-0 max-w-full"
       />
 

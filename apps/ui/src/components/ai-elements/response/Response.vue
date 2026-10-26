@@ -14,11 +14,18 @@ interface Props {
   content?: string
   /** Keep streaming text visible immediately; animation is opt-in. */
   enableAnimate?: boolean
+  /**
+   * 内容仍在流式输出中。渲染器默认 mode=streaming，会把最后一个块节点标记为
+   * 「未闭合」并在表格/代码块下方显示加载转圈；消息结束后必须切 static，
+   * 否则末尾是表格的回复会永久留一个转圈。
+   */
+  streaming?: boolean
   class?: HTMLAttributes['class']
 }
 
 const props = withDefaults(defineProps<Props>(), {
   enableAnimate: false,
+  streaming: false,
 })
 
 const slots = useSlots()
@@ -47,6 +54,7 @@ const { isDark } = useAppTheme()
     :key="codeThemeId"
     :content="md"
     :enable-animate="props.enableAnimate"
+    :mode="props.streaming ? 'streaming' : 'static'"
     :extensions="streamMarkdownExtensions"
     :code-options="compactCodeOptions"
     :is-dark="isDark"
