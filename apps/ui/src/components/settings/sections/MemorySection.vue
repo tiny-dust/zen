@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Brain, Plus, RefreshCw, Sparkles, X } from "@lucide/vue";
+import { Brain, ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Sparkles, X } from "@lucide/vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -9,21 +9,44 @@ import SectionHeader from "@/components/settings/sections/SectionHeader.vue";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { MEMORY_CATEGORIES } from "@zen/shared";
 
 import type {
+  MemoryCategory,
   MemoryConsolidationResult,
-  MemoryScope,
   MemoryNote,
-  MemorySnapshot,
+  MemoryScope,
+  MemoryView,
 } from "@zen/shared";
 
-/** 记忆：设备环境快照 + 备注 / 用户习惯（~/.zen/memory）；整固 = 模型合并去重 + diff 审阅后原子替换 */
+/**
+ * 记忆：设备环境快照 + 按分类归档的设备备注 + 用户习惯。
+ *
+ * 设备备注数量会长期增长，像技能一样「索引 + 按需读取」：
+ * 主进程只在视图里给分类索引（项目 / 硬件 / 环境变量 / 工具链 / 其他 + 条数与摘要），
+ * 展开某一类时才通过 IPC 读取该类正文；会话提示词里同样只注入索引。
+ * 整固 = 模型合并去重 + diff 审阅后原子替换。
+ */
 const { t } = useI18n();
 
-const memory = ref<MemorySnapshot | null>(null);
+const memory = ref<MemoryView | null>(null);
 const memoryBusy = ref(false);
-/** 两个备注范围的草稿输入（按 scope 索引，避免两套同名状态） */
+/** 两个备注范围的草稿输入（按 scope 索引） */
 const noteDrafts = reactive<Record<MemoryScope, string>>({ device: "", user: "" });
+/** 设备备注新增时选的分类（缺省 other，也可不改由主进程按内容推断？这里显式选更可控） */
+const draftCategory = ref<MemoryCategory>("other");
+/** 展开中的设备备注分类 + 该分类已加载的正文 */
+const expandedCategory = ref<MemoryCategory | null>(null);
+const categoryNotes = ref<MemoryNote[]>([]);
+const categoryLoading = ref(false);
 const pendingDelete = ref<{ scope: MemoryScope; id: string; text: string } | null>(null);
 const deleteBusy = ref(false);
 
@@ -35,7 +58,11 @@ const previewBusy = ref(false);
 const applyBusy = ref(false);
 
 const deviceTools = computed(() => Object.entries(memory.value?.device?.tools ?? {}));
-const deviceNoteList = computed(() => memory.value?.device?.notes ?? []);
+/** 设备备注分类索引（不含正文） */
+const deviceGroups = computed(() => memory.value?.device?.groups ?? []);
+const deviceTotal = computed(() =>
+  deviceGroups.value.reduce((sum, group) => sum + group.count, 0),
+);
 const userNoteList = computed(() => memory.value?.user?.notes ?? []);
 const consolidateScopeLabel = computed(() =>
   consolidateScope.value === "user"
@@ -43,40 +70,13 @@ const consolidateScopeLabel = computed(() =>
     : t("settings.agent.deviceNotes"),
 );
 
-/** 两类备注的展示配置：标题 / 说明 / 空态 / 输入占位 / 无障碍标签，模板里一套结构复用 */
-const noteGroups = computed<
-  Array<{
-    scope: MemoryScope;
-    title: string;
-    hint: string;
-    empty: string;
-    placeholder: string;
-    addAria: string;
-    deleteAria: string;
-    notes: MemoryNote[];
-  }>
->(() => [
-  {
-    scope: "device",
-    title: t("settings.agent.deviceNotes"),
-    hint: t("settings.agent.deviceNotesHint"),
-    empty: t("settings.agent.deviceNotesEmpty"),
-    placeholder: t("settings.agent.deviceNotePlaceholder"),
-    addAria: t("settings.agent.addDeviceNoteAria"),
-    deleteAria: t("settings.agent.deleteDeviceNoteAria"),
-    notes: deviceNoteList.value,
-  },
-  {
-    scope: "user",
-    title: t("settings.agent.userHabits"),
-    hint: t("settings.agent.userHabitsHint"),
-    empty: t("settings.agent.userHabitsEmpty"),
-    placeholder: t("settings.agent.userNotePlaceholder"),
-    addAria: t("settings.agent.addUserNoteAria"),
-    deleteAria: t("settings.agent.deleteUserNoteAria"),
-    notes: userNoteList.value,
-  },
-]);
+const CATEGORY_LABELS = computed<Record<MemoryCategory, string>>(() => ({
+  project: t("settings.agent.memoryCategories.project"),
+  hardware: t("settings.agent.memoryCategories.hardware"),
+  env: t("settings.agent.memoryCategories.env"),
+  tool: t("settings.agent.memoryCategories.tool"),
+  other: t("settings.agent.memoryCategories.other"),
+}));
 
 function noteStats(notes: Array<{ text: string }>): { count: number; chars: number } {
   return {
@@ -93,6 +93,30 @@ async function loadMemory() {
   memory.value = await zen.memory.get();
 }
 
+/** 展开/收起某类设备备注：展开时才按需读取该类正文 */
+async function toggleCategory(category: MemoryCategory) {
+  if (expandedCategory.value === category) {
+    expandedCategory.value = null;
+    categoryNotes.value = [];
+    return;
+  }
+  expandedCategory.value = category;
+  await loadCategory(category);
+}
+
+async function loadCategory(category: MemoryCategory) {
+  const zen = window.zen;
+  if (!zen?.memory || !zen.memory.notes) {
+    return;
+  }
+  categoryLoading.value = true;
+  try {
+    categoryNotes.value = await zen.memory.notes("device", category);
+  } finally {
+    categoryLoading.value = false;
+  }
+}
+
 onMounted(() => {
   void loadMemory();
 });
@@ -103,8 +127,18 @@ async function addNote(scope: MemoryScope) {
   if (!zen?.memory || !text) {
     return;
   }
-  memory.value = await zen.memory.addNote(scope, text);
+  memory.value = await zen.memory.addNote(
+    scope,
+    text,
+    scope === "device" ? draftCategory.value : undefined,
+  );
   noteDrafts[scope] = "";
+  if (scope === "device") {
+    // 新备注可能落在任意分类：索引已刷新，展开中的分类重新读取正文
+    if (expandedCategory.value) {
+      await loadCategory(expandedCategory.value);
+    }
+  }
 }
 
 async function removeNote() {
@@ -117,6 +151,9 @@ async function removeNote() {
   try {
     memory.value = await zen.memory.removeNote(target.scope, target.id);
     pendingDelete.value = null;
+    if (target.scope === "device" && expandedCategory.value) {
+      await loadCategory(expandedCategory.value);
+    }
   } finally {
     deleteBusy.value = false;
   }
@@ -130,6 +167,9 @@ async function recollect() {
   memoryBusy.value = true;
   try {
     memory.value = await zen.memory.collect();
+    if (expandedCategory.value) {
+      await loadCategory(expandedCategory.value);
+    }
   } finally {
     memoryBusy.value = false;
   }
@@ -179,6 +219,10 @@ async function applyConsolidated() {
     consolidateScope.value = null;
     previewResult.value = null;
     previewError.value = "";
+    if (scope === "device") {
+      expandedCategory.value = null;
+      categoryNotes.value = [];
+    }
   } finally {
     applyBusy.value = false;
   }
@@ -206,14 +250,12 @@ function formatTime(ms: number): string {
       :desc="t('settings.agent.memoryDesc')"
     />
 
-    <!-- 设备环境：只读快照，元信息按字段行对齐，工具单独一行以免和文本混排 -->
+    <!-- 设备环境：只读快照，元信息按字段行对齐 -->
     <div
       v-if="memory?.device"
       class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]"
     >
-      <header
-        class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2"
-      >
+      <header class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2">
         <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
           {{ t("settings.agent.deviceSnapshot") }}
         </span>
@@ -261,70 +303,175 @@ function formatTime(ms: number): string {
       </div>
     </div>
 
-    <!-- 备注两类（设备备注 / 用户习惯）：各自独立卡片，标题行带统计与整固入口 -->
-    <div
-      v-for="group in noteGroups"
-      :key="group.scope"
-      class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]"
-    >
+    <!-- 设备备注：分类索引（数量 + 摘要），展开某类才读取正文 -->
+    <div class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]">
       <header class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2">
         <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
-          {{ group.title }}
+          {{ t("settings.agent.deviceNotes") }}
         </span>
         <span class="flex-none text-[11px] tabular-nums text-[var(--color-dim)]">
-          {{ t("settings.agent.consolidateStats", noteStats(group.notes)) }}
+          {{ t("settings.agent.deviceNotesCount", { count: deviceTotal, categories: deviceGroups.length }) }}
         </span>
         <Button
           variant="outline"
           size="sm"
-          :disabled="previewBusy || !group.notes.length"
-          @click="startConsolidate(group.scope)"
+          :disabled="previewBusy || !deviceTotal"
+          @click="startConsolidate('device')"
+        >
+          <Sparkles :size="13" data-icon="inline-start" />{{ t("settings.agent.consolidate") }}
+        </Button>
+      </header>
+
+      <p class="m-0 px-3 pb-1 pt-2 text-[11px] leading-relaxed text-[var(--color-mut)]">
+        {{ t("settings.agent.deviceNotesIndexHint") }}
+      </p>
+
+      <p v-if="!deviceGroups.length" class="m-0 px-3 py-1.5 text-[11px] text-[var(--color-dim)]">
+        {{ t("settings.agent.deviceNotesEmpty") }}
+      </p>
+      <div v-else class="flex flex-col px-2 pb-1">
+        <div v-for="group in deviceGroups" :key="group.category" class="flex flex-col">
+          <Button
+            variant="ghost"
+            class="h-auto min-h-8 w-full items-center justify-start gap-2 rounded-[var(--radius-sm)] px-1 py-1 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
+            :aria-expanded="expandedCategory === group.category"
+            @click="toggleCategory(group.category)"
+          >
+            <ChevronDown
+              v-if="expandedCategory === group.category"
+              class="size-3.5 flex-none text-[var(--color-mut)]"
+              aria-hidden="true"
+            />
+            <ChevronRight v-else class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+            <span class="flex-none text-[12px] font-medium text-[var(--color-txt-strong)]">
+              {{ CATEGORY_LABELS[group.category] }}
+            </span>
+            <span class="inline-flex h-4 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] tabular-nums text-[var(--color-mut)]">
+              {{ group.count }}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
+              {{ group.previews[0] }}{{ group.count > 1 ? " …" : "" }}
+            </span>
+          </Button>
+          <div
+            v-if="expandedCategory === group.category"
+            class="ml-[18px] flex flex-col gap-0.5 border-l border-[var(--color-line-soft)] pb-1.5 pl-2"
+          >
+            <p v-if="categoryLoading" class="m-0 flex items-center gap-1.5 px-1 py-1 text-[11px] text-[var(--color-dim)]">
+              <Loader2 class="size-3 animate-spin" aria-hidden="true" />
+              {{ t("settings.agent.notesLoading") }}
+            </p>
+            <div
+              v-for="note in categoryNotes"
+              v-else
+              :key="note.id"
+              class="group/note flex items-start gap-2 rounded-[var(--radius-sm)] px-1 py-0.5 text-[11px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
+            >
+              <span class="mt-1 size-1 flex-none rounded-full bg-[var(--color-dim)]" aria-hidden="true" />
+              <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
+              <DangerIconButton
+                :label="t('settings.agent.deleteDeviceNoteAria')"
+                class="opacity-0 group-hover/note:opacity-100"
+                @click="pendingDelete = { scope: 'device', id: note.id, text: note.text }"
+              >
+                <X :size="13" />
+              </DangerIconButton>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 border-t border-[var(--color-line-soft)] px-3 py-2">
+        <Select v-model="draftCategory">
+          <SelectTrigger size="sm" class="h-8 w-[92px] flex-none text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem v-for="category in MEMORY_CATEGORIES" :key="category" :value="category">
+                {{ CATEGORY_LABELS[category] }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Input
+          v-model="noteDrafts.device"
+          variant="ghost"
+          class="h-8 flex-1 text-[12px]"
+          :placeholder="t('settings.agent.deviceNotePlaceholder')"
+          @keydown.enter.prevent="addNote('device')"
+        />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+          :aria-label="t('settings.agent.addDeviceNoteAria')"
+          :disabled="!noteDrafts.device.trim()"
+          @click="addNote('device')"
+        >
+          <Plus :size="14" />
+        </Button>
+      </div>
+    </div>
+
+    <!-- 用户习惯：数量少且总是随会话注入，保持平铺列表 -->
+    <div class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]">
+      <header class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2">
+        <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
+          {{ t("settings.agent.userHabits") }}
+        </span>
+        <span class="flex-none text-[11px] tabular-nums text-[var(--color-dim)]">
+          {{ t("settings.agent.consolidateStats", noteStats(userNoteList)) }}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="previewBusy || !userNoteList.length"
+          @click="startConsolidate('user')"
         >
           <Sparkles :size="13" data-icon="inline-start" />{{ t("settings.agent.consolidate") }}
         </Button>
       </header>
 
       <p class="m-0 px-3 pt-2 text-[11px] leading-relaxed text-[var(--color-mut)]">
-        {{ group.hint }}
+        {{ t("settings.agent.userHabitsHint") }}
       </p>
-      <p v-if="!group.notes.length" class="m-0 px-3 py-1.5 text-[11px] text-[var(--color-dim)]">
-        {{ group.empty }}
+      <p v-if="!userNoteList.length" class="m-0 px-3 py-1.5 text-[11px] text-[var(--color-dim)]">
+        {{ t("settings.agent.userHabitsEmpty") }}
       </p>
       <ul v-else class="m-0 flex list-none flex-col gap-0.5 px-3 py-1.5">
         <li
-          v-for="note in group.notes"
+          v-for="note in userNoteList"
           :key="note.id"
           class="group/note flex items-start gap-2 rounded-[var(--radius-sm)] py-0.5 pl-1 pr-0.5 text-[11px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
         >
           <span class="mt-1 size-1 flex-none rounded-full bg-[var(--color-dim)]" aria-hidden="true" />
           <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
           <DangerIconButton
-            :label="group.deleteAria"
+            :label="t('settings.agent.deleteUserNoteAria')"
             class="opacity-0 group-hover/note:opacity-100"
-            @click="pendingDelete = { scope: group.scope, id: note.id, text: note.text }"
+            @click="pendingDelete = { scope: 'user', id: note.id, text: note.text }"
           >
             <X :size="13" />
           </DangerIconButton>
         </li>
       </ul>
 
-      <div
-        class="flex items-center gap-1.5 border-t border-[var(--color-line-soft)] px-3 py-2"
-      >
+      <div class="flex items-center gap-1.5 border-t border-[var(--color-line-soft)] px-3 py-2">
         <Input
-          v-model="noteDrafts[group.scope]"
+          v-model="noteDrafts.user"
           variant="ghost"
-          class="h-8 text-[12px]"
-          :placeholder="group.placeholder"
-          @keydown.enter.prevent="addNote(group.scope)"
+          class="h-8 flex-1 text-[12px]"
+          :placeholder="t('settings.agent.userNotePlaceholder')"
+          @keydown.enter.prevent="addNote('user')"
         />
         <Button
           variant="ghost"
           size="icon-sm"
           class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-          :aria-label="group.addAria"
-          :disabled="!noteDrafts[group.scope].trim()"
-          @click="addNote(group.scope)"
+          :aria-label="t('settings.agent.addUserNoteAria')"
+          :disabled="!noteDrafts.user.trim()"
+          @click="addNote('user')"
         >
           <Plus :size="14" />
         </Button>

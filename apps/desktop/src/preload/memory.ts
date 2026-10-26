@@ -1,19 +1,30 @@
 import { ipcRenderer } from "electron";
 
-import type { MemoryConsolidationResult, MemoryScope, MemorySnapshot } from "@zen/shared";
+import type {
+  MemoryCategory,
+  MemoryConsolidationResult,
+  MemoryNote,
+  MemoryScope,
+  MemoryView,
+} from "@zen/shared";
 
 export const memoryApi = {
   memory: {
-    get(): Promise<MemorySnapshot> {
+    /** 设备域只含分类索引（数量 + 摘要），正文走 notes() 按需读取 */
+    get(): Promise<MemoryView> {
       return ipcRenderer.invoke("memory:get");
     },
-    addNote(scope: MemoryScope, text: string): Promise<MemorySnapshot> {
-      return ipcRenderer.invoke("memory:add-note", scope, text);
+    /** 按分类读取备注正文（category 缺省 = 该域全部） */
+    notes(scope: MemoryScope, category?: MemoryCategory): Promise<MemoryNote[]> {
+      return ipcRenderer.invoke("memory:notes", scope, category);
     },
-    removeNote(scope: MemoryScope, id: string): Promise<MemorySnapshot> {
+    addNote(scope: MemoryScope, text: string, category?: MemoryCategory): Promise<MemoryView> {
+      return ipcRenderer.invoke("memory:add-note", scope, text, category);
+    },
+    removeNote(scope: MemoryScope, id: string): Promise<MemoryView> {
       return ipcRenderer.invoke("memory:remove-note", scope, id);
     },
-    collect(): Promise<MemorySnapshot> {
+    collect(): Promise<MemoryView> {
       return ipcRenderer.invoke("memory:collect");
     },
     /** 整固预览：调模型算 diff，不落盘；失败返回 {ok:false, error} */
@@ -24,7 +35,7 @@ export const memoryApi = {
     applyConsolidation(
       scope: MemoryScope,
       notes: Array<{ id: string; text: string; createdAt: number }>,
-    ): Promise<MemorySnapshot> {
+    ): Promise<MemoryView> {
       return ipcRenderer.invoke("memory:apply", scope, notes);
     },
   },

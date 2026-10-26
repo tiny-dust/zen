@@ -56,9 +56,12 @@ import type {
   McpServerConfig,
   McpServerStatus,
   McpDiscoveredServer,
+  MemoryCategory,
   MemoryConsolidationResult,
+  MemoryNote,
   MemoryScope,
   MemorySnapshot,
+  MemoryView,
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
@@ -367,17 +370,20 @@ export interface ZenApi {
     authorize(serverId: string): Promise<McpServerStatus[]>;
   };
   memory: {
-    get(): Promise<MemorySnapshot>;
-    addNote(scope: MemoryScope, text: string): Promise<MemorySnapshot>;
-    removeNote(scope: MemoryScope, id: string): Promise<MemorySnapshot>;
-    collect(): Promise<MemorySnapshot>;
+    /** 设备域只含分类索引（数量 + 摘要），正文走 notes() 按需读取 */
+    get(): Promise<MemoryView>;
+    /** 按分类读取备注正文（category 缺省 = 该域全部） */
+    notes(scope: MemoryScope, category?: MemoryCategory): Promise<MemoryNote[]>;
+    addNote(scope: MemoryScope, text: string, category?: MemoryCategory): Promise<MemoryView>;
+    removeNote(scope: MemoryScope, id: string): Promise<MemoryView>;
+    collect(): Promise<MemoryView>;
     /** 整固预览：模型算 diff 不落盘；失败返回 {ok:false, error}，绝不动原始数据 */
     consolidatePreview(scope: MemoryScope): Promise<MemoryConsolidationResult>;
     /** 应用整固：把预览确认过的 notes 原子写回（临时文件 + rename） */
     applyConsolidation(
       scope: MemoryScope,
       notes: Array<{ id: string; text: string; createdAt: number }>,
-    ): Promise<MemorySnapshot>;
+    ): Promise<MemoryView>;
   };
   sync: {
     upload(): Promise<SyncResult>;
