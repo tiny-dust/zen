@@ -16,6 +16,7 @@ const { t } = useI18n();
   <Dialog :open="infoOpen" @update:open="layoutStore.toggleInfo()">
     <DialogContent
       class="flex w-[min(760px,calc(100vw-48px))] max-h-[min(720px,calc(100vh-64px))] flex-col gap-0 overflow-hidden bg-[var(--color-set-card)] p-0"
+        data-large-panel="true"
     >
       <header class="flex flex-none items-center justify-between border-b border-[var(--color-line)] px-4 py-3.5">
         <DialogTitle class="m-0 flex items-center gap-1.5 text-[14px] font-semibold text-[var(--color-txt-strong)]">

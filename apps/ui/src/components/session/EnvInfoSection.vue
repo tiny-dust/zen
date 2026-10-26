@@ -97,16 +97,18 @@ function toggleBranchPicker() {
 const exporting = ref(false);
 const exportFeedback = ref("");
 
-async function exportSessionHtml() {
+/** 导出会话（HTML / Markdown 共用一条链路）：主进程渲染 + 弹保存框，结果行内反馈 */
+async function exportSession(format: "html" | "md") {
   const zen = window.zen;
   const sessionId = chatStore.sessionId;
-  if (!zen?.session?.exportHtml || !sessionId || exporting.value) {
+  const run = format === "html" ? zen?.session?.exportHtml : zen?.session?.exportMarkdown;
+  if (!run || !sessionId || exporting.value) {
     return;
   }
   exporting.value = true;
   exportFeedback.value = t("features.exporting");
   try {
-    const result = await zen.session.exportHtml(sessionId);
+    const result = await run(sessionId);
     exportFeedback.value = result.canceled
       ? t("features.exportCanceled")
       : result.ok
@@ -250,14 +252,14 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         {{ gitStore.feedback }}
       </p>
 
-      <!-- 导出会话 HTML：保存弹窗由主进程弹出，结果行内反馈 -->
+      <!-- 导出会话（HTML / Markdown）：保存弹窗由主进程弹出，结果行内反馈 -->
       <Button
         variant="ghost"
         class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
         :class="actionCls"
         :title="t('features.exportHtmlTitle')"
         :disabled="exporting || !chatStore.sessionId"
-        @click="exportSessionHtml"
+        @click="exportSession('html')"
       >
         <LoaderCircle
           v-if="exporting"
@@ -266,6 +268,22 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
         />
         <Download v-else :class="envIconCls" aria-hidden="true" />
         <span class="min-w-0 flex-1">{{ t("features.exportHtml") }}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
+        :class="actionCls"
+        :title="t('features.exportMdTitle')"
+        :disabled="exporting || !chatStore.sessionId"
+        @click="exportSession('md')"
+      >
+        <LoaderCircle
+          v-if="exporting"
+          class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
+          aria-hidden="true"
+        />
+        <Download v-else :class="envIconCls" aria-hidden="true" />
+        <span class="min-w-0 flex-1">{{ t("features.exportMd") }}</span>
       </Button>
       <p v-if="exportFeedback" class="m-0 pl-[27px] text-[11px] text-[var(--color-mut)]" role="status">
         {{ exportFeedback }}

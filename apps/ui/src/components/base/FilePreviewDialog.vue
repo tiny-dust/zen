@@ -79,6 +79,7 @@ watch(
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
       class="flex max-h-[min(76vh,720px)] w-[min(880px,calc(100vw-64px))] flex-col gap-0 overflow-hidden bg-[var(--color-set-card)] p-0"
+        data-large-panel="true"
       :aria-label="t('shell.filePreview')"
     >
       <header

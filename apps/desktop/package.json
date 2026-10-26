@@ -1,6 +1,6 @@
 {
   "name": "@zen/desktop",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "private": true,
   "productName": "Zen",
   "desktopName": "zen.desktop",
