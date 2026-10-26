@@ -3,6 +3,7 @@ import { Globe, X } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import SectionHeader from "@/components/settings/sections/SectionHeader.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -90,45 +91,63 @@ onMounted(() => {
 </script>
 
 <template>
-  <section id="set-agent-websearch" class="flex flex-col gap-2.5 scroll-mt-2">
-    <div class="flex items-center gap-2">
-      <Globe :size="15" class="text-[var(--color-mut)]" />
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.webSearchTitle") }}</h3>
-    </div>
-    <p class="m-0 text-[12px] text-[var(--color-mut)]">
-      {{ t("settings.agent.webSearchDesc") }}
-    </p>
-    <div class="flex flex-col">
-      <div v-for="provider in WEB_SEARCH_PROVIDERS" :key="provider" class="field-row">
-        <Label :for="`websearch-${provider}`" class="field-row-label font-normal">
-          {{ t(`settings.agent.webSearchProvider.${provider}`) }}
-        </Label>
-        <div class="flex items-center gap-2">
-          <Input
-            :id="`websearch-${provider}`"
-            v-model="webSearchKeys[provider]"
-            type="password"
-            autocomplete="off"
-            class="h-8 flex-1 text-[12px]"
-            :placeholder="webSearchPlaceholder(provider)"
-            :aria-label="t('settings.agent.webSearchKeyAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
-            @blur="saveWebSearchKey(provider)"
-            @keydown.enter.prevent="saveWebSearchKey(provider)"
-          />
-          <Button
-            v-if="webSearchStatus?.[provider]?.configured"
-            variant="ghost"
-            size="icon-sm"
-            class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :aria-label="t('settings.agent.webSearchClearAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
-            :disabled="webSearchBusy === provider"
-            @click="clearWebSearchKey(provider)"
-          >
-            <X :size="14" />
-          </Button>
+  <section id="set-agent-websearch" class="flex flex-col gap-3 scroll-mt-2">
+    <SectionHeader
+      :icon="Globe"
+      :title="t('settings.agent.webSearchTitle')"
+      :desc="t('settings.agent.webSearchDesc')"
+    />
+
+    <div
+      class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]"
+    >
+      <header class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2">
+        <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
+          {{ t("settings.agent.webSearchKeyTitle") }}
+        </span>
+        <span class="flex-none text-[11px] text-[var(--color-dim)]">
+          {{ t("settings.agent.webSearchKeyHint") }}
+        </span>
+      </header>
+      <div class="flex flex-col px-3 py-1.5">
+        <div v-for="provider in WEB_SEARCH_PROVIDERS" :key="provider" class="field-row">
+          <Label :for="`websearch-${provider}`" class="field-row-label font-normal">
+            {{ t(`settings.agent.webSearchProvider.${provider}`) }}
+          </Label>
+          <div class="flex items-center gap-2">
+            <Input
+              :id="`websearch-${provider}`"
+              v-model="webSearchKeys[provider]"
+              type="password"
+              autocomplete="off"
+              class="h-8 flex-1 text-[12px]"
+              :placeholder="webSearchPlaceholder(provider)"
+              :aria-label="t('settings.agent.webSearchKeyAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
+              @blur="saveWebSearchKey(provider)"
+              @keydown.enter.prevent="saveWebSearchKey(provider)"
+            />
+            <span
+              v-if="webSearchStatus?.[provider]?.configured"
+              class="inline-flex h-5 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] text-[var(--color-mut)]"
+            >
+              {{ t("settings.agent.webSearchConfigured") }}
+            </span>
+            <Button
+              v-if="webSearchStatus?.[provider]?.configured"
+              variant="ghost"
+              size="icon-sm"
+              class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="t('settings.agent.webSearchClearAria', { provider: t(`settings.agent.webSearchProvider.${provider}`) })"
+              :disabled="webSearchBusy === provider"
+              @click="clearWebSearchKey(provider)"
+            >
+              <X :size="14" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
+
     <p v-if="webSearchError" class="m-0 text-[11px] text-[var(--color-err)]">
       {{ webSearchError }}
     </p>

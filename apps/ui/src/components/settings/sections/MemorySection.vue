@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Brain, Plus, RefreshCw, Sparkles, X } from "@lucide/vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
+import SectionHeader from "@/components/settings/sections/SectionHeader.vue";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import type {
   MemoryConsolidationResult,
   MemoryScope,
+  MemoryNote,
   MemorySnapshot,
 } from "@zen/shared";
 
@@ -20,12 +22,12 @@ const { t } = useI18n();
 
 const memory = ref<MemorySnapshot | null>(null);
 const memoryBusy = ref(false);
-const deviceNoteText = ref("");
-const userNoteText = ref("");
+/** 两个备注范围的草稿输入（按 scope 索引，避免两套同名状态） */
+const noteDrafts = reactive<Record<MemoryScope, string>>({ device: "", user: "" });
 const pendingDelete = ref<{ scope: MemoryScope; id: string; text: string } | null>(null);
 const deleteBusy = ref(false);
 
-// 整固：预览（模型算 diff）→ Dialog 审阅 → 确认后原子写回；失败/取消不动原始数据
+// 整固：预览（模型算 diff）→ Dialog 审阅 → 确认后原子写入；失败/取消不动原始数据
 const consolidateScope = ref<MemoryScope | null>(null);
 const previewResult = ref<MemoryConsolidationResult | null>(null);
 const previewError = ref("");
@@ -40,6 +42,41 @@ const consolidateScopeLabel = computed(() =>
     ? t("settings.agent.userHabits")
     : t("settings.agent.deviceNotes"),
 );
+
+/** 两类备注的展示配置：标题 / 说明 / 空态 / 输入占位 / 无障碍标签，模板里一套结构复用 */
+const noteGroups = computed<
+  Array<{
+    scope: MemoryScope;
+    title: string;
+    hint: string;
+    empty: string;
+    placeholder: string;
+    addAria: string;
+    deleteAria: string;
+    notes: MemoryNote[];
+  }>
+>(() => [
+  {
+    scope: "device",
+    title: t("settings.agent.deviceNotes"),
+    hint: t("settings.agent.deviceNotesHint"),
+    empty: t("settings.agent.deviceNotesEmpty"),
+    placeholder: t("settings.agent.deviceNotePlaceholder"),
+    addAria: t("settings.agent.addDeviceNoteAria"),
+    deleteAria: t("settings.agent.deleteDeviceNoteAria"),
+    notes: deviceNoteList.value,
+  },
+  {
+    scope: "user",
+    title: t("settings.agent.userHabits"),
+    hint: t("settings.agent.userHabitsHint"),
+    empty: t("settings.agent.userHabitsEmpty"),
+    placeholder: t("settings.agent.userNotePlaceholder"),
+    addAria: t("settings.agent.addUserNoteAria"),
+    deleteAria: t("settings.agent.deleteUserNoteAria"),
+    notes: userNoteList.value,
+  },
+]);
 
 function noteStats(notes: Array<{ text: string }>): { count: number; chars: number } {
   return {
@@ -62,12 +99,12 @@ onMounted(() => {
 
 async function addNote(scope: MemoryScope) {
   const zen = window.zen;
-  const text = (scope === "device" ? deviceNoteText : userNoteText).value.trim();
+  const text = noteDrafts[scope].trim();
   if (!zen?.memory || !text) {
     return;
   }
   memory.value = await zen.memory.addNote(scope, text);
-  (scope === "device" ? deviceNoteText : userNoteText).value = "";
+  noteDrafts[scope] = "";
 }
 
 async function removeNote() {
@@ -162,154 +199,132 @@ function formatTime(ms: number): string {
 </script>
 
 <template>
-  <section id="set-agent-memory" class="flex flex-col gap-2.5 scroll-mt-2">
-    <div class="flex items-center gap-2">
-      <Brain :size="15" class="text-[var(--color-mut)]" />
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.agent.memoryTitle") }}</h3>
-    </div>
-    <p class="m-0 text-[12px] text-[var(--color-mut)]">
-      {{ t("settings.agent.memoryDesc") }}
-    </p>
+  <section id="set-agent-memory" class="flex flex-col gap-3 scroll-mt-2">
+    <SectionHeader
+      :icon="Brain"
+      :title="t('settings.agent.memoryTitle')"
+      :desc="t('settings.agent.memoryDesc')"
+    />
 
-    <!-- 设备环境快照 -->
+    <!-- 设备环境：只读快照，元信息按字段行对齐，工具单独一行以免和文本混排 -->
     <div
       v-if="memory?.device"
-      class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3"
+      class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]"
     >
-      <div class="flex items-center gap-2">
+      <header
+        class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2"
+      >
         <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
           {{ t("settings.agent.deviceSnapshot") }}
         </span>
-        <span class="text-[11px] text-[var(--color-dim)]">
+        <span class="flex-none text-[11px] text-[var(--color-dim)]">
           {{ t("settings.agent.collectedAt", { time: formatTime(memory.device.collectedAt) }) }}
         </span>
         <Button variant="outline" size="sm" :disabled="memoryBusy" @click="recollect">
           <RefreshCw :size="13" data-icon="inline-start" />{{ t("settings.agent.recollect") }}
         </Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[var(--color-mut)]">
-        <span>{{ t("settings.agent.deviceSystem", { value: `${memory.device.platform} ${memory.device.arch}` }) }}</span>
-        <span class="min-w-0 truncate">{{ t("settings.agent.deviceShell", { value: memory.device.shell }) }}</span>
-        <span v-if="memory.device.timezone">
-          {{ t("settings.agent.deviceTimezone", { value: memory.device.timezone + (memory.device.locale ? ` · ${memory.device.locale}` : "") }) }}
-        </span>
-        <span class="min-w-0 truncate">{{ t("settings.agent.deviceHome", { value: memory.device.home }) }}</span>
-      </div>
-      <div v-if="deviceTools.length" class="flex flex-wrap gap-1.5">
-        <span
-          v-for="[name, path] in deviceTools"
-          :key="name"
-          class="inline-flex max-w-full items-baseline gap-1 rounded-md bg-[var(--color-chip-bg)] px-1.5 py-0.5 text-[10px] text-[var(--color-mut)]"
-          :title="`${name} = ${path}`"
-        >
-          <span class="font-[family-name:var(--font-mono)] text-[var(--color-txt)]">{{ name }}</span>
-          <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ path }}</span>
-        </span>
-      </div>
-
-      <!-- 设备备注 -->
-      <div class="flex flex-col gap-1.5 border-t border-[var(--color-line-soft)] pt-2">
-        <div class="flex items-center gap-2">
-          <span class="min-w-0 flex-1 text-[11px] text-[var(--color-mut)]">{{ t("settings.agent.deviceNotes") }}</span>
-          <span class="text-[11px] tabular-nums text-[var(--color-dim)]">
-            {{ t("settings.agent.consolidateStats", noteStats(deviceNoteList)) }}
+      </header>
+      <div class="flex flex-col px-3 py-1.5">
+        <div class="field-row">
+          <span class="field-row-label">{{ t("settings.agent.metaSystem") }}</span>
+          <span class="field-row-value">{{ memory.device.platform }} {{ memory.device.arch }}</span>
+        </div>
+        <div class="field-row">
+          <span class="field-row-label">{{ t("settings.agent.metaShell") }}</span>
+          <span class="field-row-value">{{ memory.device.shell }}</span>
+        </div>
+        <div v-if="memory.device.timezone" class="field-row">
+          <span class="field-row-label">{{ t("settings.agent.metaTimezone") }}</span>
+          <span class="field-row-value">
+            {{ memory.device.timezone }}
+            <template v-if="memory.device.locale"> · {{ memory.device.locale }}</template>
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            :disabled="previewBusy || !deviceNoteList.length"
-            @click="startConsolidate('device')"
-          >
-            <Sparkles :size="13" data-icon="inline-start" />{{ t("settings.agent.consolidate") }}
-          </Button>
         </div>
-        <p v-if="!deviceNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
-          {{ t("settings.agent.deviceNotesEmpty") }}
-        </p>
-        <div
-          v-for="note in deviceNoteList"
-          :key="note.id"
-          class="group flex items-start gap-2 text-[11px] text-[var(--color-txt)]"
-        >
-          <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
-          <DangerIconButton
-            :label="t('settings.agent.deleteDeviceNoteAria')"
-            class="opacity-0 group-hover:opacity-100"
-            @click="pendingDelete = { scope: 'device', id: note.id, text: note.text }"
-          >
-            <X :size="13" />
-          </DangerIconButton>
+        <div class="field-row">
+          <span class="field-row-label">{{ t("settings.agent.metaHome") }}</span>
+          <span class="field-row-value">{{ memory.device.home }}</span>
         </div>
-        <div class="mt-0.5 flex items-center gap-1.5">
-          <Input
-            v-model="deviceNoteText"
-            variant="ghost"
-            class="h-8 text-[12px]"
-            :placeholder="t('settings.agent.deviceNotePlaceholder')"
-            @keydown.enter.prevent="addNote('device')"
-          />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-            :aria-label="t('settings.agent.addDeviceNoteAria')"
-            :disabled="!deviceNoteText.trim()"
-            @click="addNote('device')"
-          >
-            <Plus :size="14" />
-          </Button>
+        <div v-if="deviceTools.length" class="field-row">
+          <span class="field-row-label">{{ t("settings.agent.metaTools") }}</span>
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            <span
+              v-for="[name, path] in deviceTools"
+              :key="name"
+              class="inline-flex max-w-full items-baseline gap-1 rounded-md bg-[var(--color-chip-bg)] px-1.5 py-0.5 text-[10px] text-[var(--color-mut)]"
+              :title="`${name} = ${path}`"
+            >
+              <span class="font-[family-name:var(--font-mono)] text-[var(--color-txt)]">{{ name }}</span>
+              <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ path }}</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 用户习惯备注 -->
-    <div class="flex flex-col gap-1.5">
-      <div class="flex items-center gap-2">
-        <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.agent.userHabits") }}</span>
-        <span class="text-[11px] tabular-nums text-[var(--color-dim)]">
-          {{ t("settings.agent.consolidateStats", noteStats(userNoteList)) }}
+    <!-- 备注两类（设备备注 / 用户习惯）：各自独立卡片，标题行带统计与整固入口 -->
+    <div
+      v-for="group in noteGroups"
+      :key="group.scope"
+      class="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-set-card)]"
+    >
+      <header class="flex items-center gap-2 border-b border-[var(--color-line-soft)] px-3 py-2">
+        <span class="min-w-0 flex-1 text-[12px] font-medium text-[var(--color-txt-strong)]">
+          {{ group.title }}
+        </span>
+        <span class="flex-none text-[11px] tabular-nums text-[var(--color-dim)]">
+          {{ t("settings.agent.consolidateStats", noteStats(group.notes)) }}
         </span>
         <Button
           variant="outline"
           size="sm"
-          :disabled="previewBusy || !userNoteList.length"
-          @click="startConsolidate('user')"
+          :disabled="previewBusy || !group.notes.length"
+          @click="startConsolidate(group.scope)"
         >
           <Sparkles :size="13" data-icon="inline-start" />{{ t("settings.agent.consolidate") }}
         </Button>
-      </div>
-      <p v-if="!userNoteList.length" class="m-0 text-[11px] text-[var(--color-dim)]">
-        {{ t("settings.agent.userHabitsEmpty") }}
+      </header>
+
+      <p class="m-0 px-3 pt-2 text-[11px] leading-relaxed text-[var(--color-mut)]">
+        {{ group.hint }}
       </p>
-      <div
-        v-for="note in userNoteList"
-        :key="note.id"
-        class="group flex items-start gap-2 text-[11px] text-[var(--color-txt)]"
-      >
-        <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
-        <DangerIconButton
-          :label="t('settings.agent.deleteUserNoteAria')"
-          class="opacity-0 group-hover:opacity-100"
-          @click="pendingDelete = { scope: 'user', id: note.id, text: note.text }"
+      <p v-if="!group.notes.length" class="m-0 px-3 py-1.5 text-[11px] text-[var(--color-dim)]">
+        {{ group.empty }}
+      </p>
+      <ul v-else class="m-0 flex list-none flex-col gap-0.5 px-3 py-1.5">
+        <li
+          v-for="note in group.notes"
+          :key="note.id"
+          class="group/note flex items-start gap-2 rounded-[var(--radius-sm)] py-0.5 pl-1 pr-0.5 text-[11px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]"
         >
-          <X :size="13" />
-        </DangerIconButton>
-      </div>
-      <div class="mt-0.5 flex items-center gap-1.5">
+          <span class="mt-1 size-1 flex-none rounded-full bg-[var(--color-dim)]" aria-hidden="true" />
+          <span class="min-w-0 flex-1 break-words leading-snug">{{ note.text }}</span>
+          <DangerIconButton
+            :label="group.deleteAria"
+            class="opacity-0 group-hover/note:opacity-100"
+            @click="pendingDelete = { scope: group.scope, id: note.id, text: note.text }"
+          >
+            <X :size="13" />
+          </DangerIconButton>
+        </li>
+      </ul>
+
+      <div
+        class="flex items-center gap-1.5 border-t border-[var(--color-line-soft)] px-3 py-2"
+      >
         <Input
-          v-model="userNoteText"
+          v-model="noteDrafts[group.scope]"
           variant="ghost"
           class="h-8 text-[12px]"
-          :placeholder="t('settings.agent.userNotePlaceholder')"
-          @keydown.enter.prevent="addNote('user')"
+          :placeholder="group.placeholder"
+          @keydown.enter.prevent="addNote(group.scope)"
         />
         <Button
           variant="ghost"
           size="icon-sm"
           class="text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
-          :aria-label="t('settings.agent.addUserNoteAria')"
-          :disabled="!userNoteText.trim()"
-          @click="addNote('user')"
+          :aria-label="group.addAria"
+          :disabled="!noteDrafts[group.scope].trim()"
+          @click="addNote(group.scope)"
         >
           <Plus :size="14" />
         </Button>
@@ -323,6 +338,7 @@ function formatTime(ms: number): string {
     >
       <DialogContent
         class="w-[min(720px,calc(100vw-48px))] gap-3 border border-[var(--color-line)] bg-[var(--color-popover)] p-4 shadow-[var(--shadow-pop)]"
+        data-large-panel="true"
       >
         <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
           {{ t("settings.agent.consolidateTitle") }}

@@ -11,6 +11,7 @@ import WebSearchSection from "@/components/settings/sections/WebSearchSection.vu
 <template>
   <div class="flex flex-col gap-5">
     <WebSearchSection />
+    <div class="h-px bg-[var(--color-line-soft)]" role="separator" />
     <MemorySection />
   </div>
 </template>

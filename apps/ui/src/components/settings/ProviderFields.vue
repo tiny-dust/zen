@@ -30,7 +30,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex flex-col pb-2 pt-0.5">
+  <div class="flex flex-col px-3.5 pb-2 pt-0.5">
     <div class="field-row">
       <FieldLabel class="field-row-label font-normal">{{ t("settings.models.protocol") }}</FieldLabel>
       <Select v-model="protocol">

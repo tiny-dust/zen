@@ -173,6 +173,7 @@ onMounted(() => {
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
+      data-large-panel="true"
       class="flex w-[min(920px,calc(100vw-32px))] max-h-[min(720px,calc(100vh-48px))] flex-col gap-0 pt-3.5"
     >
       <DialogHeader class="sr-only absolute h-px w-px overflow-hidden p-0 m-[-1px]">
@@ -189,10 +190,10 @@ onMounted(() => {
         />
       </div>
 
-      <div class="border-b border-[var(--color-line)] px-1.5 pb-2 pt-1.5">
+      <div class="border-b border-[var(--color-line)] px-2 pb-2 pt-1.5">
         <Button
           variant="ghost"
-          class="h-auto flex w-full items-start gap-2.5 whitespace-normal rounded-[10px] px-2.5 py-2.5 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
+          class="h-auto flex w-full items-start gap-2.5 whitespace-normal rounded-[10px] px-2 py-2.5 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
           @click="emit('pickCustom', query.trim())"
         >
           <Plus class="mt-0.5 size-4 shrink-0 text-[var(--color-mut)]" />
@@ -203,7 +204,7 @@ onMounted(() => {
             </p>
           </div>
         </Button>
-        <div class="flex items-center justify-between px-2.5 pb-1 pt-2">
+        <div class="flex items-center justify-between px-2 pb-1 pt-2">
           <div>
             <div class="text-[12px] text-[var(--color-txt-strong)]">{{ t("settings.models.createFromTemplate") }}</div>
             <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
@@ -231,14 +232,14 @@ onMounted(() => {
         </div>
         <p
           v-if="refreshMessage"
-          class="m-0 px-2.5 pb-1 text-[11px]"
+          class="m-0 px-2 pb-1 text-[11px]"
           :class="refreshFailed ? 'text-[var(--color-danger-fg)]' : 'text-[var(--color-mut)]'"
         >
           {{ refreshMessage }}
         </p>
       </div>
 
-      <div class="max-h-[min(420px,55vh)] overflow-auto px-1.5 pb-2.5 pt-1">
+      <div class="max-h-[min(420px,55vh)] overflow-auto px-2 pb-2.5 pt-1">
         <div v-for="group in groups" :key="group.vendor">
           <Button
             variant="ghost"
@@ -258,12 +259,15 @@ onMounted(() => {
               {{ group.models.length }}
             </span>
           </Button>
-          <div v-if="expanded.has(group.vendor)" class="flex flex-col gap-0.5 pb-1.5 pl-[22px] pt-0.5">
+          <div
+            v-if="expanded.has(group.vendor)"
+            class="ml-[26px] flex flex-col gap-0.5 border-l border-[var(--color-line-soft)] pb-1.5 pl-1.5 pt-0.5"
+          >
             <Button
               v-for="model in group.models"
               :key="model.modelKey"
               variant="ghost"
-              class="h-auto flex w-full flex-col items-start gap-[3px] whitespace-normal rounded-lg px-2.5 py-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] disabled:hover:bg-transparent disabled:opacity-100"
+              class="h-auto flex w-full flex-col items-start gap-[3px] whitespace-normal rounded-lg px-2 py-2 text-left font-normal hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] disabled:hover:bg-transparent disabled:opacity-100"
               :class="isKnown(model) ? 'opacity-50' : ''"
               :disabled="isKnown(model)"
               @click="emit('pickTemplate', model)"
@@ -285,7 +289,7 @@ onMounted(() => {
             </Button>
           </div>
         </div>
-        <p v-if="!groups.length" class="m-0 px-2.5 py-3 text-[12px] text-[var(--color-mut)]">
+        <p v-if="!groups.length" class="m-0 px-2 py-3 text-[12px] text-[var(--color-mut)]">
           {{ t("settings.models.noMatchCustom") }}
         </p>
       </div>
