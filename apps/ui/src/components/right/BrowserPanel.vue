@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Bookmark,
   Camera,
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import BrowserImportDialog from "@/components/right/BrowserImportDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { elementLabel, formatElementDetail } from "@/lib/browser-element";
@@ -35,6 +37,7 @@ const {
   status,
   urlInput,
   history,
+  bookmarks,
   suggestions,
   showHome,
   annotating,
@@ -57,6 +60,9 @@ const suggestIndex = ref(0);
 const suggestSelected = ref(false);
 let unbind: (() => void) | null = null;
 let ro: ResizeObserver | null = null;
+
+/** 系统浏览器数据导入弹层（书签/历史/密码 CSV） */
+const importOpen = ref(false);
 
 /** 设置弹层（UA / 视口缩放） */
 const settingsOpen = ref(false);
@@ -98,9 +104,34 @@ function togglePip() {
   }
 }
 
+/** 历史卡片主标题的站点名：取 URL 主机（去掉 www.），解析失败回退原串 */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** 站点首字母：卡片左侧的站点徽标 */
+function initialOf(url: string): string {
+  const host = hostOf(url).replace(/^[^a-z0-9\u4e00-\u9fa5]+/i, "");
+  return (host.charAt(0) || "?").toUpperCase();
+}
+
+const formattedBookmarks = computed(() =>
+  bookmarks.value.map((item) => ({
+    ...item,
+    host: hostOf(item.url),
+    initial: initialOf(item.url),
+  })),
+);
+
 const formattedHistory = computed(() =>
   history.value.map((item) => ({
     ...item,
+    host: hostOf(item.url),
+    initial: initialOf(item.url),
     timeLabel: formatTime(item.visitedAt),
   })),
 );
@@ -478,15 +509,6 @@ watch(
         {{ t("panels.annotating") }}
       </span>
       <span class="min-w-0 flex-1 truncate">{{ panelNote }}</span>
-      <Button
-        v-if="history.length"
-        variant="ghost"
-        size="xs"
-        class="h-auto flex-none px-0 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)] hover:bg-transparent! hover:text-[var(--color-txt)]"
-        @click="browserStore.clearHistory()"
-      >
-        {{ t("panels.clearHistory") }}
-      </Button>
     </div>
 
     <div v-if="status.error" class="flex-none text-[11px] text-[var(--color-err)]">
@@ -525,38 +547,129 @@ watch(
     >
       <div class="mb-2 flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
         <Search class="size-3.5" aria-hidden="true" />
-        {{ t("panels.historyLinks") }}
+        <span class="flex-none">{{ t("panels.historyLinks") }}</span>
+        <span
+          v-if="formattedHistory.length"
+          class="inline-flex h-4 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] tabular-nums text-[var(--color-dim)]"
+        >
+          {{ formattedHistory.length }}
+        </span>
+        <Button
+          variant="ghost"
+          size="xs"
+          class="ml-auto h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)] hover:bg-transparent! hover:text-[var(--color-txt)]"
+          :title="t('panels.importTitle')"
+          @click="importOpen = true"
+        >
+          {{ t("panels.importEntry") }}
+        </Button>
+        <Button
+          v-if="history.length"
+          variant="ghost"
+          size="xs"
+          class="h-auto flex-none px-1 font-normal text-[11px] md:text-[11px] text-[var(--color-dim)] hover:bg-transparent! hover:text-[var(--color-txt)]"
+          @click="browserStore.clearHistory()"
+        >
+          {{ t("panels.clearHistory") }}
+        </Button>
       </div>
-      <div v-if="!formattedHistory.length" class="px-1 py-6 text-center text-[12px] text-[var(--color-dim)]">
-        {{ t("panels.noHistory") }}
+      <!-- 书签卡片：导入/收藏的站点，点击直接打开 -->
+      <div v-if="formattedBookmarks.length" class="mb-2 flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
+        <Bookmark class="size-3.5" aria-hidden="true" />
+        <span class="flex-none">{{ t("panels.bookmarks") }}</span>
+        <span
+          class="inline-flex h-4 flex-none items-center rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] tabular-nums text-[var(--color-dim)]"
+        >
+          {{ formattedBookmarks.length }}
+        </span>
       </div>
-      <ul v-else class="m-0 flex list-none flex-col gap-0.5 p-0">
-        <li v-for="item in formattedHistory" :key="item.url">
+      <ul v-if="formattedBookmarks.length" class="m-0 mb-3 grid list-none grid-cols-1 gap-1.5 p-0">
+        <li v-for="item in formattedBookmarks" :key="item.url">
           <div
-            class="group flex items-center gap-2 rounded-[6px] px-1.5 py-1 hover:bg-[var(--color-menu-hover)]"
+            class="group flex items-stretch rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-set-card)] transition-colors hover:border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]"
           >
             <Button
               variant="ghost"
-              class="h-auto min-w-0 flex-1 flex-col justify-start rounded-none px-0 font-normal hover:bg-transparent!"
-              @click="browserStore.openHistoryItem(item)"
+              class="h-auto min-w-0 flex-1 items-start justify-start gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left font-normal hover:bg-transparent! dark:hover:bg-transparent!"
+              :title="item.url"
+              @click="browserStore.openUrl(item.url)"
             >
-              <div class="truncate text-[12px] text-[var(--color-txt)]">
-                {{ item.title || item.url }}
-              </div>
-              <div
-                class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
+              <span
+                class="mt-0.5 inline-flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-chip-bg)] text-[11px] font-semibold text-[var(--color-mut)]"
+                aria-hidden="true"
               >
-                {{ item.url }}
-              </div>
+                {{ item.initial }}
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="truncate text-[12px] text-[var(--color-txt)]">
+                  {{ item.title || item.host }}
+                </span>
+                <span
+                  class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
+                >
+                  {{ item.host }}
+                </span>
+              </span>
             </Button>
-            <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-              {{ item.timeLabel }}
-            </span>
             <Button
               variant="ghost"
               size="icon-sm"
-              class="flex-none text-[var(--color-dim)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-del)]"
+              class="hidden flex-none self-start text-[var(--color-dim)] hover:text-[var(--color-del)] group-hover:inline-flex focus-visible:inline-flex"
+              :aria-label="t('panels.deleteBookmark')"
+              :title="t('panels.deleteBookmark')"
+              @click="browserStore.removeBookmark(item.url)"
+            >
+              <X class="size-3.5" />
+            </Button>
+          </div>
+        </li>
+      </ul>
+
+      <div v-if="!formattedHistory.length" class="px-1 py-6 text-center text-[12px] text-[var(--color-dim)]">
+        {{ t("panels.noHistory") }}
+      </div>
+      <!-- 历史卡片：每条一个独立卡片（站点徽标 + 标题 + 域名 + 时间），悬停时右上角时间让位给删除 -->
+      <ul v-else class="m-0 grid list-none grid-cols-1 gap-1.5 p-0">
+        <li v-for="item in formattedHistory" :key="item.url">
+          <div
+            class="group flex items-stretch rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-set-card)] transition-colors hover:border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]"
+          >
+            <Button
+              variant="ghost"
+              class="h-auto min-w-0 flex-1 items-start justify-start gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left font-normal hover:bg-transparent! dark:hover:bg-transparent!"
+              :title="item.url"
+              @click="browserStore.openUrl(item.url)"
+            >
+              <span
+                class="mt-0.5 inline-flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-chip-bg)] text-[11px] font-semibold text-[var(--color-mut)]"
+                aria-hidden="true"
+              >
+                {{ item.initial }}
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="flex min-w-0 items-baseline gap-2">
+                  <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--color-txt)]">
+                    {{ item.title || item.host }}
+                  </span>
+                  <span
+                    class="flex-none text-[10px] tabular-nums text-[var(--color-dim)] group-hover:hidden"
+                  >
+                    {{ item.timeLabel }}
+                  </span>
+                </span>
+                <span
+                  class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
+                >
+                  {{ item.host }}
+                </span>
+              </span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="hidden flex-none self-start text-[var(--color-dim)] hover:text-[var(--color-del)] group-hover:inline-flex focus-visible:inline-flex"
               :aria-label="t('panels.deleteHistoryItem')"
+              :title="t('panels.deleteHistoryItem')"
               @click="browserStore.removeHistory(item.url)"
             >
               <X class="size-3.5" />
@@ -593,6 +706,8 @@ watch(
         {{ lastPicked.selector }}
       </div>
     </div>
+
+    <BrowserImportDialog v-model:open="importOpen" />
 
     <div
       v-if="consoleEntries.length"

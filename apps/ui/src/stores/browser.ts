@@ -5,11 +5,14 @@ import type {
   BrowserConsoleEntry,
   BrowserElementRef,
   BrowserExtractResult,
+  BrowserBookmarkItem,
   BrowserHistoryItem,
+  BrowserImportSourceId,
   BrowserSettings,
   BrowserSnapshot,
   BrowserStatus,
   BrowserViewBounds,
+  StoredPasswordEntry,
 } from "@zen/shared";
 import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
@@ -33,10 +36,46 @@ interface BrowserBucketState {
   lastScreenshotPath: string;
   consoleEntries: BrowserConsoleEntry[];
   history: BrowserHistoryItem[];
+  bookmarks: BrowserBookmarkItem[];
 }
 
 function historyStorageKey(scopeId: string): string {
   return `zen.browser.history:${scopeId}`;
+}
+
+/** 书签按工作区分桶持久化（与历史同构，纯本地；导入或手动收藏写入） */
+function bookmarksStorageKey(scopeId: string): string {
+  return `zen.browser.bookmarks:${scopeId}`;
+}
+
+const BOOKMARKS_LIMIT = 200;
+
+function loadBookmarks(scopeId: string): BrowserBookmarkItem[] {
+  try {
+    const raw = localStorage.getItem(bookmarksStorageKey(scopeId));
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(list)) {
+      return [];
+    }
+    return list
+      .filter(
+        (item): item is BrowserBookmarkItem =>
+          Boolean(item) &&
+          typeof (item as BrowserBookmarkItem).url === "string" &&
+          Boolean((item as BrowserBookmarkItem).url),
+      )
+      .slice(0, BOOKMARKS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveBookmarks(scopeId: string, items: BrowserBookmarkItem[]): void {
+  try {
+    localStorage.setItem(bookmarksStorageKey(scopeId), JSON.stringify(items.slice(0, BOOKMARKS_LIMIT)));
+  } catch {
+    // quota / private mode
+  }
 }
 
 export const useBrowserStore = defineStore("browser", () => {
@@ -50,6 +89,8 @@ export const useBrowserStore = defineStore("browser", () => {
   const busy = ref(false);
   /** 浏览历史本体（按工作区分桶）；初始用旧版全局历史兜底，bindWorkspaceScope 后按工作区恢复 */
   const history = ref<BrowserHistoryItem[]>(loadSessionHistory(""));
+  /** 书签本体（按工作区分桶）：系统浏览器导入 + 当前页收藏 */
+  const bookmarks = ref<BrowserBookmarkItem[]>(loadBookmarks(""));
   const { suggestions, pushHistory, removeHistory, clearHistory } = createBrowserHistory({
     urlInput,
     panelNote,
@@ -105,6 +146,7 @@ export const useBrowserStore = defineStore("browser", () => {
       lastScreenshotPath: "",
       consoleEntries: [],
       history: loadSessionHistory(key),
+      bookmarks: loadBookmarks(key),
     }),
     capture: () => ({
       urlInput: urlInput.value,
@@ -116,6 +158,7 @@ export const useBrowserStore = defineStore("browser", () => {
       lastScreenshotPath: lastScreenshotPath.value,
       consoleEntries: consoleEntries.value,
       history: history.value,
+      bookmarks: bookmarks.value,
     }),
     restore: (state) => {
       urlInput.value = state.urlInput;
@@ -127,6 +170,7 @@ export const useBrowserStore = defineStore("browser", () => {
       lastScreenshotPath.value = state.lastScreenshotPath;
       consoleEntries.value = state.consoleEntries;
       history.value = state.history;
+      bookmarks.value = state.bookmarks ?? [];
     },
   });
 
@@ -595,6 +639,149 @@ export const useBrowserStore = defineStore("browser", () => {
     void openUrl(item.url);
   }
 
+  // ---------- 书签 / 系统浏览器导入 / 密码库 ----------
+
+  /** 书签落盘到当前工作区 key（buckets.activeKey 为空时不写） */
+  function persistBookmarks() {
+    const key = buckets.activeKey;
+    if (key) {
+      saveBookmarks(key, bookmarks.value);
+    }
+  }
+
+  /** 导入书签：同 URL 去重（已有条目保持原位），返回新增条数 */
+  function addBookmarks(items: Array<{ title: string; url: string }>): number {
+    const seen = new Set(bookmarks.value.map((item) => item.url));
+    const createdAt = Date.now();
+    const added: BrowserBookmarkItem[] = [];
+    for (const item of items) {
+      if (!item.url || seen.has(item.url)) {
+        continue;
+      }
+      seen.add(item.url);
+      added.push({ title: item.title || item.url, url: item.url, createdAt });
+    }
+    if (added.length) {
+      bookmarks.value = [...added, ...bookmarks.value].slice(0, BOOKMARKS_LIMIT);
+      persistBookmarks();
+    }
+    return added.length;
+  }
+
+  function removeBookmark(url: string) {
+    bookmarks.value = bookmarks.value.filter((item) => item.url !== url);
+    persistBookmarks();
+  }
+
+  function clearBookmarks() {
+    bookmarks.value = [];
+    persistBookmarks();
+  }
+
+  /** 导入历史：按 URL 去重（已有条目只更新更晚的访问时间），返回新增条数 */
+  function mergeImportedHistory(entries: BrowserHistoryItem[]): number {
+    const byUrl = new Map(history.value.map((item) => [item.url, { ...item }]));
+    let added = 0;
+    for (const entry of entries) {
+      if (!entry.url) {
+        continue;
+      }
+      const prev = byUrl.get(entry.url);
+      if (prev) {
+        prev.visitedAt = Math.max(prev.visitedAt, entry.visitedAt);
+        continue;
+      }
+      byUrl.set(entry.url, { ...entry });
+      added += 1;
+    }
+    const next = [...byUrl.values()].sort((a, b) => b.visitedAt - a.visitedAt);
+    history.value = next;
+    const key = buckets.activeKey;
+    if (key) {
+      saveHistory(historyStorageKey(key), next);
+    }
+    return added;
+  }
+
+  /** 从系统浏览器导入：按需导入书签 / 历史，返回各项新增条数 */
+  async function importFromSource(
+    sourceId: BrowserImportSourceId,
+    kinds: { bookmarks?: boolean; history?: boolean },
+  ): Promise<{ ok: boolean; bookmarks?: number; history?: number; error?: string }> {
+    const zen = window.zen?.browser;
+    if (!zen) {
+      return { ok: false, error: i18n.global.t("app.browser.ipcNotReady") };
+    }
+    let bookmarkCount: number | undefined;
+    let historyCount: number | undefined;
+    if (kinds.bookmarks) {
+      const result = await zen.importBookmarks(sourceId);
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      bookmarkCount = addBookmarks(result.bookmarks);
+    }
+    if (kinds.history) {
+      const result = await zen.importHistory(sourceId);
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      historyCount = mergeImportedHistory(result.entries);
+    }
+    return { ok: true, bookmarks: bookmarkCount, history: historyCount };
+  }
+
+  /** 密码库（全局，不按工作区分桶）：列表不含明文 */
+  const passwords = ref<StoredPasswordEntry[]>([]);
+
+  async function loadPasswords() {
+    const zen = window.zen?.browser;
+    if (!zen?.listPasswords) {
+      return;
+    }
+    passwords.value = await zen.listPasswords();
+  }
+
+  /** 导入密码 CSV（主进程弹文件框）；成功后刷新列表 */
+  async function importPasswordsCsv(): Promise<{ ok: boolean; imported?: number; skipped?: number; canceled?: boolean; error?: string }> {
+    const zen = window.zen?.browser;
+    if (!zen?.importPasswordsCsv) {
+      return { ok: false, error: i18n.global.t("app.browser.ipcNotReady") };
+    }
+    const result = await zen.importPasswordsCsv();
+    if (result.ok && !result.canceled) {
+      await loadPasswords();
+    }
+    return result;
+  }
+
+  /** 取单条明文密码（复制到剪贴板用） */
+  async function revealPassword(id: string): Promise<string | null> {
+    const zen = window.zen?.browser;
+    if (!zen?.revealPassword) {
+      return null;
+    }
+    return zen.revealPassword(id);
+  }
+
+  async function removePassword(id: string) {
+    const zen = window.zen?.browser;
+    if (!zen?.removePassword) {
+      return;
+    }
+    await zen.removePassword(id);
+    await loadPasswords();
+  }
+
+  async function clearPasswords() {
+    const zen = window.zen?.browser;
+    if (!zen?.clearPasswords) {
+      return;
+    }
+    await zen.clearPasswords();
+    await loadPasswords();
+  }
+
   function openNewTab() {
     showHome.value = true;
     urlInput.value = "";
@@ -684,6 +871,8 @@ export const useBrowserStore = defineStore("browser", () => {
     annotating,
     lastScreenshotPath,
     viewRect,
+    /** 弹层压制深度（>0 时原生视图隐藏）：全局自动守卫与组件级守卫共用的计数 */
+    overlayDepth,
     isRunning,
     isPip,
     isPipHidden,
@@ -705,6 +894,18 @@ export const useBrowserStore = defineStore("browser", () => {
     openHistoryItem,
     removeHistory,
     clearHistory,
+    bookmarks,
+    addBookmarks,
+    removeBookmark,
+    clearBookmarks,
+    importFromSource,
+    mergeImportedHistory,
+    passwords,
+    loadPasswords,
+    importPasswordsCsv,
+    revealPassword,
+    removePassword,
+    clearPasswords,
     goBack,
     goForward,
     reloadPage,
