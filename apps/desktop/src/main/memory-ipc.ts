@@ -1,10 +1,12 @@
 import { ipcMain } from "electron";
 
+import { MEMORY_CATEGORIES } from "@zen/shared";
 import type {
+  MemoryCategory,
   MemoryConsolidationResult,
   MemoryNote,
   MemoryScope,
-  MemorySnapshot,
+  MemoryView,
 } from "@zen/shared";
 
 import {
@@ -12,8 +14,10 @@ import {
   applyMemoryConsolidation,
   collectDeviceMemory,
   consolidateMemory,
-  readMemorySnapshot,
+  readMemoryNotes,
+  readMemoryView,
   removeMemoryNote,
+  toMemoryView,
 } from "./memory";
 
 /**
@@ -23,6 +27,13 @@ import {
 
 function asScope(value: unknown): MemoryScope | null {
   return value === "device" || value === "user" ? value : null;
+}
+
+/** 分类参数：缺省 / 非法值都视为「全部」，不做错误处理 */
+function asCategory(value: unknown): MemoryCategory | undefined {
+  return typeof value === "string" && (MEMORY_CATEGORIES as readonly string[]).includes(value)
+    ? (value as MemoryCategory)
+    : undefined;
 }
 
 /** IPC 边界清洗：只接受纯值数组，字段缺省/超长/超量由 normalizeNotes 兜底 */
@@ -38,35 +49,53 @@ function asNotes(value: unknown): MemoryNote[] | null {
 }
 
 export function registerMemoryIpc(): void {
-  ipcMain.handle("memory:get", async (): Promise<MemorySnapshot> => {
-    return readMemorySnapshot();
+  // 记忆视图：设备备注只给分类索引，正文走 memory:notes 按需读取
+  ipcMain.handle("memory:get", async (): Promise<MemoryView> => {
+    return readMemoryView();
   });
+
+  // 按分类读取备注正文（设置页展开某类 / Agent readMemory 工具共用）
+  ipcMain.handle(
+    "memory:notes",
+    async (_event, scope: unknown, category: unknown): Promise<MemoryNote[]> => {
+      const validScope = asScope(scope);
+      if (!validScope) {
+        return [];
+      }
+      return readMemoryNotes(validScope, asCategory(category));
+    },
+  );
 
   ipcMain.handle(
     "memory:add-note",
-    async (_event, scope: unknown, text: unknown): Promise<MemorySnapshot> => {
+    async (
+      _event,
+      scope: unknown,
+      text: unknown,
+      category: unknown,
+    ): Promise<MemoryView> => {
       const validScope = asScope(scope);
       if (!validScope || typeof text !== "string" || !text.trim()) {
-        return readMemorySnapshot();
+        return readMemoryView();
       }
-      return appendMemoryNote(validScope, text);
+      return toMemoryView(await appendMemoryNote(validScope, text, asCategory(category)));
     },
   );
 
   ipcMain.handle(
     "memory:remove-note",
-    async (_event, scope: unknown, id: unknown): Promise<MemorySnapshot> => {
+    async (_event, scope: unknown, id: unknown): Promise<MemoryView> => {
       const validScope = asScope(scope);
       if (!validScope || typeof id !== "string") {
-        return readMemorySnapshot();
+        return readMemoryView();
       }
-      return removeMemoryNote(validScope, id);
+      return toMemoryView(await removeMemoryNote(validScope, id));
     },
   );
 
-  ipcMain.handle("memory:collect", async (): Promise<MemorySnapshot> => {
+  ipcMain.handle("memory:collect", async (): Promise<MemoryView> => {
     await collectDeviceMemory();
-    return readMemorySnapshot();
+    return readMemoryView();
   });
 
   // 整固预览：调模型算 diff，不落盘；失败也返回 {ok:false}（不 reject，便于 UI 内联提示）
@@ -91,13 +120,13 @@ export function registerMemoryIpc(): void {
   // 应用整固：把预览确认过的 notes 原子写回；scope/notes 不合法时不动原始数据
   ipcMain.handle(
     "memory:apply",
-    async (_event, scope: unknown, notes: unknown): Promise<MemorySnapshot> => {
+    async (_event, scope: unknown, notes: unknown): Promise<MemoryView> => {
       const validScope = asScope(scope);
       const validNotes = asNotes(notes);
       if (!validScope || !validNotes) {
-        return readMemorySnapshot();
+        return readMemoryView();
       }
-      return applyMemoryConsolidation(validScope, validNotes);
+      return toMemoryView(await applyMemoryConsolidation(validScope, validNotes));
     },
   );
 }

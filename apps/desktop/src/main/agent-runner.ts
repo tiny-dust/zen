@@ -11,7 +11,12 @@ import { getCuaService } from "./abilities/cua";
 import { getBrowserService } from "./browser/service";
 import { resolveChatGptCredentials } from "./chatgpt-auth";
 import { notifyLarkEvent } from "./lark/ipc";
-import { appendMemoryNote, readMemorySnapshot, renderMemoryContext } from "./memory";
+import {
+  appendMemoryNote,
+  readMemoryNotes,
+  readMemorySnapshot,
+  renderMemoryContext,
+} from "./memory";
 import { enabledMcpTools } from "./mcp-ipc";
 import { inspectModelCapabilities } from "./model-capabilities";
 import { getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
@@ -332,9 +337,14 @@ export async function runAgentRequest(
         .then(renderMemoryContext)
         .catch(() => undefined),
       memoryBridge: {
-        appendNote: async (scope, text) => {
-          await appendMemoryNote(scope, text);
+        appendNote: async (scope, text, category) => {
+          await appendMemoryNote(scope, text, category);
           return { ok: true };
+        },
+        // 设备备注在提示词里只有分类索引：readMemory 工具按需读正文
+        readNotes: async (scope, category) => {
+          const notes = await readMemoryNotes(scope, category);
+          return notes.map((note) => ({ text: note.text, category: note.category }));
         },
       },
       multiAgent: true,

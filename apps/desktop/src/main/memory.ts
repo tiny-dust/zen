@@ -3,12 +3,17 @@ import { access, constants, mkdir, readFile, rename, writeFile } from "node:fs/p
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import { MEMORY_CATEGORIES } from "@zen/shared";
 import type {
   DeviceMemory,
+  DeviceMemoryIndex,
+  MemoryCategory,
   MemoryConsolidationResult,
   MemoryNote,
+  MemoryNoteGroup,
   MemoryScope,
   MemorySnapshot,
+  MemoryView,
   UserMemory,
 } from "@zen/shared";
 
@@ -48,6 +53,54 @@ function userFile(): string {
   return join(zenMemoryDir(), "user.json");
 }
 
+/** 备注分类关键词表：命中越多越优先；都不命中归 other（设备域专用） */
+const CATEGORY_KEYWORDS: Record<Exclude<MemoryCategory, "other">, string[]> = {
+  project: [
+    "项目", "仓库", "工作区", "工作目录", "部署", "构建", "分支", "端口", "服务", "镜像仓库",
+    "repo", "workspace", "project", "branch", "build", "deploy", "port", "server", "monorepo",
+  ],
+  hardware: [
+    "硬件", "机型", "内存", "磁盘", "芯片", "显示器", "外设", "键盘", "显卡", "芯片组",
+    "cpu", "gpu", "ram", "disk", "macbook", "imac", "ssd", "monitor",
+  ],
+  env: [
+    "环境变量", "环境", "代理", "证书", "时区", "语言环境", "系统版本",
+    "env", "path=", "shell", "zsh", "bash", "proxy", "certificate", "locale", "timezone", "docker",
+  ],
+  tool: [
+    "工具", "命令", "依赖", "安装", "全局",
+    "cli", "npm", "pnpm", "yarn", "bun", "python", "node", "git", "brew", "uv", "tool", "binary",
+  ],
+};
+
+/**
+ * 备注归类：按关键词命中数打分，取最高者；同分按 MEMORY_CATEGORIES 顺序取前，
+ * 全不命中归 other。纯本地启发式——不必完美，能让人/Agent 按类查找即可。
+ */
+export function inferCategory(text: string): MemoryCategory {
+  const lower = text.toLowerCase();
+  let best: MemoryCategory = "other";
+  let bestScore = 0;
+  for (const category of MEMORY_CATEGORIES) {
+    if (category === "other") {
+      continue;
+    }
+    const score = CATEGORY_KEYWORDS[category].reduce(
+      (total, keyword) => (lower.includes(keyword) ? total + 1 : total),
+      0,
+    );
+    if (score > bestScore) {
+      best = category;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function isMemoryCategory(value: unknown): value is MemoryCategory {
+  return typeof value === "string" && (MEMORY_CATEGORIES as readonly string[]).includes(value);
+}
+
 /** 备注清洗：去空白、限长、限量（新的在前保留，超量裁掉最旧的尾部） */
 export function normalizeNotes(notes: MemoryNote[]): MemoryNote[] {
   const cleaned = notes
@@ -57,9 +110,42 @@ export function normalizeNotes(notes: MemoryNote[]): MemoryNote[] {
         .trim()
         .slice(0, NOTE_TEXT_LIMIT),
       createdAt: Number(note?.createdAt) || Date.now(),
+      ...(isMemoryCategory(note?.category) ? { category: note.category } : {}),
     }))
     .filter((note) => note.text.length > 0);
   return cleaned.slice(0, NOTES_LIMIT);
+}
+
+/** 设备域备注补齐分类：旧数据没有 category 时按内容推断并固定下来 */
+function withCategories(notes: MemoryNote[]): MemoryNote[] {
+  return notes.map((note) => ({ ...note, category: note.category ?? inferCategory(note.text) }));
+}
+
+/** 系统提示词里的分类标签（提示词本身是中文，不随界面语言切换） */
+const CATEGORY_PROMPT_LABELS: Record<MemoryCategory, string> = {
+  project: "项目",
+  hardware: "硬件",
+  env: "环境变量",
+  tool: "工具链",
+  other: "其他",
+};
+
+/** 分类索引：按 MEMORY_CATEGORIES 顺序，只保留有内容的分类 */
+export function groupMemoryNotes(notes: MemoryNote[]): MemoryNoteGroup[] {
+  const groups: MemoryNoteGroup[] = [];
+  for (const category of MEMORY_CATEGORIES) {
+    const items = notes.filter((note) => (note.category ?? inferCategory(note.text)) === category);
+    if (!items.length) {
+      continue;
+    }
+    groups.push({
+      category,
+      count: items.length,
+      chars: items.reduce((total, note) => total + note.text.length, 0),
+      previews: items.map((note) => note.text.replace(/\s+/g, " ").slice(0, 40)),
+    });
+  }
+  return groups;
 }
 
 function clampText(text: string): string {
@@ -153,7 +239,7 @@ async function readDeviceMemory(): Promise<DeviceMemory | null> {
       locale: String(parsed.locale ?? ""),
       timezone: String(parsed.timezone ?? ""),
       tools: parsed.tools && typeof parsed.tools === "object" ? parsed.tools : {},
-      notes: normalizeNotes(Array.isArray(parsed.notes) ? parsed.notes : []),
+      notes: withCategories(normalizeNotes(Array.isArray(parsed.notes) ? parsed.notes : [])),
     };
   } catch {
     return null;
@@ -197,10 +283,56 @@ export async function readMemorySnapshot(): Promise<MemorySnapshot> {
   return { device, user };
 }
 
+/** 设备域索引视图：快照元信息 + 备注分类索引，不下发备注正文 */
+function toDeviceIndex(device: DeviceMemory | null): DeviceMemoryIndex | null {
+  if (!device) {
+    return null;
+  }
+  return {
+    collectedAt: device.collectedAt,
+    platform: device.platform,
+    arch: device.arch,
+    home: device.home,
+    shell: device.shell,
+    locale: device.locale,
+    timezone: device.timezone,
+    tools: device.tools,
+    groups: groupMemoryNotes(device.notes),
+  };
+}
+
+/**
+ * 设置页 / Prompt 用的轻量视图：设备备注只给分类索引（数量 + 摘要），
+ * 正文走 readMemoryNotes 按分类按需读取，避免整份记忆每次都进上下文。
+ */
+export async function readMemoryView(): Promise<MemoryView> {
+  const [device, user] = await Promise.all([readDeviceMemory(), readUserMemory()]);
+  return { device: toDeviceIndex(device), user };
+}
+
+/** 全量快照 → 轻量视图（写操作返回 snapshot，IPC 边界统一转成索引视图） */
+export function toMemoryView(snapshot: MemorySnapshot): MemoryView {
+  return { device: toDeviceIndex(snapshot.device), user: snapshot.user };
+}
+
+/** 按分类（缺省为全部）读取备注正文：供设置页展开与 Agent readMemory 工具按需调用 */
+export async function readMemoryNotes(
+  scope: MemoryScope,
+  category?: MemoryCategory,
+): Promise<MemoryNote[]> {
+  const notes =
+    scope === "user" ? (await readUserMemory()).notes : (await readDeviceMemory())?.notes ?? [];
+  if (!category) {
+    return notes;
+  }
+  return notes.filter((note) => (note.category ?? inferCategory(note.text)) === category);
+}
+
 /** 追加一条备注（device/user），返回更新后的整份记忆 */
 export async function appendMemoryNote(
   scope: MemoryScope,
   text: string,
+  category?: MemoryCategory,
 ): Promise<MemorySnapshot> {
   const content = clampText(text);
   if (!content) {
@@ -217,10 +349,12 @@ export async function appendMemoryNote(
     if (!device) {
       return readMemorySnapshot();
     }
-    device.notes = normalizeNotes([
-      { id: randomUUID(), text: content, createdAt: Date.now() },
-      ...device.notes,
-    ]);
+    device.notes = withCategories(
+      normalizeNotes([
+        { id: randomUUID(), text: content, createdAt: Date.now(), category: category ?? inferCategory(content) },
+        ...device.notes,
+      ]),
+    );
     await writeDeviceMemory(device);
   }
   return readMemorySnapshot();
@@ -505,7 +639,7 @@ export async function applyMemoryConsolidation(
   } else {
     const device = await readDeviceMemory();
     if (device) {
-      await writeJsonAtomic(deviceFile(), { ...device, notes: cleaned });
+      await writeJsonAtomic(deviceFile(), { ...device, notes: withCategories(cleaned) });
     }
   }
   return readMemorySnapshot();
@@ -537,9 +671,16 @@ export function renderMemoryContext(snapshot: MemorySnapshot): string | undefine
     if (toolText) {
       lines.push(`常用工具：${toolText}`);
     }
-    const notes = renderNotes(device.notes);
-    if (notes.length) {
-      lines.push("设备备注：", ...notes);
+    const groups = groupMemoryNotes(device.notes);
+    if (groups.length) {
+      const total = groups.reduce((sum, group) => sum + group.count, 0);
+      lines.push(
+        `设备备注索引（共 ${total} 条，按分类汇总；需要正文时调用 readMemory 工具读取对应分类，不要凭摘要猜测）：`,
+        ...groups.map((group) => {
+          const preview = group.previews.slice(0, 2).join("；");
+          return `- ${CATEGORY_PROMPT_LABELS[group.category]}（${group.count} 条）：${preview}${group.count > 2 ? " …" : ""}`;
+        }),
+      );
     }
     parts.push(
       "设备环境记忆（持久记忆，供直接引用以避免重复探测路径与命令；不确定时仍可现场核实）：\n" +
