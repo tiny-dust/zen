@@ -631,6 +631,23 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /**
+   * 从某条消息分叉：主进程新建会话并复制到该消息为止的对话，原会话不变。
+   * 返回新会话 id（失败返回空串，原因写进状态行），由调用方负责切过去。
+   */
+  async function forkFrom(messageId: string): Promise<string> {
+    const zen = window.zen;
+    if (!zen || !sessionId.value) {
+      return "";
+    }
+    const result = await zen.session.fork(sessionId.value, messageId);
+    if (!result.ok || !result.sessionId) {
+      statusText.value = result.error || i18n.global.t("app.chat.forkFailed");
+      return "";
+    }
+    return result.sessionId;
+  }
+
+  /**
    * 异常终止（失败/取消/步骤上限）后的「继续」：不截断历史，
    * 把之前轮次已完成的工作读进上下文后接着做，而不是像重试那样整轮重跑。
    */
@@ -1361,6 +1378,7 @@ export const useChatStore = defineStore("chat", () => {
     startEditFrom,
     cancelEdit,
     retryFrom,
+    forkFrom,
     continueRun,
     continueGoal,
     editAnchorId,

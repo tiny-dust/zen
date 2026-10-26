@@ -14,6 +14,7 @@ import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
 import { Toaster } from "@/components/ui/toast";
+import { useBrowserOverlayAutoGuard } from "@/composables/useBrowserOverlayAutoGuard";
 import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { openSessionById } from "@/lib/open-session";
@@ -49,6 +50,10 @@ let disposeUser: (() => void) | undefined;
 let disposeSettings: (() => void) | undefined;
 let disposeModels: (() => void) | undefined;
 let disposeAgent: (() => void) | undefined;
+
+// 全局弹层 → 压制内嵌浏览器原生视图：WebContentsView 层级高于一切 HTML，
+// 只在部分弹层组件上挂守卫会漏（居中弹窗不与面板相交时视图会压住弹窗遮罩）
+useBrowserOverlayAutoGuard();
 
 useGlobalShortcuts({
   shortcuts: () => settingsStore.settings.shortcuts,
