@@ -485,6 +485,8 @@ export interface ZenApi {
     goForward(): Promise<BrowserActionResult>;
     reload(ignoreCache?: boolean): Promise<BrowserActionResult>;
     openExternal(url?: string): Promise<{ ok: boolean; error?: string }>;
+    /** 站点图标（主进程抓取 + 缓存）：返回 data URL，取不到为 null，由 UI 回退占位 */
+    favicon(url: string): Promise<string | null>;
     focusHost(): Promise<{ ok: boolean }>;
     debug(): Promise<Record<string, unknown>>;
     snapshot(): Promise<BrowserSnapshot>;

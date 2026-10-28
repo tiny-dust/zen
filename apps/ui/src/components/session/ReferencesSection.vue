@@ -11,6 +11,7 @@ import type { Component } from "vue";
 import { computed, reactive, ref } from "vue";
 
 import FilePreviewDialog from "@/components/base/FilePreviewDialog.vue";
+import SiteFavicon from "@/components/brand/SiteFavicon.vue";
 import FileLabel from "@/components/files/FileLabel.vue";
 import { resolveFileRefPath } from "@/components/files/file-ref";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
@@ -108,12 +109,17 @@ function toggleGroup(key: string) {
           class="m-0 flex list-none flex-col gap-1 p-0"
         >
           <li v-for="item in group.items" :key="item.id" class="flex items-start gap-1.5 pl-1">
-            <!-- ml-px：补上非 web 行按钮的 1px 边框，让 Globe 与文件图标同列（15px） -->
-            <Globe
+            <!-- ml-px：补上非 web 行按钮的 1px 边框，让站点图标与文件图标同列（15px）；
+                 站点图标由主进程抓取，取不到时回退 Globe -->
+            <span
               v-if="group.key === 'web'"
-              class="ml-px mt-0.5 size-3 flex-none text-[var(--color-mut)]"
+              class="ml-px mt-0.5 flex size-3 flex-none items-center justify-center"
               aria-hidden="true"
-            />
+            >
+              <SiteFavicon :url="item.url" :size="12">
+                <Globe class="size-3 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+              </SiteFavicon>
+            </span>
             <a
               v-if="group.key === 'web'"
               :href="item.url"

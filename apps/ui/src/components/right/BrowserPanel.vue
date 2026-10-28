@@ -18,10 +18,12 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import SiteFavicon from "@/components/brand/SiteFavicon.vue";
 import BrowserImportDialog from "@/components/right/BrowserImportDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { elementLabel, formatElementDetail } from "@/lib/browser-element";
+import { siteHost, siteInitial } from "@/lib/site-url";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useBrowserStore } from "@/stores/browser";
 import { useLayoutStore } from "@/stores/layout";
@@ -104,34 +106,19 @@ function togglePip() {
   }
 }
 
-/** 历史卡片主标题的站点名：取 URL 主机（去掉 www.），解析失败回退原串 */
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
-/** 站点首字母：卡片左侧的站点徽标 */
-function initialOf(url: string): string {
-  const host = hostOf(url).replace(/^[^a-z0-9\u4e00-\u9fa5]+/i, "");
-  return (host.charAt(0) || "?").toUpperCase();
-}
-
 const formattedBookmarks = computed(() =>
   bookmarks.value.map((item) => ({
     ...item,
-    host: hostOf(item.url),
-    initial: initialOf(item.url),
+    host: siteHost(item.url),
+    initial: siteInitial(item.url),
   })),
 );
 
 const formattedHistory = computed(() =>
   history.value.map((item) => ({
     ...item,
-    host: hostOf(item.url),
-    initial: initialOf(item.url),
+    host: siteHost(item.url),
+    initial: siteInitial(item.url),
     timeLabel: formatTime(item.visitedAt),
   })),
 );
@@ -598,7 +585,7 @@ watch(
                 class="mt-0.5 inline-flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-chip-bg)] text-[11px] font-semibold text-[var(--color-mut)]"
                 aria-hidden="true"
               >
-                {{ item.initial }}
+                <SiteFavicon :url="item.url" :size="16">{{ item.initial }}</SiteFavicon>
               </span>
               <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span class="truncate text-[12px] text-[var(--color-txt)]">
@@ -644,7 +631,7 @@ watch(
                 class="mt-0.5 inline-flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-chip-bg)] text-[11px] font-semibold text-[var(--color-mut)]"
                 aria-hidden="true"
               >
-                {{ item.initial }}
+                <SiteFavicon :url="item.url" :size="16">{{ item.initial }}</SiteFavicon>
               </span>
               <span class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span class="flex min-w-0 items-baseline gap-2">

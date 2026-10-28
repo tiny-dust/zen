@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import type { ReferenceItem, TaskItem, TaskListVersion } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
 import { createSessionBuckets } from "@/stores/session-buckets";
+import { siteKey } from "@/lib/site-url";
 
 let taskSeq = 0;
 let refSeq = 0;
@@ -148,9 +149,15 @@ export const useSessionInfoStore = defineStore("sessionInfo", () => {
     });
   }
 
+  /** 去重键：网页按归一化地址（忽略 hash / 尾斜杠 / 跟踪参数），文件按原路径 */
+  function referenceKey(url: string): string {
+    return /^https?:/i.test(url) ? siteKey(url) : url;
+  }
+
   function addReference(sessionId: string, reference: ReferenceItem) {
+    const key = referenceKey(reference.url);
     applyToSession(sessionId, (state) => {
-      if (state.references.some((item) => item.url === reference.url)) {
+      if (state.references.some((item) => referenceKey(item.url) === key)) {
         return;
       }
       state.references.push({ ...reference, id: reference.id || nextRefId() });

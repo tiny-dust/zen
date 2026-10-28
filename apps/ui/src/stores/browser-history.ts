@@ -4,6 +4,7 @@ import { computed } from "vue";
 import type { BrowserHistoryItem } from "@zen/shared";
 
 import { i18n } from "@/locales";
+import { siteKey } from "@/lib/site-url";
 
 const HISTORY_LIMIT = 50;
 /** 旧版全局历史 key：分会话持久化的迁移种子（各会话首次无自己历史时回落到它） */
@@ -13,20 +14,35 @@ function historyKeyOf(sessionId: string): string {
   return `zen.browser.history:${sessionId}`;
 }
 
+/** 同一页面只保留最近一次：按归一化地址去重（忽略 hash / 尾斜杠 / 跟踪参数） */
+function dedupeHistory(items: BrowserHistoryItem[]): BrowserHistoryItem[] {
+  const seen = new Set<string>();
+  const out: BrowserHistoryItem[] = [];
+  for (const item of items) {
+    const key = siteKey(item.url);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function parseHistory(raw: string | null): BrowserHistoryItem[] {
   try {
     const list = JSON.parse(raw || "[]");
     if (!Array.isArray(list)) {
       return [];
     }
-    return list
-      .filter(
+    return dedupeHistory(
+      list.filter(
         (item): item is BrowserHistoryItem =>
           Boolean(item) &&
           typeof (item as BrowserHistoryItem).url === "string" &&
           Boolean((item as BrowserHistoryItem).url),
-      )
-      .slice(0, HISTORY_LIMIT);
+      ),
+    ).slice(0, HISTORY_LIMIT);
   } catch {
     return [];
   }
@@ -88,16 +104,20 @@ export function createBrowserHistory(options: BrowserHistoryOptions) {
     if (!url || url === "about:blank") {
       return;
     }
-    const next = [
+    // 同一页面（忽略 hash / 尾斜杠 / 跟踪参数）只留最新一条，历史里不堆重复地址
+    const key = siteKey(url);
+    const next = dedupeHistory([
       { url, title: title || url, visitedAt: Date.now() },
-      ...history.value.filter((item) => item.url !== url),
-    ].slice(0, HISTORY_LIMIT);
+      ...history.value.filter((item) => siteKey(item.url) !== key),
+    ]).slice(0, HISTORY_LIMIT);
     history.value = next;
     persist(next);
   }
 
   function removeHistory(url: string) {
-    const next = history.value.filter((item) => item.url !== url);
+    // 删除按同一去重口径：把该页面的所有写法一起清掉
+    const key = siteKey(url);
+    const next = history.value.filter((item) => siteKey(item.url) !== key);
     history.value = next;
     persist(next);
   }

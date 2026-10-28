@@ -105,6 +105,33 @@ describe("pushHistory / removeHistory / clearHistory", () => {
     ]);
   });
 
+  it("同一页面的不同写法（尾斜杠 / hash / 跟踪参数 / 大小写）只留最新一条", () => {
+    const { history, pushHistory } = setup();
+    pushHistory("https://Site.com/Path/", "P1");
+    pushHistory("https://site.com/Path#section", "P2");
+    pushHistory("https://site.com/Path?utm_source=x", "P3");
+    expect(history.value).toHaveLength(1);
+    expect(history.value[0]?.title).toBe("P3");
+  });
+
+  it("不同路径仍然各占一条（去重不误伤）", () => {
+    const { history, pushHistory } = setup();
+    pushHistory("https://a.com/x", "X");
+    pushHistory("https://a.com/y", "Y");
+    expect(history.value.map((item) => item.url)).toEqual(["https://a.com/y", "https://a.com/x"]);
+  });
+
+  it("加载已落库的重复地址时去重（历史遗留数据）", () => {
+    seed([
+      { url: "https://a.com/p/", title: "1", visitedAt: 3 },
+      { url: "https://a.com/p#x", title: "2", visitedAt: 2 },
+      { url: "https://a.com/p?utm_medium=q", title: "3", visitedAt: 1 },
+      { url: "https://a.com/other", title: "4", visitedAt: 0 },
+    ]);
+    const { history } = setup();
+    expect(history.value.map((item) => item.title)).toEqual(["1", "4"]);
+  });
+
   it("持久化上限 50 条", () => {
     const { history, pushHistory } = setup();
     for (let i = 0; i < 55; i += 1) {
