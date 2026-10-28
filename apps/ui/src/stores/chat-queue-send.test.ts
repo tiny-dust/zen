@@ -291,3 +291,42 @@ describe("计划模式批准编排", () => {
     expect(zen?.session.setMode).toHaveBeenCalledWith(chat.sessionId, "autopilot");
   });
 });
+
+// 回归：发送前置有多次 await（补建会话/刷新模型/分叉截断），这段窗口里运行态还是 idle，
+// 双击发送按钮或 Enter 连按会让两次调用都通过校验，各追加一条相同用户气泡 + 各起一次 run。
+describe("重复触发发送不重入", () => {
+  it("连点两次发送：只落一条用户气泡、只起一次 run", async () => {
+    const chat = useChatStore();
+    agentRun.mockResolvedValue({ ok: true });
+    chat.input = "server 端代码改动到哪里了？";
+
+    // 不 await 第一次：模拟第二次点击落在第一次的 await 窗口内
+    const first = chat.send();
+    const second = chat.send();
+    await Promise.all([first, second]);
+
+    expect(agentRun).toHaveBeenCalledTimes(1);
+    expect(
+      chat.messages.filter((message) => message.content === "server 端代码改动到哪里了？"),
+    ).toHaveLength(1);
+    expect(chat.input).toBe("");
+  });
+
+  it("本轮结束后重入保护复位，下一轮照常发送", async () => {
+    const chat = useChatStore();
+    agentRun.mockResolvedValue({ ok: true });
+
+    chat.input = "第一条";
+    await chat.send();
+    // run 正常结束：运行态回 idle
+    chat.handleStreamEvent({ type: "done", sessionId: chat.sessionId, reason: "stop" });
+
+    chat.input = "第二条";
+    await chat.send();
+
+    expect(agentRun).toHaveBeenCalledTimes(2);
+    expect(
+      chat.messages.filter((message) => message.role === "user").map((message) => message.content),
+    ).toEqual(["第一条", "第二条"]);
+  });
+});

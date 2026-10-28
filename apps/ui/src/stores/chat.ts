@@ -674,12 +674,34 @@ export const useChatStore = defineStore("chat", () => {
     );
   }
 
+  /** send() 重入保护标记：从进入发送到运行态真正置位之间的窗口（见 send 注释） */
+  let sending = false;
+
+  /**
+   * 发送消息：重入保护 + 实际发送。
+   *
+   * 发送流程前面有多次 await（等会话切换、补建会话、刷新模型、分叉截断），这段窗口里
+   * 运行态还是 idle，快速重复触发（双击发送按钮、Enter 连按）会各自追加一条内容相同的
+   * 用户气泡并各起一次 run。重复触发直接忽略——输入框内容还没被清，重按即可。
+   */
+  async function send(overrideText?: string, options?: { approvePlan?: boolean }) {
+    if (sending) {
+      return;
+    }
+    sending = true;
+    try {
+      await sendOnce(overrideText, options);
+    } finally {
+      sending = false;
+    }
+  }
+
   /**
    * 发送消息。overrideText 提供时（「继续」续跑 / 计划批准）以该文本为消息内容：
    * 不读输入框草稿、不带附件/技能/元素标注、不清空任何 composer 状态，
    * 且保留全部历史（不截断分叉），让 Agent 读完之前的进度后接着做。
    */
-  async function send(overrideText?: string, options?: { approvePlan?: boolean }) {
+  async function sendOnce(overrideText?: string, options?: { approvePlan?: boolean }) {
     const continued = overrideText != null;
     const zen = window.zen;
     // 会话切换进行中（点了别的会话/新建但状态还没落定）：等切换完成再读当前会话，
