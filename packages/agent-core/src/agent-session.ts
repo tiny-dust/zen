@@ -237,6 +237,11 @@ export class AgentSession {
         : config;
     const sessionConfig = this.config;
     this.resourceLock = sessionConfig.resourceLock ?? new ResourceLock();
+    // 任务清单跨 run 续用：每次 run 都是新会话实例，从 0 计数会让「开新版」退化成
+    // 覆盖 v1（历史版本互相冲掉）。这里接着会话已落库的最大版本往下数，
+    // 并用最新清单初始化上下文快照（首步后追加，模型能看到当前待办）。
+    this.taskVersion = sessionConfig.taskListSeed?.version ?? 0;
+    this.latestTasks = sessionConfig.taskListSeed?.items ?? [];
     const emit: (event: AgentStreamEvent) => void = (event) => {
       if (event.type === "tasks_updated") {
         // version=-1 表示工具要求开新版；version=0 表示更新当前版
@@ -448,6 +453,8 @@ export class AgentSession {
       permissionMode: "full",
       // 子会话历史一次性（随父 run 结束即弃），不回放也不持久化
       modelHistoryStore: undefined,
+      // 子 Agent 清单经侧信道以 version=0 合并进父会话当前版，不继承父的版本种子
+      taskListSeed: undefined,
       // 共享父资源锁 + owner 对齐节点 id，保证写/终端/浏览器跨 Agent 互斥且 UI 可显示占用
       resourceLock: this.resourceLock,
       ownerLabel: spec.agentId,

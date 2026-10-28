@@ -55,6 +55,7 @@ import type {
   ChatTurn,
   SessionGoal,
   SessionMode,
+  TaskItem,
 } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
 
@@ -111,6 +112,8 @@ export async function runAgentRequest(
   let runMode: SessionMode = "interactive";
   // 会话目标（Goals 目标模式）：active 时追加进系统提示词（同会话模式指令的注入点）
   let runGoal: SessionGoal | null = null;
+  // 任务清单跨轮次续用：版本号接着会话已落库的最大版本，清单以最新版初始化
+  let taskListSeed: { version: number; items: TaskItem[] } | undefined;
   try {
     // 会话由 session:create 建立；不存在直接拒绝，避免 FK 落库失败
     const record = loadSessionRecord(request.sessionId);
@@ -123,6 +126,10 @@ export async function runAgentRequest(
       (mode) => setSessionMode(request.sessionId, mode),
     );
     runGoal = record.session.goal ?? null;
+    const latestTaskList = record.taskLists.at(-1);
+    if (latestTaskList && latestTaskList.items.length) {
+      taskListSeed = { version: latestTaskList.version, items: latestTaskList.items };
+    }
 
     // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
     ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
@@ -332,6 +339,8 @@ export async function runAgentRequest(
         ),
         runGoal,
       ),
+      // 任务清单：版本号接着会话已落库的最大版本，新一轮 startNew 才真正开新版
+      taskListSeed,
       // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
       memoryContext: await readMemorySnapshot()
         .then(renderMemoryContext)

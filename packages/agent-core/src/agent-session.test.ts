@@ -620,6 +620,20 @@ describe("AgentSession 工具事件与审批", () => {
     expect(versions).toEqual([1, 1]);
   });
 
+  it("taskListSeed 续用已落库版本：新一轮 startNew 递增而不是回到 1", async () => {
+    const events: AgentStreamEvent[] = [];
+    // 上一轮已落库 v3：本轮 startNew 应开 v4，普通更新落在 v4（不再覆盖旧版）
+    const session = createSession(events, "tasks-seeded", "tasks", {
+      taskListSeed: { version: 3, items: [{ id: "t0", label: "上一轮任务", done: true }] },
+    });
+    await session.start("继续推进");
+
+    const versions = events
+      .filter((event) => event.type === "tasks_updated")
+      .map((event) => (event.type === "tasks_updated" ? event.version : null));
+    expect(versions).toEqual([4, 4]);
+  });
+
   it("审批「全部允许」记忆该工具，拒绝发 denied 工具终态", async () => {
     const events: AgentStreamEvent[] = [];
     const session = createSession(events, "sess-approve", "approve-write");

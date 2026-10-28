@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  sessionRecord: { session: { id: "s1" }, messages: [] } as unknown,
+  sessionRecord: { session: { id: "s1" }, messages: [], taskLists: [] } as unknown,
   appendError: null as Error | null,
 }));
 
@@ -61,7 +61,7 @@ import { appendMessage, setSessionMode } from "./workspace-db";
 
 describe("display 落库优先级", () => {
   it("带 display 的请求：落库 content 用 display.content，meta 合并 display.meta", async () => {
-    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
 
     const result = await runAgentRequest(
       {
@@ -95,7 +95,7 @@ describe("display 落库优先级", () => {
   });
 
   it("无 display 的请求：沿用 userMessage，仅 attachments 进 meta（与旧行为一致）", async () => {
-    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
 
     await runAgentRequest(
       {
@@ -129,7 +129,7 @@ describe("display 落库优先级", () => {
 
 describe("runAgentRequest 前置失败契约", () => {
   it("落库抛错返回 {ok:false} 而不是 reject", async () => {
-    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
     state.appendError = new Error("database is locked");
 
     const result = await runAgentRequest(
@@ -152,13 +152,13 @@ describe("runAgentRequest 前置失败契约", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("session not found");
-    state.sessionRecord = { session: { id: "s1" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
   });
 });
 
 describe("计划模式批准回落 interactive", () => {
   it("plan 会话收到 approvePlan：先落库切回 interactive，run 正常继续", async () => {
-    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [], taskLists: [] };
 
     const result = await runAgentRequest(
       {
@@ -178,7 +178,7 @@ describe("计划模式批准回落 interactive", () => {
   });
 
   it("手打「批准执行」开头的消息同样视为批准（approvePlan 省略）", async () => {
-    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [], taskLists: [] };
 
     const result = await runAgentRequest(
       { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "批准执行，但先改一下登录页", history: [] },
@@ -190,7 +190,7 @@ describe("计划模式批准回落 interactive", () => {
   });
 
   it("plan 会话的计划反馈消息：保持 plan，不落库切换", async () => {
-    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1", mode: "plan" }, messages: [], taskLists: [] };
 
     const result = await runAgentRequest(
       { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "第二步拆细一点", history: [] },
@@ -202,7 +202,7 @@ describe("计划模式批准回落 interactive", () => {
   });
 
   it("非 plan 会话即使带 approvePlan 也不落库切换", async () => {
-    state.sessionRecord = { session: { id: "s1", mode: "autopilot" }, messages: [] };
+    state.sessionRecord = { session: { id: "s1", mode: "autopilot" }, messages: [], taskLists: [] };
 
     await runAgentRequest(
       { sessionId: "s1", workspaceId: "common", workspaceRoot: "", userMessage: "批准执行", history: [], approvePlan: true },

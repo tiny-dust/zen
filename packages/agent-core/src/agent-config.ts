@@ -12,6 +12,7 @@ import type {
   PermissionMode,
   ProviderProtocol,
   ReasoningEffort,
+  TaskItem,
   WebSearchApiProviderId,
 } from "@zen/shared";
 
@@ -73,6 +74,12 @@ export interface AgentSessionConfig {
   permissionMode: PermissionMode;
   /** 系统提示词全文（设置页选择的预设或自定义） */
   systemPrompt?: string;
+  /**
+   * 会话已落库的任务清单（跨 run 续用）。每次 run 都是新建 AgentSession，
+   * 不续用就会把版本号从 1 重新数起，导致「开新版」实际覆盖上一次的清单。
+   * 版本号接着增长；最新清单在首步之后作为上下文快照追加，模型能看到当前待办。
+   */
+  taskListSeed?: { version: number; items: TaskItem[] };
   /** 记忆上下文（desktop 侧渲染好的文本块：设备环境 + 用户习惯；缺省不注入） */
   memoryContext?: string;
   /** 记忆桥：updateMemory 工具把新备注落盘 ~/.zen/memory（desktop 注入；缺省不注册该工具） */
