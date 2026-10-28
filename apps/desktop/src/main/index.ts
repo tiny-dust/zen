@@ -37,6 +37,7 @@ import {
   shutdownBrowserService,
 } from "./browser/service";
 import { registerCacheIpc } from "./cache-ipc";
+import { registerFaviconIpc } from "./favicons";
 import { registerSkillsMarketIpc } from "./skills-market";
 import { registerTerminalIpc } from "./terminal/ipc";
 import { shutdownTerminalService } from "./terminal/service";
@@ -487,6 +488,8 @@ app.whenReady().then(() => {
   registerAgentServicesIpc(initAgentServices(broadcast));
   registerMcpIpc();
   registerCacheIpc();
+  // 站点图标（浏览器历史 / 网络来源）：主进程抓取 + 缓存，渲染层只拿 data URL
+  registerFaviconIpc();
   registerSkillsMarketIpc();
   // 异常中心：主/渲染层异常统一收集 + errors:* IPC（渲染层上报与异常中心面板）
   registerErrorReportsIpc(broadcast);

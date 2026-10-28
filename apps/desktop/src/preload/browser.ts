@@ -90,6 +90,10 @@ export const browserApi = {
     openExternal(url?: string): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke("browser:open-external", url, browserScope);
     },
+    /** 站点图标：主进程抓取并缓存，返回 data URL（失败为 null，UI 回退占位） */
+    favicon(url: string): Promise<string | null> {
+      return ipcRenderer.invoke("site:favicon", url);
+    },
     focusHost(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("browser:focus-host", browserScope);
     },
