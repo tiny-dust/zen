@@ -683,6 +683,10 @@ export const useChatStore = defineStore("chat", () => {
    * 发送流程前面有多次 await（等会话切换、补建会话、刷新模型、分叉截断），这段窗口里
    * 运行态还是 idle，快速重复触发（双击发送按钮、Enter 连按）会各自追加一条内容相同的
    * 用户气泡并各起一次 run。重复触发直接忽略——输入框内容还没被清，重按即可。
+   *
+   * 守卫只覆盖这段「消息还没被接收」的前置窗口：消息一落气泡、status 置 thinking，
+   * 就交给 isRunning 判断（同会话再发进队列、其它会话各跑各的）。agent:run 的 IPC
+   * 要到整个 run 结束才 resolve，守卫若跟着它一起挂着，会把排队与跨会话发送全拦掉。
    */
   async function send(overrideText?: string, options?: { approvePlan?: boolean }) {
     if (sending) {
@@ -875,6 +879,10 @@ export const useChatStore = defineStore("chat", () => {
     if (compression.compressed && focus) {
       compressFocus.value = "";
     }
+
+    // 消息已被接收（气泡已落、status 已置 thinking）：释放重入守卫，交由 isRunning
+    // 接管后续发送——同会话再发进队列、其它会话并行起 run，都不该被这里误拦
+    sending = false;
 
     // IPC 抛错与 {ok:false} 同路处理：不复位的话 status 会卡在 thinking，
     // 之后发送全被 isRunning 守卫拦进队列（无反馈），侧栏也一直「进行中」

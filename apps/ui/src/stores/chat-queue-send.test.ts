@@ -330,3 +330,46 @@ describe("重复触发发送不重入", () => {
     ).toEqual(["第一条", "第二条"]);
   });
 });
+
+// 回归：agent:run 的 IPC 要到整个 run 结束才 resolve，重入守卫不能跟着它一直持有，
+// 否则「运行中发送入队」与「其它会话并行发送」都会被静默拦掉。
+describe("run 进行中不影响后续发送", () => {
+  it("同会话再发进队列，其它会话照常起新 run", async () => {
+    const chat = useChatStore();
+    let finishRun: (value: { ok: boolean }) => void = () => undefined;
+    agentRun.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          finishRun = resolve;
+        }),
+    );
+
+    chat.input = "长任务";
+    const running = chat.send(); // 故意不 await：模拟 run 仍在跑
+    await vi.waitFor(() => expect(chat.isRunning).toBe(true));
+
+    // 同会话：进队列，不被重入守卫吞掉
+    chat.input = "补充一条指示";
+    await chat.send();
+    expect(chat.queuedMessages.map((item) => item.text)).toEqual(["补充一条指示"]);
+    expect(chat.input).toBe("");
+
+    // 其它会话：切过去后照常起 run（与上一个会话并行）
+    const firstSessionId = chat.sessionId;
+    await chat.newTask();
+    agentRun.mockResolvedValueOnce({ ok: true });
+    chat.input = "另一个会话的任务";
+    await chat.send();
+
+    expect(agentRun).toHaveBeenCalledTimes(2);
+    const second = agentRun.mock.calls[1]?.[0] as { sessionId?: string; userMessage?: string };
+    expect(second.sessionId).not.toBe(firstSessionId);
+    expect(second.userMessage).toBe("另一个会话的任务");
+    expect(
+      chat.messages.some((message) => message.content === "另一个会话的任务"),
+    ).toBe(true);
+
+    finishRun({ ok: true });
+    await running;
+  });
+});
