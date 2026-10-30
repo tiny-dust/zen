@@ -7,7 +7,7 @@ import {
   GitCommitHorizontal,
   RefreshCw,
 } from "@lucide/vue";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,10 @@ const branchMenuOpen = ref(false);
 const opBusy = computed(() => gitStore.opBusy);
 
 const branchLabel = computed(() => gitStore.branch || "—");
+const repositoryLabel = computed(() => {
+  const repo = gitStore.repositories.find((item) => item.path === gitStore.cwd());
+  return repo ? (repo.relativePath === "." ? repo.name : repo.relativePath) : "";
+});
 const stats = computed(() => ({
   add: gitStore.totalAdd,
   del: gitStore.totalDel,
@@ -73,26 +77,34 @@ async function ensureBranches() {
 /** 用当前选中模型分析变更并填充 commit message */
 async function generateMessage() {
   const zen = window.zen;
-  if (!zen?.git || generating.value) {
+  const root = gitStore.cwd();
+  if (!zen?.git || !root || generating.value) {
     return;
   }
   generating.value = true;
   error.value = "";
   try {
-    const text = await zen.git.aiMessage(gitStore.cwd(), gitStore.completionModel());
+    const text = await zen.git.aiMessage(root, gitStore.completionModel());
+    if (gitStore.cwd() !== root) return;
     if (text) {
       message.value = text;
     } else if (!message.value.trim()) {
       error.value = t("shell.aiMessageEmpty");
     }
   } catch (err) {
-    if (!message.value.trim()) {
+    if (gitStore.cwd() === root && !message.value.trim()) {
       error.value = err instanceof Error ? err.message : t("shell.generateMessageFailed");
     }
   } finally {
     generating.value = false;
   }
 }
+
+watch(() => gitStore.cwd(), () => {
+  message.value = "";
+  error.value = "";
+  branchMenuOpen.value = false;
+});
 
 async function switchBranch(name: string) {
   if (busy.value) {
@@ -114,6 +126,7 @@ async function submit(mode: "commit" | "commit-push" | "push") {
   if (busy.value || opBusy.value) {
     return;
   }
+  if (mode !== "push" && !gitStore.hasChanges) return;
   error.value = "";
   if (mode === "push") {
     const result = await gitStore.push();
@@ -196,11 +209,15 @@ const commitPushKeys = shortcutDisplayParts("Shift+Cmd+Enter");
     role="dialog"
     :aria-label="t('shell.commitOrPush')"
   >
+    <p v-if="repositoryLabel" class="m-0 truncate px-2.5 pt-1.5 text-[11px] text-[var(--color-dim)]" :title="repositoryLabel">
+      {{ t("panels.gitRepositories") }} · {{ repositoryLabel }}
+    </p>
     <div class="px-2.5 pt-1.5 pb-0.5">
       <DropdownMenu v-model:open="branchMenuOpen">
         <DropdownMenuTrigger as-child>
           <Button
             variant="ghost"
+            :disabled="!gitStore.cwd()"
             class="flex h-auto items-center gap-1.5 self-start rounded-[6px] px-1 py-0.5 text-[13px] font-normal text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)] aria-expanded:bg-transparent aria-expanded:text-[var(--color-txt-strong)]"
             @mouseenter="ensureBranches"
           >

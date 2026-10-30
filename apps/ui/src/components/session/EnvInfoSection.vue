@@ -15,6 +15,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
+import GitRepositoryPicker from "@/components/git/GitRepositoryPicker.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
@@ -34,7 +35,7 @@ const branchPopup = ref<HTMLElement | null>(null);
 const branchPos = ref({ top: 0, left: 0, width: 0 });
 const open = ref(true);
 
-const branch = computed(() => gitStore.branch || chatStore.branch);
+const branch = computed(() => gitStore.branch);
 /* 上下文用量与压缩焦点已迁移到输入框底栏的 ContextUsagePicker 弹层 */
 
 const prLabel = computed(() => {
@@ -149,6 +150,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
     <SessionSectionHead :icon="Info" :title="t('shell.envInfo')" :open="open" @toggle="open = !open" />
 
     <div v-if="open" class="mt-1 flex flex-col">
+      <GitRepositoryPicker class="mb-1 px-1" />
       <!-- 变更文件 -->
       <Button
         variant="ghost"
@@ -178,6 +180,7 @@ const noteIndentCls = "flex min-h-7 items-center gap-2 py-0.5 pl-[27px] text-[12
           class="h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]"
           :class="actionCls"
           :aria-label="t('shell.switchBranch')"
+          :disabled="!gitStore.cwd()"
           :title="branch ? t('shell.currentBranchTitle', { branch }) : t('shell.selectBranch')"
           @click="toggleBranchPicker"
         >

@@ -6,6 +6,7 @@ import type {
   GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
+  GitRepository,
   GitStashEntry,
   GitStatus,
   GitSyncResult,
@@ -19,6 +20,9 @@ export interface GitCompletionModel {
 
 export const gitApi = {
   git: {
+    discover(root: string): Promise<GitRepository[]> {
+      return ipcRenderer.invoke("git:discover", root);
+    },
     info(cwd?: string): Promise<{ repo: string; branch: string }> {
       return ipcRenderer.invoke("git:info", cwd);
     },

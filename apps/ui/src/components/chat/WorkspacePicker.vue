@@ -5,6 +5,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,8 +41,12 @@ const currentName = computed(() => {
   );
 });
 
-function pick(id: string) {
-  void chatStore.setSessionWorkspace(id);
+async function pick(id: string) {
+  try {
+    await chatStore.setSessionWorkspace(id);
+  } catch (error) {
+    toast.err(error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function onCreateWorkspace() {

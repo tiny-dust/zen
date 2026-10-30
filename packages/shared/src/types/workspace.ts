@@ -33,6 +33,17 @@ export interface SessionRecord {
   goal?: SessionGoal | null;
 }
 
+/** 一个会话独占的 Git worktree；path 是该项目在工作树内的实际工作目录。 */
+export interface SessionWorktree {
+  sessionId: string;
+  projectPath: string;
+  repoPath: string;
+  worktreePath: string;
+  path: string;
+  branch: string;
+  createdAt: number;
+}
+
 /** 侧栏按工作区分组消费：工作区行 + 其下会话列表 */
 export interface WorkspaceGroup extends Workspace {
   sessions: SessionRecord[];

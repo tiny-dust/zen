@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { MessageSquarePlus } from "@lucide/vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { highlightLines, langFromPath } from "@/lib/shiki-highlight";
 
 import type { BundledLanguage } from "shiki";
@@ -18,11 +21,38 @@ const props = defineProps<{
   diff: string;
   /** 目标文件路径：传入时 diff 行按扩展名做语法高亮 */
   path?: string;
+  commentable?: boolean;
+}>();
+
+const emit = defineEmits<{
+  comment: [feedback: { path: string; line: number; side: "old" | "new"; text: string }];
 }>();
 
 const { t } = useI18n();
 
 const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+const activeCommentIndex = ref<number | null>(null);
+const commentText = ref("");
+
+function commentTarget(line: DiffLine): { line: number; side: "old" | "new" } | null {
+  if (line.newNo != null) return { line: line.newNo, side: "new" };
+  if (line.oldNo != null) return { line: line.oldNo, side: "old" };
+  return null;
+}
+
+function submitComment(line: DiffLine) {
+  const target = commentTarget(line);
+  const text = commentText.value.trim();
+  if (!props.path || !target || !text) return;
+  emit("comment", { path: props.path, ...target, text });
+  activeCommentIndex.value = null;
+  commentText.value = "";
+}
+
+watch(() => [props.diff, props.path], () => {
+  activeCommentIndex.value = null;
+  commentText.value = "";
+});
 
 const lines = computed<DiffLine[]>(() => {
   const source = props.diff.replace(/\n$/, "");
@@ -155,15 +185,14 @@ function gutter(value: number | null): string {
     role="figure"
     :aria-label="t('panels.fileDiff')"
   >
-    <div
-      v-for="(line, index) in lines"
-      :key="index"
-      class="flex items-start gap-1.5 rounded-[3px] px-1"
-      :class="{
-        'bg-[color-mix(in_srgb,var(--color-add)_12%,transparent)]': line.kind === 'add',
-        'bg-[color-mix(in_srgb,var(--color-del)_12%,transparent)]': line.kind === 'del',
-      }"
-    >
+    <template v-for="(line, index) in lines" :key="index">
+      <div
+        class="group/line flex items-start gap-1.5 rounded-[3px] px-1"
+        :class="{
+          'bg-[color-mix(in_srgb,var(--color-add)_12%,transparent)]': line.kind === 'add',
+          'bg-[color-mix(in_srgb,var(--color-del)_12%,transparent)]': line.kind === 'del',
+        }"
+      >
       <span
         v-if="line.kind !== 'meta'"
         class="w-8 flex-none select-none text-right text-[var(--color-dim)]"
@@ -199,7 +228,34 @@ function gutter(value: number | null): string {
           'text-[var(--color-accent-2)]': line.kind === 'hunk',
         }"
       >{{ line.text }}</span>
-    </div>
+        <Button
+          v-if="commentable && path && commentTarget(line)"
+          variant="ghost"
+          size="icon-xs"
+          class="size-4 flex-none opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100"
+          :aria-label="t('panels.addReviewComment', { line: commentTarget(line)?.line })"
+          :title="t('panels.addReviewComment', { line: commentTarget(line)?.line })"
+          @click="activeCommentIndex = index; commentText = ''"
+        >
+          <MessageSquarePlus class="size-3" />
+        </Button>
+      </div>
+      <div v-if="activeCommentIndex === index" class="ml-[72px] flex flex-col gap-1.5 py-1.5">
+        <Textarea
+          v-model="commentText"
+          class="min-h-16 text-[12px]"
+          :aria-label="t('panels.reviewComment')"
+          :placeholder="t('panels.reviewCommentPlaceholder')"
+          @keydown.esc="activeCommentIndex = null"
+        />
+        <div class="flex justify-end gap-1.5">
+          <Button variant="ghost" size="xs" @click="activeCommentIndex = null">{{ t('panels.cancel') }}</Button>
+          <Button size="xs" :disabled="!commentText.trim()" @click="submitComment(line)">
+            {{ t('panels.addToComposer') }}
+          </Button>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 

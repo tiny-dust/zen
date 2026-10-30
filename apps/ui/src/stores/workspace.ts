@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
+import type { SessionGoal, SessionRecord, WorkspaceGroup } from "@zen/shared";
 
 const ACTIVE_KEY = "zen.activeWorkspace";
 const COLLAPSED_KEY = "zen.collapsedWorkspaces";
@@ -91,6 +91,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       const session = group.sessions.find((item) => item.id === sessionId);
       if (session) {
         session.title = title;
+        return;
+      }
+    }
+  }
+
+  /** 同步会话目标到侧栏记录，供跨会话任务收件箱即时展示。 */
+  function updateSessionGoalLocal(sessionId: string, goal: SessionGoal | null) {
+    for (const group of groups.value) {
+      const session = group.sessions.find((item) => item.id === sessionId);
+      if (session) {
+        session.goal = goal;
         return;
       }
     }
@@ -237,6 +248,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     pathOf,
     appendSessionLocal,
     renameSessionLocal,
+    updateSessionGoalLocal,
     pinSessionLocal,
     touchSessionLocal,
     archiveSessionLocal,

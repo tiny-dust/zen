@@ -5,7 +5,6 @@ import { useI18n } from "vue-i18n";
 
 import BranchPicker from "@/components/session/BranchPicker.vue";
 import { Button } from "@/components/ui/button";
-import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 
 /**
@@ -19,7 +18,6 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
-const chatStore = useChatStore();
 const gitStore = useGitStore();
 
 const anchorEl = ref<HTMLElement | null>(null);
@@ -27,7 +25,7 @@ const popupEl = ref<HTMLElement | null>(null);
 const open = ref(false);
 const popupPos = ref({ top: 0, left: 0 });
 
-const branch = computed(() => gitStore.branch || chatStore.branch);
+const branch = computed(() => gitStore.branch);
 
 function onDocPointerDown(event: PointerEvent) {
   if (!open.value) {

@@ -6,6 +6,7 @@ import { useI18n } from "vue-i18n";
 import AgentsSection from "@/components/session/AgentsSection.vue";
 import CommitPanel from "@/components/session/CommitPanel.vue";
 import EnvInfoSection from "@/components/session/EnvInfoSection.vue";
+import SessionWorktreeSection from "@/components/session/SessionWorktreeSection.vue";
 import FileCheckpointSection from "@/components/session/FileCheckpointSection.vue";
 import ProcessesSection from "@/components/session/ProcessesSection.vue";
 import ReferencesSection from "@/components/session/ReferencesSection.vue";
@@ -68,6 +69,7 @@ async function openCommitPanel() {
 
     <div :class="embedded ? 'flex flex-col gap-4' : cardCls">
       <EnvInfoSection @open-commit="openCommitPanel" />
+      <SessionWorktreeSection :class="dividerCls" />
       <TaskListSection :class="dividerCls" />
       <FileCheckpointSection :class="dividerCls" />
       <ProcessesSection :class="dividerCls" />

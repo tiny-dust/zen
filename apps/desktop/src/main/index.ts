@@ -25,7 +25,9 @@ import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerSessionIpc } from "./session-ipc";
+import { startGoalReminders, shutdownGoalReminders } from "./goal-reminders";
 import { resolveWorkspaceDir } from "./sandbox";
+import { resolveSessionWorktreeRoot } from "./session-worktree";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerMcpIpc, shutdownMcp } from "./mcp-ipc";
 import { registerSyncIpc } from "./config-sync";
@@ -347,6 +349,10 @@ function registerIpc(): void {
     }
     const projectPath = getWorkspace(record.session.workspaceId)?.path;
     if (projectPath) {
+      const worktreeRoot = await resolveSessionWorktreeRoot(sessionId, projectPath);
+      if (worktreeRoot) {
+        return worktreeRoot;
+      }
       const agentSettings = await loadAgentSettings();
       return (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
     }
@@ -480,7 +486,7 @@ app.whenReady().then(() => {
   void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();
   registerModelIpc();
-  registerSessionIpc();
+  registerSessionIpc((sessionId) => sessions.has(sessionId));
   registerWorkspaceIpc();
   registerGitIpc();
   registerShellIpc();
@@ -511,6 +517,20 @@ app.whenReady().then(() => {
   // 应用菜单：去掉 Reload 角色（禁用整页刷新），保留复制粘贴等系统快捷键角色
   setupApplicationMenu(isDevRenderer);
   createWindow();
+  startGoalReminders({
+    isSessionRunning: (sessionId) => sessions.has(sessionId),
+    openSession: (sessionId) => {
+      const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed()) ?? createWindow();
+      window.show();
+      window.focus();
+      const sendOpenRequest = () => window.webContents.send("session:open-request", sessionId);
+      if (window.webContents.isLoading()) {
+        window.webContents.once("did-finish-load", sendOpenRequest);
+      } else {
+        sendOpenRequest();
+      }
+    },
+  });
   // ~/.zen 初始化 + agent-core 的 MCP 调用运行时（callMcpTool 在 mcp-ipc 内）
   void initZenDir().then(() => registerMcpRuntime(() => import("./mcp-ipc")));
   // 旧 safeStorage 凭据就地升级为 aes:v1（更新后不再丢密钥/掉登录）；auth token 迁移在 loadStoredAuth 内
@@ -547,6 +567,7 @@ app.on("will-quit", () => {
   shutdownSystemAbilities();
   shutdownLark();
   shutdownScheduler();
+  shutdownGoalReminders();
   unregisterAllGlobalShortcuts();
   void stopCliServer().catch((error) => {
     console.warn("[zen] CLI 服务清理失败:", error);

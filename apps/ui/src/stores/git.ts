@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type {
   GitBranchInfo,
@@ -7,6 +7,7 @@ import type {
   GitFileChange,
   GitLogEntry,
   GitPullRequest,
+  GitRepository,
   GitStashEntry,
   GitStatus,
   GitSyncResult,
@@ -14,6 +15,7 @@ import type {
 import { toast } from "@/components/ui/toast";
 import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { i18n } from "@/locales";
 
@@ -46,8 +48,140 @@ export const useGitStore = defineStore("git", () => {
   const diffTabs = ref<string[]>([]);
   const activeDiffTab = ref<string>("graph");
 
+  /** 目录内独立仓库；选择按会话及其实际工作目录保存，避免工作树间串仓库。 */
+  const repositories = ref<GitRepository[]>([]);
+  const repositoriesLoading = ref(false);
+  const repositoryError = ref("");
+  const repositoryBranches = ref<Record<string, string>>({});
+  const selectedRepositoryPath = ref("");
+  const selectedScopeKey = ref("");
+  const selectionByScope = new Map<string, string>();
+  const mutationCount = ref(0);
+  const mutationBusy = computed(() => mutationCount.value > 0 || !!opBusy.value);
+  let discovery: { key: string; promise: Promise<void> } | null = null;
+  let summaryGeneration = 0;
+
+  async function runMutation<T>(action: () => Promise<T>): Promise<T> {
+    mutationCount.value += 1;
+    try {
+      return await action();
+    } finally {
+      mutationCount.value -= 1;
+    }
+  }
+
+  function reportReadError(error: unknown, key: string, root: string) {
+    if (scopeKey.value === key && cwd() === root) {
+      repositoryError.value = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  function directoryScope() {
+    const chat = useChatStore();
+    const localPath = useWorkspaceStore().pathOf(chat.sessionWorkspaceId);
+    const root = useSessionWorktreeStore().cwd(chat.sessionId, localPath);
+    return { key: `${chat.sessionId}\0${root ?? ""}`, root };
+  }
+
+  const scopeKey = computed(() => directoryScope().key);
+
   function cwd(): string | undefined {
-    return useWorkspaceStore().pathOf(useChatStore().sessionWorkspaceId);
+    return selectedScopeKey.value === scopeKey.value
+      && repositories.value.some((repo) => repo.path === selectedRepositoryPath.value)
+      ? selectedRepositoryPath.value
+      : undefined;
+  }
+
+  async function loadRepositoryBranches(found: GitRepository[], key: string, generation: number) {
+    const zen = window.zen;
+    if (!zen?.git) return;
+    // 只读分支摘要，避免对每个仓库运行昂贵的文件状态扫描。
+    const workers = Array.from({ length: Math.min(4, found.length) }, async (_, index) => {
+      for (let i = index; i < found.length; i += 4) {
+        const repo = found[i];
+        if (!repo) continue;
+        try {
+          const info = await zen.git.info(repo.path);
+          if (scopeKey.value === key && summaryGeneration === generation) {
+            const branch = repo.path === cwd() && status.value?.branch
+              ? status.value.branch
+              : info.branch;
+            repositoryBranches.value = { ...repositoryBranches.value, [repo.path]: branch };
+          }
+        } catch {
+          // 单仓库消失或权限不足时仍展示路径，其余仓库继续可用。
+        }
+      }
+    });
+    await Promise.all(workers);
+  }
+
+  async function refreshRepositories(): Promise<void> {
+    const zen = window.zen;
+    const { key, root } = directoryScope();
+    if (!zen?.git?.discover || !root) {
+      repositories.value = [];
+      repositoriesLoading.value = false;
+      selectedRepositoryPath.value = "";
+      selectedScopeKey.value = "";
+      repositoryBranches.value = {};
+      reset();
+      return;
+    }
+    if (discovery?.key === key) return discovery.promise;
+    repositoriesLoading.value = true;
+    repositoryError.value = "";
+    const promise = (async () => {
+      try {
+        const found = await zen.git.discover(root);
+        if (scopeKey.value !== key) return;
+        repositories.value = found;
+        const preferred = selectionByScope.get(key);
+        const selected = found.find((repo) => repo.path === preferred)
+          ?? found.find((repo) => repo.relativePath === ".")
+          ?? found[0];
+        const changed = selectedRepositoryPath.value !== (selected?.path ?? "");
+        if (changed) reset();
+        selectedRepositoryPath.value = selected?.path ?? "";
+        selectedScopeKey.value = key;
+        if (selected) selectionByScope.set(key, selected.path);
+        repositoryBranches.value = {};
+        void loadRepositoryBranches(found, key, ++summaryGeneration);
+        if (changed && selected) {
+          void Promise.all([refreshStatus(), refreshBranches(), refreshLog(), refreshStashes()]);
+        }
+      } catch (error) {
+        if (scopeKey.value !== key) return;
+        repositories.value = [];
+        selectedRepositoryPath.value = "";
+        selectedScopeKey.value = "";
+        repositoryError.value = error instanceof Error ? error.message : String(error);
+        reset();
+      } finally {
+        if (scopeKey.value === key) repositoriesLoading.value = false;
+      }
+    })();
+    discovery = { key, promise };
+    try {
+      await promise;
+    } finally {
+      if (discovery?.promise === promise) discovery = null;
+    }
+  }
+
+  async function resolvedCwd(): Promise<string | undefined> {
+    if (!cwd() && directoryScope().root) await refreshRepositories();
+    return cwd();
+  }
+
+  async function selectRepository(path: string): Promise<void> {
+    if (mutationBusy.value || !repositories.value.some((repo) => repo.path === path)) return;
+    if (selectedRepositoryPath.value === path) return;
+    selectedRepositoryPath.value = path;
+    selectedScopeKey.value = scopeKey.value;
+    selectionByScope.set(scopeKey.value, path);
+    reset();
+    await Promise.all([refreshStatus(), refreshBranches(), refreshLog(), refreshStashes()]);
   }
 
   /** commit AI 生成用的模型：当前会话生效模型（会话覆盖 > 全局默认）。
@@ -61,14 +195,38 @@ export const useGitStore = defineStore("git", () => {
   }
 
   const files = computed(() => status.value?.files ?? []);
-  const branch = computed(() => status.value?.branch || useChatStore().branch);
+  const branch = computed(() => status.value?.branch ?? "");
   const totalAdd = computed(() => files.value.reduce((sum, item) => sum + item.add, 0));
   const totalDel = computed(() => files.value.reduce((sum, item) => sum + item.del, 0));
   const hasChanges = computed(() => files.value.length > 0);
 
+  /** 父仓库的 porcelain 会把独立子仓库记作 `?? child/`；只在该子仓库自己的视图展示。 */
+  function withoutNestedRepositories(next: GitStatus, root: string): GitStatus {
+    const parent = root.replace(/\\/g, "/").replace(/\/+$/, "");
+    const nestedPaths = repositories.value
+      .map((repo) => repo.path.replace(/\\/g, "/"))
+      .filter((path) => path.startsWith(`${parent}/`))
+      .map((path) => path.slice(parent.length + 1).replace(/\/+$/, ""));
+    if (!nestedPaths.length) return next;
+    return {
+      ...next,
+      files: next.files.filter((file) => {
+        const path = file.path.replace(/\\/g, "/").replace(/\/+$/, "");
+        return !nestedPaths.some((nested) => path === nested || path.startsWith(`${nested}/`));
+      }),
+    };
+  }
+
   /** 应用一次 status 结果：更新文件列表并校正 tab/diff、同步 chat 分支信息 */
   function applyStatus(next: GitStatus | null) {
-    status.value = next;
+    const root = cwd();
+    status.value = next && root ? withoutNestedRepositories(next, root) : next;
+    if (next && selectedRepositoryPath.value) {
+      repositoryBranches.value = {
+        ...repositoryBranches.value,
+        [selectedRepositoryPath.value]: next.branch,
+      };
+    }
     const valid = new Set(files.value.map((item) => item.path));
     // 文件已提交/被撤回后：关闭对应 diff tab；激活 tab 失效则回退到相邻 tab 或图谱
     diffTabs.value = diffTabs.value.filter((path) => valid.has(path));
@@ -87,16 +245,25 @@ export const useGitStore = defineStore("git", () => {
 
   async function refreshStatus() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
-      status.value = null;
+      applyStatus(null);
       return;
     }
+    const key = scopeKey.value;
     loading.value = true;
     try {
-      applyStatus(await zen.git.status(root));
+      const next = await zen.git.status(root);
+      if (scopeKey.value === key && cwd() === root) {
+        repositoryError.value = "";
+        applyStatus(next);
+      }
+    } catch (error) {
+      if (scopeKey.value === key && cwd() === root) {
+        repositoryError.value = error instanceof Error ? error.message : String(error);
+      }
     } finally {
-      loading.value = false;
+      if (scopeKey.value === key && cwd() === root) loading.value = false;
     }
   }
 
@@ -115,9 +282,12 @@ export const useGitStore = defineStore("git", () => {
       return;
     }
     pollInFlight = true;
+    const key = scopeKey.value;
     try {
       const next = await zen.git.status(root);
-      if (JSON.stringify(next) === JSON.stringify(status.value)) {
+      if (scopeKey.value !== key || cwd() !== root) return;
+      const scoped = next ? withoutNestedRepositories(next, root) : null;
+      if (JSON.stringify(scoped) === JSON.stringify(status.value)) {
         return;
       }
       applyStatus(next);
@@ -192,16 +362,24 @@ export const useGitStore = defineStore("git", () => {
 
   async function refreshBranches() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
+      branches.value = { local: [], remote: [] };
+      pullRequest.value = null;
       return;
     }
+    const key = scopeKey.value;
     branchesLoading.value = true;
     try {
-      branches.value = await zen.git.branches(root);
-      pullRequest.value = await zen.git.pr(root);
+      const [nextBranches, nextPr] = await Promise.all([zen.git.branches(root), zen.git.pr(root)]);
+      if (scopeKey.value === key && cwd() === root) {
+        branches.value = nextBranches;
+        pullRequest.value = nextPr;
+      }
+    } catch (error) {
+      reportReadError(error, key, root);
     } finally {
-      branchesLoading.value = false;
+      if (scopeKey.value === key && cwd() === root) branchesLoading.value = false;
     }
   }
 
@@ -210,16 +388,20 @@ export const useGitStore = defineStore("git", () => {
   /** 提交历史（图谱视图数据源） */
   async function refreshLog() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       log.value = [];
       return;
     }
+    const key = scopeKey.value;
     logLoading.value = true;
     try {
-      log.value = await zen.git.log(root, logRef.value || undefined);
+      const next = await zen.git.log(root, logRef.value || undefined);
+      if (scopeKey.value === key && cwd() === root) log.value = next;
+    } catch (error) {
+      reportReadError(error, key, root);
     } finally {
-      logLoading.value = false;
+      if (scopeKey.value === key && cwd() === root) logLoading.value = false;
     }
   }
 
@@ -248,19 +430,22 @@ export const useGitStore = defineStore("git", () => {
   }
 
   async function selectFile(path: string) {
-    selectedPath.value = path;
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
+    selectedPath.value = path;
     if (!zen?.git || !root) {
       diff.value = "";
       return;
     }
+    const key = scopeKey.value;
     diffLoading.value = true;
     try {
       const change = files.value.find((item) => item.path === path);
       if (change?.untracked) {
         const content = await zen.workspace.readFile(root, path);
-        diff.value = content ? toAddedDiff(path, content.content) : `Binary files ${path} differ`;
+        if (scopeKey.value === key && cwd() === root && selectedPath.value === path) {
+          diff.value = content ? toAddedDiff(path, content.content) : `Binary files ${path} differ`;
+        }
         return;
       }
       let raw = await zen.git.diff(root, path);
@@ -268,9 +453,11 @@ export const useGitStore = defineStore("git", () => {
         // 仅已暂存的文件没有 unstaged diff，回落到 staged diff
         raw = await zen.git.diff(root, path, true);
       }
-      diff.value = raw ?? "";
+      if (scopeKey.value === key && cwd() === root && selectedPath.value === path) diff.value = raw ?? "";
+    } catch (error) {
+      reportReadError(error, key, root);
     } finally {
-      diffLoading.value = false;
+      if (scopeKey.value === key && cwd() === root && selectedPath.value === path) diffLoading.value = false;
     }
   }
 
@@ -311,11 +498,12 @@ export const useGitStore = defineStore("git", () => {
 
   async function checkout(name: string) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.checkout(root, name);
+    const result = await runMutation(() => zen.git.checkout(root, name));
+    if (cwd() !== root) return result;
     if (result.ok) {
       branchPickerOpen.value = false;
       feedback.value = i18n.global.t("app.git.switchedTo", { name });
@@ -328,17 +516,20 @@ export const useGitStore = defineStore("git", () => {
     return result;
   }
 
-  async function createBranch(name: string) {
+  async function createBranch(name: string, base?: string) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.createBranch(root, name);
+    const result = await runMutation(() => zen.git.createBranch(root, name, base));
+    if (cwd() !== root) return result;
     if (result.ok) {
       branchPickerOpen.value = false;
-      feedback.value = i18n.global.t("app.git.createdAndSwitched", { name });
-      toast.ok(i18n.global.t("app.git.createdAndSwitched", { name }));
+      feedback.value = base
+        ? i18n.global.t("shell.createdBranchFrom", { from: base, name })
+        : i18n.global.t("app.git.createdAndSwitched", { name });
+      toast.ok(feedback.value);
       await Promise.all([refreshStatus(), refreshBranches()]);
     } else {
       feedback.value = result.error ?? i18n.global.t("app.git.createBranchFailed");
@@ -353,23 +544,27 @@ export const useGitStore = defineStore("git", () => {
     options: { push?: boolean; includeUnstaged?: boolean } = {},
   ) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    if (!filesToCommit.length) {
+      return { ok: false, error: i18n.global.t("panels.noChanges") };
     }
     opBusy.value = options.push ? "commit-push" : "commit";
     let result: Awaited<ReturnType<typeof zen.git.commit>>;
     try {
-      result = await zen.git.commit(root, message, filesToCommit, {
+      result = await runMutation(() => zen.git.commit(root, message, filesToCommit, {
         push: options.push,
         includeUnstaged: options.includeUnstaged ?? true,
         // 空 message 一律允许后端自动生成（AI + 兜底），避免「提交信息不能为空」
         autoMessage: true,
         model: completionModel(),
-      });
+      }));
     } finally {
       opBusy.value = "";
     }
+    if (cwd() !== root) return result;
     if (result.ok) {
       const base = options.push
         ? i18n.global.t("app.git.committedAndPushed")
@@ -390,20 +585,24 @@ export const useGitStore = defineStore("git", () => {
   /** 分批提交：按变更内容自动分组，每批独立 commit；返回批次清单供 UI 反馈 */
   async function commitBatched(paths: string[], options: { push?: boolean } = {}) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, batches: [], error: i18n.global.t("app.git.noWorkDir") };
+    }
+    if (!paths.length) {
+      return { ok: false, batches: [], error: i18n.global.t("panels.noChanges") };
     }
     opBusy.value = options.push ? "commit-push" : "commit";
     let result: Awaited<ReturnType<typeof zen.git.commitBatched>>;
     try {
-      result = await zen.git.commitBatched(root, paths, {
+      result = await runMutation(() => zen.git.commitBatched(root, paths, {
         push: options.push,
         model: completionModel(),
-      });
+      }));
     } finally {
       opBusy.value = "";
     }
+    if (cwd() !== root) return result;
     if (result.ok) {
       const hashes = result.batches.map((batch) => batch.hash).join(" ");
       const base = options.push
@@ -430,17 +629,18 @@ export const useGitStore = defineStore("git", () => {
 
   async function push() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
     opBusy.value = "push";
     let result: Awaited<ReturnType<typeof zen.git.push>>;
     try {
-      result = await zen.git.push(root);
+      result = await runMutation(() => zen.git.push(root));
     } finally {
       opBusy.value = "";
     }
+    if (cwd() !== root) return result;
     if (result.ok) {
       feedback.value = i18n.global.t("app.git.pushed");
       toast.ok(i18n.global.t("app.git.pushed"));
@@ -469,11 +669,12 @@ export const useGitStore = defineStore("git", () => {
   /** 刷新远端状态（fetch）：不合并，仅更新 ahead/behind 与远端分支 */
   async function fetchRemote() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.fetch(root);
+    const result = await runMutation(() => zen.git.fetch(root));
+    if (cwd() !== root) return result;
     reportSyncResult(result, {
       ok: i18n.global.t("app.git.fetched"),
       failed: i18n.global.t("app.git.fetchFailed"),
@@ -485,11 +686,12 @@ export const useGitStore = defineStore("git", () => {
   /** 拉取并合并上游（无上游时后端给清晰报错；冲突时返回冲突文件列表） */
   async function pull() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.pull(root);
+    const result = await runMutation(() => zen.git.pull(root));
+    if (cwd() !== root) return result;
     reportSyncResult(result, {
       ok: i18n.global.t("app.git.pulled"),
       failed: i18n.global.t("app.git.pullFailed"),
@@ -501,11 +703,12 @@ export const useGitStore = defineStore("git", () => {
   /** 合并指定分支：冲突时不自动提交，变更面板引导解决 */
   async function merge(branch: string) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.merge(root, branch);
+    const result = await runMutation(() => zen.git.merge(root, branch));
+    if (cwd() !== root) return result;
     reportSyncResult(result, {
       ok: i18n.global.t("app.git.merged"),
       failed: i18n.global.t("app.git.mergeFailed"),
@@ -517,11 +720,12 @@ export const useGitStore = defineStore("git", () => {
   /** 中止进行中的合并 */
   async function mergeAbort() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.mergeAbort(root);
+    const result = await runMutation(() => zen.git.mergeAbort(root));
+    if (cwd() !== root) return result;
     if (result.ok) {
       feedback.value = i18n.global.t("app.git.mergeAborted");
       toast.ok(i18n.global.t("app.git.mergeAborted"));
@@ -536,11 +740,12 @@ export const useGitStore = defineStore("git", () => {
   /** 撤回工作区改动：单文件（传 paths）或全部（不传）；不可恢复，调用方需先二次确认 */
   async function discard(paths?: string[]) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.discard(root, paths);
+    const result = await runMutation(() => zen.git.discard(root, paths));
+    if (cwd() !== root) return result;
     if (result.ok) {
       feedback.value = paths?.length
         ? i18n.global.t("app.git.discardedFiles", { n: paths.length })
@@ -557,27 +762,32 @@ export const useGitStore = defineStore("git", () => {
   /** 刷新贮藏列表（打开 Popover / 贮藏操作后调用） */
   async function refreshStashes() {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       stashes.value = [];
       return;
     }
+    const key = scopeKey.value;
     stashesLoading.value = true;
     try {
-      stashes.value = await zen.git.stashList(root);
+      const next = await zen.git.stashList(root);
+      if (scopeKey.value === key && cwd() === root) stashes.value = next;
+    } catch (error) {
+      reportReadError(error, key, root);
     } finally {
-      stashesLoading.value = false;
+      if (scopeKey.value === key && cwd() === root) stashesLoading.value = false;
     }
   }
 
   /** 贮藏当前变更（-u 含未跟踪文件；message 可选） */
   async function stashPush(message?: string) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.stashPush(root, message);
+    const result = await runMutation(() => zen.git.stashPush(root, message));
+    if (cwd() !== root) return result;
     if (result.ok) {
       feedback.value = i18n.global.t("app.git.stashed");
       toast.ok(i18n.global.t("app.git.stashed"));
@@ -592,11 +802,12 @@ export const useGitStore = defineStore("git", () => {
   /** 应用贮藏：apply 保留条目，pop 应用成功后删除 */
   async function stashApply(index: number, mode: "apply" | "pop" = "apply") {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.stashApply(root, index, mode);
+    const result = await runMutation(() => zen.git.stashApply(root, index, mode));
+    if (cwd() !== root) return result;
     reportSyncResult(result, {
       ok: mode === "pop" ? i18n.global.t("app.git.stashPopped") : i18n.global.t("app.git.stashApplied"),
       failed: i18n.global.t("app.git.stashApplyFailed"),
@@ -608,11 +819,12 @@ export const useGitStore = defineStore("git", () => {
   /** 删除指定贮藏 */
   async function stashDrop(index: number) {
     const zen = window.zen;
-    const root = cwd();
+    const root = await resolvedCwd();
     if (!zen?.git || !root) {
       return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
     }
-    const result = await zen.git.stashDrop(root, index);
+    const result = await runMutation(() => zen.git.stashDrop(root, index));
+    if (cwd() !== root) return result;
     if (result.ok) {
       feedback.value = i18n.global.t("app.git.stashDropped");
       toast.ok(i18n.global.t("app.git.stashDropped"));
@@ -626,9 +838,12 @@ export const useGitStore = defineStore("git", () => {
 
   function reset() {
     status.value = null;
+    loading.value = false;
     branches.value = { local: [], remote: [] };
+    branchesLoading.value = false;
     pullRequest.value = null;
     log.value = [];
+    logLoading.value = false;
     selectedPath.value = "";
     diff.value = "";
     diffLoading.value = false;
@@ -639,7 +854,19 @@ export const useGitStore = defineStore("git", () => {
     stashesLoading.value = false;
     diffTabs.value = [];
     activeDiffTab.value = "graph";
+    logRef.value = "";
   }
+
+  watch(scopeKey, () => {
+    repositories.value = [];
+    repositoriesLoading.value = false;
+    selectedRepositoryPath.value = "";
+    selectedScopeKey.value = "";
+    repositoryBranches.value = {};
+    repositoryError.value = "";
+    reset();
+    void refreshRepositories();
+  }, { immediate: true });
 
   function statusBadge(change: GitFileChange): { text: string; cls: string } {
     const code = change.untracked ? "?" : change.x !== " " ? change.x : change.y;
@@ -660,6 +887,12 @@ export const useGitStore = defineStore("git", () => {
 
   return {
     status,
+    repositories,
+    repositoriesLoading,
+    repositoryError,
+    repositoryBranches,
+    selectedRepositoryPath,
+    mutationBusy,
     branches,
     pullRequest,
     log,
@@ -682,6 +915,8 @@ export const useGitStore = defineStore("git", () => {
     totalDel,
     hasChanges,
     refreshStatus,
+    refreshRepositories,
+    selectRepository,
     startStatusWatch,
     stopStatusWatch,
     refreshBranches,

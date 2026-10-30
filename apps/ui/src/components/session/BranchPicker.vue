@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { Check, GitBranch, GitBranchPlus, Loader2 } from "@lucide/vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/toast";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +21,18 @@ const creating = ref(false);
 const newBranch = ref("");
 /** 基分支："" = 当前分支（从 HEAD 创建） */
 const baseBranch = ref("");
+const repositoryLabel = computed(() => {
+  const repo = gitStore.repositories.find((item) => item.path === gitStore.cwd());
+  return repo ? (repo.relativePath === "." ? repo.name : repo.relativePath) : "";
+});
+
+watch(() => gitStore.cwd(), () => {
+  filter.value = "";
+  error.value = "";
+  creating.value = false;
+  newBranch.value = "";
+  baseBranch.value = "";
+});
 
 const localBranches = computed(() => {
   const q = filter.value.trim().toLowerCase();
@@ -64,26 +75,6 @@ async function select(name: string) {
   }
 }
 
-/** 从指定基分支创建并切换（checkout -b <new> <base>）：store.createBranch 无 base 参数，直调 IPC 并复用 store 刷新 */
-async function createFrom(name: string, from: string) {
-  const zen = window.zen;
-  const root = gitStore.cwd();
-  if (!zen?.git || !root) {
-    return { ok: false, error: t("shell.noWorkdir") };
-  }
-  const result = await zen.git.createBranch(root, name, from);
-  if (result.ok) {
-    gitStore.branchPickerOpen = false;
-    gitStore.feedback = t("shell.createdBranchFrom", { from, name });
-    toast.ok(t("shell.createdBranchFrom", { from, name }));
-    await Promise.all([gitStore.refreshStatus(), gitStore.refreshBranches()]);
-  } else {
-    gitStore.feedback = result.error ?? t("shell.createBranchFailed");
-    toast.err(result.error ?? t("shell.createBranchFailed"));
-  }
-  return result;
-}
-
 async function create() {
   const name = newBranch.value.trim();
   if (!name || busy.value) {
@@ -93,8 +84,7 @@ async function create() {
   error.value = "";
   try {
     const from = baseBranch.value.trim();
-    // 缺省走 store 现有路径（从当前 HEAD 创建）；指定基分支则 checkout -b <new> <base>
-    const result = from ? await createFrom(name, from) : await gitStore.createBranch(name);
+    const result = await gitStore.createBranch(name, from || undefined);
     if (result.ok) {
       newBranch.value = "";
       creating.value = false;
@@ -116,6 +106,9 @@ onMounted(() => {
   <div
     class="flex max-h-[300px] w-[240px] flex-col gap-1.5 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-popover)] p-2 shadow-[var(--shadow-menu)]"
   >
+    <p v-if="repositoryLabel" class="m-0 truncate px-1 text-[11px] text-[var(--color-dim)]" :title="repositoryLabel">
+      {{ t("panels.gitRepositories") }} · {{ repositoryLabel }}
+    </p>
     <div class="flex items-center gap-1.5 px-1">
       <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
       <Input

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, GitGraph as GitGraphIcon, GitBranch, RefreshCw, Tag } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";
@@ -62,6 +62,8 @@ function fileKey(hash: string, path: string): string {
 }
 
 async function toggleFile(hash: string, path: string) {
+  const root = gitStore.cwd();
+  if (!root) return;
   const key = fileKey(hash, path);
   if (openFiles.value.has(key)) {
     const next = new Set(openFiles.value);
@@ -76,16 +78,18 @@ async function toggleFile(hash: string, path: string) {
   loadingFile.value = key;
   try {
     const zen = window.zen;
-    const diff = zen?.git ? await zen.git.commitFileDiff(gitStore.cwd(), hash, path) : null;
-    fileDiffs.value.set(key, diff ?? "");
+    const diff = zen?.git ? await zen.git.commitFileDiff(root, hash, path) : null;
+    if (gitStore.cwd() === root) fileDiffs.value.set(key, diff ?? "");
   } finally {
-    if (loadingFile.value === key) {
+    if (gitStore.cwd() === root && loadingFile.value === key) {
       loadingFile.value = "";
     }
   }
 }
 
 async function toggle(entry: GitLogEntry) {
+  const root = gitStore.cwd();
+  if (!root) return;
   if (expandedHash.value === entry.hash) {
     expandedHash.value = "";
     return;
@@ -98,17 +102,26 @@ async function toggle(entry: GitLogEntry) {
   try {
     const zen = window.zen;
     const detail = zen?.git
-      ? await zen.git.commitDetail(gitStore.cwd(), entry.hash)
+      ? await zen.git.commitDetail(root, entry.hash)
       : null;
-    if (detail) {
+    if (detail && gitStore.cwd() === root) {
       details.value.set(entry.hash, detail);
     }
   } finally {
-    if (loadingHash.value === entry.hash) {
+    if (gitStore.cwd() === root && loadingHash.value === entry.hash) {
       loadingHash.value = "";
     }
   }
 }
+
+watch(() => gitStore.cwd(), () => {
+  expandedHash.value = "";
+  details.value = new Map();
+  loadingHash.value = "";
+  openFiles.value = new Set();
+  fileDiffs.value = new Map();
+  loadingFile.value = "";
+});
 
 /** 分支筛选值：Select 不接受空串 value，用 "all" 哨兵映射 ""（= --all） */
 const branchFilter = computed({
@@ -177,7 +190,7 @@ const branchFilter = computed({
         class="m-0 flex items-center gap-1.5 px-1 py-2 text-[12px] text-[var(--color-dim)]"
       >
         <GitGraphIcon class="size-3.5 flex-none" aria-hidden="true" />
-        {{ gitStore.cwd() ? t("panels.noCommits") : t("panels.workspaceUnbound") }}
+        {{ gitStore.cwd() ? t("panels.noCommits") : t("panels.noGitRepositories") }}
       </p>
       <template v-else>
         <template v-for="row in graphRows" :key="row.entry.hash">

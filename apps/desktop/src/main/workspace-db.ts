@@ -6,7 +6,7 @@ import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionGoal, nor
 
 import { getDb } from "./model-db-connection";
 
-import type { ChatMessage, SessionGoal, SessionMode, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
+import type { ChatMessage, SessionGoal, SessionGoalRuntime, SessionMode, SessionRecord, TaskItem, Workspace, WorkspaceGroup } from "@zen/shared";
 
 interface WorkspaceRow {
   id: string;
@@ -306,9 +306,64 @@ function isSessionModeValue(value: unknown): value is SessionMode {
  */
 export function setSessionGoal(id: string, goal: SessionGoal | null): void {
   const normalized = normalizeSessionGoal(goal);
-  getDb()
-    .prepare(`UPDATE chat_sessions SET goal_json = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
-    .run(normalized ? JSON.stringify(normalized) : null, Date.now(), id, ...ownerParams());
+  const db = getDb();
+  db.transaction(() => {
+    const row = db
+      .prepare(`SELECT goal_json FROM chat_sessions WHERE id = ? AND ${ownerSql()}`)
+      .get(id, ...ownerParams()) as { goal_json: string | null } | undefined;
+    if (!row) return;
+    const previousText = parseGoalJson(row.goal_json)?.text;
+    db.prepare(`UPDATE chat_sessions SET goal_json = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
+      .run(normalized ? JSON.stringify(normalized) : null, Date.now(), id, ...ownerParams());
+    if (!normalized) {
+      db.prepare("DELETE FROM session_goal_runtime WHERE session_id = ?").run(id);
+    } else if (previousText !== normalized.text) {
+      db.prepare(
+        `INSERT INTO session_goal_runtime (session_id, goal_text, total_tokens) VALUES (?, ?, 0)
+         ON CONFLICT(session_id) DO UPDATE SET goal_text = excluded.goal_text, total_tokens = 0`,
+      ).run(id, normalized.text);
+    }
+  })();
+}
+
+/** 目标用量属于当前目标文本；旧版目标没有用量行时从零开始。 */
+export function getGoalRuntime(id: string): SessionGoalRuntime | null {
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT goal_json FROM chat_sessions WHERE id = ? AND ${ownerSql()}`)
+    .get(id, ...ownerParams()) as { goal_json: string | null } | undefined;
+  const goal = parseGoalJson(row?.goal_json ?? null);
+  if (!goal) return null;
+  const runtime = db
+    .prepare("SELECT goal_text, total_tokens FROM session_goal_runtime WHERE session_id = ?")
+    .get(id) as { goal_text: string; total_tokens: number } | undefined;
+  return {
+    goalText: goal.text,
+    totalTokens: runtime?.goal_text === goal.text ? runtime.total_tokens : 0,
+  };
+}
+
+/** 只累计本轮开始时绑定的目标；目标中途替换或清除后忽略旧流事件。 */
+export function recordGoalUsage(id: string, goalText: string, inputTokens: number, outputTokens: number): void {
+  if (
+    !Number.isSafeInteger(inputTokens) || inputTokens < 0 ||
+    !Number.isSafeInteger(outputTokens) || outputTokens < 0
+  ) return;
+  const added = inputTokens + outputTokens;
+  if (!Number.isSafeInteger(added) || added <= 0 || !goalText) return;
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT goal_json FROM chat_sessions WHERE id = ? AND ${ownerSql()}`)
+    .get(id, ...ownerParams()) as { goal_json: string | null } | undefined;
+  if (parseGoalJson(row?.goal_json ?? null)?.text !== goalText) return;
+  db.prepare(
+    `INSERT INTO session_goal_runtime (session_id, goal_text, total_tokens) VALUES (?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET total_tokens =
+       CASE WHEN session_goal_runtime.goal_text = excluded.goal_text
+         THEN session_goal_runtime.total_tokens + excluded.total_tokens
+         ELSE excluded.total_tokens END,
+       goal_text = excluded.goal_text`,
+  ).run(id, goalText, added);
 }
 
 export function getSession(id: string):
@@ -336,6 +391,13 @@ export function getSession(id: string):
     messages: messages.map(toMessage),
     taskLists: loadTaskLists(id),
   };
+}
+
+/** 只校验会话归属；工作树状态查询无需读取整段聊天记录。 */
+export function hasSession(id: string): boolean {
+  return !!getDb()
+    .prepare(`SELECT 1 FROM chat_sessions WHERE id = ? AND ${ownerSql()}`)
+    .get(id, ...ownerParams());
 }
 
 /** 任务清单落库：同 version 覆盖（updateTasks 增量更新当前版） */

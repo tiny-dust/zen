@@ -9,7 +9,7 @@ import {
   TriangleAlert,
   Undo2,
 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import CollapsibleSection from "@/components/right/CollapsibleSection.vue";
@@ -43,6 +43,10 @@ const abortBusy = ref(false);
 const discardBusy = ref(false);
 /** 撤回确认弹窗：null 关闭；true = 撤回全部，string = 单文件路径 */
 const discardTarget = ref<true | string | null>(null);
+
+watch(() => gitStore.cwd(), () => {
+  discardTarget.value = null;
+}, { flush: "sync" });
 
 /** fetch / pull / push：互斥执行，结果反馈（toast/冲突提示）在 git store 内统一处理 */
 async function runSync(op: SyncOp) {

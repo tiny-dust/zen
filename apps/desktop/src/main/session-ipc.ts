@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, Notification } from "electron";
 import { writeFile } from "node:fs/promises";
 
 import type { ChatMessage, SessionMode } from "@zen/shared";
@@ -6,7 +6,9 @@ import { SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
+import { getDb } from "./model-db-connection";
 import { renderSessionHtml, renderSessionMarkdown } from "./session-export";
+import { createSessionWorktree, getSessionWorktree, hasWorktreeInWorkspace, removeSessionWorktree } from "./session-worktree";
 import {
   appendMessage,
   clearSessionModelHistory,
@@ -15,6 +17,7 @@ import {
   deleteSession,
   deleteWorkspace,
   getSession,
+  getGoalRuntime,
   listWorkspaceGroups,
   renameSession,
   renameWorkspace,
@@ -100,7 +103,42 @@ function sanitizeAppendableMessage(input: unknown): ChatMessage | null {
   };
 }
 
-export function registerSessionIpc(): void {
+export function registerSessionIpc(
+  isSessionRunning: (sessionId: string) => boolean = () => false,
+): void {
+  ipcMain.handle("session:worktree", (_event, sessionId: unknown) =>
+    typeof sessionId === "string" ? getSessionWorktree(sessionId) : null,
+  );
+
+  ipcMain.handle("session:worktree:create", async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      return { ok: false, error: "会话 ID 无效" };
+    }
+    if (isSessionRunning(sessionId)) {
+      return { ok: false, error: "请等待当前会话运行结束后再创建工作树" };
+    }
+    try {
+      return { ok: true, worktree: await createSessionWorktree(sessionId) };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "创建工作树失败" };
+    }
+  });
+
+  ipcMain.handle("session:worktree:remove", async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      return { ok: false, error: "会话 ID 无效" };
+    }
+    if (isSessionRunning(sessionId)) {
+      return { ok: false, error: "请等待当前会话运行结束后再移除工作树" };
+    }
+    try {
+      await removeSessionWorktree(sessionId);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "移除工作树失败" };
+    }
+  });
+
   ipcMain.handle("workspace:list", () => listWorkspaceGroups());
 
   ipcMain.handle("workspace:create", async (event) => {
@@ -127,6 +165,10 @@ export function registerSessionIpc(): void {
   });
 
   ipcMain.handle("workspace:delete", (_event, id: string) => {
+    // 工作树可能有未提交改动；先要求逐会话移除，避免级联删除绑定后留下孤儿目录。
+    if (hasWorktreeInWorkspace(id)) {
+      throw new Error("工作区内仍有会话工作树，请先逐个移除");
+    }
     deleteWorkspace(id);
     return listWorkspaceGroups();
   });
@@ -145,6 +187,11 @@ export function registerSessionIpc(): void {
 
   ipcMain.handle("session:set-workspace", (_event, id: string, workspaceId: string | null) => {
     if (typeof id === "string" && id.trim()) {
+      const current = getSession(id)?.session.workspaceId ?? null;
+      const target = workspaceId === "common" ? null : workspaceId;
+      if (current !== target && getSessionWorktree(id)) {
+        throw new Error("请先移除会话工作树，再切换工作区");
+      }
       setSessionWorkspace(id, workspaceId);
     }
   });
@@ -177,7 +224,38 @@ export function registerSessionIpc(): void {
     }
   });
 
+  ipcMain.handle("session:get-goal-runtime", (_event, id: unknown) => {
+    return typeof id === "string" && id.trim() ? getGoalRuntime(id) : null;
+  });
+
   ipcMain.handle("session:open", (_event, id: string) => getSession(id) ?? null);
+
+  // 仅后台会话由渲染层请求系统通知；计划任务本身已有独立通知，避免重复。
+  ipcMain.handle("session:notify", (event, id: unknown, body: unknown): void => {
+    if (typeof id !== "string" || !id || typeof body !== "string" || !body.trim()) return;
+    try {
+      if (!Notification.isSupported()) return;
+      const scheduled = getDb()
+        .prepare("SELECT 1 FROM scheduled_task_runs WHERE session_id = ? LIMIT 1")
+        .get(id);
+      if (scheduled) return;
+      const record = getSession(id)?.session;
+      if (!record) return;
+      const notification = new Notification({
+        title: record.title.slice(0, 80) || "Zen",
+        body: body.trim().slice(0, 240),
+      });
+      notification.on("click", () => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        window?.show();
+        window?.focus();
+        window?.webContents.send("session:open-request", id);
+      });
+      notification.show();
+    } catch {
+      // 三平台通知能力或数据库不可用时静默降级，不影响会话。
+    }
+  });
 
   // 全局会话搜索（侧栏）：标题 + 消息内容命中，标题命中优先；空词返回空列表
   ipcMain.handle("session:search", (_event, query: unknown, limit?: unknown) =>
@@ -252,7 +330,14 @@ export function registerSessionIpc(): void {
     setSessionArchived(id, archived === true);
   });
 
-  ipcMain.handle("session:delete", (_event, id: string) => {
+  ipcMain.handle("session:delete", async (_event, id: string) => {
+    if (getSessionWorktree(id)) {
+      if (isSessionRunning(id)) {
+        throw new Error("请等待当前会话运行结束后再删除");
+      }
+      // git worktree remove 会拒绝有未提交改动的目录，防止删除用户代码。
+      await removeSessionWorktree(id);
+    }
     deleteSession(id);
   });
 

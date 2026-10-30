@@ -1,11 +1,20 @@
 import { ipcRenderer } from "electron";
 
-import type { ChatMessage, SessionGoal, SessionMode, SessionRecord } from "@zen/shared";
+import type { ChatMessage, SessionGoal, SessionGoalRuntime, SessionMode, SessionRecord, SessionWorktree } from "@zen/shared";
 
 import { syncBrowserScope } from "./browser";
 
 export const sessionApi = {
   session: {
+    worktree(id: string): Promise<SessionWorktree | null> {
+      return ipcRenderer.invoke("session:worktree", id);
+    },
+    createWorktree(id: string): Promise<{ ok: boolean; worktree?: SessionWorktree; error?: string }> {
+      return ipcRenderer.invoke("session:worktree:create", id);
+    },
+    removeWorktree(id: string): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("session:worktree:remove", id);
+    },
     create(workspaceId: string | null, id?: string): Promise<SessionRecord> {
       // 新会话落在指定工作区：内嵌浏览器 scope 同步跟随（preload IPC 边界维护，见 browser.ts）
       return ipcRenderer.invoke("session:create", workspaceId, id).then((record) => {
@@ -30,6 +39,9 @@ export const sessionApi = {
     setGoal(id: string, goal: SessionGoal | null): Promise<void> {
       return ipcRenderer.invoke("session:set-goal", id, goal);
     },
+    getGoalRuntime(id: string): Promise<SessionGoalRuntime | null> {
+      return ipcRenderer.invoke("session:get-goal-runtime", id);
+    },
     open(
       id: string,
     ): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {
@@ -40,6 +52,13 @@ export const sessionApi = {
         }
         return found;
       });
+    },
+    /** 后台任务只读会话内容，不改变当前可见浏览器的工作区。 */
+    snapshot(id: string): Promise<{ session: SessionRecord; messages: ChatMessage[] } | null> {
+      return ipcRenderer.invoke("session:open", id);
+    },
+    notify(id: string, body: string): Promise<void> {
+      return ipcRenderer.invoke("session:notify", id, body);
     },
     /** 全局会话搜索（侧栏）：标题 + 消息内容命中（标题命中优先），当前用户可见范围 */
     search(query: string, limit?: number): Promise<SessionRecord[]> {

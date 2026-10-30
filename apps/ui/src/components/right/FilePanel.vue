@@ -32,6 +32,7 @@ import { useBrowserStore } from "@/stores/browser";
 import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useRightPanelStore } from "@/stores/right-panel";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import {
@@ -49,6 +50,7 @@ import type { FileTreeAction } from "./file-tree-ops";
 const { t } = useI18n();
 const workspaceStore = useWorkspaceStore();
 const chatStore = useChatStore();
+const worktreeStore = useSessionWorktreeStore();
 const rightPanel = useRightPanelStore();
 const files = ref<WorkspaceFile[]>([]);
 const loading = ref(false);
@@ -76,7 +78,9 @@ function onSplitDrag(delta: number) {
   splitPct.value = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, next));
 }
 
-const treeRoot = computed(() => workspaceStore.pathOf(chatStore.sessionWorkspaceId));
+const treeRoot = computed(() =>
+  worktreeStore.cwd(chatStore.sessionId, workspaceStore.pathOf(chatStore.sessionWorkspaceId)),
+);
 const fileCount = computed(() => files.value.filter((item) => !item.isDir).length);
 
 const tree = computed<FileNode[]>(() => {
