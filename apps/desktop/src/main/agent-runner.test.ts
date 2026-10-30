@@ -51,13 +51,15 @@ vi.mock("./workspace-db", () => ({
   getWorkspace: vi.fn(() => null),
   listWorkspaceGroups: vi.fn(() => []),
   loadSessionModelHistory: vi.fn(() => null),
+  recordGoalUsage: vi.fn(),
   rewriteSessionModelHistory: vi.fn(),
   saveTaskList: vi.fn(),
   setSessionMode: vi.fn(),
 }));
 
 import { runAgentRequest } from "./agent-runner";
-import { appendMessage, setSessionMode } from "./workspace-db";
+import { runMockAgent } from "@zen/agent-core";
+import { appendMessage, recordGoalUsage, setSessionMode } from "./workspace-db";
 
 describe("display 落库优先级", () => {
   it("带 display 的请求：落库 content 用 display.content，meta 合并 display.meta", async () => {
@@ -153,6 +155,48 @@ describe("runAgentRequest 前置失败契约", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("session not found");
     state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
+  });
+});
+
+describe("目标用量事件", () => {
+  it("每次 usage 事件按本轮目标和会话记录", async () => {
+    state.sessionRecord = {
+      session: { id: "goal-session", mode: "interactive", goal: { text: "完成登录", status: "active", tokenBudget: 100 } },
+      messages: [], taskLists: [],
+    };
+    vi.mocked(runMockAgent).mockImplementationOnce(async (sessionId, _message, _signal, emit) => {
+      emit({ type: "usage", sessionId, inputTokens: 10, outputTokens: 3 });
+      emit({ type: "usage", sessionId, inputTokens: 7, outputTokens: 2 });
+      emit({ type: "done", sessionId, reason: "stop" });
+    });
+
+    const result = await runAgentRequest(
+      { sessionId: "goal-session", workspaceId: "common", workspaceRoot: "", userMessage: "继续", history: [] },
+      { sessions: new Map() },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(recordGoalUsage).toHaveBeenNthCalledWith(1, "goal-session", "完成登录", 10, 3);
+    expect(recordGoalUsage).toHaveBeenNthCalledWith(2, "goal-session", "完成登录", 7, 2);
+  });
+
+  it("本轮开始时目标暂停则不累计用量", async () => {
+    vi.mocked(recordGoalUsage).mockClear();
+    state.sessionRecord = {
+      session: { id: "paused-session", mode: "interactive", goal: { text: "完成登录", status: "paused", tokenBudget: 100 } },
+      messages: [], taskLists: [],
+    };
+    vi.mocked(runMockAgent).mockImplementationOnce(async (sessionId, _message, _signal, emit) => {
+      emit({ type: "usage", sessionId, inputTokens: 10, outputTokens: 3 });
+      emit({ type: "done", sessionId, reason: "stop" });
+    });
+
+    await runAgentRequest(
+      { sessionId: "paused-session", workspaceId: "common", workspaceRoot: "", userMessage: "继续", history: [] },
+      { sessions: new Map() },
+    );
+
+    expect(recordGoalUsage).not.toHaveBeenCalled();
   });
 });
 

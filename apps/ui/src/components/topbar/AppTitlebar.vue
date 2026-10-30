@@ -7,6 +7,7 @@ import OpenWithButton from "@/components/topbar/OpenWithButton.vue";
 import WindowControls from "@/components/topbar/WindowControls.vue";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useActivityInboxStore } from "@/stores/activity-inbox";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useTerminalStore } from "@/stores/terminal";
@@ -16,6 +17,7 @@ defineProps<{
 }>();
 
 const chatStore = useChatStore();
+const activityInbox = useActivityInboxStore();
 const layoutStore = useLayoutStore();
 const terminalStore = useTerminalStore();
 const { t } = useI18n();
@@ -58,11 +60,13 @@ function toggleButtonClass(active: boolean) {
         <Button
           variant="ghost"
           size="icon-sm"
-          :class="toggleButtonClass(false)"
-          :aria-label="t('shell.notifications')"
-          :title="t('shell.notifications')"
+          :class="[toggleButtonClass(false), 'relative']"
+          :aria-label="activityInbox.pendingCount ? t('activityInbox.pendingCount', { n: activityInbox.pendingCount }) : t('activityInbox.entry')"
+          :title="t('activityInbox.entry')"
+          @click="activityInbox.open = true"
         >
           <Bell />
+          <span v-if="activityInbox.pendingCount" class="absolute right-0 top-0 size-1.5 rounded-full bg-[var(--color-accent)]" aria-hidden="true" />
         </Button>
       </template>
       <span

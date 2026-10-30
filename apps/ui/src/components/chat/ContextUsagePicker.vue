@@ -51,7 +51,7 @@ const inputTokens = computed(
 const windowTokens = computed(() => Math.round(chatStore.contextWindowTokens ?? 0));
 const cacheHit = computed(() => chatStore.cacheHitRate);
 const sessionTokens = computed(() => chatStore.sessionTotalTokens);
-const branch = computed(() => gitStore.branch || chatStore.branch);
+const branch = computed(() => gitStore.branch);
 
 /** 压缩重点保留的预置选项：id 稳定（i18n 换语言不影响选中判断），标签进 compressFocus */
 const focusOptions = computed(() => [

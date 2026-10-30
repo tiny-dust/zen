@@ -38,6 +38,7 @@ import { useSessionDraft } from "@/composables/useSessionDraft";
 import type { UploadedFileRef } from "@/composables/useComposerTriggers";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useSkillUsageStore } from "@/stores/skill-usage";
 import { useTerminalStore } from "@/stores/terminal";
 import { useBrowserStore } from "@/stores/browser";
@@ -70,6 +71,13 @@ export const useChatStore = defineStore("chat", () => {
   const sessionMode = ref<SessionMode>("interactive");
   /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
   const sessionGoal = ref<SessionGoal | null>(null);
+  /** 自动续跑仅由 max_steps 触发；每个会话单独计数，防止目标未达成时无界循环。 */
+  const MAX_GOAL_AUTO_RUNS = 3;
+  const goalAutoRuns = new Map<string, number>();
+  const goalAutoTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const goalUsageBySession = new Map<string, number>();
+  const goalTextBySession = new Map<string, string>();
+  const runningGoalTextBySession = new Map<string, string>();
   const attachments = ref<ComposerAttachment[]>([]);
   /** 工具写文件后递增，驱动右侧文件面板刷新 */
   const filesRevision = ref(0);
@@ -137,6 +145,8 @@ export const useChatStore = defineStore("chat", () => {
   const lastCachedInputTokens = ref<number | null>(null);
   /** 本会话累计消耗 tokens（每次 usage 事件的 input+output 累加，切会话归零） */
   const sessionTotalTokens = ref(0);
+  /** 当前目标的累计消耗；由主进程持久化，切会话时按目标文本恢复。 */
+  const goalTotalTokens = ref(0);
   const currentStep = ref<number | null>(null);
   const lastDoneReason = ref<AgentDoneReason | null>(null);
   const runSummary = ref<ChatRunSummary | null>(null);
@@ -200,6 +210,16 @@ export const useChatStore = defineStore("chat", () => {
     insertActive.value ||
     ["thinking", "answering", "tool-running", "awaiting-approval"].includes(status.value),
   );
+  /** 发送入口到用户消息落入时间线之间的等待，按会话隔离。 */
+  const preparingSendIds = ref<Set<string>>(new Set());
+  const isPreparing = computed(() => preparingSendIds.value.has(sessionId.value));
+
+  function finishPreparing(id: string) {
+    if (!preparingSendIds.value.has(id)) return;
+    const next = new Set(preparingSendIds.value);
+    next.delete(id);
+    preparingSendIds.value = next;
+  }
 
   /**
    * 本会话上传过的文件（当前 composer 附件 + 已发送消息 meta.attachments）：
@@ -318,7 +338,7 @@ export const useChatStore = defineStore("chat", () => {
   });
   const hasMessages = computed(() => messages.value.length > 0);
   const canSend = computed(
-    () => (input.value.trim().length > 0 || attachments.value.length > 0) && !isRunning.value,
+    () => (input.value.trim().length > 0 || attachments.value.length > 0) && !isRunning.value && !isPreparing.value,
   );
   const workspaceRoot = computed(() => appInfo.value?.workspaceRoot ?? "");
 
@@ -416,7 +436,7 @@ export const useChatStore = defineStore("chat", () => {
     if (!goal?.tokenBudget) {
       return null;
     }
-    return `${formatTokens(sessionTotalTokens.value)}/${formatTokens(goal.tokenBudget)}`;
+    return `${formatTokens(goalTotalTokens.value)}/${formatTokens(goal.tokenBudget)}`;
   });
 
   // ---------- 历史压缩域：发送前折叠 / 摘要卡 ----------
@@ -428,13 +448,24 @@ export const useChatStore = defineStore("chat", () => {
     contextUsage: () => contextUsage.value,
   });
 
+  let refreshGitSequence = 0;
   async function refreshGit() {
+    const sequence = ++refreshGitSequence;
     const zen = window.zen;
     if (!zen?.git) {
       return;
     }
-    const cwd = useWorkspaceStore().pathOf(sessionWorkspaceId.value);
+    const id = sessionId.value;
+    const gitStore = useGitStore();
+    const cwd = gitStore.cwd();
+    if (!cwd) {
+      repo.value = "";
+      branch.value = "";
+      return;
+    }
     const info = await zen.git.info(cwd);
+    // 扫描或切换仓库可能比 info IPC 更快，旧仓库结果不能覆盖当前会话。
+    if (sequence !== refreshGitSequence || id !== sessionId.value || cwd !== gitStore.cwd()) return;
     repo.value = info.repo;
     branch.value = info.branch;
   }
@@ -520,8 +551,39 @@ export const useChatStore = defineStore("chat", () => {
     refreshGit: () => {
       void refreshGit();
     },
-    onRunFinished: () => {
+    onRunFinished: (reason) => {
+      runningGoalTextBySession.delete(sessionId.value);
       void maybeAutoTitle();
+      void scheduleGoalAutoContinue(reason);
+    },
+    onBackgroundRunFinished: (id, reason) => {
+      runningGoalTextBySession.delete(id);
+      void (async () => {
+        let continuation: "scheduled" | "paused" | "none" = "none";
+        try {
+          continuation = await scheduleBackgroundGoalAutoContinue(id, reason);
+        } catch {
+          // 后台目标读取失败仍提醒用户查看会话，不抛到流事件循环。
+        }
+        if (continuation === "scheduled" || reason === "cancelled") return;
+        const key = continuation === "paused"
+          ? "goalPaused"
+          : reason === "error"
+            ? "error"
+            : reason === "max_steps"
+              ? "stepLimit"
+              : "done";
+        notifyBackground(id, key);
+      })();
+    },
+    onBackgroundNeedsAction: (id) => notifyBackground(id, "needsAction"),
+    onUsage: (id, inputTokens, outputTokens) => {
+      const goalText = runningGoalTextBySession.get(id);
+      if (!goalText || goalTextBySession.get(id) !== goalText) return;
+      const total = (goalUsageBySession.get(id) ?? 0)
+        + Math.max(0, inputTokens) + Math.max(0, outputTokens);
+      goalUsageBySession.set(id, total);
+      if (sessionId.value === id) goalTotalTokens.value = total;
     },
   });
 
@@ -664,18 +726,194 @@ export const useChatStore = defineStore("chat", () => {
    * 「继续推进目标」（Goals 目标模式）：run 正常结束且目标 active 时的一键续跑，
    * 复用 continueRun 的保留历史语义并附带目标文本；单次手动触发，不自动循环。
    */
-  async function continueGoal() {
+  function goalContinuationText(goal: SessionGoal) {
+    return `继续推进目标：${goal.text}\n请先回顾上面的历史与已完成进度（必要时查看当前文件状态确认），接着朝该目标继续推进剩余工作，不要重复已完成的操作。`;
+  }
+
+  function trackGoalText(id: string, text: string | null) {
+    if (!text) {
+      goalTextBySession.delete(id);
+      goalUsageBySession.delete(id);
+    } else if (goalTextBySession.get(id) !== text) {
+      goalTextBySession.set(id, text);
+      goalUsageBySession.set(id, 0);
+    }
+    if (sessionId.value === id) goalTotalTokens.value = goalUsageBySession.get(id) ?? 0;
+  }
+
+  async function refreshGoalUsage(id: string, text: string): Promise<number> {
+    const cached = goalUsageBySession.get(id) ?? 0;
+    const zen = window.zen;
+    if (!zen?.session.getGoalRuntime) return cached;
+    try {
+      const runtime = await zen.session.getGoalRuntime(id);
+      // IPC 期间目标可能已被编辑或清除，旧结果不能覆盖新目标。
+      if (goalTextBySession.get(id) !== text || runtime?.goalText !== text) return goalUsageBySession.get(id) ?? 0;
+      const total = Math.max(goalUsageBySession.get(id) ?? 0, runtime.totalTokens);
+      goalUsageBySession.set(id, total);
+      if (sessionId.value === id && sessionGoal.value?.text === text) goalTotalTokens.value = total;
+      return total;
+    } catch {
+      // 用当前会话的流式计数继续运行；下次打开会话时再从数据库恢复。
+      return goalUsageBySession.get(id) ?? 0;
+    }
+  }
+
+  async function continueGoal(auto = false) {
     const goal = sessionGoal.value;
     if (isRunning.value || !goal || goal.status !== "active") {
       return;
     }
-    await send(
-      `继续推进目标：${goal.text}\n请先回顾上面的历史与已完成进度（必要时查看当前文件状态确认），接着朝该目标继续推进剩余工作，不要重复已完成的操作。`,
-    );
+    await send(goalContinuationText(goal), auto ? { autoGoal: true } : undefined);
   }
 
-  /** send() 重入保护标记：从进入发送到运行态真正置位之间的窗口（见 send 注释） */
-  let sending = false;
+  function cancelGoalAutoTimer(id: string) {
+    const timer = goalAutoTimers.get(id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    goalAutoTimers.delete(id);
+  }
+
+  function notifyBackground(id: string, kind: "done" | "error" | "needsAction" | "goalPaused" | "stepLimit") {
+    if (sessionId.value === id) return;
+    const request = window.zen?.session.notify?.(id, i18n.global.t(`chat.background.${kind}`));
+    void request?.catch(() => undefined);
+  }
+
+  /** 仅步数上限代表本轮被迫截断；正常 stop 不足以证明目标未完成。 */
+  async function scheduleGoalAutoContinue(reason: AgentDoneReason) {
+    if (reason !== "max_steps" || queue.queuedMessages.value.length) return;
+    const goal = sessionGoal.value;
+    const id = sessionId.value;
+    if (!goal?.autoContinue || goal.status !== "active") return;
+    if (pendingApproval.value || pendingAsks.value.length || lastError.value) return;
+    const used = await refreshGoalUsage(id, goal.text);
+    const currentGoal = sessionGoal.value;
+    if (
+      sessionId.value !== id || currentGoal?.text !== goal.text ||
+      currentGoal.status !== "active" || !currentGoal.autoContinue
+    ) return;
+    if (
+      (goalAutoRuns.get(id) ?? 0) >= MAX_GOAL_AUTO_RUNS ||
+      (currentGoal.tokenBudget != null && used >= currentGoal.tokenBudget)
+    ) {
+      void setSessionGoal({ ...currentGoal, status: "paused", autoContinue: false });
+      return;
+    }
+    cancelGoalAutoTimer(id);
+    const goalText = goal.text;
+    goalAutoTimers.set(id, setTimeout(() => {
+      goalAutoTimers.delete(id);
+      const current = sessionGoal.value;
+      if (
+        sessionId.value !== id ||
+        isRunning.value ||
+        queue.queuedMessages.value.length ||
+        pendingApproval.value ||
+        pendingAsks.value.length ||
+        lastError.value ||
+        !current?.autoContinue ||
+        current.status !== "active" ||
+        current.text !== goalText ||
+        (current.tokenBudget != null && (goalUsageBySession.get(id) ?? 0) >= current.tokenBudget)
+      ) return;
+      goalAutoRuns.set(id, (goalAutoRuns.get(id) ?? 0) + 1);
+      void continueGoal(true);
+    }, 400));
+  }
+
+  async function pauseGoalAutomation(id: string, goal: SessionGoal) {
+    const paused: SessionGoal = { ...goal, status: "paused", autoContinue: false };
+    if (sessionId.value === id) {
+      if (sessionGoal.value?.text !== goal.text || sessionGoal.value.status !== "active") return;
+      await setSessionGoal(paused);
+    } else {
+      const latest = await window.zen?.session.snapshot(id);
+      if (latest?.session.goal?.text !== goal.text || latest.session.goal.status !== "active") return;
+      await window.zen?.session.setGoal(id, paused);
+      useWorkspaceStore().updateSessionGoalLocal(id, paused);
+    }
+  }
+
+  /** 后台会话也按自己的目标、历史与预算续跑；前台状态不被旧会话覆盖。 */
+  async function scheduleBackgroundGoalAutoContinue(
+    id: string,
+    reason: AgentDoneReason,
+  ): Promise<"scheduled" | "paused" | "none"> {
+    if (reason !== "max_steps" || stashedQueues.get(id)?.length) return "none";
+    const zen = window.zen;
+    if (!zen) return "none";
+    const opened = await zen.session.snapshot(id);
+    const goal = opened?.session.goal;
+    if (!goal?.autoContinue || goal.status !== "active") return "none";
+    if (stashedApprovals.has(id) || stashedAsks.get(id)?.length) return "none";
+    trackGoalText(id, goal.text);
+    const used = await refreshGoalUsage(id, goal.text);
+    if (
+      (goalAutoRuns.get(id) ?? 0) >= MAX_GOAL_AUTO_RUNS ||
+      (goal.tokenBudget != null && used >= goal.tokenBudget)
+    ) {
+      await pauseGoalAutomation(id, goal);
+      return "paused";
+    }
+    cancelGoalAutoTimer(id);
+    goalAutoTimers.set(id, setTimeout(() => {
+      goalAutoTimers.delete(id);
+      void runBackgroundGoal(id, goal.text);
+    }, 400));
+    return "scheduled";
+  }
+
+  async function runBackgroundGoal(id: string, expectedGoalText: string) {
+    const zen = window.zen;
+    if (!zen || stashedQueues.get(id)?.length || stashedApprovals.has(id) || stashedAsks.get(id)?.length) return;
+    if (sessionId.value === id) {
+      const goal = sessionGoal.value;
+      if (goal?.autoContinue && goal.status === "active" && goal.text === expectedGoalText && !isRunning.value) {
+        goalAutoRuns.set(id, (goalAutoRuns.get(id) ?? 0) + 1);
+        void continueGoal(true);
+      }
+      return;
+    }
+    const opened = await zen.session.snapshot(id);
+    const goal = opened?.session.goal;
+    if (!opened || !goal?.autoContinue || goal.status !== "active" || goal.text !== expectedGoalText) return;
+    if (sessionId.value === id || sessionStatusStore.get(id) !== "done") return;
+    const used = await refreshGoalUsage(id, goal.text);
+    if (goal.tokenBudget != null && used >= goal.tokenBudget) {
+      await pauseGoalAutomation(id, goal);
+      return;
+    }
+    const latest = await zen.session.snapshot(id);
+    if (
+      !latest?.session.goal?.autoContinue || latest.session.goal.status !== "active" ||
+      latest.session.goal.text !== expectedGoalText || sessionId.value === id
+    ) return;
+    goalAutoRuns.set(id, (goalAutoRuns.get(id) ?? 0) + 1);
+    runningGoalTextBySession.set(id, goal.text);
+    sessionStatusStore.set(id, "running");
+    try {
+      const result = await zen.agent.run({
+        sessionId: id,
+        userMessage: goalContinuationText(goal),
+        background: true,
+        workspaceId: opened.session.workspaceId ?? "common",
+        workspaceRoot: useWorkspaceStore().pathOf(opened.session.workspaceId ?? "common") ?? "",
+        providerId: opened.session.modelProviderId ?? undefined,
+        model: opened.session.modelId ?? undefined,
+        history: buildHistory(opened.messages),
+      });
+      if (!result.ok) {
+        runningGoalTextBySession.delete(id);
+        sessionStatusStore.set(id, "error");
+        notifyBackground(id, "error");
+      }
+    } catch {
+      runningGoalTextBySession.delete(id);
+      sessionStatusStore.set(id, "error");
+      notifyBackground(id, "error");
+    }
+  }
 
   /**
    * 发送消息：重入保护 + 实际发送。
@@ -684,19 +922,24 @@ export const useChatStore = defineStore("chat", () => {
    * 运行态还是 idle，快速重复触发（双击发送按钮、Enter 连按）会各自追加一条内容相同的
    * 用户气泡并各起一次 run。重复触发直接忽略——输入框内容还没被清，重按即可。
    *
-   * 守卫只覆盖这段「消息还没被接收」的前置窗口：消息一落气泡、status 置 thinking，
-   * 就交给 isRunning 判断（同会话再发进队列、其它会话各跑各的）。agent:run 的 IPC
-   * 要到整个 run 结束才 resolve，守卫若跟着它一起挂着，会把排队与跨会话发送全拦掉。
+   * 准备态按会话 ID 记录：当前会话立即显示反馈，切换后不会把 A 的准备态显示到 B。
+   * 消息被接收后改由 isRunning 判断，同会话再发进队列，其它会话可独立发送。
    */
-  async function send(overrideText?: string, options?: { approvePlan?: boolean }) {
-    if (sending) {
-      return;
+  async function send(overrideText?: string, options?: { approvePlan?: boolean; autoGoal?: boolean }) {
+    if (switchInFlight) await switchInFlight.catch(() => undefined);
+    const id = sessionId.value;
+    if (preparingSendIds.value.has(id)) return;
+    if (
+      !isRunning.value &&
+      window.zen &&
+      ((overrideText ?? input.value).trim() || attachments.value.length)
+    ) {
+      preparingSendIds.value = new Set(preparingSendIds.value).add(id);
     }
-    sending = true;
     try {
       await sendOnce(overrideText, options);
     } finally {
-      sending = false;
+      finishPreparing(id);
     }
   }
 
@@ -705,7 +948,7 @@ export const useChatStore = defineStore("chat", () => {
    * 不读输入框草稿、不带附件/技能/元素标注、不清空任何 composer 状态，
    * 且保留全部历史（不截断分叉），让 Agent 读完之前的进度后接着做。
    */
-  async function sendOnce(overrideText?: string, options?: { approvePlan?: boolean }) {
+  async function sendOnce(overrideText?: string, options?: { approvePlan?: boolean; autoGoal?: boolean }) {
     const continued = overrideText != null;
     const zen = window.zen;
     // 会话切换进行中（点了别的会话/新建但状态还没落定）：等切换完成再读当前会话，
@@ -749,7 +992,7 @@ export const useChatStore = defineStore("chat", () => {
     // 免登录可用：会话与本地 Agent 功能不依赖 GitHub；仅云同步等账号功能需登录
 
     // 首发消息前补建持久会话（启动后的本地会话此前不在库里，会报 session not found）
-    await ensurePersistedSession();
+    if (!(await ensurePersistedSession())) return;
 
     const modelsStore = useModelsStore();
     if (!modelsStore.selection.providerId || !modelsStore.selection.modelId) {
@@ -862,6 +1105,10 @@ export const useChatStore = defineStore("chat", () => {
       createdAt: Date.now(),
       meta: userMeta,
     });
+    if (!options?.autoGoal) {
+      cancelGoalAutoTimer(sessionId.value);
+      goalAutoRuns.delete(sessionId.value);
+    }
     // 发起对话即置顶：main 落库时会同步 updated_at，本地侧栏排序也立即跟上
     useWorkspaceStore().touchSessionLocal(sessionId.value);
 
@@ -871,6 +1118,14 @@ export const useChatStore = defineStore("chat", () => {
     pendingApproval.value = null;
     phase.value = "thinking";
     statusText.value = i18n.global.t("app.chat.thinking");
+    const runSessionId = sessionId.value;
+    if (sessionGoal.value?.status === "active") {
+      trackGoalText(runSessionId, sessionGoal.value.text);
+      runningGoalTextBySession.set(runSessionId, sessionGoal.value.text);
+    } else {
+      runningGoalTextBySession.delete(runSessionId);
+    }
+    finishPreparing(runSessionId);
 
     // 滚动摘要 + 超限双保险：上下文用量达到阈值（或已开启压缩）时折叠旧轮次
     const focus = compressFocus.value.trim();
@@ -880,16 +1135,12 @@ export const useChatStore = defineStore("chat", () => {
       compressFocus.value = "";
     }
 
-    // 消息已被接收（气泡已落、status 已置 thinking）：释放重入守卫，交由 isRunning
-    // 接管后续发送——同会话再发进队列、其它会话并行起 run，都不该被这里误拦
-    sending = false;
-
     // IPC 抛错与 {ok:false} 同路处理：不复位的话 status 会卡在 thinking，
     // 之后发送全被 isRunning 守卫拦进队列（无反馈），侧栏也一直「进行中」
     let result: { ok: boolean; error?: string };
     try {
       result = await zen.agent.run({
-        sessionId: sessionId.value,
+        sessionId: runSessionId,
         userMessage: agentText,
         workspaceRoot: workspaceRoot.value,
         workspaceId: sessionWorkspaceId.value,
@@ -915,11 +1166,14 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (!result.ok) {
-      status.value = "error";
-      lastError.value = result.error ?? i18n.global.t("app.chat.runFailed");
-      statusText.value = lastError.value;
+      runningGoalTextBySession.delete(runSessionId);
+      if (sessionId.value === runSessionId) {
+        status.value = "error";
+        lastError.value = result.error ?? i18n.global.t("app.chat.runFailed");
+        statusText.value = lastError.value;
+      }
       // run 未启动就没有 done 事件兜底，侧栏运行态必须在此落终态
-      sessionStatusStore.set(sessionId.value, "error");
+      sessionStatusStore.set(runSessionId, "error");
     }
   }
 
@@ -993,6 +1247,7 @@ export const useChatStore = defineStore("chat", () => {
     lastOutputTokens.value = null;
     lastCachedInputTokens.value = null;
     sessionTotalTokens.value = 0;
+    goalTotalTokens.value = 0;
     currentStep.value = null;
     lastDoneReason.value = null;
     runSummary.value = null;
@@ -1002,39 +1257,47 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /** 首发消息前补建持久会话：沿用当前 id，避免 agent:run 因会话不在库里报 session not found */
-  async function ensurePersistedSession() {
+  async function ensurePersistedSession(): Promise<boolean> {
     const zen = window.zen;
-    if (!zen || sessionPersisted.value) {
-      return;
-    }
+    if (!zen) return false;
+    if (sessionPersisted.value) return true;
+    const id = sessionId.value;
+    const workspaceId = sessionWorkspaceId.value;
+    const model = sessionModel.value;
+    const mode = sessionMode.value;
+    const goal = sessionGoal.value;
     try {
-      const record = await zen.session.create(sessionWorkspaceId.value, sessionId.value);
-      sessionPersisted.value = true;
-      useWorkspaceStore().appendSessionLocal(sessionWorkspaceId.value, record);
+      const record = await zen.session.create(workspaceId, id);
+      if (sessionId.value === id) sessionPersisted.value = true;
+      useWorkspaceStore().appendSessionLocal(workspaceId, record);
       // 首发补建时，把此前仅在内存里的会话模型覆盖一并落库
-      if (sessionModel.value) {
+      if (model) {
         await zen.session.setModel(
-          sessionId.value,
-          sessionModel.value.providerId,
-          sessionModel.value.modelId,
+          id,
+          model.providerId,
+          model.modelId,
         );
       }
       // 未持久化阶段切过的会话模式同样补落库（interactive 是缺省，无需写）
-      if (sessionMode.value !== "interactive") {
-        await zen.session.setMode(sessionId.value, sessionMode.value);
+      if (mode !== "interactive") {
+        await zen.session.setMode(id, mode);
       }
       // 未持久化阶段设定的会话目标同样补落库（过桥前先序列化成纯对象，防响应式 Proxy）
-      if (sessionGoal.value) {
+      if (goal) {
         await zen.session.setGoal(
-          sessionId.value,
-          JSON.parse(JSON.stringify(sessionGoal.value)) as SessionGoal,
+          id,
+          JSON.parse(JSON.stringify(goal)) as SessionGoal,
         );
       }
+      return true;
     } catch (error) {
-      lastError.value = i18n.global.t("app.chat.createSessionFailed", {
-        error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
-      });
-      statusText.value = lastError.value;
+      if (sessionId.value === id) {
+        lastError.value = i18n.global.t("app.chat.createSessionFailed", {
+          error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
+        });
+        statusText.value = lastError.value;
+      }
+      return false;
     }
   }
 
@@ -1155,11 +1418,29 @@ export const useChatStore = defineStore("chat", () => {
     stashComposerDraft();
     stashQueuedMessages();
 
-    const found = await zen.session.open(record.id);
+    // 先读无副作用快照，等会话工作树加载完成后再切可见会话与浏览器 scope。
+    const found = zen.session.snapshot
+      ? await zen.session.snapshot(record.id)
+      : await zen.session.open(record.id);
     if (!found || seq !== switchSeq) {
       // 打开失败，或等待期间用户又点了其他会话/新建：丢弃本次结果，
       // 否则慢返回的旧请求会覆盖新会话（选中异常、输入框内容被换掉）
       return;
+    }
+    try {
+      await useSessionWorktreeStore().load(record.id);
+    } catch (error) {
+      if (seq === switchSeq) {
+        lastError.value = error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError");
+        statusText.value = lastError.value;
+      }
+      return;
+    }
+    if (seq !== switchSeq) return;
+    trackGoalText(record.id, found.session.goal?.text ?? null);
+    if (found.session.goal) {
+      await refreshGoalUsage(record.id, found.session.goal.text);
+      if (seq !== switchSeq) return;
     }
     // 切换窗口内用户继续输入：保留刚输入的内容，不被目标会话草稿覆盖
     const typedDuringSwitch = input.value !== inputAtSwitch;
@@ -1174,6 +1455,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionStatusStore.markSeen(record.id);
     sessionName.value = found.session.title;
     sessionWorkspaceId.value = found.session.workspaceId ?? "common";
+    zen.browser?.setScope?.(sessionWorkspaceId.value);
     // 恢复该会话的模型覆盖；无覆盖时跟随全局默认
     sessionModel.value =
       found.session.modelProviderId && found.session.modelId
@@ -1209,6 +1491,7 @@ export const useChatStore = defineStore("chat", () => {
     queue.queuedMessages.value = stashedQueues.get(record.id) ?? [];
     stashedQueues.delete(record.id);
     resetRunState();
+    goalTotalTokens.value = goalUsageBySession.get(record.id) ?? 0;
     // 切回仍在后台运行的会话：恢复运行态（isRunning=true），
     // 让 send() 走队列而不是再次 agent:run 顶掉后台 run；后续流事件正常流入展示
     if (bgResumable) {
@@ -1279,11 +1562,18 @@ export const useChatStore = defineStore("chat", () => {
    * 传 IPC 会抛 "An object could not be cloned"（zen-005）。
    */
   async function setSessionGoal(goal: SessionGoal | null) {
+    const previous = sessionGoal.value;
+    if (!goal?.autoContinue || goal.status !== "active" || previous?.text !== goal.text || !previous.autoContinue) {
+      cancelGoalAutoTimer(sessionId.value);
+      goalAutoRuns.delete(sessionId.value);
+    }
     sessionGoal.value = goal ? JSON.parse(JSON.stringify(goal)) as SessionGoal : null;
+    trackGoalText(sessionId.value, sessionGoal.value?.text ?? null);
     const zen = window.zen;
     if (zen && sessionPersisted.value) {
       await zen.session.setGoal(sessionId.value, sessionGoal.value);
     }
+    useWorkspaceStore().updateSessionGoalLocal(sessionId.value, sessionGoal.value);
   }
 
   /** 仅切换目标状态（active/paused/blocked/complete），保留文本与预算 */
@@ -1308,11 +1598,13 @@ export const useChatStore = defineStore("chat", () => {
     if (workspaceId === sessionWorkspaceId.value) {
       return;
     }
-    sessionWorkspaceId.value = workspaceId;
-    useWorkspaceStore().setActive(workspaceId);
     const zen = window.zen;
     if (zen && sessionPersisted.value) {
       await zen.session.setWorkspace(sessionId.value, workspaceId);
+    }
+    sessionWorkspaceId.value = workspaceId;
+    useWorkspaceStore().setActive(workspaceId);
+    if (zen && sessionPersisted.value) {
       // 侧栏分组跟着迁移
       useWorkspaceStore().removeSessionLocal(sessionId.value);
       useWorkspaceStore().appendSessionLocal(workspaceId, {
@@ -1367,6 +1659,7 @@ export const useChatStore = defineStore("chat", () => {
     insertAtComposerCaret,
     isPaused,
     isRunning,
+    isPreparing,
     queuedMessages: queue.queuedMessages,
     editQueued: queue.edit,
     removeQueued: queue.remove,
@@ -1389,6 +1682,7 @@ export const useChatStore = defineStore("chat", () => {
     lastOutputTokens,
     lastCachedInputTokens,
     sessionTotalTokens,
+    goalTotalTokens,
     cacheHitRate,
     currentStep,
     lastDoneReason,

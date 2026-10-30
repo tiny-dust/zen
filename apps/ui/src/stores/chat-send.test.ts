@@ -4,6 +4,8 @@
 import { createPinia, disposePinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SessionRecord } from "@zen/shared";
+
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 import { useSessionStatusStore } from "@/stores/session-status";
@@ -57,6 +59,12 @@ function stubZen() {
 
 let pinia: ReturnType<typeof createPinia>;
 
+function requiredZen() {
+  const zen = window.zen;
+  if (!zen) throw new Error("zen API is unavailable in the test");
+  return zen;
+}
+
 beforeEach(() => {
   localStorage.clear();
   pinia = createPinia();
@@ -106,6 +114,83 @@ describe("send 运行启动失败复位", () => {
     expect(chat.isRunning).toBe(false);
     expect(sessionStatus.get(chat.sessionId)).toBe("error");
     expect(chat.lastError).toBe("session not found");
+  });
+});
+
+describe("发送准备态按会话隔离", () => {
+  it("首发补建会话尚未完成时立即反馈，切到 B 后不把 A 的准备态或结果写给 B", async () => {
+    const chat = useChatStore();
+    const oldId = chat.sessionId;
+    let completeCreate: ((record: SessionRecord) => void) | undefined;
+    vi.mocked(requiredZen().session.create).mockImplementationOnce(
+      () => new Promise((resolve) => { completeCreate = resolve; }),
+    );
+
+    chat.input = "A 的消息";
+    const firstSend = chat.send();
+    expect(chat.isPreparing).toBe(true);
+    expect(chat.canSend).toBe(false);
+    expect(chat.messages).toHaveLength(0);
+
+    const secondSend = chat.send();
+    const other: SessionRecord = {
+      id: "session-b",
+      title: "B",
+      workspaceId: null,
+      draft: "",
+      pinned: false,
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    vi.mocked(requiredZen().session.open).mockResolvedValueOnce({ session: other, messages: [] });
+    await chat.loadSession(other);
+    expect(chat.isPreparing).toBe(false);
+
+    chat.input = "B 的消息";
+    agentRun.mockResolvedValueOnce({ ok: true });
+    await chat.send();
+    expect(agentRun).toHaveBeenCalledTimes(1);
+    expect(agentRun.mock.calls[0]?.[0]).toMatchObject({ sessionId: other.id, userMessage: "B 的消息" });
+
+    completeCreate?.({ ...other, id: oldId });
+    await Promise.all([firstSend, secondSend]);
+    expect(agentRun).toHaveBeenCalledTimes(1);
+    expect(chat.sessionId).toBe(other.id);
+    expect(chat.isPreparing).toBe(false);
+  });
+
+  it("A 的 run 在后台启动失败时，只更新 A 的侧栏状态", async () => {
+    const chat = useChatStore();
+    const sessionStatus = useSessionStatusStore();
+    let failRun: ((result: { ok: false; error: string }) => void) | undefined;
+    agentRun.mockImplementationOnce(
+      () => new Promise((resolve) => { failRun = resolve; }),
+    );
+    chat.input = "A 的消息";
+    const firstSend = chat.send();
+    await vi.waitFor(() => expect(agentRun).toHaveBeenCalledTimes(1));
+    const oldId = chat.sessionId;
+
+    const other: SessionRecord = {
+      id: "session-b",
+      title: "B",
+      workspaceId: null,
+      draft: "",
+      pinned: false,
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    vi.mocked(requiredZen().session.open).mockResolvedValueOnce({ session: other, messages: [] });
+    await chat.loadSession(other);
+    failRun?.({ ok: false, error: "A failed" });
+    await firstSend;
+
+    expect(sessionStatus.get(oldId)).toBe("error");
+    expect(chat.sessionId).toBe(other.id);
+    expect(chat.status).toBe("idle");
+    expect(chat.lastError).toBe("");
   });
 });
 

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useSessionStatusStore } from "@/stores/session-status";
 
 beforeEach(() => {
+  localStorage.clear();
   setActivePinia(createPinia());
 });
 
@@ -70,5 +71,21 @@ describe("useSessionStatusStore", () => {
     store.set("s2", "running");
     store.clear("s2");
     expect(store.hasUnseenResult("s2")).toBe(false);
+  });
+
+  it("未读完成结果跨重启恢复；运行态不持久化", () => {
+    const store = useSessionStatusStore();
+    store.set("finished", "done");
+    store.set("running", "running");
+
+    setActivePinia(createPinia());
+    const restored = useSessionStatusStore();
+    expect(restored.get("finished")).toBe("done");
+    expect(restored.hasUnseenResult("finished")).toBe(true);
+    expect(restored.get("running")).toBe("idle");
+
+    restored.markSeen("finished");
+    setActivePinia(createPinia());
+    expect(useSessionStatusStore().hasUnseenResult("finished")).toBe(false);
   });
 });

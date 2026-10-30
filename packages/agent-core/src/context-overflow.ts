@@ -50,6 +50,8 @@ export async function summarizeWithModel(
   messages: ModelMessage[],
   previousInstructions?: string | null,
 ): Promise<string | null> {
+  // ChatGPT 方案只允许 stream=true；此处 generateText 为非流式，交由调用方确定性裁剪。
+  if (config.chatgptPlan) return null;
   const system = [previousInstructions ?? undefined, SUMMARY_GUIDE]
     .filter((part): part is string => !!part)
     .join("\n\n");

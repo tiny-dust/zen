@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
+import ActivityInboxDialog from "@/components/sidebar/ActivityInboxDialog.vue";
 import TerminalPanel from "@/components/bottom/TerminalPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
@@ -20,14 +21,38 @@ import { useMediaQuery } from "@/composables/useMediaQuery";
 import { openSessionById } from "@/lib/open-session";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
+import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
+import { useSchedulerStore } from "@/stores/scheduler";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useSettingsStore } from "@/stores/settings";
 import { useTerminalStore } from "@/stores/terminal";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 const chatStore = useChatStore();
+const gitStore = useGitStore();
+const schedulerStore = useSchedulerStore();
+const worktreeStore = useSessionWorktreeStore();
+const terminalStore = useTerminalStore();
+
+watch(
+  () => chatStore.sessionId,
+  async (id) => {
+    if (!id) return;
+    try {
+      await worktreeStore.load(id);
+      if (chatStore.sessionId === id) {
+        terminalStore.bindWorkspaceScope(chatStore.sessionWorkspaceId);
+        await gitStore.refreshStatus();
+      }
+    } catch (error) {
+      console.error("[worktree] Failed to load session worktree:", error);
+    }
+  },
+  { immediate: true },
+);
 const layoutStore = useLayoutStore();
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
@@ -87,7 +112,7 @@ async function runWorkbenchCommand(command: string): Promise<void> {
       const opening = layoutStore.bottomCollapsed;
       layoutStore.toggleBottom();
       if (opening) {
-        void useTerminalStore().ensureForWorkspace();
+        void terminalStore.ensureForWorkspace();
       }
       break;
     }
@@ -119,6 +144,7 @@ onMounted(() => {
     history.replaceState(null, "", window.location.pathname + window.location.search);
   }
   void userStore.waitForReady().then(() => useWorkspaceStore().refresh());
+  void schedulerStore.load();
   // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
   layoutStore.syncViewport();
   window.addEventListener("resize", layoutStore.syncViewport);
@@ -131,6 +157,7 @@ onUnmounted(() => {
   disposeSettings?.();
   disposeModels?.();
   disposeAgent?.();
+  schedulerStore.dispose();
 });
 
 function onLeftDrag(delta: number) {
@@ -185,6 +212,7 @@ const sideRail =
     </div>
 
     <InfoPopup />
+    <ActivityInboxDialog />
     <SettingsPage />
     <Toaster />
   </div>

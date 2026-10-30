@@ -198,7 +198,7 @@ interface RunResult {
   request: RecordedRequest;
 }
 
-async function runSession(protocol: ProviderProtocol, baseUrl: string): Promise<RunResult> {
+async function runSession(protocol: ProviderProtocol, baseUrl: string, chatgptPlan = false): Promise<RunResult> {
   const firstRequestIndex = requests.length;
   const events: AgentStreamEvent[] = [];
   const session = new AgentSession({
@@ -208,6 +208,7 @@ async function runSession(protocol: ProviderProtocol, baseUrl: string): Promise<
     baseUrl,
     apiKey: API_KEY,
     model: MODEL_ID,
+    chatgptPlan,
     permissionMode: "smart",
     emit: (event) => events.push(event),
   });
@@ -292,6 +293,18 @@ describe("provider 协议", () => {
     const done = doneEvents(events);
     expect(done.map((event) => event.reason)).toEqual(["stop"]);
     expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("ChatGPT 方案请求关闭存储并以流式 Responses 发送", async () => {
+    const { events, request } = await runSession("openai-responses", `${origin}/v1`, true);
+
+    expect(request.path).toBe(RESPONSES_PATH);
+    expect(request.json.store).toBe(false);
+    expect(request.json.stream).toBe(true);
+    expect(request.json.max_output_tokens).toBeUndefined();
+    expect(request.json.prompt_cache_key).toBeUndefined();
+    expect(deltaText(events)).toBe(REPLY_TEXT);
+    expect(errorMessages(events)).toEqual([]);
   });
 
   it("anthropic-messages 走 /v1/messages 与 x-api-key 鉴权", async () => {

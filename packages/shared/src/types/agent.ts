@@ -50,6 +50,14 @@ export interface GitStatus {
   merging?: boolean;
 }
 
+/** 工作区目录中发现的独立 Git 工作树。path 作为仓库切换的稳定键。 */
+export interface GitRepository {
+  path: string;
+  /** 相对扫描目录的路径；扫描目录本身为 "."。 */
+  relativePath: string;
+  name: string;
+}
+
 export interface GitLogEntry {
   hash: string;
   parents: string[];

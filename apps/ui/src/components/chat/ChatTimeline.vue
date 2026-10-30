@@ -4,6 +4,7 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { Loader } from "@/components/ai-elements/loader";
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
 import { groupTimelineMessages } from "@/components/chat/message-groups";
 import type { TimelineItem } from "@/components/chat/message-groups";
@@ -39,6 +40,15 @@ const showTopError = computed(() => {
   }
   return true;
 });
+
+/**
+ * 发送准备中，或运行中但本轮助手气泡尚未生成时，消息区展示思考占位。
+ * 长历史会话的前置准备和首个流事件可能耗时，发送入口就应有反馈。
+ * 只读当前会话的运行态与消息尾，切换会话随 store 复位，各会话反馈互不影响。
+ */
+const showThinkingHint = computed(
+  () => chatStore.isPreparing || (chatStore.isRunning && messages.value.at(-1)?.role !== "assistant"),
+);
 
 function isFarFromBottom() {
   const el = listEl.value;
@@ -366,16 +376,16 @@ onUnmounted(() => {
         v-if="chatStore.pendingApproval"
         class="sticky top-0 z-10 -ml-[var(--chat-gutter)] -mr-4 mb-1 flex flex-col gap-2 bg-[var(--color-main-bg)] pl-[var(--chat-gutter)] pr-4 pb-2 pt-3"
       >
-        <div class="mx-auto flex w-full max-w-[860px] flex-col gap-2">
+        <div class="mx-auto flex w-full max-w-[1024px] flex-col gap-2">
           <ApprovalCard />
         </div>
       </div>
 
       <div
         ref="contentEl"
-        class="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-4"
+        class="mx-auto flex w-full max-w-[1024px] flex-1 flex-col gap-4"
       >
-        <div v-if="messages.length === 0" class="m-auto text-center text-[var(--color-mut)]">
+        <div v-if="messages.length === 0 && !showThinkingHint" class="m-auto text-center text-[var(--color-mut)]">
           <p class="m-0">{{ t("chat.startConversation") }}</p>
           <p class="mt-2 text-[12px] text-[var(--color-dim)]">
             {{ t("chat.startConversationHint") }}
@@ -403,6 +413,15 @@ onUnmounted(() => {
               :message="item.message"
               :streaming="chatStore.isRunning && item.message.id === messages.at(-1)?.id"
             />
+          </div>
+          <!-- 首个流事件前的思考占位：助手气泡一到就让位（气泡内 loader 接管） -->
+          <div
+            v-if="showThinkingHint"
+            class="flex items-center gap-1.5 text-[var(--color-mut)]"
+            role="status"
+          >
+            <Loader :size="14" />
+            <span class="text-[12px] tabular-nums">{{ t("chat.bubble.thinking") }}</span>
           </div>
         </template>
       </div>

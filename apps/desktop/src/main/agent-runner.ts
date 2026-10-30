@@ -8,8 +8,8 @@ import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agen
 import { getAgentServicesRegistry } from "./agent-services";
 import { buildApprovalGate } from "./approval-gate";
 import { getCuaService } from "./abilities/cua";
-import { getBrowserService } from "./browser/service";
-import { resolveChatGptCredentials } from "./chatgpt-auth";
+import { getBrowserRegistry } from "./browser/service";
+import { getChatGptAuthStatus, resolveChatGptCredentials } from "./chatgpt-auth";
 import { notifyLarkEvent } from "./lark/ipc";
 import {
   appendMemoryNote,
@@ -19,9 +19,11 @@ import {
 } from "./memory";
 import { enabledMcpTools } from "./mcp-ipc";
 import { inspectModelCapabilities } from "./model-capabilities";
-import { getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
+import { chatGptUsageAccountKey, recordProviderUsage } from "./model-usage";
+import { CHATGPT_PROVIDER_BASE_URL, getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
+import { resolveSessionWorktreeRoot } from "./session-worktree";
 import {
   backupAfterWrite,
   backupWorkspaceFile,
@@ -39,6 +41,7 @@ import {
   getWorkspace,
   listWorkspaceGroups,
   loadSessionModelHistory,
+  recordGoalUsage,
   rewriteSessionModelHistory,
   saveTaskList,
   setSessionMode,
@@ -164,6 +167,9 @@ export async function runAgentRequest(
     parts: [],
   };
   let persisted = false;
+  let usageProviderId: string | null = null;
+  let usageModelId: string | null = null;
+  let usageAccountKey: string | null = null;
   const persistRun = () => {
     if (persisted) {
       return;
@@ -198,6 +204,25 @@ export async function runAgentRequest(
       send?.(streamEvent);
       return;
     }
+    if (streamEvent.type === "usage") {
+      if (usageProviderId && usageModelId && usageAccountKey !== null) {
+        try {
+          recordProviderUsage(usageProviderId, usageModelId, streamEvent, Date.now(), usageAccountKey);
+        } catch (error) {
+          // 用量统计失败不能中断 Agent 的流式响应。
+          console.warn("[zen] 供应商用量落库失败", error);
+        }
+      }
+      if (runGoal?.status === "active") {
+        // 使用流内每步的真实用量累计；消息 meta.run.usage 只保存最近一次事件。
+        try {
+          recordGoalUsage(request.sessionId, runGoal.text, streamEvent.inputTokens, streamEvent.outputTokens);
+        } catch (error) {
+          // 用量落库失败不能中断正在执行的 Agent；当前会话仍可由渲染层显示实时用量。
+          console.warn("[zen] 目标用量落库失败", error);
+        }
+      }
+    }
     if (streamEvent.type === "tasks_updated") {
       // 任务清单只进 task_lists 表（悬浮面板恢复用）；不再写入消息流
       saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
@@ -231,10 +256,16 @@ export async function runAgentRequest(
       return { ok: true };
     }
 
-    const capabilities = inspectModelCapabilities(modelId);
+    usageProviderId = provider.id;
+    usageModelId = modelId;
+
+    const capabilities = isChatGptAuthProvider(provider)
+      ? provider.models.find((item) => item.id === modelId)?.capabilities ?? inspectModelCapabilities(modelId)
+      : inspectModelCapabilities(modelId);
     // 模型级对话端点覆盖优先（如 Responses-only 的 gpt-6 系列），否则沿用供应商协议
-    const protocol =
-      capabilities.chatEndpoint && capabilities.chatEndpoint !== "auto"
+    const protocol = isChatGptAuthProvider(provider)
+      ? "openai-responses"
+      : capabilities.chatEndpoint && capabilities.chatEndpoint !== "auto"
         ? capabilities.chatEndpoint
         : provider.protocol;
 
@@ -258,19 +289,18 @@ export async function runAgentRequest(
     // 工作区外的上传文件（视觉模型看到的图片同样需要路径来保存/处理）
     runUserMessage = withAttachmentManifest(runUserMessage, request.attachments);
 
-    // ChatGPT 账号登录：access_token 走 apiKey 通道（Bearer），附带后端识别头；
+    // ChatGPT 方案登录：access_token 走 apiKey 通道（Bearer）；
     // 其余供应商走静态 API Key
     let apiKey: string;
     let authHeaders: Record<string, string> | undefined;
     if (isChatGptAuthProvider(provider)) {
       const credentials = await resolveChatGptCredentials(provider.id);
       apiKey = credentials.accessToken;
-      authHeaders = { originator: "zen_desktop" };
-      if (credentials.accountId) {
-        authHeaders["chatgpt-account-id"] = credentials.accountId;
-      }
+      const authStatus = await getChatGptAuthStatus(provider.id);
+      usageAccountKey = chatGptUsageAccountKey(credentials.accountId ?? authStatus.accountId, authStatus.email);
     } else {
       apiKey = await loadProviderApiKey(provider.id);
+      usageAccountKey = "";
     }
 
     // agent 域配置：权限模式、提示词、技能路径；工作区按沙箱模式解析实际目录
@@ -278,7 +308,9 @@ export async function runAgentRequest(
     const projectPath = getWorkspace(request.workspaceId)?.path;
     let workspaceRoot: string;
     if (projectPath) {
-      workspaceRoot = (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
+      workspaceRoot =
+        (await resolveSessionWorktreeRoot(request.sessionId, projectPath)) ??
+        (await resolveWorkspaceDir(projectPath, agentSettings.sandboxMode)).dir;
     } else {
       // 无项目会话（公共区）：Agent 产物落 ~/.zen/cache/sessions/<sessionId>，
       // 不再落到用户主目录/应用启动 cwd；mkdir 保证目录先于首次写文件存在
@@ -320,9 +352,10 @@ export async function runAgentRequest(
       sessionId: request.sessionId,
       workspaceRoot,
       protocol,
-      baseUrl: provider.baseUrl,
+      baseUrl: isChatGptAuthProvider(provider) ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl,
       apiKey,
       model: modelId,
+      chatgptPlan: isChatGptAuthProvider(provider),
       // 已知上下文窗口下发给 agent-core：run 内步间按真实 usage 主动压缩；未知则不主动压缩
       contextWindow: capabilities.contextWindow,
       reasoningEffort: request.reasoningEffort,
@@ -360,10 +393,13 @@ export async function runAgentRequest(
       skills,
       skillExtraPaths: agentSettings.skillExtraPaths,
       mcpTools,
-      browserBridge: getBrowserService(),
+      // 后台会话必须使用自己的浏览器 scope，不能借用用户当前正在看的工作区视图。
+      browserBridge: getBrowserRegistry().forScope(request.workspaceId),
       // CUA 桌面自动化桥：agent settings cuaEnabled 总开关（默认 off）开启才注册 cua.* 工具；
       // 权限系统把鼠标/键盘类 cua 工具按 exec 风险逐次确认
-      cuaBridge: agentSettings.cuaEnabled === true ? getCuaService().bridge() : undefined,
+      cuaBridge: !request.background && agentSettings.cuaEnabled === true
+        ? getCuaService().bridge()
+        : undefined,
       // runTerminal 进程组跟踪：settle 后存活的 dev server 等收集为长驻服务（右栏「服务」）
       servicesBridge: getAgentServicesRegistry()?.bridge(),
       // 自动审批闸：命令前缀规则命中 allow 直接放行；「帮我核准」开启时先由会话生效

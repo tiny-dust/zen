@@ -48,6 +48,7 @@ import type {
   GitCommitDetail,
   GitLogEntry,
   GitPullRequest,
+  GitRepository,
   GitStashEntry,
   GitStatus,
   GitSyncResult,
@@ -69,6 +70,7 @@ import type {
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  ProviderUsageSnapshot,
   PtyDataEvent,
   PtyExitEvent,
   ReadFileResult,
@@ -77,6 +79,7 @@ import type {
   ScheduledTaskRun,
   ScheduledTaskRunEvent,
   SessionRecord,
+  SessionWorktree,
   SetModelsEnabledInput,
   AgentServiceInfo,
   SkillFileContent,
@@ -96,7 +99,7 @@ import type {
   Workspace,
   WorkspaceGroup,
 } from "@zen/shared";
-import type { SessionGoal, SessionMode } from "@zen/shared";
+import type { SessionGoal, SessionGoalRuntime, SessionMode } from "@zen/shared";
 
 export interface AppInfo {
   workspaceRoot: string;
@@ -152,6 +155,7 @@ export interface ZenApi {
     toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>;
   };
   git: {
+    discover(root: string): Promise<GitRepository[]>;
     info(cwd?: string): Promise<{ repo: string; branch: string }>;
     status(cwd?: string): Promise<GitStatus | null>;
     diff(cwd: string | undefined, path: string, staged?: boolean): Promise<string | null>;
@@ -256,6 +260,7 @@ export interface ZenApi {
     }>;
     chatgptStatus(providerId: string): Promise<ChatGptAuthStatus>;
     chatgptLogout(providerId: string): Promise<ChatGptAuthStatus>;
+    getUsage(providerId: string): Promise<ProviderUsageSnapshot>;
   };
   agent: {
     run(request: AgentRunRequest): Promise<{ ok: boolean; error?: string }>;
@@ -328,6 +333,7 @@ export interface ZenApi {
       data: ArrayBuffer | Uint8Array;
     }): Promise<{ ok: boolean; path?: string; error?: string }>;
     roots(): Promise<{ root: string; paste: string; screenshots: string }>;
+    clearTemporary(): Promise<{ ok: boolean; error?: string }>;
   };
   skills: {
     marketSearch(query: string): Promise<{
@@ -423,6 +429,9 @@ export interface ZenApi {
   };
   session: {
     create(workspaceId: string | null, id?: string): Promise<SessionRecord>;
+    worktree(id: string): Promise<SessionWorktree | null>;
+    createWorktree(id: string): Promise<{ ok: boolean; worktree?: SessionWorktree; error?: string }>;
+    removeWorktree(id: string): Promise<{ ok: boolean; error?: string }>;
     /** 会话迁移到其它工作区/公共区（composer 底栏选择器） */
     setWorkspace(id: string, workspaceId: string | null): Promise<void>;
     /** 会话级模型覆盖；null 表示跟随全局默认模型 */
@@ -431,11 +440,21 @@ export interface ZenApi {
     setMode(id: string, mode: SessionMode): Promise<void>;
     /** 会话目标（Goals 目标模式）；null 表示清除目标 */
     setGoal(id: string, goal: SessionGoal | null): Promise<void>;
+    /** 当前目标累计用量；按会话及目标文本持久化。 */
+    getGoalRuntime(id: string): Promise<SessionGoalRuntime | null>;
     open(id: string): Promise<{
       session: SessionRecord;
       messages: ChatMessage[];
       taskLists?: Array<{ version: number; items: import("@zen/shared").TaskItem[]; createdAt?: number }>;
     } | null>;
+    /** 不改变当前可见浏览器 scope 的后台只读快照。 */
+    snapshot(id: string): Promise<{
+      session: SessionRecord;
+      messages: ChatMessage[];
+      taskLists?: Array<{ version: number; items: import("@zen/shared").TaskItem[]; createdAt?: number }>;
+    } | null>;
+    /** 只提醒后台会话；主进程跳过已有独立通知的计划任务会话。 */
+    notify(id: string, body: string): Promise<void>;
     /** 全局会话搜索（侧栏）：标题 + 消息内容命中，标题命中优先；空词返回空列表 */
     search(query: string, limit?: number): Promise<SessionRecord[]>;
     /** 渲染层自建消息落库（上下文压缩摘要卡）；main 侧会校验并拒绝非法载荷 */

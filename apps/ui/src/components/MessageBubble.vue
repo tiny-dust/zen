@@ -476,7 +476,7 @@ async function ocrAttachment(path: string) {
   <!-- user：右对齐弱气泡；消息底部常显时间 / 复制 / 编辑 -->
   <div v-if="message.role === 'user'" class="flex w-full flex-col items-end gap-1">
     <div
-      class="max-w-[min(760px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
+      class="max-w-[min(900px,85%)] rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--color-txt-strong)]"
     >
       <!-- 插入执行徽标：打断原任务、以最高权重先执行 -->
       <div v-if="insertedBadge" class="mb-1.5 flex justify-end">

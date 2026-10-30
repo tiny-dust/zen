@@ -28,6 +28,7 @@ export default {
     cancelInsertEdit: "取消插入编辑",
     addFile: "添加文件",
     addFileTitle: "添加文件（也可直接粘贴文件/图像）",
+    moreOptions: "更多选项",
     contextUsage: "上下文用量",
     /* 上下文用量弹层（输入框底栏 ContextUsagePicker） */
     context: {
@@ -55,6 +56,13 @@ export default {
     resume: "继续",
     send: "发送",
     aiDisclaimer: "内容由 AI 生成，请注意核实",
+    background: {
+      done: "后台会话已完成，点击 Zen 查看结果。",
+      error: "后台会话运行失败，请打开 Zen 查看。",
+      needsAction: "后台会话需要你的审批或回答。",
+      goalPaused: "持续目标已达到自动续跑轮数或预算上限，已暂停。",
+      stepLimit: "后台会话达到步数上限，等待你继续。",
+    },
     triggerSuggestions: "触发建议",
     uploaded: "已上传",
     noMcpRunning: "没有运行中的 MCP 服务（侧栏 MCP 弹窗可配置）",
@@ -316,6 +324,7 @@ export default {
     cancelInsertEdit: "Cancel insert edit",
     addFile: "Add file",
     addFileTitle: "Add file (you can also paste files or images)",
+    moreOptions: "More options",
     contextUsage: "Context usage",
     /* Context usage panel (ContextUsagePicker in the composer bottom bar) */
     context: {
@@ -343,6 +352,13 @@ export default {
     resume: "Resume",
     send: "Send",
     aiDisclaimer: "AI-generated content — please verify",
+    background: {
+      done: "A background chat finished. Open Zen to review the result.",
+      error: "A background chat failed. Open Zen to review it.",
+      needsAction: "A background chat needs your approval or answer.",
+      goalPaused: "The ongoing goal reached its auto-run or token limit and is paused.",
+      stepLimit: "A background chat reached its step limit and is waiting for you.",
+    },
     triggerSuggestions: "Suggestions",
     uploaded: "Uploaded",
     noMcpRunning: "No running MCP services (configure in the MCP panel in the sidebar)",

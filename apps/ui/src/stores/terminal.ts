@@ -8,6 +8,7 @@ import type {
 } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
 import { createSessionBuckets } from "@/stores/session-buckets";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { i18n } from "@/locales";
 
@@ -70,7 +71,11 @@ export const useTerminalStore = defineStore("terminal", () => {
    * 切回时 useTerminalPanes 重新挂载 xterm 并回放缓冲。
    */
   function bindWorkspaceScope(workspaceId: string) {
-    workspaceBuckets.switchTo(workspaceId);
+    const sessionId = useChatStore().sessionId;
+    const scope = useSessionWorktreeStore().current(sessionId)
+      ? `${workspaceId}:worktree:${sessionId}`
+      : workspaceId;
+    workspaceBuckets.switchTo(scope);
   }
 
   /** 活跃会话的终端面板状态视图：getter/setter 直连 refs，可复用桶内的 prune 逻辑 */
@@ -268,7 +273,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     await loadShell();
     await loadFont();
     const workspace = useWorkspaceStore();
-    const workdir = cwd || workspace.activePath || undefined;
+    const chat = useChatStore();
+    const localPath = workspace.pathOf(chat.sessionWorkspaceId) || workspace.activePath || undefined;
+    const workdir = cwd || useSessionWorktreeStore().cwd(chat.sessionId, localPath);
     const result = await window.zen.terminal.create({
       cwd: workdir,
       cols,
@@ -421,10 +428,8 @@ export const useTerminalStore = defineStore("terminal", () => {
     }
     const workspace = useWorkspaceStore();
     const chat = useChatStore();
-    const cwd =
-      workspace.pathOf(chat.sessionWorkspaceId) ||
-      workspace.activePath ||
-      undefined;
+    const localPath = workspace.pathOf(chat.sessionWorkspaceId) || workspace.activePath || undefined;
+    const cwd = useSessionWorktreeStore().cwd(chat.sessionId, localPath);
     await start(cwd);
   }
 
@@ -433,7 +438,9 @@ export const useTerminalStore = defineStore("terminal", () => {
       return { ok: false, error: i18n.global.t("app.terminal.ipcUnavailable") };
     }
     const workspace = useWorkspaceStore();
-    return window.zen.terminal.openExternal(workspace.activePath || undefined);
+    const chat = useChatStore();
+    const localPath = workspace.pathOf(chat.sessionWorkspaceId) || workspace.activePath || undefined;
+    return window.zen.terminal.openExternal(useSessionWorktreeStore().cwd(chat.sessionId, localPath));
   }
 
   return {

@@ -2,6 +2,8 @@
 import {
   ArrowUp,
   Check,
+  ChevronDown,
+  LoaderCircle,
   Mic,
   Play,
   Plus,
@@ -52,6 +54,7 @@ const chatStore = useChatStore();
 const {
   input,
   isRunning,
+  isPreparing,
   isPaused,
   canSend,
   effort,
@@ -78,6 +81,7 @@ const selectedReasoningEfforts = computed<ReasoningEffort[]>(() => {
   return [];
 });
 const viewportCompact = useMediaQuery("(max-width: 1024px)");
+const advancedOpen = ref(false);
 /** 底栏实际宽度：比视口更准——侧栏/右栏占用后 composer 变窄也要收成 icon */
 const bottomBarEl = ref<HTMLElement | null>(null);
 const bottomBarWidth = ref(0);
@@ -314,7 +318,7 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条。
        左侧与消息区共用 --chat-gutter 引导线槽，保持两列对齐（见 styles.css） -->
   <div class="flex-none bg-[var(--color-main-bg)] pl-[var(--chat-gutter)] pr-4 pb-4 pt-2">
-    <div class="relative mx-auto max-w-[860px]">
+    <div class="relative mx-auto max-w-[1024px]">
       <!-- Agent 提问卡：贴在输入框上方，回答动作紧邻输入位置 -->
       <AskUserCard v-if="chatStore.pendingAsk" class="mb-2" />
 
@@ -436,8 +440,7 @@ function removeAttachment(id: string) {
           @click="triggers.evaluate"
         />
 
-        <!-- 底栏两行：第一行动作（附件/语音/分支/模式 + 档位/模型/发送），
-             追加第二栏放会话信息胶囊（工作区/提示词/上下文/权限） -->
+        <!-- 核心发送操作常驻；模式、权限等会话设置按需展开。 -->
         <div ref="bottomBarEl" class="mt-2 flex flex-col gap-1.5">
           <div class="flex items-center justify-between gap-2">
             <div class="flex min-w-0 items-center gap-1">
@@ -452,16 +455,20 @@ function removeAttachment(id: string) {
               >
                 <Plus class="size-4" />
               </Button>
-              <PromptPicker :compact="isCompactBar" />
-              <SessionModePicker :compact="isCompactBar" />
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 gap-1 text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+                :aria-expanded="advancedOpen"
+                aria-controls="composer-advanced-options"
+                @click="advancedOpen = !advancedOpen"
+              >
+                {{ t("chat.moreOptions") }}
+                <ChevronDown class="size-3.5 transition-transform" :class="advancedOpen ? 'rotate-180' : ''" />
+              </Button>
             </div>
 
             <div class="flex flex-none items-center gap-1">
-              <EffortSlider
-                v-if="selectedSupportsReasoning && !isCompactBar"
-                v-model="effort"
-                :allowed="allowedEfforts"
-              />
               <ModelPicker :compact="isCompactBar" />
               <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
               <Button
@@ -516,19 +523,29 @@ function removeAttachment(id: string) {
                     : 'bg-[var(--color-send-empty)] text-[var(--color-send-fg)]'
                 "
                 :disabled="!canSend"
-                :aria-label="t('chat.send')"
+                :aria-label="isPreparing ? t('chat.bubble.thinking') : t('chat.send')"
                 @click="chatStore.send()"
               >
-                <ArrowUp class="size-4" />
+                <LoaderCircle v-if="isPreparing" class="size-4 animate-spin" />
+                <ArrowUp v-else class="size-4" />
               </Button>
             </div>
           </div>
 
-          <!-- 追加一栏：左侧 工作区/分支，右侧 权限/上下文 -->
+          <!-- 展开后按任务配置和环境信息分组。 -->
           <div
+            v-if="advancedOpen"
+            id="composer-advanced-options"
             class="flex min-w-0 flex-wrap items-center justify-between gap-1 border-t border-[var(--color-line-soft)] pt-1.5"
           >
-            <div class="flex min-w-0 items-center gap-1">
+            <div class="flex min-w-0 flex-wrap items-center gap-1">
+              <PromptPicker :compact="isCompactBar" />
+              <SessionModePicker :compact="isCompactBar" />
+              <EffortSlider
+                v-if="selectedSupportsReasoning"
+                v-model="effort"
+                :allowed="allowedEfforts"
+              />
               <WorkspacePicker :compact="isCompactBar" />
               <ComposerBranchPicker :compact="isCompactBar" />
               <!-- 会话目标（Goals 目标模式）：无目标=设定入口，有目标=摘要 chip -->

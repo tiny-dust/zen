@@ -76,7 +76,12 @@ export interface ChatEventContext {
   /** done 后刷新参考文件与 git 状态 */
   refreshGit: () => void;
   /** run 结束后触发自动会话标题（首次对话完成时升级占位标题） */
-  onRunFinished: () => void;
+  onRunFinished: (reason: AgentDoneReason) => void;
+  /** 后台会话到达终态时，按原 sessionId 判断目标是否可续跑。 */
+  onBackgroundRunFinished?: (sessionId: string, reason: AgentDoneReason) => void;
+  onBackgroundNeedsAction?: (sessionId: string) => void;
+  /** 记录当前与后台会话的 token 用量，供目标自动续跑预算守卫。 */
+  onUsage?: (sessionId: string, inputTokens: number, outputTokens: number) => void;
 }
 
 function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
@@ -116,6 +121,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
   const sessionStatusStore = useSessionStatusStore();
   /** 后台会话中处于插入 run 的 sessionId：其 done(phase=insert) 不能当会话结束 */
   const backgroundInserts = new Set<string>();
+  const notifiedBackgroundActions = new Set<string>();
   /**
    * 后台正常收尾（stop/max_steps）的 sessionId：其 run 结束时不在前台，done 走
    * 后台分支无法当场调度队列续发——记下，切回该会话时补一次调度
@@ -297,6 +303,10 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         }
         sessionStatusStore.set(id, "needs_action");
         playNotifySound("needsAction");
+        if (!notifiedBackgroundActions.has(id)) {
+          notifiedBackgroundActions.add(id);
+          ctx.onBackgroundNeedsAction?.(id);
+        }
         break;
       case "approval_resolved":
       case "ask_resolved":
@@ -309,6 +319,9 @@ export function createChatEventGateway(ctx: ChatEventContext) {
           ctx.stashedApprovals.delete(id);
         }
         sessionStatusStore.set(id, "running");
+        if (!ctx.stashedApprovals.has(id) && !ctx.stashedAsks.get(id)?.length) {
+          notifiedBackgroundActions.delete(id);
+        }
         break;
       case "done": {
         // 插入 run 的终态不是会话结束：保持 running，等 original_resumed
@@ -316,6 +329,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
           break;
         }
         backgroundInserts.delete(id);
+        notifiedBackgroundActions.delete(id);
         // 会话已结束：挂起问询不再有效（主进程侧已随 run 终止）
         ctx.stashedAsks.delete(id);
         // run 终态内容在 done 广播前已落库（main 侧先 persist 再 send）：
@@ -331,6 +345,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         const isError = event.reason === "error";
         sessionStatusStore.set(id, isError ? "error" : "done");
         playNotifySound(isError ? "error" : "done");
+        ctx.onBackgroundRunFinished?.(id, event.reason);
         break;
       }
       default:
@@ -373,6 +388,9 @@ export function createChatEventGateway(ctx: ChatEventContext) {
   }
 
   function handleStreamEvent(event: AgentStreamEvent): void {
+    if (event.type === "usage" && !event.sessionId.includes("::")) {
+      ctx.onUsage?.(event.sessionId, event.inputTokens, event.outputTokens);
+    }
     if (event.sessionId !== ctx.sessionId.value) {
       handleBackgroundEvent(event);
       return;
@@ -624,7 +642,7 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         if (!ctx.usedUpdateTasks.value && reason === "stop") {
           applyChecklistFallback();
         }
-        ctx.onRunFinished();
+        ctx.onRunFinished(reason);
         ctx.usedUpdateTasks.value = false;
         ctx.pendingToolArgs.clear();
         // run 终态：落定所有「进行中」的技能/MCP tag

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Sparkles } from "@lucide/vue";
+  import { Bell, Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
   import { useI18n } from "vue-i18n";
@@ -20,7 +20,9 @@
     DialogTitle,
   } from "@/components/ui/dialog";
   import { Input } from "@/components/ui/input";
+  import { toast } from "@/components/ui/toast";
   import { useChatStore } from "@/stores/chat";
+  import { useActivityInboxStore } from "@/stores/activity-inbox";
   import { useSessionStatusStore } from "@/stores/session-status";
   import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -28,6 +30,8 @@
 
   const workspaceStore = useWorkspaceStore();
   const chatStore = useChatStore();
+  const activityInbox = useActivityInboxStore();
+  const { pendingCount } = storeToRefs(activityInbox);
   const { sessionId } = storeToRefs(chatStore);
   const { groups } = storeToRefs(workspaceStore);
 
@@ -185,10 +189,13 @@
     if (!session) {
       return;
     }
-    if (sessionId.value === session.id) {
-      await chatStore.newTask();
+    try {
+      await window.zen?.session.remove(session.id);
+    } catch (error) {
+      toast.err(error instanceof Error ? error.message : String(error));
+      return;
     }
-    await window.zen?.session.remove(session.id);
+    if (sessionId.value === session.id) await chatStore.newTask();
     workspaceStore.removeSessionLocal(session.id);
   }
 
@@ -222,12 +229,14 @@
     if (!zen || !sessions?.length) {
       return;
     }
-    // 当前会话在删除清单里：先切到新会话，避免停在已删除会话上
-    if (sessions.some((item) => item.id === sessionId.value)) {
-      await chatStore.newTask();
-    }
     for (const session of sessions) {
-      await zen.session.remove(session.id);
+      try {
+        await zen.session.remove(session.id);
+      } catch (error) {
+        toast.err(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      if (sessionId.value === session.id) await chatStore.newTask();
       workspaceStore.removeSessionLocal(session.id);
     }
   }
@@ -265,7 +274,11 @@
     if (!group) {
       return;
     }
-    await workspaceStore.remove(group.id);
+    try {
+      await workspaceStore.remove(group.id);
+    } catch (error) {
+      toast.err(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** 「工作区」区块折叠键：复用工作区分组的同一持久化集合（localStorage） */
@@ -305,6 +318,21 @@
       <div class="flex min-w-0 flex-1 items-center gap-2 px-1">
         <span class="text-[14px] font-semibold tracking-tight text-[var(--color-txt-strong)]">Zen</span>
       </div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="relative text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]"
+        :aria-label="pendingCount ? t('activityInbox.pendingCount', { n: pendingCount }) : t('activityInbox.entry')"
+        :title="t('activityInbox.entry')"
+        @click="activityInbox.open = true"
+      >
+        <Bell class="size-4" aria-hidden="true" />
+        <span
+          v-if="pendingCount"
+          class="absolute -right-1 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--color-accent)] px-0.5 text-[9px] leading-none text-[var(--color-accent-fg)]"
+          aria-hidden="true"
+        >{{ pendingCount }}</span>
+      </Button>
     </header>
 
     <!-- 常驻入口：会话列表上方，竖排小卡片（每个独占一行） -->

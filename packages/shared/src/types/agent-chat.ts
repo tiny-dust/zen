@@ -305,6 +305,8 @@ export interface AgentRunRequest {
   sessionId: string;
   userMessage: string;
   workspaceRoot: string;
+  /** 后台自动目标续跑：主进程禁用可触及当前桌面的能力。 */
+  background?: boolean;
   /** 会话归属的工作区；main 据此落库并解析 agent 的工作目录（不信任 renderer 传路径） */
   workspaceId?: string;
   model?: string;

@@ -310,7 +310,10 @@ export class AgentSession {
       // 尊重 Retry-After 头），把短暂上游抖动吸收在重试里而不是把错误抛给用户
       maxRetries: 5,
       // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
-      repairToolCall: buildToolCallRepair(model, providerOptions),
+      // ChatGPT 方案的 Responses 通道只接受流式请求；修复器内部的 generateText 是非流式。
+      repairToolCall: sessionConfig.chatgptPlan
+        ? undefined
+        : buildToolCallRepair(model, providerOptions),
       tools: withToolCacheBreakpoint(
         buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
           resourceLock: this.resourceLock,
