@@ -30,6 +30,10 @@ interface CacheEntry {
 
 const memory = new Map<string, CacheEntry>();
 
+export function clearFaviconMemory(): void {
+  memory.clear();
+}
+
 /** favicon 落盘目录（用户域缓存，不进软件包） */
 export function faviconCacheDir(): string {
   return join(zenCacheRoot(), "favicons");
