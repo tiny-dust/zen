@@ -19,6 +19,10 @@ export interface SessionGoal {
   status: SessionGoalStatus;
   /** token 预算；null = 未设置。仅 UI 展示与用量对比，不注入提示词 */
   tokenBudget: number | null;
+  /** 达到单轮步数上限时，在本机自动续跑；缺省关闭。 */
+  autoContinue?: boolean;
+  /** 本机目标提醒间隔（小时）；缺省关闭，应用运行时生效。 */
+  reminderIntervalHours?: number;
 }
 
 /** 目标未知/缺省状态按 active 处理（有文本就有目标，默认进行中） */
@@ -46,5 +50,16 @@ export function normalizeSessionGoal(value: unknown): SessionGoal | null {
     typeof budget === "number" && Number.isFinite(budget) && budget > 0
       ? Math.round(budget)
       : null;
-  return { text, status, tokenBudget };
+  return {
+    text,
+    status,
+    tokenBudget,
+    ...(raw.autoContinue === true ? { autoContinue: true } : {}),
+    ...(typeof raw.reminderIntervalHours === "number" &&
+    Number.isInteger(raw.reminderIntervalHours) &&
+    raw.reminderIntervalHours >= 1 &&
+    raw.reminderIntervalHours <= 168
+      ? { reminderIntervalHours: raw.reminderIntervalHours }
+      : {}),
+  };
 }

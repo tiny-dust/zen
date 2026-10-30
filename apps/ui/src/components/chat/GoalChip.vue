@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, PauseCircle, Play, Target, Trash2 } from "@lucide/vue";
+import { Bell, Check, PauseCircle, Play, Target, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -7,6 +7,14 @@ import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useChatStore } from "@/stores/chat";
 
@@ -33,6 +41,8 @@ const STATUS_COLOR: Record<SessionGoalStatus, string> = {
 const open = ref(false);
 const draftText = ref("");
 const draftBudget = ref("");
+const draftAutoContinue = ref(false);
+const draftReminderInterval = ref("off");
 
 watch(open, (value) => {
   if (!value) {
@@ -41,6 +51,13 @@ watch(open, (value) => {
   const goal = sessionGoal.value;
   draftText.value = goal?.text ?? "";
   draftBudget.value = goal?.tokenBudget ? String(goal.tokenBudget) : "";
+  draftAutoContinue.value = goal?.autoContinue === true;
+  draftReminderInterval.value = String(goal?.reminderIntervalHours ?? "off");
+});
+
+// 会话切换时关闭旧目标表单，避免把未保存的草稿写进新会话。
+watch(() => chatStore.sessionId, () => {
+  open.value = false;
 });
 
 function parseBudget(): number | null {
@@ -54,6 +71,12 @@ function parseBudget(): number | null {
 
 const canSave = computed(() => draftText.value.trim().length > 0);
 
+function reminderLabel(hours: number): string {
+  return hours === 1
+    ? t("goal.reminderHourly")
+    : t("goal.reminderEvery", { hours });
+}
+
 function save() {
   if (!canSave.value) {
     return;
@@ -63,6 +86,10 @@ function save() {
     // 编辑保留原状态；首次设定默认 active
     status: sessionGoal.value?.status ?? "active",
     tokenBudget: parseBudget(),
+    ...(draftAutoContinue.value ? { autoContinue: true } : {}),
+    ...(draftReminderInterval.value !== "off"
+      ? { reminderIntervalHours: Number(draftReminderInterval.value) }
+      : {}),
   };
   void chatStore.setSessionGoal(goal);
   open.value = false;
@@ -116,6 +143,11 @@ const statusDotColor = computed(() =>
           >
             {{ goalBudgetLabel }}
           </span>
+          <Bell
+            v-if="sessionGoal.status === 'active' && sessionGoal.reminderIntervalHours"
+            class="size-3 flex-none text-[var(--color-accent)]"
+            :aria-label="t('goal.reminderActive')"
+          />
         </template>
         <span v-else class="text-[11px] font-normal">{{ t("goal.set") }}</span>
       </Button>
@@ -137,6 +169,9 @@ const statusDotColor = computed(() =>
         </span>
         <span v-if="goalBudgetLabel" class="font-[family-name:var(--font-mono)] tabular-nums">
           {{ goalBudgetLabel }}
+        </span>
+        <span v-if="sessionGoal.status === 'active' && sessionGoal.reminderIntervalHours">
+          {{ reminderLabel(sessionGoal.reminderIntervalHours) }}
         </span>
       </div>
 
@@ -163,6 +198,38 @@ const statusDotColor = computed(() =>
         class="mt-1 h-7 px-2 text-[12px] tabular-nums"
         :placeholder="t('goal.budgetPlaceholder')"
       />
+
+      <div class="mt-2.5 flex items-start justify-between gap-3">
+        <div class="flex flex-col gap-0.5">
+          <label class="text-[11px] text-[var(--color-txt)]" for="goal-auto-continue">
+            {{ t("goal.autoContinue") }}
+          </label>
+          <p class="m-0 text-[11px] leading-relaxed text-[var(--color-mut)]">
+            {{ t("goal.autoContinueHint") }}
+          </p>
+        </div>
+        <Switch id="goal-auto-continue" v-model="draftAutoContinue" :aria-label="t('goal.autoContinue')" />
+      </div>
+
+      <div class="mt-2.5">
+        <label class="block text-[11px] text-[var(--color-txt)]" for="goal-reminder">
+          {{ t("goal.reminderLabel") }}
+        </label>
+        <p class="m-0 mt-0.5 text-[11px] leading-relaxed text-[var(--color-mut)]">
+          {{ t("goal.reminderHint") }}
+        </p>
+        <Select v-model="draftReminderInterval">
+          <SelectTrigger id="goal-reminder" class="mt-1.5 h-8 w-full text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">{{ t("goal.reminderOff") }}</SelectItem>
+            <SelectItem value="1">{{ reminderLabel(1) }}</SelectItem>
+            <SelectItem value="4">{{ reminderLabel(4) }}</SelectItem>
+            <SelectItem value="24">{{ reminderLabel(24) }}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       <!-- 操作行：保存 / 暂停·继续 / 标记完成 / 清除 -->
       <div class="mt-3 flex items-center gap-1.5">

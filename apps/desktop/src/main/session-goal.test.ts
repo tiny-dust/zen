@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appendGoalDirective, goalDirective } from "./session-mode";
-import { getSession, setSessionGoal } from "./workspace-db";
+import { getGoalRuntime, getSession, recordGoalUsage, setSessionGoal } from "./workspace-db";
 
 import type { SessionGoal } from "@zen/shared";
 
@@ -65,6 +65,12 @@ function createMemoryDb(): Database.Database {
       PRIMARY KEY (session_id, version),
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+    CREATE TABLE session_goal_runtime (
+      session_id TEXT PRIMARY KEY,
+      goal_text TEXT NOT NULL,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
     INSERT INTO workspaces (id, name, path, kind, archived, created_at) VALUES ('common', '公共区', NULL, 'common', 0, 1);
   `);
   return db;
@@ -121,6 +127,24 @@ describe("goal 持久化与恢复", () => {
     expect(goal).toEqual({ text: "完成登录模块", status: "paused", tokenBudget: 50000 });
   });
 
+  it("自动续跑开关随目标持久化，缺省保持关闭", () => {
+    insertSession("s-auto");
+    setSessionGoal("s-auto", {
+      text: "持续完成任务",
+      status: "active",
+      tokenBudget: 2000,
+      autoContinue: true,
+    });
+    expect(getSession("s-auto")?.session.goal?.autoContinue).toBe(true);
+
+    setSessionGoal("s-auto", {
+      text: "持续完成任务",
+      status: "paused",
+      tokenBudget: 2000,
+    });
+    expect(getSession("s-auto")?.session.goal?.autoContinue).toBeUndefined();
+  });
+
   it("更新与清除：同会话覆盖写，null 置空", () => {
     insertSession("s4");
     setSessionGoal("s4", { text: "目标 A", status: "active", tokenBudget: 1000 });
@@ -146,6 +170,45 @@ describe("goal 持久化与恢复", () => {
       .prepare("UPDATE chat_sessions SET goal_json = ? WHERE id = ?")
       .run(JSON.stringify({ nope: 1 }), "s6");
     expect(getSession("s6")?.session.goal).toBeNull();
+  });
+});
+
+describe("goal 用量持久化", () => {
+  it("同一目标的用量累计并跨读取恢复，状态和预算变更不清零", () => {
+    insertSession("usage-1");
+    setSessionGoal("usage-1", { text: "完成登录", status: "active", tokenBudget: 100 });
+    recordGoalUsage("usage-1", "完成登录", 12, 8);
+    recordGoalUsage("usage-1", "完成登录", 4, 3);
+    expect(getGoalRuntime("usage-1")).toEqual({ goalText: "完成登录", totalTokens: 27 });
+
+    setSessionGoal("usage-1", { text: "完成登录", status: "paused", tokenBudget: 200 });
+    expect(getGoalRuntime("usage-1")).toEqual({ goalText: "完成登录", totalTokens: 27 });
+  });
+
+  it("换目标与清除目标重置用量，旧运行事件不能污染新目标", () => {
+    insertSession("usage-2");
+    setSessionGoal("usage-2", { text: "目标 A", status: "active", tokenBudget: null });
+    recordGoalUsage("usage-2", "目标 A", 10, 5);
+    setSessionGoal("usage-2", { text: "目标 B", status: "active", tokenBudget: null });
+    recordGoalUsage("usage-2", "目标 A", 50, 50);
+    expect(getGoalRuntime("usage-2")).toEqual({ goalText: "目标 B", totalTokens: 0 });
+    recordGoalUsage("usage-2", "目标 B", 3, 2);
+    expect(getGoalRuntime("usage-2")?.totalTokens).toBe(5);
+    setSessionGoal("usage-2", null);
+    expect(getGoalRuntime("usage-2")).toBeNull();
+  });
+
+  it("每个会话独立累计，非法用量不入库", () => {
+    insertSession("usage-left");
+    insertSession("usage-right");
+    const goal: SessionGoal = { text: "同名目标", status: "active", tokenBudget: null };
+    setSessionGoal("usage-left", goal);
+    setSessionGoal("usage-right", goal);
+    recordGoalUsage("usage-left", goal.text, 6, 4);
+    recordGoalUsage("usage-left", goal.text, -1, 100);
+    recordGoalUsage("usage-right", goal.text, 2, 1);
+    expect(getGoalRuntime("usage-left")?.totalTokens).toBe(10);
+    expect(getGoalRuntime("usage-right")?.totalTokens).toBe(3);
   });
 });
 
