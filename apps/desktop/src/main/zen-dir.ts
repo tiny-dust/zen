@@ -149,6 +149,9 @@ export async function loadBrowserSettings(): Promise<BrowserSettings> {
   return {
     ...DEFAULT_BROWSER_SETTINGS,
     ...browser,
+    autoFillPasswords: typeof browser.autoFillPasswords === "boolean"
+      ? browser.autoFillPasswords
+      : DEFAULT_BROWSER_SETTINGS.autoFillPasswords,
     // pipBounds 只接受合法几何，脏数据回退缺省（悬浮窗居中由主进程兜底）
     pipBounds:
       browser.pipBounds &&

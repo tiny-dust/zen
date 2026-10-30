@@ -274,6 +274,9 @@ export class BrowserViewManager {
       wc.on("did-finish-load", () => {
         this.refreshMetaSync(wc);
       });
+      wc.on("did-frame-finish-load", (_event, isMainFrame) => {
+        if (isMainFrame) this.onMainFrameLoaded(wc);
+      });
       wc.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
         if (!isMainFrame || errorCode === -3) {
           // -3 ERR_ABORTED：重定向/用户取消，不算失败
@@ -370,6 +373,9 @@ export class BrowserViewManager {
       // ignore
     }
   }
+
+  /** 服务层可在主帧完成加载后执行站点级能力；子帧不会触发。 */
+  protected onMainFrameLoaded(_wc: Electron.WebContents): void {}
 
   protected async refreshMeta(): Promise<void> {
     const wc = this.requireWebContents();

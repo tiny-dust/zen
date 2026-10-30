@@ -71,6 +71,7 @@ function writeStore(data: StoreFile): void {
 export function originFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
     return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return "";

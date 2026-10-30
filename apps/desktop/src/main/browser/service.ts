@@ -10,8 +10,8 @@ import type {
   BrowserViewBounds,
 } from "@zen/shared";
 
+import { BrowserAutofillApi } from "./browser-autofill";
 import { delay, kernelLabels, withTimeout } from "./browser-utils";
-import { BrowserPipApi } from "./browser-pip";
 
 export interface BrowserDebugInfo {
   hasView: boolean;
@@ -34,10 +34,10 @@ export interface BrowserDebugInfo {
 /**
  * 产品内浏览器对外门面：页面导航与生命周期编排。
  * 实现按子域分层继承：browser-view（WebContentsView/状态）→ browser-cdp（CDP）→ browser-content（内容与动作）
- * → browser-pip（画中画悬浮窗）。
+ * → browser-pip（画中画悬浮窗）→ browser-autofill（密码填充）。
  * 每个工作区（scope）一个实例，由 BrowserServiceRegistry 多路复用（见文件底部）。
  */
-export class BrowserService extends BrowserPipApi implements BrowserAgentBridge {
+export class BrowserService extends BrowserAutofillApi implements BrowserAgentBridge {
   /** 本服务归属的工作区 scope（workspaceId；公共区为 "common"），与渲染层浏览器分桶 key 一致 */
   readonly scope: string;
 
