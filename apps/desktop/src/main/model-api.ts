@@ -1,8 +1,9 @@
 import { extractChatText } from "./model-api-transform";
 import { resolveChatGptCredentials } from "./chatgpt-auth";
-import { inspectModelCapabilities, mergeApiModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
+import { inspectModelCapabilities, mergeApiModelCapabilities, parseApiModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
+  CHATGPT_PROVIDER_BASE_URL,
   listProviders,
   loadProviderApiKey,
   loadProviderUserAgent,
@@ -130,6 +131,27 @@ function mapOpenAiModels(data: unknown): FetchModelsResult {
   return { models, fetchedAt: Date.now() };
 }
 
+/** ChatGPT 方案的账号目录使用 models/slug/visibility，而非公开 API 的 data/id。 */
+export function mapChatGptModels(data: unknown): FetchModelsResult {
+  const payload = data as { models?: Array<Record<string, unknown>> };
+  if (!Array.isArray(payload?.models)) throw new Error("ChatGPT 模型目录格式无效");
+  const models = payload.models
+    .filter((item) => item?.visibility === "list")
+    .map((item) => {
+      const id = firstString(item, ["slug"]);
+      if (!id) return null;
+      const explicit = parseApiModelCapabilities(item);
+      return {
+        id,
+        name: firstString(item, ["display_name"]) || id,
+        // 账号目录未声明视觉时不从模型名称猜测，避免给纯代码模型发送图片。
+        capabilities: { ...mergeApiModelCapabilities(id, item), vision: explicit.vision },
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  return { models, fetchedAt: Date.now() };
+}
+
 function mapAnthropicModels(data: unknown): FetchModelsResult {
   const payload = data as { data?: Array<Record<string, unknown>> };
   const list = Array.isArray(payload?.data) ? payload.data : [];
@@ -186,6 +208,14 @@ export async function fetchModelsByCredentials(input: {
 }
 
 export async function fetchModelsFromProvider(provider: ProviderSummary): Promise<FetchModelsResult> {
+  if (provider.authMode === "chatgpt-oauth") {
+    const { accessToken } = await resolveChatGptCredentials(provider.id);
+    const data = await fetchJson(`${CHATGPT_PROVIDER_BASE_URL}/models`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    });
+    return mapChatGptModels(data);
+  }
   const apiKey = await loadProviderApiKey(provider.id);
   const userAgent = (await loadProviderUserAgent(provider.id)) || provider.userAgent;
   return fetchModelsByCredentials({
@@ -207,7 +237,9 @@ export async function inspectRemoteModel(
 
 function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   const base = normalizeBaseUrl(baseUrl);
-  const path = protocol === "anthropic-messages" ? "/messages" : "/chat/completions";
+  const path = protocol === "anthropic-messages"
+    ? "/messages"
+    : protocol === "openai-responses" ? "/responses" : "/chat/completions";
   if (/\/v\d+$/.test(base)) {
     return `${base}${path}`;
   }
@@ -239,17 +271,13 @@ async function resolveCompletion(options?: {
   if (!provider) {
     throw new Error("未配置模型，无法生成");
   }
-  // ChatGPT 账号登录：access_token 当 API Key 用（Bearer），补上后端识别头；
+  const protocol = provider.authMode === "chatgpt-oauth" ? "openai-responses" : provider.protocol;
+  // ChatGPT 方案登录：access_token 当 API Key 用（Bearer）；
   // 其余供应商走静态 API Key
   let apiKey: string;
-  let extraHeaders: Record<string, string> = {};
   if (provider.authMode === "chatgpt-oauth") {
     const credentials = await resolveChatGptCredentials(provider.id);
     apiKey = credentials.accessToken;
-    extraHeaders = { originator: "zen_desktop" };
-    if (credentials.accountId) {
-      extraHeaders["chatgpt-account-id"] = credentials.accountId;
-    }
   } else {
     apiKey = await loadProviderApiKey(provider.id);
   }
@@ -270,21 +298,88 @@ async function resolveCompletion(options?: {
       ? lowestReasoningEffort(caps.reasoningEfforts)
       : options?.reasoningEffort;
   const headers: Record<string, string> =
-    provider.protocol === "anthropic-messages"
+    protocol === "anthropic-messages"
       ? {
           "content-type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
           "User-Agent": userAgent,
-          ...extraHeaders,
         }
       : {
           "content-type": "application/json",
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": userAgent,
-          ...extraHeaders,
         };
-  return { provider, modelId, maxTokens, url: chatUrl(provider.baseUrl, provider.protocol), headers, effort };
+  return {
+    provider: { ...provider, protocol },
+    modelId,
+    maxTokens,
+    url: chatUrl(provider.authMode === "chatgpt-oauth" ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl, protocol),
+    headers,
+    effort,
+  };
+}
+
+/** Responses SSE：必须读到 response.completed，不能把半截输出当成功。 */
+async function streamResponsesText(
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...body, store: false, stream: true }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(httpErrorMessage(response.status, await response.text()));
+    if (!response.body) throw new Error("模型未返回响应流");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let output = "";
+    let completed = false;
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      pending = pending.replace(/\r\n/g, "\n");
+      let end = pending.indexOf("\n\n");
+      while (end >= 0) {
+        const block = pending.slice(0, end);
+        pending = pending.slice(end + 2);
+        const data = block.split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (data && data !== "[DONE]") {
+          let event: unknown;
+          try { event = JSON.parse(data); } catch { event = null; }
+          const item = event as { type?: string; delta?: string; response?: { error?: { message?: string; code?: string } } } | null;
+          if (item?.type === "response.output_text.delta" && typeof item.delta === "string") output += item.delta;
+          if (item?.type === "response.completed") completed = true;
+          if (item?.type === "response.failed" || item?.type === "response.incomplete") {
+            throw new Error(item.response?.error?.message || item.response?.error?.code || "模型响应未完成");
+          }
+        }
+        end = pending.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+    if (!completed) throw new Error("模型响应流中断，未收到完成事件");
+    if (!output.trim()) throw new Error("模型未返回文本内容");
+    return output.trim();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型响应未完成`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
@@ -301,8 +396,18 @@ export async function completeOnce(
   },
 ): Promise<string> {
   const { provider, modelId, maxTokens, url, headers, effort } = await resolveCompletion(options);
-  // 补全（尤其推理模型 stream:false 全量缓冲）远慢于列表类请求，默认放宽到 120s
+  // 补全（尤其推理模型）远慢于列表类请求，默认放宽到 120s。
   const timeoutMs = options?.timeoutMs ?? 120_000;
+
+  if (provider.protocol === "openai-responses") {
+    return streamResponsesText(url, headers, {
+      model: modelId,
+      input: [{ role: "user", content: prompt }],
+      ...(options?.system ? { instructions: options.system } : {}),
+      ...(effort ? { reasoning: { effort } } : {}),
+      ...(provider.authMode === "chatgpt-oauth" ? {} : { max_output_tokens: maxTokens }),
+    }, timeoutMs);
+  }
 
   if (provider.protocol === "anthropic-messages") {
     const data = await fetchJson(
@@ -398,6 +503,23 @@ export async function completeVisionOnce(
     modelId: options?.modelId,
   });
   const timeoutMs = options?.timeoutMs ?? 120_000;
+
+  if (provider.protocol === "openai-responses") {
+    return streamResponsesText(url, headers, {
+      model: modelId,
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          ...images.map((image) => ({
+            type: "input_image",
+            image_url: `data:${image.mediaType};base64,${image.base64}`,
+          })),
+        ],
+      }],
+      ...(provider.authMode === "chatgpt-oauth" ? {} : { max_output_tokens: maxTokens }),
+    }, timeoutMs);
+  }
 
   const content =
     provider.protocol === "anthropic-messages"

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Trash2 } from "@lucide/vue";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import CatalogModelPicker from "@/components/settings/CatalogModelPicker.vue";
+import CodexUsagePanel from "@/components/settings/CodexUsagePanel.vue";
 import ModelFormDialog from "@/components/settings/ModelFormDialog.vue";
 import ProviderModelList from "@/components/settings/ProviderModelList.vue";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ const emit = defineEmits<{
     capabilities: ModelCapabilities;
   }];
   removeModel: [model: ProviderModel];
+  authorized: [providerId: string];
 }>();
 
 const { t } = useI18n();
@@ -86,18 +88,27 @@ const knownIds = computed(() => new Set(props.provider.models.map((item) => item
 // ChatGPT 账号登录状态（仅 chatgpt-oauth 供应商展示）
 const chatgpt = ref<ChatGptAuthStatus | null>(null);
 const loginPending = ref(false);
+const authError = ref<string | null>(null);
+let statusRequestId = 0;
 
 const isChatGpt = computed(() => props.provider.authMode === "chatgpt-oauth");
+const isCodex = computed(() => isChatGpt.value || (
+  props.provider.protocol === "openai-responses" &&
+  /^https:\/\/api\.openai\.com\/v1\/?$/i.test(props.provider.baseUrl)
+));
 
 async function refreshChatGptStatus() {
+  const currentRequest = ++statusRequestId;
+  const providerId = props.provider.id;
   if (!isChatGpt.value || !window.zen?.models) {
     chatgpt.value = null;
     return;
   }
   try {
-    chatgpt.value = await window.zen.models.chatgptStatus(props.provider.id);
+    const status = await window.zen.models.chatgptStatus(providerId);
+    if (currentRequest === statusRequestId && providerId === props.provider.id) chatgpt.value = status;
   } catch {
-    chatgpt.value = null;
+    if (currentRequest === statusRequestId) chatgpt.value = null;
   }
 }
 
@@ -106,35 +117,46 @@ async function onChatGptLogin() {
     return;
   }
   loginPending.value = true;
+  authError.value = null;
   try {
     await window.zen.models.chatgptLogin(props.provider.id);
     await refreshChatGptStatus();
+    emit("authorized", props.provider.id);
   } catch (error) {
     console.warn("[chatgpt] 登录失败:", error);
+    authError.value = error instanceof Error ? error.message : t("settings.models.codexLoginFailed");
     await refreshChatGptStatus();
-    throw error;
   } finally {
     loginPending.value = false;
   }
 }
 
 async function onChatGptLogout() {
+  authError.value = null;
   if (!window.zen?.models) {
     await refreshChatGptStatus();
     return;
   }
   try {
-    chatgpt.value = await window.zen.models.chatgptLogout(props.provider.id);
+    await window.zen.models.chatgptLogout(props.provider.id);
   } catch {
+    authError.value = t("settings.models.codexLogoutWarning");
+  } finally {
     await refreshChatGptStatus();
   }
 }
 
 watch(
   () => props.provider.id,
-  () => void refreshChatGptStatus(),
+  () => {
+    authError.value = null;
+    chatgpt.value = null;
+    void refreshChatGptStatus();
+  },
   { immediate: true },
 );
+
+onUnmounted(() => { statusRequestId += 1; });
 
 function syncFromProvider() {
   form.name = props.provider.name;
@@ -289,6 +311,8 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
               {{ loginPending ? t("settings.models.chatgptPending") : t("settings.models.chatgptLogin") }}
             </Button>
           </template>
+          <p class="m-0 w-full text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexAccountHint") }}</p>
+          <p v-if="authError" class="m-0 w-full text-[11px] text-[var(--color-err)]" role="alert">{{ authError }}</p>
         </div>
       </div>
       <div v-else class="field-row">
@@ -321,6 +345,13 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
       <Button variant="ghost" size="sm" @click="onCancel">{{ t("common.cancel") }}</Button>
       <Button size="sm" @click="onSave">{{ t("common.save") }}</Button>
     </div>
+
+    <CodexUsagePanel
+      v-if="isCodex"
+      :key="`${provider.id}:${chatgpt?.accountId ?? chatgpt?.email ?? ''}`"
+      :provider-id="provider.id"
+      :account-mode="isChatGpt"
+    />
 
     <ProviderModelList
       :models="provider.models"
