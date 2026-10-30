@@ -539,9 +539,11 @@ export interface ZenApi {
     ): Promise<{ ok: boolean; entries: BrowserHistoryItem[]; error?: string }>;
     /** 导入密码：主进程弹文件框选浏览器导出的 CSV */
     importPasswordsCsv(): Promise<PasswordImportResult>;
+    importPasswordsFromSource(sourceId: BrowserImportSourceId): Promise<PasswordImportResult>;
     listPasswords(): Promise<StoredPasswordEntry[]>;
     /** 取单条明文密码（复制按钮触发） */
     revealPassword(id: string): Promise<string | null>;
+    fillPassword(id: string): Promise<BrowserActionResult & { filled?: boolean }>;
     removePassword(id: string): Promise<boolean>;
     clearPasswords(): Promise<boolean>;
   };

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 
 import type {
+  BrowserActionResult,
   BrowserConsoleEntry,
   BrowserElementRef,
   BrowserExtractResult,
@@ -755,6 +756,25 @@ export const useBrowserStore = defineStore("browser", () => {
     return result;
   }
 
+  /** 从本机浏览器的可读密码库导入，结果仍由 Zen 加密库保存。 */
+  async function importPasswordsFromSource(sourceId: BrowserImportSourceId) {
+    const zen = window.zen?.browser;
+    if (!zen?.importPasswordsFromSource) {
+      return { ok: false, error: i18n.global.t("app.browser.ipcNotReady") };
+    }
+    const result = await zen.importPasswordsFromSource(sourceId);
+    if (result.ok) await loadPasswords();
+    return result;
+  }
+
+  async function fillPassword(id: string): Promise<BrowserActionResult & { filled?: boolean }> {
+    const zen = window.zen?.browser;
+    if (!zen?.fillPassword) {
+      return { ok: false, error: i18n.global.t("app.browser.ipcNotReady") };
+    }
+    return zen.fillPassword(id);
+  }
+
   /** 取单条明文密码（复制到剪贴板用） */
   async function revealPassword(id: string): Promise<string | null> {
     const zen = window.zen?.browser;
@@ -903,6 +923,8 @@ export const useBrowserStore = defineStore("browser", () => {
     passwords,
     loadPasswords,
     importPasswordsCsv,
+    importPasswordsFromSource,
+    fillPassword,
     revealPassword,
     removePassword,
     clearPasswords,
