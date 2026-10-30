@@ -26,6 +26,13 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     titleKey: "settings.update.title",
     keywords: ["update upgrade version feed 更新 升级 版本 检查更新"],
   },
+  {
+    tab: "general",
+    sectionId: "set-general-cache",
+    titleKey: "settings.cache.title",
+    descKey: "settings.cache.description",
+    keywords: ["cache clear cleanup temporary favicon 缓存 清理 图标"],
+  },
   // 外观
   {
     tab: "appearance",

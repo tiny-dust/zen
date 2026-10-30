@@ -1,5 +1,6 @@
 import type {
   AddModelInput,
+  FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
   ProviderInput,
@@ -481,37 +482,74 @@ export async function migrateProviderSecrets(): Promise<void> {
 
 // ---------- ChatGPT 账号登录供应商 ----------
 
-/** ChatGPT 后端（Responses 协议；对齐 Codex CLI 的 chatgpt_base_url） */
-export const CHATGPT_PROVIDER_BASE_URL = "https://chatgpt.com/backend-api/codex";
+/** Sign in with ChatGPT 的公开 Responses API；账号可用模型由登录后目录决定。 */
+export const CHATGPT_PROVIDER_BASE_URL = "https://api.openai.com/v1";
 
-/** 预置的 Codex 系模型（登录后即可用；模型列表以 /v1/models 拉取为准） */
-export const CHATGPT_SEED_MODEL_IDS = ["gpt-5.2", "gpt-5.1-codex", "gpt-5.1-codex-mini"];
-
-/** 供应商是否走 ChatGPT 账号登录（令牌认证 + ChatGPT 后端头） */
+/** 供应商是否走 ChatGPT 方案登录（令牌认证 + 公开 Responses API）。 */
 export function isChatGptAuthProvider(provider: ProviderSummary): boolean {
   return provider.authMode === "chatgpt-oauth";
 }
 
 /**
- * 取（或建）ChatGPT 登录供应商：首次登录时自动创建，带预置 Codex 模型。
- * 令牌由 chatgpt-auth.ts 登录流程写入；幂等——已存在时仅补缺失的种子模型。
+ * 取（或建）ChatGPT 方案供应商。此认证模式只使用公开端点；
+ * 旧版 Zen 的 backend-api 地址及名称在下次登录时升级。
  */
-export async function ensureChatGptProvider(): Promise<ProviderSummary> {
-  const existing = (await listProviders()).find(isChatGptAuthProvider);
+export async function ensureChatGptProvider(providerId?: string): Promise<ProviderSummary> {
+  const providers = await listProviders();
+  const existing = providerId
+    ? providers.find((provider) => provider.id === providerId && isChatGptAuthProvider(provider))
+    : providers.find(isChatGptAuthProvider);
+  if (providerId && !existing) throw new Error("Codex 供应商不存在");
   if (existing) {
-    const known = new Set(existing.models.map((item) => item.id));
-    const missing = CHATGPT_SEED_MODEL_IDS.filter((id) => !known.has(id));
-    let provider = existing;
-    for (const id of missing) {
-      provider = await addModel({ providerId: existing.id, id, enabled: true });
+    if (
+      normalizeBaseUrl(existing.baseUrl) !== CHATGPT_PROVIDER_BASE_URL ||
+      existing.protocol !== "openai-responses" || existing.name === "ChatGPT"
+    ) {
+      return updateProvider(existing.id, {
+        baseUrl: CHATGPT_PROVIDER_BASE_URL,
+        protocol: "openai-responses",
+        name: existing.name === "ChatGPT" ? "Codex" : existing.name,
+      });
     }
-    return provider;
+    return existing;
   }
   return addProvider({
-    name: "ChatGPT",
+    name: "Codex",
     protocol: "openai-responses",
     baseUrl: CHATGPT_PROVIDER_BASE_URL,
     authMode: "chatgpt-oauth",
-    models: CHATGPT_SEED_MODEL_IDS.map((id) => ({ id, enabled: true })),
   });
+}
+
+/** 登录账号的可见模型是权威目录；保留用户手动添加的模型与已禁用选择。 */
+export async function syncChatGptModels(providerId: string, result: FetchModelsResult): Promise<ProviderSummary> {
+  const now = Date.now();
+  const db = getDb();
+  db.transaction(() => {
+    const insert = db.prepare(
+      `INSERT INTO provider_models (provider_id, id, name, enabled, custom, capabilities_json, created_at, updated_at)
+       VALUES (?, ?, ?, 1, 0, ?, ?, ?)
+       ON CONFLICT(provider_id, id) DO UPDATE SET
+         name = CASE WHEN custom = 0 THEN excluded.name ELSE name END,
+         capabilities_json = CASE WHEN custom = 0 THEN excluded.capabilities_json ELSE capabilities_json END,
+         updated_at = excluded.updated_at`,
+    );
+    const visible = new Set<string>();
+    for (const model of result.models) {
+      const id = model.id.trim();
+      if (!id) continue;
+      visible.add(id);
+      insert.run(providerId, id, model.name || prettyModelName(id),
+        JSON.stringify(resolveModelCapabilities(id, model.capabilities)), now, now);
+    }
+    const stale = db.prepare(
+      "SELECT id FROM provider_models WHERE provider_id = ? AND custom = 0",
+    ).all(providerId) as Array<{ id: string }>;
+    const remove = db.prepare("DELETE FROM provider_models WHERE provider_id = ? AND id = ?");
+    for (const model of stale) {
+      if (!visible.has(model.id)) remove.run(providerId, model.id);
+    }
+  })();
+  const providers = await listProviders();
+  return providers.find((provider) => provider.id === providerId)!;
 }

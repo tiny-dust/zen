@@ -1,9 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 
-import { ipcMain } from "electron";
+import { ipcMain, session } from "electron";
 
+import { clearFaviconMemory, faviconCacheDir } from "./favicons";
 import { zenCacheRoot } from "./zen-dir";
 
 /**
@@ -23,6 +24,12 @@ export function pasteCacheDir(): string {
 
 export function screenshotCacheDir(): string {
   return join(zenCacheRoot(), "screenshots");
+}
+
+/** 仅清除可重新生成的图标；会话文件、附件和截图可能被消息引用。 */
+export async function clearTemporaryCache(): Promise<void> {
+  await rm(faviconCacheDir(), { recursive: true, force: true });
+  clearFaviconMemory();
 }
 
 export function registerCacheIpc(): void {
@@ -61,4 +68,17 @@ export function registerCacheIpc(): void {
     paste: pasteCacheDir(),
     screenshots: screenshotCacheDir(),
   }));
+
+  ipcMain.handle("cache:clear-temporary", async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await clearTemporaryCache();
+      await session.defaultSession.clearCache();
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "clear cache failed",
+      };
+    }
+  });
 }

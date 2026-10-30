@@ -85,6 +85,20 @@ function migrate(conn: Database.Database) {
       model_id TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS provider_model_usage (
+      provider_id TEXT NOT NULL,
+      account_key TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL,
+      local_day TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+      usage_events INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (provider_id, account_key, model_id, local_day),
+      FOREIGN KEY (provider_id) REFERENCES model_providers(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS catalog_models (
       model_key TEXT PRIMARY KEY,
       vendor TEXT NOT NULL,
@@ -114,6 +128,16 @@ function migrate(conn: Database.Database) {
       FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS session_worktrees (
+      session_id TEXT PRIMARY KEY,
+      project_path TEXT NOT NULL,
+      repo_path TEXT NOT NULL,
+      worktree_path TEXT NOT NULL UNIQUE,
+      branch TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS chat_messages (
       id TEXT NOT NULL,
       session_id TEXT NOT NULL,
@@ -135,6 +159,12 @@ function migrate(conn: Database.Database) {
       PRIMARY KEY (session_id, version),
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS session_goal_runtime (
+      session_id TEXT PRIMARY KEY,
+      goal_text TEXT NOT NULL,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS session_model_messages (
       session_id TEXT NOT NULL,
       seq INTEGER NOT NULL,
@@ -148,6 +178,36 @@ function migrate(conn: Database.Database) {
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
   `);
+
+  // 早期本机用量只有供应商维度；旧数据留在空账号键，OAuth 账号不会误读它。
+  const usageCols = conn.prepare(`PRAGMA table_info(provider_model_usage)`).all() as Array<{ name: string }>;
+  if (!usageCols.some((col) => col.name === "account_key")) {
+    conn.transaction(() => {
+      conn.exec(`
+        CREATE TABLE provider_model_usage_new (
+          provider_id TEXT NOT NULL,
+          account_key TEXT NOT NULL DEFAULT '',
+          model_id TEXT NOT NULL,
+          local_day TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+          usage_events INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (provider_id, account_key, model_id, local_day),
+          FOREIGN KEY (provider_id) REFERENCES model_providers(id) ON DELETE CASCADE
+        );
+        INSERT INTO provider_model_usage_new
+          (provider_id, account_key, model_id, local_day, input_tokens, output_tokens,
+           cached_input_tokens, usage_events, updated_at)
+        SELECT provider_id, '', model_id, local_day, input_tokens, output_tokens,
+          cached_input_tokens, usage_events, updated_at
+        FROM provider_model_usage;
+        DROP TABLE provider_model_usage;
+        ALTER TABLE provider_model_usage_new RENAME TO provider_model_usage;
+      `);
+    })();
+  }
 
   // 公共区：内置工作区，不绑定目录，不可删除
   conn

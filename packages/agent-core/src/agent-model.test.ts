@@ -85,6 +85,16 @@ describe("buildProviderOptions", () => {
     ).toEqual({ zenProvider: { reasoningEffort: "medium" } });
   });
 
+  it("ChatGPT 方案的 Responses 请求关闭存储并使用 developer 指令", () => {
+    expect(buildProviderOptions(config({
+      protocol: "openai-responses",
+      chatgptPlan: true,
+      reasoningEffort: "high",
+    }))).toEqual({
+      openai: { store: false, systemMessageMode: "developer", reasoningEffort: "high" },
+    });
+  });
+
   it("anthropic adaptive 族：推理模型下发 adaptive + summarized + effort + 缓存断点", () => {
     expect(
       buildProviderOptions(

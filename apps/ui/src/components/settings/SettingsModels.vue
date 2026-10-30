@@ -10,6 +10,12 @@ import VendorLogo from "@/components/brand/VendorLogo.vue";
 import ProviderDetail from "@/components/settings/ProviderDetail.vue";
 import ProviderEditor from "@/components/settings/ProviderEditor.vue";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toPlain } from "@/lib/utils";
 import { useModelsStore } from "@/stores/models";
 
@@ -20,7 +26,7 @@ import type {
   ProviderSummary,
 } from "@zen/shared";
 
-type Mode = "view" | "add";
+type Mode = "view" | "add" | "add-codex";
 
 const { t } = useI18n();
 const modelsStore = useModelsStore();
@@ -28,6 +34,16 @@ const { providers, activeProvider, activeProviderId, selection, error, fetching 
   storeToRefs(modelsStore);
 
 const mode = ref<Mode>("view");
+const codexLoginPending = ref(false);
+const codexError = ref<string | null>(null);
+const codexAccountProvider = computed(() => providers.value.find((provider) =>
+  provider.authMode === "chatgpt-oauth",
+));
+const codexApiProvider = computed(() => providers.value.find((provider) =>
+  provider.authMode !== "chatgpt-oauth" &&
+  provider.protocol === "openai-responses" &&
+  /^https:\/\/api\.openai\.com\/v1\/?$/i.test(provider.baseUrl),
+));
 const providerToRemove = ref(false);
 const removing = ref(false);
 const modelToRemove = ref<ProviderModel | null>(null);
@@ -45,29 +61,53 @@ const providerRemoveDesc = computed(() => {
 });
 
 function startAdd() {
+  codexError.value = null;
   mode.value = "add";
 }
 
-/** ChatGPT 账号登录：已存在 chatgpt-oauth 供应商时直接对其发起；否则自动创建（带预置 Codex 模型）后登录 */
-async function onChatGptLogin() {
-  const zen = window.zen;
-  if (!zen?.models) {
+function onCodexConnect() {
+  codexError.value = null;
+  if (codexApiProvider.value) {
+    selectProvider(codexApiProvider.value);
     return;
   }
-  const existing = providers.value.find((p) => p.authMode === "chatgpt-oauth");
+  mode.value = "add-codex";
+}
+
+async function onCodexAccount() {
+  if (codexAccountProvider.value) {
+    selectProvider(codexAccountProvider.value);
+    return;
+  }
+  const zen = window.zen;
+  if (!zen?.models || codexLoginPending.value) return;
+  codexError.value = null;
+  codexLoginPending.value = true;
   try {
-    const { provider } = await zen.models.chatgptLogin(existing?.id);
-    await modelsStore.refresh();
-    if (provider) {
-      modelsStore.setActiveProvider(provider.id);
-    }
-    mode.value = "view";
+    const { provider } = await zen.models.chatgptLogin();
+    if (!provider) throw new Error(t("settings.models.codexLoginFailed"));
+    await onCodexAuthorized(provider.id);
   } catch (error) {
-    console.warn("[chatgpt] 登录失败:", error);
+    codexError.value = error instanceof Error ? error.message : t("settings.models.codexLoginFailed");
+    await modelsStore.refresh();
+  } finally {
+    codexLoginPending.value = false;
   }
 }
 
+async function onCodexAuthorized(providerId: string) {
+  codexError.value = null;
+  const result = await modelsStore.refreshFromProvider(providerId);
+  if (!result) {
+    codexError.value = modelsStore.error ?? t("settings.models.codexModelRefreshFailed");
+  }
+  await modelsStore.refresh();
+  modelsStore.setActiveProvider(providerId);
+  mode.value = "view";
+}
+
 function selectProvider(provider: ProviderSummary) {
+  codexError.value = null;
   modelsStore.setActiveProvider(provider.id);
   mode.value = "view";
 }
@@ -102,6 +142,10 @@ async function onRefreshModels() {
   }
   const result = await modelsStore.refreshFromProvider(providerId);
   if (!result || !activeProvider.value) {
+    return;
+  }
+  if (activeProvider.value.authMode === "chatgpt-oauth") {
+    await modelsStore.refresh();
     return;
   }
   const known = new Set(activeProvider.value.models.map((item) => item.id));
@@ -211,15 +255,32 @@ async function confirmRemoveModel() {
       <div class="flex h-[var(--panel-head-h)] items-center justify-between gap-1.5 border-b border-[var(--color-line)] px-[5px] pl-2.5">
         <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
         <div class="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            :title="t('settings.models.chatgptLogin')"
-            :aria-label="t('settings.models.chatgptLogin')"
-            @click="onChatGptLogin"
-          >
-            <VendorLogo vendor="ChatGPT" :size="14" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 gap-1 px-1.5 text-[11px]"
+                :disabled="codexLoginPending"
+                :aria-label="t('settings.models.codexConnect')"
+              >
+                <VendorLogo vendor="Codex" :size="14" />
+                {{ codexLoginPending ? t("settings.models.chatgptPending") : t("settings.models.codexConnect") }}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-[260px]">
+              <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexConnect">
+                <span class="text-[12px] text-[var(--color-txt)]">{{ t("settings.models.codexApiKeyChoice") }}</span>
+                <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexApiKeyChoiceHint") }}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexAccount">
+                <span class="text-[12px] text-[var(--color-txt)]">
+                  {{ t(codexAccountProvider ? "settings.models.codexAccountExisting" : "settings.models.codexAccountChoice") }}
+                </span>
+                <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexAccountChoiceHint") }}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
             <Plus />
           </Button>
@@ -245,11 +306,13 @@ async function confirmRemoveModel() {
     </aside>
 
     <div class="flex min-w-0 flex-col gap-2.5">
-      <p v-if="error" class="m-0 text-[12px] text-[var(--color-err)]" role="alert">{{ error }}</p>
+      <p v-if="codexError || error" class="m-0 text-[12px] text-[var(--color-err)]" role="alert">{{ codexError ?? error }}</p>
 
       <ProviderEditor
-        v-if="mode === 'add'"
+        v-if="mode === 'add' || mode === 'add-codex'"
+        :key="mode"
         :provider="null"
+        :codex-preset="mode === 'add-codex'"
         @saved="mode = 'view'"
         @cancel="mode = 'view'"
       />
@@ -262,6 +325,7 @@ async function confirmRemoveModel() {
           :selection-model-id="selection.modelId"
           @save="onSaveProvider"
           @refresh-models="onRefreshModels"
+          @authorized="onCodexAuthorized"
           @remove-provider="providerToRemove = true"
           @select-model="onSelectModel"
           @toggle-model-enabled="onToggleModelEnabled"

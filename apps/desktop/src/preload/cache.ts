@@ -12,5 +12,8 @@ export const cacheApi = {
     roots(): Promise<{ root: string; paste: string; screenshots: string }> {
       return ipcRenderer.invoke("cache:roots");
     },
+    clearTemporary(): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke("cache:clear-temporary");
+    },
   },
 };

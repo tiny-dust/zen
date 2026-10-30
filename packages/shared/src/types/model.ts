@@ -105,6 +105,26 @@ export interface ChatGptAuthStatus {
   expiresAt: number;
 }
 
+/** Zen 本机从已完成的模型步骤统计的 token 用量，不代表账号订阅额度。 */
+export interface ModelTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  totalTokens: number;
+  /** 收到用量的模型步骤数，不等同于对话数。 */
+  usageEvents: number;
+}
+
+export interface ProviderUsageSnapshot {
+  providerId: string;
+  source: "local";
+  total: ModelTokenUsage;
+  /** 按设备当前时区的自然日统计。 */
+  today: ModelTokenUsage;
+  byModel: Array<{ modelId: string; usage: ModelTokenUsage }>;
+  updatedAt: number | null;
+}
+
 /** UI-facing provider：apiKey 不回传明文，仅 hasApiKey / apiKeyMask */
 export interface ProviderSummary {
   id: string;

@@ -3,7 +3,8 @@ import { ipcMain } from "electron";
 import { chatgptLogin, chatgptLogout, getChatGptAuthStatus } from "./chatgpt-auth";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
-import { ensureChatGptProvider } from "./model-db";
+import { chatGptUsageAccountKey, getProviderUsage } from "./model-usage";
+import { ensureChatGptProvider, syncChatGptModels } from "./model-db";
 import {
   getCatalogUpdatedAt,
   listCatalogModels,
@@ -83,7 +84,9 @@ export function registerModelIpc(): void {
     if (!provider) {
       throw new Error("供应商不存在");
     }
-    return fetchModelsFromProvider(provider);
+    const result = await fetchModelsFromProvider(provider);
+    if (provider.authMode === "chatgpt-oauth") await syncChatGptModels(provider.id, result);
+    return result;
   });
 
   ipcMain.handle("models:preview-models", async (_event, input: PreviewModelsInput) => {
@@ -130,9 +133,9 @@ export function registerModelIpc(): void {
 
   // ---------- ChatGPT 账号登录 ----------
 
-  /** 登录：无 providerId 时自动创建 ChatGPT 供应商（带预置 Codex 模型） */
+  /** 登录：无 providerId 时创建 Codex 供应商；模型由当前账号目录提供。 */
   ipcMain.handle("models:chatgpt-login", async (_event, providerId?: string) => {
-    const target = providerId ?? (await ensureChatGptProvider()).id;
+    const target = (await ensureChatGptProvider(providerId)).id;
     const status = await chatgptLogin(target);
     const providers = await listProviders();
     return { status, provider: providers.find((item) => item.id === target) ?? null };
@@ -142,8 +145,22 @@ export function registerModelIpc(): void {
     return getChatGptAuthStatus(providerId);
   });
 
+  ipcMain.handle("models:usage", async (_event, providerId: string) => {
+    const provider = (await listProviders()).find((item) => item.id === providerId);
+    if (!provider) {
+      throw new Error("供应商不存在");
+    }
+    if (provider.authMode === "chatgpt-oauth") {
+      const status = await getChatGptAuthStatus(providerId);
+      const accountKey = chatGptUsageAccountKey(status.accountId, status.email);
+      // 无可识别账号时返回空快照，不把其他账号或旧版未归属数据混入当前账号。
+      return getProviderUsage(providerId, Date.now(), accountKey ?? "__unknown_account__");
+    }
+    return getProviderUsage(providerId);
+  });
+
   ipcMain.handle("models:chatgpt-logout", async (_event, providerId: string) => {
-    chatgptLogout(providerId);
+    await chatgptLogout(providerId);
     return getChatGptAuthStatus(providerId);
   });
 }

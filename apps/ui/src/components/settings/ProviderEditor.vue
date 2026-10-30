@@ -21,6 +21,10 @@ import type {
 } from "@zen/shared";
 
 /** 仅用于「新增供应商」；编辑已有供应商走 ProviderDetail */
+const props = withDefaults(defineProps<{ codexPreset?: boolean }>(), {
+  codexPreset: false,
+});
+
 const emit = defineEmits<{
   saved: [];
   cancel: [];
@@ -32,8 +36,8 @@ const { fetching } = storeToRefs(modelsStore);
 
 const saving = ref(false);
 const form = reactive({
-  name: "",
-  protocol: "openai-chat" as ProviderProtocol,
+  name: props.codexPreset ? "Codex" : "",
+  protocol: (props.codexPreset ? "openai-responses" : "openai-chat") as ProviderProtocol,
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   userAgent: "",
@@ -190,7 +194,9 @@ async function onSave() {
   <div class="min-w-0 overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]">
     <header class="flex items-center justify-between gap-2.5 border-b border-[var(--color-line)] py-2 pl-3.5 pr-2.5">
       <div class="flex min-w-0 items-baseline gap-2">
-        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.models.addTitle") }}</h3>
+        <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t(props.codexPreset ? "settings.models.codexAddTitle" : "settings.models.addTitle") }}
+        </h3>
         <span class="truncate text-[11px] text-[var(--color-mut)]">
           {{ t("settings.models.addFieldHint") }}
         </span>
@@ -200,6 +206,10 @@ async function onSave() {
         <Button size="sm" :disabled="saving" @click="onSave">{{ t("settings.models.saveProvider") }}</Button>
       </div>
     </header>
+
+    <p v-if="props.codexPreset" class="m-0 border-b border-[var(--color-line)] px-3.5 py-2 text-[11px] leading-relaxed text-[var(--color-mut)]">
+      {{ t("settings.models.codexApiKeyHint") }}
+    </p>
 
     <ProviderFields
       v-model:name="form.name"

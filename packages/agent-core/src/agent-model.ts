@@ -107,9 +107,11 @@ export function buildProviderOptions(config: AgentSessionConfig): Record<string,
   }
 
   if (config.protocol === "openai-responses") {
-    // prompt_cache_key = 会话 id：同会话请求路由到同一缓存节点（前缀缓存亲和）。
-    // 子会话 sessionId 带 :: 后缀，天然与父会话隔离（对齐 Codex 的 SessionDerived 策略）
-    const options: Record<string, unknown> = { promptCacheKey: config.sessionId };
+    // ChatGPT 方案授权要求 store=false，且输入中的系统指令必须转为 developer 消息。
+    // 其它 Responses 供应商继续使用会话级缓存键。
+    const options: Record<string, unknown> = config.chatgptPlan
+      ? { store: false, systemMessageMode: "developer" }
+      : { promptCacheKey: config.sessionId };
     if (effort && effort !== "off") {
       options.reasoningEffort = effort;
     }

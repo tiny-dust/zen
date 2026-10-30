@@ -14,6 +14,7 @@ import type {
   ProviderInput,
   ProviderModel,
   ProviderSummary,
+  ProviderUsageSnapshot,
   SetModelsEnabledInput,
   UpdateModelInput,
 } from "@zen/shared";
@@ -89,6 +90,9 @@ export const modelsApi = {
     },
     chatgptLogout(providerId: string): Promise<ChatGptAuthStatus> {
       return ipcRenderer.invoke("models:chatgpt-logout", providerId);
+    },
+    getUsage(providerId: string): Promise<ProviderUsageSnapshot> {
+      return ipcRenderer.invoke("models:usage", providerId);
     },
   },
 };

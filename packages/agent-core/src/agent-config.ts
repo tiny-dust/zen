@@ -70,6 +70,8 @@ export interface AgentSessionConfig {
    * chatgpt-account-id 等后端识别头（access_token 走 apiKey 通道即可）。
    */
   authHeaders?: Record<string, string>;
+  /** ChatGPT 方案授权：Responses 请求必须走公开 API，关闭服务端存储。 */
+  chatgptPlan?: boolean;
   /** 权限模式（ADR-004）：default / smart / full */
   permissionMode: PermissionMode;
   /** 系统提示词全文（设置页选择的预设或自定义） */

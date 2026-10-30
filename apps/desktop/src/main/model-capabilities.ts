@@ -3,9 +3,9 @@ import type { ModelCapabilities } from "@zen/shared";
 import { matchCatalogModel } from "./model-catalog";
 
 const REASONING_HINT =
-  /reason|think|o1|o3|o4|r1|qwq|deepseek-reasoner|gemini.*thinking|claude.*thinking/i;
+  /reason|think|o1|o3|o4|r1|qwq|deepseek-reasoner|gemini.*thinking|claude.*thinking|gpt-[56]|codex/i;
 const VISION_HINT = /vision|4o|4\.1|claude-3|claude-4|gemini|gpt-5/i;
-const TOOL_HINT = /gpt|claude|deepseek|qwen|gemini|llama|mistral|kimi|glm/i;
+const TOOL_HINT = /gpt|codex|claude|deepseek|qwen|gemini|llama|mistral|kimi|glm/i;
 
 /** 各家 /v1/models 条目里表示上下文长度的字段别名，按优先级排列（max_tokens 语义最含糊，放最后） */
 const CONTEXT_KEYS = [

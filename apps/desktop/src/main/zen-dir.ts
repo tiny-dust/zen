@@ -28,6 +28,11 @@ export function zenSandboxRoot(): string {
   return join(zenRoot(), "sandbox");
 }
 
+/** Git 会话工作树统一放在用户目录下，三平台均由 homedir/path 解析。 */
+export function zenWorktreesRoot(): string {
+  return join(zenRoot(), "worktrees");
+}
+
 export function zenCacheRoot(): string {
   return join(zenRoot(), "cache");
 }
@@ -85,6 +90,7 @@ export async function initZenDir(): Promise<void> {
     ensureDir(zenRoot()),
     ensureDir(zenSkillsRoot()),
     ensureDir(zenSandboxRoot()),
+    ensureDir(zenWorktreesRoot()),
     ensureDir(zenCacheRoot()),
     ensureDir(zenMemoryDir()),
   ]);
