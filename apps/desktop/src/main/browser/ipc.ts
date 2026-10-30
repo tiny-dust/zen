@@ -20,6 +20,7 @@ import type {
 import { getBrowserRegistry, type BrowserService } from "./service";
 import { resolveElementSourceFiles } from "./element-source";
 import { importBookmarks, importHistory, listImportSources, parsePasswordCsv } from "./import";
+import { importNativePasswords } from "./native-passwords";
 import {
   clearPasswords,
   listStoredPasswords,
@@ -237,13 +238,15 @@ export function registerBrowserIpc(
       return loadBrowserSettings();
     }
     // 只接受合法字段，缩放钳制到 50–300%
-    const next = await saveBrowserSettings({
-      userAgent: typeof partial.userAgent === "string" ? partial.userAgent : undefined,
-      zoomPercent:
-        typeof partial.zoomPercent === "number"
-          ? Math.min(300, Math.max(50, Math.round(partial.zoomPercent)))
-          : undefined,
-    });
+    const patch: Partial<BrowserSettings> = {};
+    if (typeof partial.userAgent === "string") patch.userAgent = partial.userAgent;
+    if (typeof partial.zoomPercent === "number") {
+      patch.zoomPercent = Math.min(300, Math.max(50, Math.round(partial.zoomPercent)));
+    }
+    if (typeof partial.autoFillPasswords === "boolean") {
+      patch.autoFillPasswords = partial.autoFillPasswords;
+    }
+    const next = await saveBrowserSettings(patch);
     registry.applySettings(next);
     return next;
   });
@@ -268,6 +271,19 @@ export function registerBrowserIpc(
   ipcMain.handle("browser:import-history", (_event, sourceId: BrowserImportSourceId) =>
     importHistory(sourceId),
   );
+
+  ipcMain.handle("browser:import-passwords-source", async (_event, sourceId: BrowserImportSourceId) => {
+    const result = await importNativePasswords(sourceId);
+    if (!result.ok) {
+      return { ok: false, error: result.error, skipped: result.skipped } satisfies PasswordImportResult;
+    }
+    const saved = await upsertPasswords(result.rows);
+    return {
+      ok: true,
+      imported: saved.imported,
+      skipped: result.skipped + saved.skipped,
+    } satisfies PasswordImportResult;
+  });
 
   // 密码：只支持浏览器导出的 CSV（Chrome/Edge：设置 → 密码 → 导出）
   ipcMain.handle("browser:import-passwords-csv", async (event) => {
@@ -303,6 +319,9 @@ export function registerBrowserIpc(
 
   ipcMain.handle("browser:passwords-list", () => listStoredPasswords());
   ipcMain.handle("browser:passwords-reveal", (_event, id: string) => revealPassword(id));
+  ipcMain.handle("browser:passwords-fill", (event, id: string, scope?: string) =>
+    serviceFor(event, scope).fillPassword(id),
+  );
   ipcMain.handle("browser:passwords-remove", (_event, id: string) => removePassword(id));
   ipcMain.handle("browser:passwords-clear", () => {
     clearPasswords();

@@ -29,6 +29,30 @@ describe("parsePasswordCsv", () => {
     });
   });
 
+  it("按 Firefox 表头位置读取 URL、用户名和密码", () => {
+    const result = parsePasswordCsv(
+      "url,username,password,httpRealm,formActionOrigin\nhttps://mozilla.example/login,fox,secret,,https://mozilla.example",
+    );
+    expect(result).toEqual({
+      ok: true,
+      rows: [{ name: "", url: "https://mozilla.example/login", username: "fox", password: "secret" }],
+      skipped: 0,
+    });
+  });
+
+  it("按 Safari 表头读取密码，并保留引号中的换行和逗号", () => {
+    const result = parsePasswordCsv(
+      '\uFEFFTitle,URL,Username,Password,Notes\r\n"站点, A",https://safari.example,user,"line 1\nline 2, end",note',
+    );
+    expect(result.rows).toEqual([{
+      name: "站点, A",
+      url: "https://safari.example",
+      username: "user",
+      password: "line 1\nline 2, end",
+    }]);
+    expect(result.ok).toBe(true);
+  });
+
   it("无表头按数据行解析；缺 url 或全空的用户名密码计入 skipped", () => {
     const result = parsePasswordCsv(
       ["Site,https://site.example,user,pw", ",https://no-name.example,user,pw", "X,,u,p", "Y,https://y.example,,"].join(
@@ -46,5 +70,20 @@ describe("parsePasswordCsv", () => {
   it("空文件与无有效条目返回失败", () => {
     expect(parsePasswordCsv("").ok).toBe(false);
     expect(parsePasswordCsv("name,url,username,password,note").ok).toBe(false);
+  });
+
+  it("拒绝未知表头与未闭合引号，不把错位列当作密码", () => {
+    expect(parsePasswordCsv("site,address,login,secret\nA,https://a.example,user,pw")).toMatchObject({
+      ok: false,
+      error: "无法识别密码 CSV 表头",
+    });
+    expect(parsePasswordCsv('name,url,username,password\nA,https://a.example,user,"unfinished')).toMatchObject({
+      ok: false,
+      error: "密码 CSV 引号格式不正确",
+    });
+    expect(parsePasswordCsv('name,url,username,password\nA,https://a.example,user,"pw"extra')).toMatchObject({
+      ok: false,
+      error: "密码 CSV 引号格式不正确",
+    });
   });
 });

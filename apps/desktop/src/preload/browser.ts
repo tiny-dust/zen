@@ -185,12 +185,18 @@ export const browserApi = {
     importPasswordsCsv(): Promise<PasswordImportResult> {
       return ipcRenderer.invoke("browser:import-passwords-csv");
     },
+    importPasswordsFromSource(sourceId: BrowserImportSourceId): Promise<PasswordImportResult> {
+      return ipcRenderer.invoke("browser:import-passwords-source", sourceId);
+    },
     listPasswords(): Promise<StoredPasswordEntry[]> {
       return ipcRenderer.invoke("browser:passwords-list");
     },
     /** 取单条明文密码（复制按钮触发） */
     revealPassword(id: string): Promise<string | null> {
       return ipcRenderer.invoke("browser:passwords-reveal", id);
+    },
+    fillPassword(id: string): Promise<BrowserActionResult & { filled?: boolean }> {
+      return ipcRenderer.invoke("browser:passwords-fill", id, browserScope);
     },
     removePassword(id: string): Promise<boolean> {
       return ipcRenderer.invoke("browser:passwords-remove", id);

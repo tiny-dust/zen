@@ -22,6 +22,8 @@ export interface BrowserSettings {
   userAgent: string;
   /** 页面缩放百分比（50–300），100 即不缩放；作用于 webContents zoom，不改变视图 bounds */
   zoomPercent: number;
+  /** 精确匹配 HTTPS 站点时自动填充单条已存凭据；多条仍需用户选择。 */
+  autoFillPasswords: boolean;
   /** 画中画悬浮窗上次的位置与大小 */
   pipBounds: BrowserPipBounds | null;
 }
@@ -29,6 +31,7 @@ export interface BrowserSettings {
 export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   userAgent: "",
   zoomPercent: 100,
+  autoFillPasswords: true,
   pipBounds: null,
 };
 
@@ -208,6 +211,8 @@ export interface BrowserImportSource {
   bookmarks: boolean;
   /** 本机存在历史记录数据文件 */
   history: boolean;
+  /** 当前设备可尝试直接读取此浏览器保存的密码。 */
+  passwords?: boolean;
 }
 
 /** 导入的书签条目（渲染层按工作区存本地，行为同浏览历史） */
@@ -234,7 +239,7 @@ export interface StoredPasswordEntry {
   createdAt: number;
 }
 
-/** 密码 CSV 导入结果 */
+/** 密码导入结果（浏览器数据文件或用户选择的 CSV） */
 export interface PasswordImportResult {
   ok: boolean;
   imported?: number;
