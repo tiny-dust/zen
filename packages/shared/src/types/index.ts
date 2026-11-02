@@ -19,6 +19,7 @@ export * from "./id";
 export * from "./session-mode";
 export * from "./session-goal";
 export * from "./session-goal-runtime";
+export * from "./session-export";
 export * from "./feature";
 export * from "./system-abilities";
 export * from "./error-reports";

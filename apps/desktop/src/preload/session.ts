@@ -1,6 +1,14 @@
 import { ipcRenderer } from "electron";
 
-import type { ChatMessage, SessionGoal, SessionGoalRuntime, SessionMode, SessionRecord, SessionWorktree } from "@zen/shared";
+import type {
+  ChatMessage,
+  SessionExportFormat,
+  SessionGoal,
+  SessionGoalRuntime,
+  SessionMode,
+  SessionRecord,
+  SessionWorktree,
+} from "@zen/shared";
 
 import { syncBrowserScope } from "./browser";
 
@@ -97,17 +105,12 @@ export const sessionApi = {
     remove(id: string): Promise<void> {
       return ipcRenderer.invoke("session:delete", id);
     },
-    /** 会话分享导出：主进程弹保存框并写自包含 HTML；取消返回 { ok, canceled } */
-    exportHtml(
+    /** 会话导出：按格式渲染并弹保存框；取消返回 { ok, canceled } */
+    exportSession(
       id: string,
+      format: SessionExportFormat,
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
-      return ipcRenderer.invoke("session:export-html", id);
-    },
-    /** 会话导出 Markdown：主进程弹保存框并写 .md；取消返回 { ok, canceled } */
-    exportMarkdown(
-      id: string,
-    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
-      return ipcRenderer.invoke("session:export-md", id);
+      return ipcRenderer.invoke("session:export", id, format);
     },
     /** 从某条消息分叉：新建会话复制该消息及之前的对话，原会话不变 */
     fork(

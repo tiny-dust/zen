@@ -2,12 +2,13 @@ import { BrowserWindow, ipcMain, Notification } from "electron";
 import { writeFile } from "node:fs/promises";
 
 import type { ChatMessage, SessionMode } from "@zen/shared";
-import { SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
+import { isSessionExportFormat, SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
+import type { SessionExportFormat } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
 import { getDb } from "./model-db-connection";
-import { renderSessionHtml, renderSessionMarkdown } from "./session-export";
+import { SESSION_EXPORT_RENDERERS } from "./session-export";
 import { createSessionWorktree, getSessionWorktree, hasWorktreeInWorkspace, removeSessionWorktree } from "./session-worktree";
 import {
   appendMessage,
@@ -380,13 +381,13 @@ export function registerSessionIpc(
   });
 
   /**
-   * 会话导出（HTML / Markdown 共用）：渲染文本 → 系统保存弹窗选路径 → 落盘。
+   * 会话导出（所有格式共用一条链路）：按格式注册表渲染 → 系统保存弹窗 → 落盘。
    * 文件名取会话标题，剥掉路径非法字符；取消保存返回 { ok:true, canceled:true }。
    */
   async function exportSessionFile(
     event: Electron.IpcMainInvokeEvent,
     sessionId: string,
-    format: "html" | "md",
+    format: SessionExportFormat,
   ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
     if (typeof sessionId !== "string" || !sessionId.trim()) {
       return { ok: false, error: "invalid session id" };
@@ -395,21 +396,17 @@ export function registerSessionIpc(
     if (!record) {
       return { ok: false, error: "session not found" };
     }
-    const payload = { session: record.session, messages: record.messages };
-    const text = format === "html" ? renderSessionHtml(payload) : renderSessionMarkdown(payload);
-    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.${format}`.replace(
+    const spec = SESSION_EXPORT_RENDERERS[format];
+    const text = spec.render({ session: record.session, messages: record.messages });
+    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.${spec.extension}`.replace(
       /[\\/:*?"<>|]/g,
       "_",
     );
     const parent = BrowserWindow.fromWebContents(event.sender);
     const result = await showSaveDialogSafe(parent, {
-      title: format === "html" ? "导出会话 HTML" : "导出会话 Markdown",
+      title: spec.dialogTitle,
       defaultPath: defaultName,
-      filters: [
-        format === "html"
-          ? { name: "HTML", extensions: ["html"] }
-          : { name: "Markdown", extensions: ["md", "markdown"] },
-      ],
+      filters: [{ name: spec.filterName, extensions: spec.extensions }],
     });
     if (result.canceled || !result.filePath) {
       return { ok: true, canceled: true };
@@ -422,13 +419,11 @@ export function registerSessionIpc(
     }
   }
 
-  // 会话分享导出：自包含单文件 HTML（深色 MiMo 风格），保存位置由系统保存弹窗选择
-  ipcMain.handle("session:export-html", (event, sessionId: string) =>
-    exportSessionFile(event, sessionId, "html"),
-  );
-
-  // 会话导出 Markdown：纯文本，便于贴进笔记 / Issue / PR
-  ipcMain.handle("session:export-md", (event, sessionId: string) =>
-    exportSessionFile(event, sessionId, "md"),
-  );
+  // 会话导出：格式走 @zen/shared 的 SESSION_EXPORT_FORMATS 注册表，新增格式只加渲染器
+  ipcMain.handle("session:export", (event, sessionId: string, format: unknown) => {
+    if (!isSessionExportFormat(format)) {
+      return { ok: false, error: "unsupported export format" };
+    }
+    return exportSessionFile(event, sessionId, format);
+  });
 }

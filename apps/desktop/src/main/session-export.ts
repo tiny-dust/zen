@@ -1,4 +1,4 @@
-import type { ChatMessage, SessionRecord } from "@zen/shared";
+import type { ChatMessage, SessionExportFormat, SessionRecord } from "@zen/shared";
 
 /**
  * 会话分享导出：把会话渲染成自包含单文件 HTML（内联 CSS，浏览器直接打开）。
@@ -436,3 +436,40 @@ export function renderSessionMarkdown(input: {
     "",
   ].join("\n");
 }
+
+/** 单个导出格式的落盘规格：保存弹窗文案/筛选器 + 渲染函数 */
+export interface SessionExportRenderer {
+  /** 默认文件名扩展名（不含点），同时用作保存筛选器主扩展 */
+  extension: string;
+  /** 保存弹窗筛选器名称 */
+  filterName: string;
+  /** 允许的扩展名列表（第一个为主扩展） */
+  extensions: string[];
+  /** 保存弹窗标题 */
+  dialogTitle: string;
+  render: (input: {
+    session: Pick<SessionRecord, "title" | "createdAt" | "updatedAt">;
+    messages: ChatMessage[];
+  }) => string;
+}
+
+/**
+ * 导出格式注册表：新增格式在 @zen/shared 的 SESSION_EXPORT_FORMATS 加一项
+ * （渲染层菜单自动出现），并在这里补对应 renderer；Record 约束漏项会编译报错。
+ */
+export const SESSION_EXPORT_RENDERERS: Record<SessionExportFormat, SessionExportRenderer> = {
+  html: {
+    extension: "html",
+    filterName: "HTML",
+    extensions: ["html"],
+    dialogTitle: "导出会话 HTML",
+    render: renderSessionHtml,
+  },
+  md: {
+    extension: "md",
+    filterName: "Markdown",
+    extensions: ["md", "markdown"],
+    dialogTitle: "导出会话 Markdown",
+    render: renderSessionMarkdown,
+  },
+};

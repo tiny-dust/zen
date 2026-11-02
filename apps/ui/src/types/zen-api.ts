@@ -99,7 +99,7 @@ import type {
   Workspace,
   WorkspaceGroup,
 } from "@zen/shared";
-import type { SessionGoal, SessionGoalRuntime, SessionMode } from "@zen/shared";
+import type { SessionExportFormat, SessionGoal, SessionGoalRuntime, SessionMode } from "@zen/shared";
 
 export interface AppInfo {
   workspaceRoot: string;
@@ -474,13 +474,10 @@ export interface ZenApi {
     pin(id: string, pinned: boolean): Promise<void>;
     archive(id: string, archived: boolean): Promise<void>;
     remove(id: string): Promise<void>;
-    /** 会话分享导出：主进程弹保存框并写自包含 HTML；取消返回 { ok, canceled } */
-    exportHtml(
+    /** 会话导出：主进程按格式渲染并弹保存框；取消返回 { ok, canceled } */
+    exportSession(
       id: string,
-    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
-    /** 会话导出 Markdown：主进程弹保存框并写 .md；取消返回 { ok, canceled } */
-    exportMarkdown(
-      id: string,
+      format: SessionExportFormat,
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     /** 从某条消息分叉出新会话（复制该消息及之前的对话，原会话不变） */
     fork(
