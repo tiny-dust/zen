@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, ref } from "vue";
 
 import type {
@@ -38,6 +38,7 @@ function contextOf(): ChatEventContext {
     sessionTotalTokens: ref(0),
     pendingApproval: ref<PendingApproval | null>(null),
     pendingAsks: ref<AskUserQuestionEvent[]>([]),
+    askAnswers: ref<Record<string, string>>({}),
     stashedAsks: new Map<string, AskUserQuestionEvent[]>(),
     stashedApprovals: new Map(),
     pendingToolArgs: new Map<string, { toolName: string; args: unknown }>(),
@@ -336,5 +337,85 @@ describe("createChatEventGateway 后台运行态与缓冲生命周期", () => {
     const { handleStreamEvent } = createChatEventGateway(ctx);
     handleStreamEvent({ type: "delta", sessionId: "s1", text: "正常流式" });
     expect(ctx.status.value).toBe("answering");
+  });
+});
+
+describe("createChatEventGateway askUser 暂存回答与统一提交", () => {
+  function askOf(askId: string, priority?: "high" | "medium" | "low"): AskUserQuestionEvent {
+    return {
+      askId,
+      toolCallId: `tc-${askId}`,
+      question: `问题 ${askId}`,
+      priority,
+      options: ["A", "B"],
+      allowFreeText: true,
+    };
+  }
+
+  function setup() {
+    const ctx = contextOf();
+    const resolveAsk = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("zen", { agent: { resolveAsk } });
+    const gateway = createChatEventGateway(ctx);
+    return { ctx, resolveAsk, ...gateway };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("单问询：answerAsk 立即提交，不进暂存表", async () => {
+    const { ctx, resolveAsk, answerAsk } = setup();
+    ctx.pendingAsks.value = [askOf("a1")];
+    await answerAsk("a1", "A");
+    expect(resolveAsk).toHaveBeenCalledWith("s1", { askId: "a1", answer: "A" });
+    expect(ctx.pendingAsks.value).toHaveLength(0);
+    expect(ctx.askAnswers.value).toEqual({});
+  });
+
+  it("多问询：answerAsk 只暂存，等统一提交才写回", async () => {
+    const { ctx, resolveAsk, answerAsk } = setup();
+    ctx.pendingAsks.value = [askOf("a1", "high"), askOf("a2", "low")];
+    await answerAsk("a1", "A");
+    expect(resolveAsk).not.toHaveBeenCalled();
+    expect(ctx.askAnswers.value).toEqual({ a1: "A" });
+    expect(ctx.pendingAsks.value.map((item) => item.askId)).toEqual(["a1", "a2"]);
+  });
+
+  it("答错的题可覆盖暂存答案", async () => {
+    const { ctx, resolveAsk, answerAsk } = setup();
+    ctx.pendingAsks.value = [askOf("a1"), askOf("a2")];
+    await answerAsk("a1", "A");
+    await answerAsk("a1", "B");
+    expect(ctx.askAnswers.value.a1).toBe("B");
+    expect(resolveAsk).not.toHaveBeenCalled();
+  });
+
+  it("submitAskAnswers 逐题写回并清空队列与暂存", async () => {
+    const { ctx, resolveAsk, answerAsk, submitAskAnswers } = setup();
+    ctx.pendingAsks.value = [askOf("a1"), askOf("a2")];
+    await answerAsk("a1", "A");
+    await answerAsk("a2", "B");
+    await submitAskAnswers();
+    expect(resolveAsk).toHaveBeenCalledTimes(2);
+    expect(resolveAsk).toHaveBeenNthCalledWith(1, "s1", { askId: "a1", answer: "A" });
+    expect(resolveAsk).toHaveBeenNthCalledWith(2, "s1", { askId: "a2", answer: "B" });
+    expect(ctx.pendingAsks.value).toHaveLength(0);
+    expect(ctx.askAnswers.value).toEqual({});
+  });
+
+  it("ask_resolved 事件清理该题暂存（在 Zen 内或飞书已回答）", async () => {
+    const { ctx, handleStreamEvent, answerAsk } = setup();
+    ctx.pendingAsks.value = [askOf("a1"), askOf("a2")];
+    await answerAsk("a1", "A");
+    handleStreamEvent({
+      type: "ask_resolved",
+      sessionId: "s1",
+      askId: "a1",
+      toolCallId: "tc-a1",
+      answer: "A",
+    });
+    expect(ctx.askAnswers.value).toEqual({});
+    expect(ctx.pendingAsks.value.map((item) => item.askId)).toEqual(["a2"]);
   });
 });

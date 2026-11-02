@@ -1,5 +1,5 @@
 // 会话目标（Goals 目标模式）渲染层回归：
-// - setSessionGoal：已持久化会话即写 IPC；未持久化会话先记内存、首发补建时落库；
+// - setSessionGoal：已持久化会话即写 IPC；未落库的新会话先补建会话再写目标；
 // - doLoadSession：session.open 返回的 goal 恢复进 store；newTask 复位为空；
 // - goalBudgetLabel：会话累计消耗 vs 预算（12.3K/50K）；
 // - continueGoal：目标 active 时以含目标文本的消息续跑；paused / 运行中不发送。
@@ -97,23 +97,55 @@ describe("goal 持久化与恢复", () => {
     expect(chat.sessionGoal).toBeNull();
   });
 
-  it("未持久化会话：setSessionGoal 先记内存，首发 send 补建会话时落库", async () => {
+  it("未落库的新会话：设目标立即建库落库，切走再切回仍能恢复", async () => {
     const chat = useChatStore();
     const zen = window.zen;
+    // 启动后的初始会话不在库里（sessionPersisted=false）
+    const targetId = chat.sessionId;
 
-    await chat.setSessionGoal({ text: "未落库目标", status: "active", tokenBudget: null });
-    // 未补建前不写 IPC
-    expect(zen?.session.setGoal).not.toHaveBeenCalled();
-    expect(chat.sessionGoal?.text).toBe("未落库目标");
-
-    agentRun.mockResolvedValueOnce({ ok: true });
-    chat.input = "正常发送一条";
-    await chat.send();
-    expect(zen?.session.setGoal).toHaveBeenCalledWith(chat.sessionId, {
-      text: "未落库目标",
+    await chat.setSessionGoal({ text: "新会话目标", status: "active", tokenBudget: null });
+    expect(zen?.session.create).toHaveBeenCalledWith(expect.anything(), targetId);
+    expect(zen?.session.setGoal).toHaveBeenCalledWith(targetId, {
+      text: "新会话目标",
       status: "active",
       tokenBudget: null,
     });
+    const savedGoal = vi.mocked(zen!.session.setGoal).mock.calls.at(-1)?.[1];
+
+    // 切到新会话，再按库内数据切回：目标从 session.open 恢复
+    await chat.newTask();
+    (zen?.session.open as ReturnType<typeof vi.fn>).mockResolvedValue({
+      session: {
+        id: targetId,
+        title: "T",
+        workspaceId: null,
+        draft: "",
+        mode: "interactive",
+        goal: savedGoal,
+      },
+      messages: [],
+    });
+    await chat.loadSession({
+      id: targetId,
+      title: "T",
+      workspaceId: null,
+      draft: "",
+      pinned: false,
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(chat.sessionGoal?.text).toBe("新会话目标");
+  });
+
+  it("未持久化会话清除目标（null）不触发建库", async () => {
+    const chat = useChatStore();
+    const zen = window.zen;
+
+    await chat.setSessionGoal(null);
+    expect(zen?.session.create).not.toHaveBeenCalled();
+    expect(zen?.session.setGoal).not.toHaveBeenCalled();
+    expect(chat.sessionGoal).toBeNull();
   });
 
   it("loadSession 恢复 session.open 返回的 goal；newTask 复位为空", async () => {

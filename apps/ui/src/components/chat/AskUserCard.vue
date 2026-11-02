@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Check, ChevronLeft, ChevronRight, CornerDownLeft, HelpCircle, UserRound } from "@lucide/vue";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CornerDownLeft,
+  HelpCircle,
+  Send,
+  UserRound,
+} from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -7,14 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 
-import type { AskUserQuestionEvent } from "@zen/shared";
+import type { AskUserQuestionEvent, AskUserPriority } from "@zen/shared";
 
 /**
  * askUser 提问卡片：Agent 请求用户决策时显示在输入框上方。
- * 多问询合并为一张卡：单题展示 + 进度指示，回答一题自动切到下一题，
- * 也可用上一题/下一题（或进度点）在问询间切换；按 askId 独立应答。
- * 选项竖向一行行排列：单选点击即答；多选（multiSelect）勾选后统一提交。
- * 也可自由输入后回车提交。
+ * 多问询合并为一张卡：单题展示 + 进度指示。答完一题先暂存（可在卡内返回修改），
+ * 自动跳到下一道未答的题；全部答完后点「提交全部回答」一次性交给 Agent。
+ * 只有一道题时保持「点一下即回答」的即时提交。
+ * 每题带推荐优先级徽标（高/中/低），模型给出，帮助用户判断先答哪道。
  */
 const { t } = useI18n();
 const chatStore = useChatStore();
@@ -26,6 +34,52 @@ const current = computed(() => asks.value[currentIndex.value]);
 
 /** 每个问询的本地草稿（多选勾选 + 自由输入），按 askId 隔离 */
 const drafts = reactive<Record<string, { freeText: string; picked: string[] }>>({});
+
+/** 统一提交进行中：按钮禁用 + 文案切换，避免连点重复提交 */
+const submitting = ref(false);
+
+/** 已暂存的回答（askId → answer）：来自 store，跨题切换/返回修改都读它 */
+function stagedAnswer(askId: string): string {
+  return chatStore.askAnswers[askId] ?? "";
+}
+
+function isAnswered(ask: AskUserQuestionEvent): boolean {
+  return stagedAnswer(ask.askId).length > 0;
+}
+
+const answeredCount = computed(() => asks.value.filter(isAnswered).length);
+const allAnswered = computed(() => asks.value.length > 0 && answeredCount.value === asks.value.length);
+/** 多问询：走「暂存 + 统一提交」，单问询即答 */
+const isBatch = computed(() => asks.value.length > 1);
+
+/** 问询优先级：老事件缺省按 medium 展示 */
+const PRIORITY_LABEL_KEY: Record<AskUserPriority, string> = {
+  high: "chat.ask.priorityHigh",
+  medium: "chat.ask.priorityMedium",
+  low: "chat.ask.priorityLow",
+};
+const PRIORITY_TITLE_KEY: Record<AskUserPriority, string> = {
+  high: "chat.ask.priorityHighTitle",
+  medium: "chat.ask.priorityMediumTitle",
+  low: "chat.ask.priorityLowTitle",
+};
+const PRIORITY_CLASS: Record<AskUserPriority, string> = {
+  high: "bg-[color-mix(in_srgb,var(--color-err)_12%,transparent)] text-[var(--color-err)]",
+  medium: "bg-[color-mix(in_srgb,var(--color-blue)_10%,transparent)] text-[var(--color-blue)]",
+  low: "bg-[var(--color-chip-bg)] text-[var(--color-mut)]",
+};
+
+function priorityOf(ask: AskUserQuestionEvent | undefined): AskUserPriority {
+  return ask?.priority ?? "medium";
+}
+
+function priorityLabel(ask: AskUserQuestionEvent): string {
+  return t(PRIORITY_LABEL_KEY[priorityOf(ask)]);
+}
+
+function priorityTitle(ask: AskUserQuestionEvent): string {
+  return t("chat.ask.priorityLabel", { level: t(PRIORITY_TITLE_KEY[priorityOf(ask)]) });
+}
 
 function draftOf(askId: string) {
   if (!drafts[askId]) {
@@ -47,13 +101,53 @@ watch(
   },
 );
 
-/** 回答当前问询后：队列由 store 同步移除，这里把下标夹回有效范围（自动露出下一题/收尾） */
-function settleAfterAnswer() {
-  currentIndex.value = Math.min(Math.max(currentIndex.value, 0), Math.max(asks.value.length - 1, 0));
+/** 跳到下一道未作答的题（从当前题往后找，绕回队首）；都答完则停在当前题 */
+function jumpToNextUnanswered(fromId: string) {
+  const list = asks.value;
+  const from = list.findIndex((item) => item.askId === fromId);
+  if (from < 0) {
+    return;
+  }
+  for (let step = 1; step <= list.length; step += 1) {
+    const index = (from + step) % list.length;
+    const ask = list[index];
+    if (ask && !isAnswered(ask)) {
+      currentIndex.value = index;
+      return;
+    }
+  }
+  currentIndex.value = Math.min(from, list.length - 1);
+}
+
+/**
+ * 回答当前题：多问询先暂存（可返回修改）并自动跳到下一题；
+ * 单问询由 store 立即提交，卡片随之收掉。
+ */
+async function answer(ask: AskUserQuestionEvent, value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return;
+  }
+  await chatStore.answerAsk(ask.askId, trimmed);
+  const draft = draftOf(ask.askId);
+  draft.picked = [];
+  draft.freeText = "";
+  if (isBatch.value) {
+    jumpToNextUnanswered(ask.askId);
+  }
 }
 
 function isMulti(ask: AskUserQuestionEvent) {
   return ask.multiSelect === true && ask.options.length > 0;
+}
+
+function isPicked(ask: AskUserQuestionEvent, option: string) {
+  const draft = draftOf(ask.askId);
+  if (isMulti(ask)) {
+    return draft.picked.includes(option);
+  }
+  // 单选：重复点同一项仍按「修改答案」处理（覆盖暂存）
+  return draft.picked.includes(option) || stagedAnswer(ask.askId) === option;
 }
 
 function pick(ask: AskUserQuestionEvent, option: string) {
@@ -64,8 +158,7 @@ function pick(ask: AskUserQuestionEvent, option: string) {
       : [...draft.picked, option];
     return;
   }
-  void chatStore.submitAsk(ask.askId, option);
-  settleAfterAnswer();
+  void answer(ask, option);
 }
 
 function submitPicked(ask: AskUserQuestionEvent) {
@@ -74,13 +167,7 @@ function submitPicked(ask: AskUserQuestionEvent) {
     return;
   }
   const extra = draft.freeText.trim();
-  void chatStore.submitAsk(
-    ask.askId,
-    [draft.picked.join("、"), extra].filter(Boolean).join("；补充："),
-  );
-  draft.picked = [];
-  draft.freeText = "";
-  settleAfterAnswer();
+  void answer(ask, [draft.picked.join("、"), extra].filter(Boolean).join("；补充："));
 }
 
 function submitFreeText(ask: AskUserQuestionEvent) {
@@ -92,9 +179,20 @@ function submitFreeText(ask: AskUserQuestionEvent) {
     submitPicked(ask);
     return;
   }
-  void chatStore.submitAsk(ask.askId, draft.freeText);
-  draft.freeText = "";
-  settleAfterAnswer();
+  void answer(ask, draft.freeText);
+}
+
+/** 统一提交：把所有已暂存的回答一次性交给 Agent */
+async function submitAll() {
+  if (!allAnswered.value || submitting.value) {
+    return;
+  }
+  submitting.value = true;
+  try {
+    await chatStore.submitAskAnswers();
+  } finally {
+    submitting.value = false;
+  }
 }
 </script>
 
@@ -105,19 +203,26 @@ function submitFreeText(ask: AskUserQuestionEvent) {
     role="group"
     :aria-label="t('chat.ask.title')"
   >
-    <!-- 卡头：图标 + 标题 + 进度 + 上/下切换 -->
+    <!-- 卡头：图标 + 标题 + 优先级 + 已答进度 + 上/下切换 -->
     <div class="flex items-center gap-2.5">
       <div
         class="grid size-6 flex-none place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)] text-[var(--color-accent)]"
       >
         <HelpCircle :size="15" />
       </div>
-      <div class="min-w-0 flex-1 text-[13px] font-medium text-[var(--color-txt-strong)]">
-        {{ t("chat.ask.title") }}
-        <span v-if="asks.length > 1" class="ml-1 font-normal text-[11px] text-[var(--color-mut)]">
-          {{ currentIndex + 1 }} / {{ asks.length }}
+      <div class="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-medium text-[var(--color-txt-strong)]">
+        <span class="truncate">{{ t("chat.ask.title") }}</span>
+        <span
+          class="flex-none rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+          :class="PRIORITY_CLASS[priorityOf(current)]"
+          :title="priorityTitle(current)"
+        >
+          {{ priorityLabel(current) }}
         </span>
       </div>
+      <span v-if="asks.length > 1" class="flex-none text-[11px] font-normal text-[var(--color-mut)]">
+        {{ t("chat.ask.answeredCount", { n: answeredCount, total: asks.length }) }}
+      </span>
       <div v-if="asks.length > 1" class="flex flex-none items-center gap-0.5">
         <Button
           variant="ghost"
@@ -142,8 +247,13 @@ function submitFreeText(ask: AskUserQuestionEvent) {
       </div>
     </div>
 
-    <!-- 进度点：可点击跳转 -->
-    <div v-if="asks.length > 1" class="mt-2 flex items-center gap-1.5 px-0.5" role="tablist" :aria-label="t('chat.ask.progress')">
+    <!-- 进度点：已答实心、当前高亮、未答灰点；可点击跳转 -->
+    <div
+      v-if="asks.length > 1"
+      class="mt-2 flex items-center gap-1.5 px-0.5"
+      role="tablist"
+      :aria-label="t('chat.ask.progress')"
+    >
       <Button
         v-for="(ask, index) in asks"
         :key="ask.askId"
@@ -160,7 +270,9 @@ function submitFreeText(ask: AskUserQuestionEvent) {
           :class="
             index === currentIndex
               ? 'bg-[var(--color-accent)]'
-              : 'bg-[var(--color-line-strong)]'
+              : isAnswered(ask)
+                ? 'bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]'
+                : 'bg-[var(--color-line-strong)]'
           "
           :aria-hidden="true"
         />
@@ -178,6 +290,15 @@ function submitFreeText(ask: AskUserQuestionEvent) {
           {{ current.question }}
         </p>
 
+        <!-- 已暂存的回答：多问询时可见，随时可重选覆盖 -->
+        <p
+          v-if="isBatch && isAnswered(current)"
+          class="mt-1.5 mb-0 truncate rounded-lg bg-[var(--color-chip-bg)] px-2 py-1 text-[11px] text-[var(--color-mut)]"
+          :title="t('chat.ask.answeredAs', { answer: stagedAnswer(current.askId) })"
+        >
+          {{ t("chat.ask.answeredAs", { answer: stagedAnswer(current.askId) }) }}
+        </p>
+
         <!-- 选项竖向排列：单选圆点指示，多选方框勾选 -->
         <div
           v-if="current.options.length"
@@ -190,10 +311,10 @@ function submitFreeText(ask: AskUserQuestionEvent) {
             :key="option"
             variant="ghost"
             role="option"
-            :aria-selected="draftOf(current.askId).picked.includes(option)"
+            :aria-selected="isPicked(current, option)"
             class="h-auto w-full justify-start gap-2 whitespace-normal rounded-lg border px-2.5 py-1.5 text-left font-normal text-[12px] md:text-[12px] transition-colors duration-[var(--motion-fast)]"
             :class="
-              draftOf(current.askId).picked.includes(option)
+              isPicked(current, option)
                 ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-[var(--color-txt-strong)]'
                 : 'border-[var(--color-line)] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
@@ -204,13 +325,13 @@ function submitFreeText(ask: AskUserQuestionEvent) {
               :class="isMulti(current) ? 'rounded-[4px]' : 'rounded-full'"
               :aria-hidden="true"
             >
-              <Check v-if="draftOf(current.askId).picked.includes(option)" class="size-2.5" />
+              <Check v-if="isPicked(current, option)" class="size-2.5" />
             </span>
             <span class="min-w-0 flex-1 break-words">{{ option }}</span>
           </Button>
         </div>
 
-        <!-- 多选：统一提交按钮 -->
+        <!-- 多选：先勾选，再提交本题 -->
         <div v-if="isMulti(current)" class="mt-2 flex justify-end">
           <Button size="sm" :disabled="!draftOf(current.askId).picked.length" @click="submitPicked(current)">
             {{
@@ -250,6 +371,26 @@ function submitFreeText(ask: AskUserQuestionEvent) {
           </Button>
         </div>
       </div>
+    </div>
+
+    <!-- 多问询：统一提交栏（答完全部才可提交，提交前可返回修改） -->
+    <div
+      v-if="isBatch"
+      class="mt-2.5 flex items-center justify-between gap-2 border-t border-[var(--color-line-soft)] pt-2.5"
+    >
+      <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]" :title="t('chat.ask.submitAllHint')">
+        {{ t("chat.ask.submitAllHint") }}
+      </span>
+      <Button size="sm" :disabled="!allAnswered || submitting" @click="submitAll">
+        <Send class="size-3.5" aria-hidden="true" />
+        {{
+          submitting
+            ? t("chat.ask.submitting")
+            : allAnswered
+              ? t("chat.ask.submitAllCount", { n: answeredCount, total: asks.length })
+              : t("chat.ask.submitAll")
+        }}
+      </Button>
     </div>
   </div>
 </template>

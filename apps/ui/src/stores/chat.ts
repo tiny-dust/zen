@@ -95,6 +95,8 @@ export const useChatStore = defineStore("chat", () => {
   const pendingApproval = ref<PendingApproval | null>(null);
   /** askUser 提问队列（可多问询并发；展示在输入框上方） */
   const pendingAsks = ref<AskUserQuestionEvent[]>([]);
+  /** 已暂存的问询回答（多问询先记本地、统一提交；askId → answer） */
+  const askAnswers = ref<Record<string, string>>({});
   /**
    * 非当前会话的挂起问询暂存（含后台会话新到的 ask_user）：
    * 切走的会话保留其问询卡，切回时恢复；主进程仍在等待应答，不能丢。
@@ -520,8 +522,15 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  const { handleStreamEvent, approve, submitAsk, dismissApproval, consumeBackgroundDispatch } =
-    createChatEventGateway({
+  const {
+    handleStreamEvent,
+    approve,
+    answerAsk,
+    submitAsk,
+    submitAskAnswers,
+    dismissApproval,
+    consumeBackgroundDispatch,
+  } = createChatEventGateway({
     sessionId,
     messages,
     status,
@@ -540,6 +549,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionTotalTokens,
     pendingApproval,
     pendingAsks,
+    askAnswers,
     stashedAsks,
     stashedApprovals,
     pendingToolArgs,
@@ -1241,6 +1251,7 @@ export const useChatStore = defineStore("chat", () => {
     usedUpdateTasks.value = false;
     pendingApproval.value = null;
     pendingAsks.value = [];
+    askAnswers.value = {};
     statusText.value = "";
     lastError.value = "";
     lastInputTokens.value = null;
@@ -1557,7 +1568,7 @@ export const useChatStore = defineStore("chat", () => {
 
   /**
    * 设置/更新会话目标（Goals 目标模式）并持久化；goal 为 null 表示清除。
-   * 未持久化会话先记内存，首发补建时由 ensurePersistedSession 落库。
+   * 未落库的新会话先补建会话再写目标——只记内存的话，切走会话目标就丢了。
    * 过桥前 JSON 序列化成纯对象：ref 可能被 popover 表单包成响应式 Proxy，直接
    * 传 IPC 会抛 "An object could not be cloned"（zen-005）。
    */
@@ -1570,8 +1581,14 @@ export const useChatStore = defineStore("chat", () => {
     sessionGoal.value = goal ? JSON.parse(JSON.stringify(goal)) as SessionGoal : null;
     trackGoalText(sessionId.value, sessionGoal.value?.text ?? null);
     const zen = window.zen;
-    if (zen && sessionPersisted.value) {
-      await zen.session.setGoal(sessionId.value, sessionGoal.value);
+    if (zen) {
+      if (sessionPersisted.value) {
+        await zen.session.setGoal(sessionId.value, sessionGoal.value);
+      } else if (sessionGoal.value) {
+        // 未落库的新会话先建库：否则目标只存在内存里，切走会话就丢了；
+        // ensurePersistedSession 会把当前目标一并写库
+        await ensurePersistedSession();
+      }
     }
     useWorkspaceStore().updateSessionGoalLocal(sessionId.value, sessionGoal.value);
   }
@@ -1655,6 +1672,7 @@ export const useChatStore = defineStore("chat", () => {
     pendingApproval,
     pendingAsk,
     pendingAsks,
+    askAnswers,
     pendingComposerInsert,
     insertAtComposerCaret,
     isPaused,
@@ -1707,7 +1725,9 @@ export const useChatStore = defineStore("chat", () => {
     continueGoal,
     editAnchorId,
     approve,
+    answerAsk,
     submitAsk,
+    submitAskAnswers,
     dismissApproval,
     newTask,
     loadSession,

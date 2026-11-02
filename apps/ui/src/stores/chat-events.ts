@@ -53,6 +53,8 @@ export interface ChatEventContext {
   pendingApproval: Ref<PendingApproval | null>;
   /** askUser 挂起队列（多问询并发，按 askId 独立应答） */
   pendingAsks: Ref<AskUserQuestionEvent[]>;
+  /** 已暂存的问询回答（多问询时先暂存、统一提交；askId → answer） */
+  askAnswers: Ref<Record<string, string>>;
   /** 非当前会话的挂起问询暂存：后台新到的 ask_user 记入，切回该会话时由 chat store 恢复 */
   stashedAsks: Map<string, AskUserQuestionEvent[]>;
   /**
@@ -532,6 +534,11 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       }
       case "ask_resolved": {
         ctx.pendingAsks.value = ctx.pendingAsks.value.filter((item) => item.askId !== event.askId);
+        if (ctx.askAnswers.value[event.askId] !== undefined) {
+          const next = { ...ctx.askAnswers.value };
+          delete next[event.askId];
+          ctx.askAnswers.value = next;
+        }
         resumeStatusIfIdle();
         break;
       }
@@ -688,6 +695,33 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     await zen.agent.resolveApproval(ctx.sessionId.value, decision);
   }
 
+  /**
+   * 暂存一个回答：多问询时先记在本地（可返回修改），等全部答完再统一提交；
+   * 只有一道题时保持「点一下就回答」的即时提交。
+   */
+  async function answerAsk(askId: string, answer: string): Promise<void> {
+    const trimmed = answer.trim();
+    if (!askId || !trimmed) {
+      return;
+    }
+    ctx.askAnswers.value = { ...ctx.askAnswers.value, [askId]: trimmed };
+    const others = ctx.pendingAsks.value.filter((item) => item.askId !== askId);
+    if (others.length === 0) {
+      await submitAsk(askId, trimmed);
+    }
+  }
+
+  /** 提交全部已暂存的回答（多问询「提交全部回答」按钮） */
+  async function submitAskAnswers(): Promise<void> {
+    const pending = [...ctx.pendingAsks.value];
+    for (const ask of pending) {
+      const answer = ctx.askAnswers.value[ask.askId];
+      if (answer) {
+        await submitAsk(ask.askId, answer);
+      }
+    }
+  }
+
   /** 回答指定 askUser 提问（多问询按 askId 独立应答） */
   async function submitAsk(askId: string, answer: string): Promise<void> {
     const zen = window.zen;
@@ -696,6 +730,11 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       return;
     }
     ctx.pendingAsks.value = ctx.pendingAsks.value.filter((item) => item.askId !== askId);
+    if (ctx.askAnswers.value[askId] !== undefined) {
+      const next = { ...ctx.askAnswers.value };
+      delete next[askId];
+      ctx.askAnswers.value = next;
+    }
     await zen.agent.resolveAsk(ctx.sessionId.value, { askId, answer: trimmed });
   }
 
@@ -715,5 +754,13 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     return dispatch;
   }
 
-  return { handleStreamEvent, approve, submitAsk, dismissApproval, consumeBackgroundDispatch };
+  return {
+    handleStreamEvent,
+    approve,
+    answerAsk,
+    submitAsk,
+    submitAskAnswers,
+    dismissApproval,
+    consumeBackgroundDispatch,
+  };
 }
