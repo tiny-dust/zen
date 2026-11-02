@@ -377,12 +377,21 @@ export function buildToolSet(
     askUser: tool({
       description:
         "Ask the user one question with optional preset options; shown above the chat input. " +
+        "Every question MUST include priority: high = blocks current work / large blast radius, " +
+        "medium = normal decision, low = can be decided later. The priority is shown as a badge " +
+        "on the card and echoed in the result, so choose it honestly instead of always using medium. " +
         "Options render as a vertical list — single-select by default (one tap answers). " +
         "Set multiSelect=true when the options are not mutually exclusive (the user picks several and submits together). " +
-        "Multiple questions may be pending at once (from this agent or parallel sub-agents); each is answered independently and resumes its asker. " +
+        "Multiple questions may be pending at once (from this agent or parallel sub-agents); the user can answer them in any order and revise earlier answers before submitting. " +
         "Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
       inputSchema: z.object({
         question: z.string().describe("One concrete question."),
+        priority: z
+          .enum(["high", "medium", "low"])
+          .describe(
+            "REQUIRED recommended priority: high = blocks current work / large blast radius; " +
+              "medium = normal decision; low = can be decided later.",
+          ),
         options: z
           .array(z.string())
           .optional()
@@ -393,12 +402,15 @@ export function buildToolSet(
           .describe("Set true when several options may be chosen at once; default single-select."),
         allowFreeText: z.boolean().optional().describe("Whether free text is allowed (default true)."),
       }),
-      execute: async ({ question, options, multiSelect, allowFreeText }, { toolCallId }) => {
+      execute: async ({ question, priority, options, multiSelect, allowFreeText }, { toolCallId }) => {
         const askId = uuidLike();
+        // 个别供应商不按 schema 校验参数：优先级缺失时按 medium 兜底，不让问询卡缺徽标
+        const resolvedPriority = priority ?? "medium";
         const event: AskUserQuestionEvent = {
           askId,
           toolCallId,
           question,
+          priority: resolvedPriority,
           options: (options ?? []).slice(0, 6),
           multiSelect: multiSelect === true,
           allowFreeText: allowFreeText !== false,
@@ -406,7 +418,8 @@ export function buildToolSet(
         hooks.emitAskEvent(event);
         const answer = await hooks.waitForUserAnswer(event, toolCallId);
         hooks.emitAskResolved(askId, toolCallId, answer);
-        return { answer };
+        // 结果把优先级一并回给模型：后续汇总/排序时保持同一口径
+        return { answer, priority: resolvedPriority };
       },
     }),
     loadSkill: tool({

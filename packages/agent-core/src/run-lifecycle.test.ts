@@ -281,18 +281,23 @@ describe("AgentSession 状态链路", () => {
     expect(doneReasons(events)).toEqual(["stop"]);
   });
 
-  it("步数预算耗尽自动续跑，run 上限才发 done(max_steps)，不伪装成 stop", async () => {
+  it("步数预算耗尽自动续跑；run 不设步数上限，只有取消才停", async () => {
     const events: AgentStreamEvent[] = [];
     writeFileSync(join(workspaceRoot, "loop.txt"), "loop");
     const session = createSession(events, "life-loop", "tool-loop");
-    await session.start("keep calling the tool");
+    const started = session.start("keep calling the tool");
 
-    // 单次 stream 预算是 30 步：步数远超 30 说明预算耗尽后自动续跑了
-    const stepStarts = events.filter((event) => event.type === "step_start").length;
-    expect(stepStarts).toBeGreaterThan(30);
-    // 从不中途发 done，直到 run 总预算耗尽才以 max_steps 终止
-    expect(doneReasons(events)).toEqual(["max_steps"]);
-    expect(events.at(-1)?.type).toBe("done");
+    // 单次 stream 预算是 1 步：>30 步说明每步结束后都在自动续跑
+    const stepCount = () => events.filter((event) => event.type === "step_start").length;
+    for (let i = 0; i < 300 && stepCount() <= 30; i += 1) {
+      await delay(20);
+    }
+    expect(stepCount()).toBeGreaterThan(30);
+    // 没有 max_steps 上限：一直续跑，直到用户取消
+    expect(doneReasons(events)).toEqual([]);
+    await session.cancel();
+    await started;
+    expect(doneReasons(events)).toEqual(["cancelled"]);
   }, 30_000);
 
   it("暂停不发 done，取消后补 done(cancelled) 与工具终态", async () => {

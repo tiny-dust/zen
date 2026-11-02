@@ -22,7 +22,7 @@ import type { ToolHooks } from "./agent-tools";
 import { evaluateApproval, riskForTool } from "./agent-approval";
 import { buildInstructions } from "./agent-config";
 import type { AgentSessionConfig } from "./agent-config";
-import { errorMessage, MAX_RUN_STEPS } from "./agent-parts";
+import { errorMessage } from "./agent-parts";
 import type { PendingApproval, PendingAsk } from "./agent-parts";
 import {
   AUTO_COMPACT_RATIO,
@@ -1185,7 +1185,7 @@ export class AgentSession {
           // 续跑会在下一次请求组装 prompt 时抛 MissingToolResultsError。丢弃本步直接
           // 重放（同 SDK streamRetries 语义：只重放当前 step，已完成的早前 step 不动），
           // 工具调用重新生成后走正常执行/审批流
-          if (this.step >= MAX_RUN_STEPS || this.missingFinishReplays >= 3) {
+          if (this.missingFinishReplays >= 3) {
             this.emitUnfinishedTools("error");
             this.config.emit({
               type: "error",
@@ -1232,13 +1232,10 @@ export class AgentSession {
 
     // stopWhen（单次 stream 的步数预算）耗尽时，最后一步的 finishReason 仍是
     // "tool-calls"（模型还想继续调工具）——任务并未完成。此时继续开新一轮
-    // stream（步数预算重置），而不是伪装成正常完成；超过整个 run 的步数
-    // 上限才以 max_steps 终止（UI 显示「已达到步骤上限」）。
+    // stream（步数预算重置），而不是伪装成正常完成。
+    // run 级别不设步数上限（对齐 Claude Code / Codex）：只在出错、用户取消/暂停
+    // 时停；长任务靠步间自动压缩上下文 + 用户手动停止兜底。
     if (state.finishReason === "tool-calls" || state.lastStepHadToolCalls) {
-      if (this.step >= MAX_RUN_STEPS) {
-        this.finishRun("max_steps");
-        return;
-      }
       if (this.shouldAutoCompact()) {
         await this.compactContext();
       }

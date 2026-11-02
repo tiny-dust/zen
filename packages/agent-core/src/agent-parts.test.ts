@@ -4,7 +4,6 @@ import {
   argsFromPart,
   errorMessage,
   isFailedToolOutput,
-  MAX_RUN_STEPS,
   outputFromPart,
   partText,
   summarizeToolOutput,
@@ -119,10 +118,8 @@ describe("part 解析", () => {
     ).not.toHaveProperty("cachedInputTokens");
   });
 
-  it("uuidLike 生成互不相同的短 id；MAX_RUN_STEPS 为正整数", () => {
+  it("uuidLike 生成互不相同的短 id", () => {
     const ids = new Set(Array.from({ length: 200 }, () => uuidLike()));
     expect(ids.size).toBe(200);
-    expect(Number.isInteger(MAX_RUN_STEPS)).toBe(true);
-    expect(MAX_RUN_STEPS).toBeGreaterThan(0);
   });
 });

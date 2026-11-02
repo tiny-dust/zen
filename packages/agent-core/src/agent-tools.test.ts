@@ -349,12 +349,15 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
 
     const result = (await execTool(tools.askUser, {
       question: "选哪个？",
+      priority: "high",
       options: ["A", "B", "C", "D", "E", "F", "G"],
       multiSelect: true,
       allowFreeText: false,
-    })) as { answer: string };
+    })) as { answer: string; priority: string };
 
     expect(result.answer).toBe("用户答复");
+    // 优先级随事件展示、随结果回给模型
+    expect(result.priority).toBe("high");
     expect(asked).toEqual(["选哪个？"]);
     expect(resolved[0]).toContain(":用户答复");
     const askEvent = events.find((event) => event.type === "ask_user");
@@ -364,6 +367,7 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
       expect(askEvent.question.options).toHaveLength(6);
       expect(askEvent.question.multiSelect).toBe(true);
       expect(askEvent.question.allowFreeText).toBe(false);
+      expect(askEvent.question.priority).toBe("high");
     }
   });
 

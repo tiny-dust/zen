@@ -12,9 +12,6 @@ export interface PendingAsk {
   reject: (error: Error) => void;
 }
 
-/** 整个 run 的步数上限（stopWhen 只管单次 stream 的步数预算） */
-export const MAX_RUN_STEPS = 200;
-
 export function uuidLike(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

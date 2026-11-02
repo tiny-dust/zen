@@ -297,7 +297,11 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
   }
   if (behavior === "ask") {
     return seq === 1
-      ? toolCall("askUser", { question: "主会话问题？", options: ["A", "B"] }, "call_ask_1")
+      ? toolCall(
+          "askUser",
+          { question: "主会话问题？", priority: "high", options: ["A", "B"] },
+          "call_ask_1",
+        )
       : textBlocks("answered");
   }
   if (behavior === "spawn-tasks") {
@@ -317,7 +321,11 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
   if (behavior === "spawn-ask") {
     if (isChild) {
       return seq === 1
-        ? toolCall("askUser", { question: "子任务问题？", options: ["A", "B"] }, "call_child_ask")
+        ? toolCall(
+            "askUser",
+            { question: "子任务问题？", priority: "low", options: ["A", "B"] },
+            "call_child_ask",
+          )
         : textBlocks("子任务已回答");
     }
     return seq === 1

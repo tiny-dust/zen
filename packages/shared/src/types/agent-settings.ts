@@ -87,11 +87,26 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   approvalReviewer: "off",
 };
 
+/**
+ * 问询推荐优先级：模型对每个 askUser 必须给出，用于卡片展示与排序；
+ * high = 阻塞当前工作/影响面大，medium = 常规决策，low = 可稍后决定。
+ * 兼容旧事件：缺失时 UI 按 medium 展示。
+ */
+export type AskUserPriority = "high" | "medium" | "low";
+
+export const ASK_USER_PRIORITIES: readonly AskUserPriority[] = ["high", "medium", "low"];
+
+export function isAskUserPriority(value: unknown): value is AskUserPriority {
+  return ASK_USER_PRIORITIES.includes(value as AskUserPriority);
+}
+
 /** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */
 export interface AskUserQuestionEvent {
   askId: string;
   toolCallId: string;
   question: string;
+  /** 推荐优先级（high/medium/low）；老事件缺省按 medium 处理 */
+  priority?: AskUserPriority;
   /** 可选项；为空时只显示自由输入 */
   options: string[];
   /** 选项是否可多选（多选时 UI 显示勾选态 + 统一提交按钮）；缺省单选 */
