@@ -543,6 +543,21 @@ export interface LarkPendingAsk {
   messageId?: string;
 }
 
+/** 问询推荐优先级的展示文案（与 Zen 提问卡同一口径；老事件缺省 medium） */
+export function askPriorityLabel(
+  question: AskUserQuestionEvent,
+  locale: MainLocale = "zh-CN",
+): string {
+  const level = question.priority ?? "medium";
+  const levelKey =
+    level === "high"
+      ? "lark.ask.priorityHigh"
+      : level === "low"
+        ? "lark.ask.priorityLow"
+        : "lark.ask.priorityMedium";
+  return mainT(locale, "lark.ask.priority", { level: mainT(locale, levelKey) });
+}
+
 /** 「问询推送」的 markdown 文案（多条待答时尾注换成 #序号 指引） */
 export function buildAskPushText(
   entry: LarkPendingAsk,
@@ -558,6 +573,7 @@ export function buildAskPushText(
   if (question.agentName) {
     lines.push(mainT(locale, "lark.ask.from", { name: question.agentName }));
   }
+  lines.push(askPriorityLabel(question, locale));
   lines.push(question.question);
   if (question.options.length) {
     lines.push("");
@@ -741,6 +757,7 @@ export function buildAskPushCard(
   if (question.agentName) {
     lines.push(mainT(locale, "lark.ask.cardFrom", { name: question.agentName }));
   }
+  lines.push(`<font color='grey'>${askPriorityLabel(question, locale)}</font>`);
   lines.push(`**${question.question}**`);
   if (question.multiSelect) {
     lines.push("");

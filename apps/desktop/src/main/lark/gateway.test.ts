@@ -308,6 +308,14 @@ describe("问询推送文案", () => {
     expect(buildAskPushText(entry, 1)).toContain("可多选");
     expect(buildAskPushText(entry, 3)).toContain("多个问询待回答：回复 #序号 开头，如 #2 <答案>");
   });
+
+  it("文案与卡片展示推荐优先级；缺省按中", () => {
+    const entry = pendingOf({ askId: "a1", seq: 1 });
+    expect(buildAskPushText(entry, 1)).toContain("优先级：中（常规决策）");
+    entry.question.priority = "high";
+    expect(buildAskPushText(entry, 1)).toContain("优先级：高（阻塞当前工作）");
+    expect(JSON.stringify(buildAskPushCard(entry, 1))).toContain("优先级：高（阻塞当前工作）");
+  });
 });
 
 describe("NDJSON 行解析与过滤", () => {
