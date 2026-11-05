@@ -225,7 +225,7 @@ describe("问询回复解析", () => {
   it("单条待答 + 数字答案命中选项 → 换成选项文本", () => {
     const resolveAsk = vi.fn(() => true);
     const entry = pendingOf({ askId: "a1", seq: 1 });
-    entry.question.options = ["方案 A", "方案 B"];
+    entry.question.options = [{ label: "方案 A" }, { label: "方案 B" }];
     const result = applyAskReply("2", [entry], resolveAsk);
     expect(resolveAsk).toHaveBeenCalledWith("a1", "方案 B");
     expect(result.resolvedAskIds).toEqual(["a1"]);
@@ -271,7 +271,7 @@ describe("问询回复解析", () => {
   it("多条待答 → 裸 #N 等价于选项编号", () => {
     const resolveAsk = vi.fn(() => true);
     const entry = pendingOf({ askId: "a1", seq: 2 });
-    entry.question.options = ["选项一", "选项二", "选项三"];
+    entry.question.options = [{ label: "选项一" }, { label: "选项二" }, { label: "选项三" }];
     const result = applyAskReply("#2", [entry, pendingOf({ askId: "a2", seq: 5 })], resolveAsk);
     expect(resolveAsk).toHaveBeenCalledWith("a1", "选项二");
     expect(result.resolvedAskIds).toEqual(["a1"]);
@@ -291,7 +291,7 @@ describe("问询推送文案", () => {
   it("单条待答：标题 + agentName + 编号选项 + 直接回复尾注", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
     entry.question.agentName = "主进程飞书桥接";
-    entry.question.options = ["方案 A", "方案 B"];
+    entry.question.options = [{ label: "方案 A" }, { label: "方案 B" }];
     const text = buildAskPushText(entry, 1);
     expect(text).toContain("🔔 Zen 问询 · 重构登录模块");
     expect(text).toContain("来自 主进程飞书桥接");
@@ -303,18 +303,21 @@ describe("问询推送文案", () => {
 
   it("multiSelect 注明编号组合；多条待答换成 #序号 尾注", () => {
     const entry = pendingOf({ askId: "a1", seq: 2 });
-    entry.question.options = ["A", "B", "C"];
+    entry.question.options = [{ label: "A" }, { label: "B" }, { label: "C" }];
     entry.question.multiSelect = true;
     expect(buildAskPushText(entry, 1)).toContain("可多选");
     expect(buildAskPushText(entry, 3)).toContain("多个问询待回答：回复 #序号 开头，如 #2 <答案>");
   });
 
-  it("文案与卡片展示推荐优先级；缺省按中", () => {
+  it("文案与卡片按选项等级展示徽标；未标注的选项不带后缀", () => {
     const entry = pendingOf({ askId: "a1", seq: 1 });
-    expect(buildAskPushText(entry, 1)).toContain("优先级：中（常规决策）");
-    entry.question.priority = "high";
-    expect(buildAskPushText(entry, 1)).toContain("优先级：高（阻塞当前工作）");
-    expect(JSON.stringify(buildAskPushCard(entry, 1))).toContain("优先级：高（阻塞当前工作）");
+    entry.question.options = [
+      { label: "方案 A", priority: "strong" },
+      { label: "方案 B" },
+    ];
+    expect(buildAskPushText(entry, 1)).toContain("1. 方案 A（强烈推荐）");
+    expect(buildAskPushText(entry, 1)).toContain("2. 方案 B\n");
+    expect(JSON.stringify(buildAskPushCard(entry, 1))).toContain("强烈推荐");
   });
 });
 
@@ -653,7 +656,7 @@ describe("卡片构建（纯函数）", () => {
   it("buildAskPushCard：表单式问询卡——header=会话名（wathet），form 含 select/input/确认取消按钮", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
     entry.question.agentName = "主进程飞书桥接";
-    entry.question.options = ["方案 A", "方案 B"];
+    entry.question.options = [{ label: "方案 A" }, { label: "方案 B" }];
     const card = buildAskPushCard(entry, 1);
     expect(card.header?.title.content).toContain("🔔 Zen 问询 · 重构登录模块");
     expect(card.header?.template).toBe("wathet");
@@ -679,7 +682,7 @@ describe("卡片构建（纯函数）", () => {
 
   it("buildAskPushCard：multiSelect 注明可多选并使用 multi_select_static", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
-    entry.question.options = ["A", "B", "C"];
+    entry.question.options = [{ label: "A" }, { label: "B" }, { label: "C" }];
     entry.question.multiSelect = true;
     const card = buildAskPushCard(entry, 3);
     const body = JSON.stringify(card);
@@ -952,7 +955,7 @@ function actionRecordOf(
 describe("卡片 2.0 构建（纯函数）", () => {
   it("buildAskPushCard：schema 2.0 骨架 + 表单问询（select/input/双按钮），不含 note 组件", () => {
     const entry = pendingOf({ askId: "a1", seq: 4 });
-    entry.question.options = ["方案 A", "方案 B"];
+    entry.question.options = [{ label: "方案 A" }, { label: "方案 B" }];
     const card = buildAskPushCard(entry, 1);
     expect(card.schema).toBe("2.0");
     expect(card.config).toEqual({ update_multi: true, width_mode: "default" });
@@ -975,7 +978,13 @@ describe("卡片 2.0 构建（纯函数）", () => {
 
   it("buildAskPushCard：选项多也用 select_static（下拉天然无数量限制）", () => {
     const entry = pendingOf({ askId: "a2", seq: 1 });
-    entry.question.options = ["A", "B", "C", "D", "E"];
+    entry.question.options = [
+      { label: "A" },
+      { label: "B" },
+      { label: "C" },
+      { label: "D" },
+      { label: "E" },
+    ];
     const card = buildAskPushCard(entry, 1);
     const selector = (elementsOf(card).find((el) => el.tag === "form")!.elements as Array<Record<string, any>>).find(
       (el) => el.tag === "select_static",
@@ -988,7 +997,7 @@ describe("卡片 2.0 构建（纯函数）", () => {
 
   it("buildAskPushCard：多选 → form + multi_select_static（pick）", () => {
     const entry = pendingOf({ askId: "a3", seq: 2 });
-    entry.question.options = ["A", "B", "C"];
+    entry.question.options = [{ label: "A" }, { label: "B" }, { label: "C" }];
     entry.question.multiSelect = true;
     const card = buildAskPushCard(entry, 1);
     const forms = elementsOf(card).filter((el) => el.tag === "form");
@@ -1800,7 +1809,7 @@ describe("卡片延迟更新与发送失败摘要", () => {
 
   it("buildAskAnsweredCard：已选择答案 + 尾注「已写回会话」，无交互元素", () => {
     const entry = pendingOf({ askId: "a1", seq: 1 });
-    entry.question.options = ["方案 A", "方案 B"];
+    entry.question.options = [{ label: "方案 A" }, { label: "方案 B" }];
     const card = buildAskAnsweredCard(entry, "方案 B");
     const body = JSON.stringify(card);
     expect(body).toContain("已选择");

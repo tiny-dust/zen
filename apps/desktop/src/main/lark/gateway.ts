@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 
 import type {
+  AskUserOption,
+  AskUserOptionPriority,
   AskUserQuestionEvent,
   LarkGatewayState,
   LarkProjectSummary,
@@ -11,6 +13,7 @@ import type {
   LarkSessionSummary,
   WorkspaceGroup,
 } from "@zen/shared";
+import { askOptionLabel, askOptionPriority } from "@zen/shared";
 
 import { currentLocale, mainT } from "../i18n";
 import type { MainLocale } from "../i18n";
@@ -543,19 +546,22 @@ export interface LarkPendingAsk {
   messageId?: string;
 }
 
-/** 问询推荐优先级的展示文案（与 Zen 提问卡同一口径；老事件缺省 medium） */
-export function askPriorityLabel(
-  question: AskUserQuestionEvent,
+/** 选项推荐等级 → 展示后缀（空串 = 未标注），与 Zen 提问卡同一口径 */
+export function askOptionLevelSuffix(
+  option: AskUserOption | string,
   locale: MainLocale = "zh-CN",
 ): string {
-  const level = question.priority ?? "medium";
-  const levelKey =
-    level === "high"
-      ? "lark.ask.priorityHigh"
-      : level === "low"
-        ? "lark.ask.priorityLow"
-        : "lark.ask.priorityMedium";
-  return mainT(locale, "lark.ask.priority", { level: mainT(locale, levelKey) });
+  const level = askOptionPriority(option);
+  if (!level) {
+    return "";
+  }
+  const keys: Record<AskUserOptionPriority, string> = {
+    strong: "lark.ask.optionLevelStrong",
+    recommended: "lark.ask.optionLevelRecommended",
+    neutral: "lark.ask.optionLevelNeutral",
+    avoid: "lark.ask.optionLevelAvoid",
+  };
+  return `（${mainT(locale, keys[level])}）`;
 }
 
 /** 「问询推送」的 markdown 文案（多条待答时尾注换成 #序号 指引） */
@@ -573,12 +579,11 @@ export function buildAskPushText(
   if (question.agentName) {
     lines.push(mainT(locale, "lark.ask.from", { name: question.agentName }));
   }
-  lines.push(askPriorityLabel(question, locale));
   lines.push(question.question);
   if (question.options.length) {
     lines.push("");
     question.options.forEach((option, index) => {
-      lines.push(`${index + 1}. ${option}`);
+      lines.push(`${index + 1}. ${askOptionLabel(option)}${askOptionLevelSuffix(option, locale)}`);
     });
     if (question.multiSelect) {
       lines.push(mainT(locale, "lark.ask.multiSelectHint"));
@@ -720,11 +725,16 @@ function plainText(content: string): { tag: "plain_text"; content: string } {
   return { tag: "plain_text", content };
 }
 
-/** select/multi_select 选项：value 用选项原文（组件要求 value 为字符串且唯一） */
+/**
+ * select/multi_select 选项：展示文案带推荐等级后缀，value 保持选项原文
+ * （组件要求 value 为字符串且唯一，且写回答案必须是原文）
+ */
 function askSelectOption(
-  option: string,
+  option: AskUserOption | string,
+  locale: MainLocale,
 ): { text: { tag: "plain_text"; content: string }; value: string } {
-  return { text: plainText(option), value: option };
+  const label = askOptionLabel(option);
+  return { text: plainText(`${label}${askOptionLevelSuffix(option, locale)}`), value: label };
 }
 
 /** form 内提交/取消按钮（表单按钮不用 behaviors，靠 action_name 区分意图） */
@@ -757,7 +767,6 @@ export function buildAskPushCard(
   if (question.agentName) {
     lines.push(mainT(locale, "lark.ask.cardFrom", { name: question.agentName }));
   }
-  lines.push(`<font color='grey'>${askPriorityLabel(question, locale)}</font>`);
   lines.push(`**${question.question}**`);
   if (question.multiSelect) {
     lines.push("");
@@ -780,7 +789,7 @@ export function buildAskPushCard(
             question.multiSelect ? "lark.ask.selectPlaceholderMulti" : "lark.ask.selectPlaceholder",
           ),
         ),
-        options: question.options.map((option) => askSelectOption(option)),
+        options: question.options.map((option) => askSelectOption(option, locale)),
       });
     }
     if (hasInput) {
@@ -1076,7 +1085,10 @@ export function buildQuickManageCard(
  * 选项编号答案 → 选项文本；不匹配（非纯数字组合 / 越界）返回 null（用原文回答）。
  * 拼接方式镜像 UI 多选提交（AskUserCard.submitPicked：picked.join("、")）。
  */
-export function mapOptionAnswer(answer: string, options: string[]): string | null {
+export function mapOptionAnswer(
+  answer: string,
+  options: Array<AskUserOption | string>,
+): string | null {
   const trimmed = answer.trim();
   if (!trimmed || !options.length) {
     return null;
@@ -1091,7 +1103,7 @@ export function mapOptionAnswer(answer: string, options: string[]): string | nul
     if (option === undefined) {
       return null;
     }
-    picked.push(option);
+    picked.push(askOptionLabel(option));
   }
   return picked.join("、");
 }
@@ -2501,7 +2513,10 @@ export class LarkGateway {
         askId: `test-${randomUUID()}`,
         toolCallId: "test",
         question: mainT(this.locale, "lark.test.question"),
-        options: [mainT(this.locale, "lark.test.optionA"), mainT(this.locale, "lark.test.optionB")],
+        options: [
+          { label: mainT(this.locale, "lark.test.optionA"), priority: "recommended" },
+          { label: mainT(this.locale, "lark.test.optionB"), priority: "neutral" },
+        ],
         allowFreeText: true,
       },
     };
