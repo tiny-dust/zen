@@ -306,14 +306,16 @@ function onSaveModel(payload: {
   emit("addModel", payload);
 }
 
-const fieldLabel = "field-row-label font-normal";
+const stackLabel = "text-[12px] text-[var(--color-mut)]";
 const ctrl = "h-8 text-[13px] bg-[var(--color-np-btn-bg)]";
 const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
+/** 字段纵向排布：label 在输入框上方（与截图一致） */
+const fieldStack = "flex min-w-0 flex-col gap-1";
 </script>
 
 <template>
   <div class="flex min-w-0 flex-col gap-3.5">
-    <header class="flex items-center justify-between gap-3">
+    <header class="flex items-center justify-between gap-3 border-b border-[var(--color-line)] pb-3">
       <div class="flex items-center gap-2.5">
         <VendorLogo :vendor="provider.name" :size="22" />
         <div>
@@ -324,13 +326,18 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
           </div>
         </div>
       </div>
-      <Switch v-model="form.enabled" :aria-label="t('settings.models.enableProviderAria')" @update:model-value="markDirty" />
+      <Switch
+        v-model="form.enabled"
+        class="data-checked:bg-[var(--color-add)]"
+        :aria-label="t('settings.models.enableProviderAria')"
+        @update:model-value="markDirty"
+      />
     </header>
 
     <div class="flex flex-col gap-2">
       <span class="text-[12px] font-medium text-[var(--color-txt)]">{{ t("settings.models.connectionSection") }}</span>
-      <div class="field-row">
-        <Label for="pd-protocol" :class="fieldLabel">{{ t("settings.models.protocol") }}</Label>
+      <div :class="fieldStack">
+        <Label for="pd-protocol" :class="stackLabel">{{ t("settings.models.protocol") }}</Label>
         <Select v-model="form.protocol" @update:model-value="markDirty">
           <SelectTrigger id="pd-protocol" :class="selectCtrl">
             <SelectValue :placeholder="t('settings.models.protocolPlaceholder')" />
@@ -344,12 +351,12 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
           </SelectContent>
         </Select>
       </div>
-      <div class="field-row">
-        <Label for="pd-name" :class="fieldLabel">{{ t("settings.models.name") }}</Label>
+      <div :class="fieldStack">
+        <Label for="pd-name" :class="stackLabel">{{ t("settings.models.name") }}</Label>
         <Input id="pd-name" v-model="form.name" :class="ctrl" @input="markDirty" />
       </div>
-      <div class="field-row">
-        <Label for="pd-base" :class="fieldLabel">{{ t("settings.models.baseUrlLabel") }}</Label>
+      <div :class="fieldStack">
+        <Label for="pd-base" :class="stackLabel">{{ t("settings.models.baseUrlLabel") }}</Label>
         <Input id="pd-base" v-model="form.baseUrl" :class="ctrl" @input="markDirty" />
       </div>
       <!-- Codex / ChatGPT 账号：登录态与手动回调都收在一张卡里 -->
@@ -428,8 +435,8 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
         </template>
         <p v-if="authError" class="m-0 text-[11px] text-[var(--color-err)]" role="alert">{{ authError }}</p>
       </div>
-      <div v-else class="field-row">
-        <Label for="pd-key" :class="fieldLabel">{{ t("settings.models.apiKey") }}</Label>
+      <div v-else :class="fieldStack">
+        <Label for="pd-key" :class="stackLabel">{{ t("settings.models.apiKey") }}</Label>
         <Input
           id="pd-key"
           v-model="form.apiKey"
@@ -439,8 +446,8 @@ const selectCtrl = "h-8 w-full text-[13px] bg-[var(--color-np-btn-bg)]";
           @input="markDirty"
         />
       </div>
-      <div class="field-row">
-        <Label for="pd-ua" :class="fieldLabel">User-Agent</Label>
+      <div :class="fieldStack">
+        <Label for="pd-ua" :class="stackLabel">User-Agent</Label>
         <div class="min-w-0">
           <Input
             id="pd-ua"

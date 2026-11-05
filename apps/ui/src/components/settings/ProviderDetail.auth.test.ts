@@ -123,7 +123,7 @@ describe("Codex 手动回调登录", () => {
     await flushPromises();
     expect(codexLoginStart).toHaveBeenCalledWith(provider.id);
 
-    const callback = wrapper.find('input[placeholder*="localhost:1455"]');
+    const callback = wrapper.find('input[placeholder*="回调地址"]');
     await callback.setValue("http://localhost:1455/auth/callback?code=abc&state=xyz");
     const confirm = wrapper.findAll("button").find((button) => button.text().includes("确认登录"));
     expect(confirm).toBeTruthy();
