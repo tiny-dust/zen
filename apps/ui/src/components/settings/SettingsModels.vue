@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Plus } from "@lucide/vue";
+import { ChevronDown, Plus, Search } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
@@ -10,6 +10,7 @@ import VendorLogo from "@/components/brand/VendorLogo.vue";
 import ProviderDetail from "@/components/settings/ProviderDetail.vue";
 import ProviderEditor from "@/components/settings/ProviderEditor.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,28 @@ const { providers, activeProvider, activeProviderId, selection, error, fetching 
   storeToRefs(modelsStore);
 
 const mode = ref<Mode>("view");
+/** 左栏搜索：按名称/协议过滤，命中后仍按启用状态分组 */
+const providerQuery = ref("");
+const visibleProviders = computed(() => {
+  const q = providerQuery.value.trim().toLowerCase();
+  if (!q) return providers.value;
+  return providers.value.filter(
+    (provider) =>
+      provider.name.toLowerCase().includes(q) || provider.protocol.toLowerCase().includes(q),
+  );
+});
+const providerGroups = computed(() => [
+  {
+    key: "enabled",
+    label: t("settings.models.groupEnabled"),
+    items: visibleProviders.value.filter((provider) => provider.enabled),
+  },
+  {
+    key: "disabled",
+    label: t("settings.models.groupDisabled"),
+    items: visibleProviders.value.filter((provider) => !provider.enabled),
+  },
+]);
 const codexLoginPending = ref(false);
 const codexError = ref<string | null>(null);
 const codexAccountProvider = computed(() => providers.value.find((provider) =>
@@ -116,7 +139,7 @@ function railClass(id: string) {
   return classes(
     "flex min-h-[var(--control-h)] items-center gap-2 rounded-[var(--radius-sm)] px-2 text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]",
     [id === activeProviderId.value && mode.value === "view", "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"],
-    [!providers.value.find((p) => p.id === id)?.enabled, "opacity-55"],
+    [!providers.value.find((p) => p.id === id)?.enabled, "text-[var(--color-mut)]"],
   );
 }
 
@@ -252,56 +275,81 @@ async function confirmRemoveModel() {
 <template>
   <section class="grid items-start gap-3.5 grid-cols-[208px_minmax(0,1fr)] max-[720px]:grid-cols-[minmax(0,1fr)]">
     <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" :aria-label="t('settings.models.providerListAria')">
-      <div class="flex h-[var(--panel-head-h)] items-center justify-between gap-1.5 border-b border-[var(--color-line)] px-[5px] pl-2.5">
-        <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
-        <div class="flex items-center gap-0.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger as-child>
-              <Button
-                variant="ghost"
-                size="sm"
-                class="h-7 gap-1 px-1.5 text-[11px]"
-                :disabled="codexLoginPending"
-                :aria-label="t('settings.models.codexConnect')"
-              >
-                <VendorLogo vendor="Codex" :size="14" />
-                {{ codexLoginPending ? t("settings.models.chatgptPending") : t("settings.models.codexConnect") }}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" class="w-[260px]">
-              <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexConnect">
-                <span class="text-[12px] text-[var(--color-txt)]">{{ t("settings.models.codexApiKeyChoice") }}</span>
-                <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexApiKeyChoiceHint") }}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexAccount">
-                <span class="text-[12px] text-[var(--color-txt)]">
-                  {{ t(codexAccountProvider ? "settings.models.codexAccountExisting" : "settings.models.codexAccountChoice") }}
-                </span>
-                <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexAccountChoiceHint") }}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
-            <Plus />
-          </Button>
+      <div class="flex flex-col gap-1.5 border-b border-[var(--color-line)] px-2 py-1.5">
+        <div class="flex h-[26px] items-center justify-between gap-1.5">
+          <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
+          <div class="flex items-center gap-0.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 gap-1 px-1.5 text-[11px]"
+                  :disabled="codexLoginPending"
+                  :aria-label="t('settings.models.codexConnect')"
+                >
+                  <VendorLogo vendor="Codex" :size="14" />
+                  {{ codexLoginPending ? t("settings.models.chatgptPending") : t("settings.models.codexConnect") }}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-[260px]">
+                <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexConnect">
+                  <span class="text-[12px] text-[var(--color-txt)]">{{ t("settings.models.codexApiKeyChoice") }}</span>
+                  <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexApiKeyChoiceHint") }}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexAccount">
+                  <span class="text-[12px] text-[var(--color-txt)]">
+                    {{ t(codexAccountProvider ? "settings.models.codexAccountExisting" : "settings.models.codexAccountChoice") }}
+                  </span>
+                  <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexAccountChoiceHint") }}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
+              <Plus />
+            </Button>
+          </div>
+        </div>
+        <div class="relative">
+          <Search
+            class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-mut)]"
+            aria-hidden="true"
+          />
+          <Input
+            v-model="providerQuery"
+            class="h-7 pl-6 text-[12px]"
+            :placeholder="t('settings.models.searchProviderPlaceholder')"
+          />
         </div>
       </div>
-      <div class="flex flex-col gap-0.5 p-[5px]">
-        <Button
-          v-for="provider in providers"
-          :key="provider.id"
-          variant="ghost"
-          :class="[railClass(provider.id), 'h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]']"
-          :title="provider.name"
-          @click="selectProvider(provider)"
-        >
-          <VendorLogo :vendor="provider.name" :size="16" />
-          <span class="min-w-0 flex-1 truncate text-[12px]">{{ provider.name }}</span>
-          <span class="shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]">
-            {{ provider.models.filter((m) => m.enabled).length }}/{{ provider.models.length }}
-          </span>
-        </Button>
+      <div class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto p-[5px]">
+        <template v-for="group in providerGroups" :key="group.key">
+          <div v-if="group.items.length" class="flex items-center gap-1 px-1 pt-1 pb-0.5">
+            <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+            <span class="text-[11px] text-[var(--color-mut)]">{{ group.label }}</span>
+            <span class="font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]">
+              {{ group.items.length }}
+            </span>
+          </div>
+          <Button
+            v-for="provider in group.items"
+            :key="provider.id"
+            variant="ghost"
+            :class="[railClass(provider.id), 'h-auto font-normal dark:hover:bg-[var(--color-menu-hover)]']"
+            :title="provider.name"
+            @click="selectProvider(provider)"
+          >
+            <VendorLogo :vendor="provider.name" :size="16" />
+            <span class="min-w-0 flex-1 truncate text-[12px]">{{ provider.name }}</span>
+            <span
+              class="size-1.5 flex-none rounded-full"
+              :class="provider.enabled ? 'bg-[var(--color-add)]' : 'border border-[var(--color-line-strong)]'"
+              :title="provider.enabled ? t('settings.models.enabled') : t('settings.models.disabled')"
+            />
+          </Button>
+        </template>
         <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">{{ t("settings.models.noProviders") }}</p>
+        <p v-else-if="!visibleProviders.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">{{ t("settings.models.noMatchProviders") }}</p>
       </div>
     </aside>
 

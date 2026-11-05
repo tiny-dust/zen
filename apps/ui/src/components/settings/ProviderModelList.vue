@@ -99,34 +99,49 @@ function onSelect(model: ProviderModel) {
       />
     </div>
 
-    <ul v-if="filtered.length" class="m-0 flex list-none flex-col p-0">
-      <li v-for="model in filtered" :key="model.id" :class="rowClass(model)">
+    <ul
+      v-if="filtered.length"
+      class="m-0 flex list-none flex-col gap-0.5 overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-sunken)] p-1"
+    >
+      <li
+        v-for="model in filtered"
+        :key="model.id"
+        :class="[rowClass(model), 'items-start gap-1 rounded-[6px] px-1.5 py-1']"
+      >
+        <!-- 两行：上行名称 + 能力徽标，下行模型 id 与上下文/输出上限 -->
         <Button
           variant="ghost"
-          class="h-full flex min-w-0 flex-1 items-center justify-start gap-2 px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
+          class="mt-0.5 flex h-auto min-w-0 flex-1 flex-col items-start gap-0.5 px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
           :disabled="!model.enabled"
           @click="onSelect(model)"
         >
-          <VendorLogo :vendor="model.id" :size="16" />
-          <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
-            {{ model.name }}
+          <span class="flex min-w-0 max-w-full items-center gap-1.5">
+            <VendorLogo :vendor="model.id" :size="16" class="flex-none" />
+            <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
+              {{ model.name }}
+            </span>
+            <span
+              v-if="model.custom"
+              class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
+            >
+              {{ t("settings.models.customTag") }}
+            </span>
+            <CapabilityLine :capabilities="model.capabilities" class="shrink-0" />
           </span>
           <span
-            v-if="model.custom"
-            class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
+            class="flex min-w-0 max-w-full items-center gap-1.5 pl-6 text-[11px] text-[var(--color-dim)]"
           >
-            {{ t("settings.models.customTag") }}
-          </span>
-          <span
-            v-if="model.id !== model.name"
-            class="min-w-0 truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
-          >
-            {{ model.id }}
+            <span
+              v-if="model.id !== model.name"
+              class="truncate font-[family-name:var(--font-mono)]"
+            >
+              {{ model.id }}
+            </span>
+            <CapabilityLine :capabilities="model.capabilities" show-limits class="shrink-0" />
           </span>
         </Button>
-        <CapabilityLine :capabilities="model.capabilities" show-limits class="shrink-0" />
         <Switch
-          class="shrink-0 scale-90"
+          class="mt-1 shrink-0 scale-90"
           :model-value="model.enabled"
           :aria-label="t('settings.models.enableModelAria')"
           @update:model-value="(next) => emit('toggleEnabled', model, next === true)"

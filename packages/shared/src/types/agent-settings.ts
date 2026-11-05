@@ -88,16 +88,56 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 };
 
 /**
- * 问询推荐优先级：模型对每个 askUser 必须给出，用于卡片展示与排序；
- * high = 阻塞当前工作/影响面大，medium = 常规决策，low = 可稍后决定。
- * 兼容旧事件：缺失时 UI 按 medium 展示。
+ * 选项推荐等级：模型给每条预设选项标注推荐度，卡片按它展示徽标并排序；
+ * 问询本身不再带优先级。
+ * strong = 强烈推荐，recommended = 推荐，neutral = 一般，avoid = 不推荐。
  */
-export type AskUserPriority = "high" | "medium" | "low";
+export type AskUserOptionPriority = "strong" | "recommended" | "neutral" | "avoid";
 
-export const ASK_USER_PRIORITIES: readonly AskUserPriority[] = ["high", "medium", "low"];
+export const ASK_USER_OPTION_PRIORITIES: readonly AskUserOptionPriority[] = [
+  "strong",
+  "recommended",
+  "neutral",
+  "avoid",
+];
 
-export function isAskUserPriority(value: unknown): value is AskUserPriority {
-  return ASK_USER_PRIORITIES.includes(value as AskUserPriority);
+export function isAskUserOptionPriority(value: unknown): value is AskUserOptionPriority {
+  return ASK_USER_OPTION_PRIORITIES.includes(value as AskUserOptionPriority);
+}
+
+/** 一个预设选项：label 即点选后回传给模型的答案文本 */
+export interface AskUserOption {
+  label: string;
+  /** 推荐等级；缺省表示模型未标注 */
+  priority?: AskUserOptionPriority;
+}
+
+/** 选项文案：兼容历史事件里的裸字符串写法 */
+export function askOptionLabel(option: AskUserOption | string): string {
+  return typeof option === "string" ? option : option.label;
+}
+
+/** 选项推荐等级：裸字符串或未标注返回 undefined */
+export function askOptionPriority(
+  option: AskUserOption | string,
+): AskUserOptionPriority | undefined {
+  return typeof option === "string" ? undefined : option.priority;
+}
+
+const ASK_OPTION_RANK: Record<AskUserOptionPriority, number> = {
+  strong: 0,
+  recommended: 1,
+  neutral: 2,
+  avoid: 3,
+};
+
+/** 按推荐度排序：强烈推荐在前、不推荐在后，未标注排末尾；同级保持原顺序 */
+export function sortAskOptions<T extends AskUserOption | string>(options: readonly T[]): T[] {
+  const rank = (option: T) => {
+    const priority = askOptionPriority(option);
+    return priority ? ASK_OPTION_RANK[priority] : ASK_USER_OPTION_PRIORITIES.length;
+  };
+  return [...options].sort((a, b) => rank(a) - rank(b));
 }
 
 /** Agent 向用户提问（askUser 工具触发，展示在输入框上方；多问询可并存） */
@@ -105,10 +145,8 @@ export interface AskUserQuestionEvent {
   askId: string;
   toolCallId: string;
   question: string;
-  /** 推荐优先级（high/medium/low）；老事件缺省按 medium 处理 */
-  priority?: AskUserPriority;
-  /** 可选项；为空时只显示自由输入 */
-  options: string[];
+  /** 可选项（含推荐等级）；为空时只显示自由输入。允许裸字符串以兼容历史事件 */
+  options: Array<AskUserOption | string>;
   /** 选项是否可多选（多选时 UI 显示勾选态 + 统一提交按钮）；缺省单选 */
   multiSelect?: boolean;
   /** 允许自由输入；默认 true */

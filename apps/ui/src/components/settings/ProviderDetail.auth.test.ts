@@ -85,3 +85,57 @@ describe("Codex 账号退出状态", () => {
     wrapper.unmount();
   });
 });
+
+describe("Codex 手动回调登录", () => {
+  it("打开浏览器授权后粘贴回调地址完成登录", async () => {
+    const emptyUsage = {
+      providerId: provider.id,
+      source: "local",
+      total: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0, usageEvents: 0 },
+      today: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0, usageEvents: 0 },
+      byModel: [],
+      updatedAt: null,
+    };
+    const chatgptStatus = vi.fn()
+      .mockResolvedValueOnce({ loggedIn: false, expiresAt: 0 })
+      .mockResolvedValue({ loggedIn: true, email: "codex@example.com", planType: "plus", expiresAt: 1 });
+    const codexLoginStart = vi.fn().mockResolvedValue({
+      authorizeUrl: "https://auth.openai.com/oauth/authorize?client_id=x",
+      redirectUri: "http://localhost:1455/auth/callback",
+    });
+    const codexLoginComplete = vi.fn().mockResolvedValue({
+      status: { loggedIn: true, email: "codex@example.com", expiresAt: 1 },
+      provider,
+    });
+    vi.stubGlobal("zen", { models: {
+      chatgptStatus,
+      codexLoginStart,
+      codexLoginComplete,
+      getUsage: vi.fn().mockResolvedValue(emptyUsage),
+    } });
+
+    const wrapper = mount(ProviderDetail, { props: { provider } });
+    await flushPromises();
+
+    const start = wrapper.findAll("button").find((button) => button.text().includes("打开浏览器授权"));
+    expect(start).toBeTruthy();
+    await start!.trigger("click");
+    await flushPromises();
+    expect(codexLoginStart).toHaveBeenCalledWith(provider.id);
+
+    const callback = wrapper.find('input[placeholder*="localhost:1455"]');
+    await callback.setValue("http://localhost:1455/auth/callback?code=abc&state=xyz");
+    const confirm = wrapper.findAll("button").find((button) => button.text().includes("确认登录"));
+    expect(confirm).toBeTruthy();
+    await confirm!.trigger("click");
+    await flushPromises();
+
+    expect(codexLoginComplete).toHaveBeenCalledWith(
+      provider.id,
+      "http://localhost:1455/auth/callback?code=abc&state=xyz",
+    );
+    expect(wrapper.emitted("authorized")?.[0]).toEqual([provider.id]);
+    expect(wrapper.text()).toContain("codex@example.com");
+    wrapper.unmount();
+  });
+});
