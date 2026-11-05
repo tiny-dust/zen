@@ -1,20 +1,25 @@
 <script setup lang="ts">
 import {
   Archive,
+  ArchiveRestore,
+  ArrowDown,
   ArrowRightLeft,
+  ArrowUp,
   Check,
   ChevronDown,
-  CloudDownload,
+  CloudUpload,
   ExternalLink,
   FolderGit2,
   GitBranch,
+  GitBranchPlus,
+  GitCommitHorizontal,
   GitMerge,
   LoaderCircle,
-  Plus,
   RefreshCw,
-  Upload,
+  Sparkles,
+  Trash2,
 } from "@lucide/vue";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import DiffView from "@/components/right/DiffView.vue";
@@ -30,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { openAppLink } from "@/lib/browser-element";
+import { shortcutDisplayParts } from "@/lib/shortcut-display";
 import { useGitStore } from "@/stores/git";
 
 import type {
@@ -68,6 +74,24 @@ const opBusy = ref("");
 const generating = ref(false);
 const creatingBranch = ref(false);
 const newBranchName = ref("");
+/** 新分支的基分支："" = 当前 HEAD，可选本地或远程分支 */
+const baseBranch = ref("");
+const rootEl = ref<HTMLElement | null>(null);
+
+/** 快捷键绑定：展示文案与下方 onKeydown 的分支判定必须保持一致 */
+const SHORTCUTS = {
+  commit: "Cmd+Enter",
+  commitPush: "Shift+Cmd+Enter",
+  push: "Shift+Cmd+U",
+  pull: "Shift+Cmd+Y",
+  fetch: "Shift+Cmd+E",
+  newBranch: "Shift+Cmd+B",
+} as const;
+
+/** 悬浮提示：功能 + 快捷键（符号随平台） */
+function tip(label: string, key?: string): string {
+  return key ? `${label}（${shortcutDisplayParts(key).join("")}）` : label;
+}
 
 const displayName = computed(() =>
   props.repo.relativePath === "." ? props.repo.name : props.repo.relativePath,
@@ -263,16 +287,113 @@ async function createBranch() {
   await withOp("branch", async () => {
     const zen = window.zen;
     if (!zen?.git) return;
-    const result = await zen.git.createBranch(props.repo.path, name);
+    const result = await zen.git.createBranch(
+      props.repo.path,
+      name,
+      baseBranch.value || undefined,
+    );
     if (!result.ok) {
       error.value = result.error ?? t("shell.createBranchFailed");
       return;
     }
     newBranchName.value = "";
+    baseBranch.value = "";
     creatingBranch.value = false;
     await Promise.all([loadStatus(), loadBranches()]);
   });
 }
+
+/** 基分支候选：本地排除当前分支，远程排除各 remote 的 HEAD 指针 */
+const baseLocalBranches = computed(() => localBranches.value.filter((item) => !item.current));
+const baseLabel = computed(() =>
+  baseBranch.value
+    ? baseBranch.value
+    : `${t("shell.currentBranch")}${branch.value ? `（${branch.value}）` : ""}`,
+);
+
+/** 快捷键动作 → 已有操作函数 */
+type GitShortcutAction = "commit" | "commit-push" | "push" | "pull" | "fetch" | "new-branch";
+
+function shortcutAction(event: KeyboardEvent): GitShortcutAction | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
+  if (event.key === "Enter") {
+    return event.shiftKey ? "commit-push" : "commit";
+  }
+  if (!event.shiftKey) return null;
+  switch (event.key.toLowerCase()) {
+    case "u":
+      return "push";
+    case "y":
+      return "pull";
+    case "e":
+      return "fetch";
+    case "b":
+      return "new-branch";
+    default:
+      return null;
+  }
+}
+
+function isTextEntry(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.tagName === "INPUT" ||
+    el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT" ||
+    el.isContentEditable
+  );
+}
+
+/** 多仓库同时展开时只让焦点所在面板或当前目录仓库响应，避免一次点击触发多次操作 */
+function ownsShortcut(): boolean {
+  if (!props.open) return false;
+  const active = document.activeElement;
+  if (active && rootEl.value?.contains(active)) return true;
+  const cwd = gitStore.cwd();
+  if (!cwd) return false;
+  const repoPath = props.repo.path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const current = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  return current === repoPath || current.startsWith(`${repoPath}/`);
+}
+
+/** 有弹层（提交弹窗 / 设置 / 分支菜单）打开时不抢键：弹层内有自己的提交手势与键盘导航 */
+function hasOpenOverlay(): boolean {
+  return !!document.querySelector('[role="dialog"], [role="menu"]');
+}
+
+function onKeydown(event: KeyboardEvent) {
+  const action = shortcutAction(event);
+  if (!action) return;
+  // 输入框内只保留提交手势，其余 git 快捷键让位给输入
+  if (isTextEntry(event.target) && action !== "commit" && action !== "commit-push") return;
+  if (hasOpenOverlay()) return;
+  if (!ownsShortcut()) return;
+  event.preventDefault();
+  switch (action) {
+    case "commit":
+      void commit("commit");
+      break;
+    case "commit-push":
+      void commit("commit-push");
+      break;
+    case "push":
+      void sync("push");
+      break;
+    case "pull":
+      void sync("pull");
+      break;
+    case "fetch":
+      void sync("fetch");
+      break;
+    case "new-branch":
+      creatingBranch.value = true;
+      break;
+  }
+}
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
 function commitPaths(): string[] {
   return files.value
@@ -387,57 +508,89 @@ async function stashDrop(index: number) {
   });
 }
 
-const rowCls = "flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left";
-const subHeadCls =
-  "m-0 flex items-center gap-1.5 px-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-dim)]";
+const rowCls = "flex w-full min-w-0 items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left";
 const linkCls = "text-[var(--color-link)] hover:underline";
+/** 分组内操作按钮：图标 + 文字（11px），一排纯图标难以分辨 */
+const actCls = "h-6 gap-1 px-1.5 text-[11px] font-normal";
+/** 分组标题：小号弱化文字，只承担分组标识 */
+const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-col">
-    <div class="flex min-w-0 items-center gap-0.5">
+  <section
+    class="min-w-0 overflow-hidden rounded-[10px] border transition-colors duration-[var(--motion-fast)]"
+    :class="
+      open
+        ? 'border-[var(--color-line)] bg-[var(--color-sunken)]'
+        : 'border-[var(--color-line-soft)] hover:border-[var(--color-line)]'
+    "
+  >
+    <!-- 仓库头：第一行仓库名 + 变更统计，第二行分支与同步状态。
+         名称与分支各自占一行，互不挤占；行内省略时 title 提供完整值，展开后可见全文。 -->
+    <div class="flex min-w-0 items-start gap-0.5 py-1 pl-1 pr-1.5">
       <Button
         variant="ghost"
-        class="flex h-auto min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-sm)] px-1 text-left text-[12px] font-normal text-[var(--color-txt-strong)] hover:bg-transparent dark:hover:bg-transparent"
+        class="flex h-auto min-w-0 flex-1 flex-col items-stretch rounded-[6px] px-1 py-1 text-left hover:bg-[var(--color-menu-hover)]"
         :aria-expanded="open"
         @click="emit('toggle')"
       >
-        <ChevronDown
-          class="size-3.5 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
-          :class="open ? '' : '-rotate-90'"
-          aria-hidden="true"
-        />
-        <FolderGit2 class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-        <span class="min-w-0 truncate" :title="repo.path">{{ displayName }}</span>
-        <span
-          v-if="branch"
-          class="min-w-0 max-w-[45%] truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
-        >
-          {{ branch }}
+        <span class="flex min-w-0 items-center gap-1.5">
+          <ChevronDown
+            class="size-3.5 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="open ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
+          <FolderGit2 class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+          <span
+            class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt-strong)]"
+            :title="repo.path"
+          >
+            {{ displayName }}
+          </span>
+          <span
+            v-if="files.length"
+            class="flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums"
+          >
+            <span class="text-[var(--color-add)]">+{{ totalAdd }}</span>
+            <span class="text-[var(--color-del)]">&nbsp;-{{ totalDel }}</span>
+          </span>
+          <span v-else-if="loaded" class="flex-none text-[10px] text-[var(--color-dim)]">
+            {{ t("shell.repoClean") }}
+          </span>
         </span>
+
         <span
-          v-if="status?.ahead || status?.behind"
-          class="flex-none font-[family-name:var(--font-mono)] text-[10px]"
-          :title="t('shell.upstreamDiffTitle')"
+          class="mt-0.5 flex min-w-0 items-center gap-1.5 pl-5 text-[10px] text-[var(--color-mut)]"
         >
-          <span v-if="status?.ahead" class="text-[var(--color-add)]">↑{{ status.ahead }}</span>
-          <span v-if="status?.behind" class="text-[var(--color-err)]">&nbsp;↓{{ status.behind }}</span>
-        </span>
-        <span
-          v-if="files.length"
-          class="ml-auto flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums"
-        >
-          <span class="text-[var(--color-add)]">+{{ totalAdd }}</span>
-          <span class="text-[var(--color-del)]">&nbsp;-{{ totalDel }}</span>
-        </span>
-        <span v-else-if="loaded" class="ml-auto flex-none text-[10px] text-[var(--color-dim)]">
-          {{ t("shell.repoClean") }}
+          <GitBranch class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+          <span
+            class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]"
+            :title="branch || t('shell.noWorkdir')"
+          >
+            {{ branch || t("shell.noWorkdir") }}
+          </span>
+          <span
+            v-if="status?.ahead || status?.behind"
+            class="flex-none font-[family-name:var(--font-mono)]"
+            :title="t('shell.upstreamDiffTitle')"
+          >
+            <span v-if="status?.ahead" class="text-[var(--color-add)]">↑{{ status.ahead }}</span>
+            <span v-if="status?.behind" class="text-[var(--color-err)]">&nbsp;↓{{ status.behind }}</span>
+          </span>
+          <span
+            v-if="files.length"
+            class="flex-none rounded-full bg-[var(--color-chip-bg)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-mut)]"
+            :title="t('shell.changedFiles')"
+          >
+            {{ files.length }}
+          </span>
         </span>
       </Button>
+
       <Button
         variant="ghost"
         size="icon-xs"
-        class="size-7 flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+        class="mt-0.5 size-6 flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
         :aria-label="t('shell.refreshRepo')"
         :title="t('shell.refreshRepo')"
         :disabled="loading"
@@ -448,7 +601,7 @@ const linkCls = "text-[var(--color-link)] hover:underline";
       <Button
         variant="ghost"
         size="icon-xs"
-        class="size-7 flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+        class="mt-0.5 size-6 flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
         :aria-label="t('shell.openInGitPanel')"
         :title="t('shell.openInGitPanel')"
         @click="emit('openPanel', repo.path)"
@@ -457,151 +610,72 @@ const linkCls = "text-[var(--color-link)] hover:underline";
       </Button>
     </div>
 
-    <div v-if="open" class="mt-0.5 flex min-w-0 flex-col gap-0.5 pl-1">
-      <p v-if="loading && !loaded" class="m-0 px-1 py-1 text-[11px] text-[var(--color-dim)]">
+    <!-- 展开体：三个命名分组，用发丝线分隔；每组自带标题，跨仓库也能看清属于哪个仓库 -->
+    <div v-if="open" ref="rootEl" class="flex min-w-0 flex-col border-t border-[var(--color-line-soft)]">
+      <p v-if="loading && !loaded" class="m-0 px-2 py-2 text-[11px] text-[var(--color-dim)]">
         {{ t("shell.loadingRepos") }}
       </p>
 
-      <!-- 变更文件 + inline diff -->
-      <p :class="subHeadCls">{{ t("shell.changedFiles") }}</p>
-      <p v-if="loaded && !files.length" class="m-0 px-1 text-[11px] text-[var(--color-dim)]">
-        {{ t("shell.repoClean") }}
-      </p>
-      <template v-for="change in files" :key="change.path">
-        <button
-          type="button"
-          :class="[
-            rowCls,
-            'hover:bg-[var(--color-menu-hover)]',
-            diffPath === change.path ? 'bg-[var(--color-menu-hover)]' : '',
-          ]"
-          :title="change.path"
-          @click="selectFile(change)"
-        >
+      <!-- 变更 -->
+      <div class="flex min-w-0 flex-col gap-1 px-2 py-2">
+        <div class="flex min-w-0 items-center gap-1.5">
+          <span :class="blockLabelCls">{{ t("shell.changedFiles") }}</span>
           <span
-            class="w-3 flex-none text-center font-[family-name:var(--font-mono)] text-[10px]"
-            :class="gitStore.statusBadge(change).cls"
+            v-if="files.length"
+            class="inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full bg-[var(--color-chip-bg)] px-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-mut)]"
           >
-            {{ gitStore.statusBadge(change).text }}
+            {{ files.length }}
           </span>
-          <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]">
-            {{ change.path }}
+          <span v-else-if="loaded" class="text-[10px] text-[var(--color-dim)]">
+            {{ t("shell.repoClean") }}
           </span>
-          <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums">
-            <span class="text-[var(--color-add)]">+{{ change.add }}</span>
-            <span class="text-[var(--color-del)]">&nbsp;-{{ change.del }}</span>
-          </span>
-        </button>
-        <div
-          v-if="diffPath === change.path"
-          class="my-0.5 max-h-[240px] min-w-0 overflow-auto rounded-md border border-[var(--color-line-soft)]"
-        >
-          <p v-if="diffLoading" class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
-            {{ t("panels.loadingDiff") }}
-          </p>
-          <DiffView v-else-if="diff" :diff="diff" :path="change.path" />
-          <p v-else class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
-            {{ t("panels.noDiffContent") }}
-          </p>
         </div>
-      </template>
 
-      <!-- 分支 -->
-      <p :class="subHeadCls">
-        {{ t("shell.branchLabel") }}
-        <span class="normal-case tracking-normal">{{ branch || "—" }}</span>
-      </p>
-      <div class="flex min-w-0 flex-wrap items-center gap-1 px-1">
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] font-normal">
-              <ArrowRightLeft class="size-3" aria-hidden="true" />
-              {{ t("shell.switchBranch") }}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
-            <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
-              {{ t("shell.localBranches") }}
-            </DropdownMenuLabel>
-            <DropdownMenuItem
-              v-for="item in localBranches"
-              :key="item.name"
-              class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
-              @select="checkout(item.name)"
+        <template v-for="change in files" :key="change.path">
+          <button
+            type="button"
+            :class="[
+              rowCls,
+              'hover:bg-[var(--color-menu-hover)]',
+              diffPath === change.path ? 'bg-[var(--color-menu-hover)]' : '',
+            ]"
+            :title="change.path"
+            @click="selectFile(change)"
+          >
+            <span
+              class="w-3 flex-none text-center font-[family-name:var(--font-mono)] text-[10px]"
+              :class="gitStore.statusBadge(change).cls"
             >
-              <Check v-if="item.current" class="size-3.5 flex-none" aria-hidden="true" />
-              <span v-else class="size-3.5 flex-none" aria-hidden="true" />
-              <span class="truncate">{{ item.name }}</span>
-            </DropdownMenuItem>
-            <DropdownMenuLabel class="mt-1 text-[11px] text-[var(--color-dim)]">
-              {{ t("shell.remoteBranches") }}
-            </DropdownMenuLabel>
-            <DropdownMenuItem
-              v-for="item in remoteBranches"
-              :key="item.name"
-              class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
-              @select="checkout(item.name)"
-            >
-              <span class="size-3.5 flex-none" aria-hidden="true" />
-              <span class="truncate">{{ item.name }}</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button
-              variant="ghost"
-              size="sm"
-              class="h-6 gap-1 px-1.5 text-[11px] font-normal"
-              :disabled="!localBranches.length && !remoteBranches.length"
-            >
-              <GitMerge class="size-3" aria-hidden="true" />
-              {{ t("shell.mergeBranch") }}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
-            <DropdownMenuItem
-              v-for="item in [...localBranches, ...remoteBranches].filter((entry) => !entry.current)"
-              :key="item.name"
-              class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
-              @select="merge(item.name)"
-            >
-              <span class="truncate">{{ item.name }}</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-6 gap-1 px-1.5 text-[11px] font-normal"
-          @click="creatingBranch = !creatingBranch"
-        >
-          <Plus class="size-3" aria-hidden="true" />
-          {{ t("shell.newBranch") }}
-        </Button>
-      </div>
-      <div v-if="creatingBranch" class="flex min-w-0 items-center gap-1 px-1 pt-1">
-        <Input
-          v-model="newBranchName"
-          class="h-6 max-w-[160px] flex-1 px-1.5 text-[11px]"
-          :placeholder="t('shell.newBranchName')"
-          @keydown.enter="createBranch"
-        />
-        <Button
-          size="sm"
-          class="h-6 px-2 text-[11px]"
-          :disabled="!newBranchName.trim() || busying"
-          @click="createBranch"
-        >
-          {{ t("shell.create") }}
-        </Button>
+              {{ gitStore.statusBadge(change).text }}
+            </span>
+            <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]">
+              {{ change.path }}
+            </span>
+            <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums">
+              <span class="text-[var(--color-add)]">+{{ change.add }}</span>
+              <span class="text-[var(--color-del)]">&nbsp;-{{ change.del }}</span>
+            </span>
+          </button>
+          <div
+            v-if="diffPath === change.path"
+            class="my-0.5 max-h-[240px] min-w-0 overflow-auto rounded-md border border-[var(--color-line-soft)]"
+          >
+            <p v-if="diffLoading" class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
+              {{ t("panels.loadingDiff") }}
+            </p>
+            <DiffView v-else-if="diff" :diff="diff" :path="change.path" />
+            <p v-else class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
+              {{ t("panels.noDiffContent") }}
+            </p>
+          </div>
+        </template>
       </div>
 
-      <!-- 提交 / 推送 / 拉取 -->
-      <p :class="subHeadCls">{{ t("shell.commitOrPush") }}</p>
-      <div class="flex min-w-0 flex-col gap-1 px-1">
+      <!-- 提交：输入在上，动作为一行（AI 生成 / 提交 / 提交并推送） -->
+      <div
+        class="flex min-w-0 flex-col gap-1.5 border-t border-[var(--color-line-soft)] px-2 py-2"
+      >
+        <span :class="blockLabelCls">{{ t("shell.commitOrPush") }}</span>
         <Textarea
           v-model="commitMessage"
           rows="2"
@@ -612,73 +686,272 @@ const linkCls = "text-[var(--color-link)] hover:underline";
         <div class="flex min-w-0 flex-wrap items-center gap-1">
           <Button
             variant="ghost"
-            size="sm"
-            class="h-6 gap-1 px-1.5 text-[11px] font-normal"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('shell.aiGenerate')"
+            :title="t('shell.aiGenerateTitle')"
             :disabled="generating || !files.length"
             @click="generateMessage"
           >
             <LoaderCircle v-if="generating" class="size-3 animate-spin" aria-hidden="true" />
-            <RefreshCw v-else class="size-3" aria-hidden="true" />
-            {{ generating ? t("shell.generating") : t("shell.aiGenerate") }}
+            <Sparkles v-else class="size-3" aria-hidden="true" />
+            {{ t("shell.aiGenerate") }}
           </Button>
           <Button
-            size="sm"
-            class="h-6 px-2 text-[11px]"
+            variant="outline"
+            size="xs"
+            :class="actCls"
+            aria-label="提交"
+            :title="tip(t('shell.commit'), SHORTCUTS.commit)"
             :disabled="busying || !files.length"
             @click="commit('commit')"
           >
+            <LoaderCircle v-if="opBusy === 'commit'" class="size-3 animate-spin" aria-hidden="true" />
+            <GitCommitHorizontal v-else class="size-3" aria-hidden="true" />
             {{ t("shell.commit") }}
           </Button>
           <Button
-            size="sm"
-            class="h-6 px-2 text-[11px]"
+            variant="ghost"
+            size="xs"
+            :class="actCls"
+            aria-label="提交并推送"
+            :title="tip(t('shell.commitAndPush'), SHORTCUTS.commitPush)"
             :disabled="busying || !files.length"
             @click="commit('commit-push')"
           >
+            <LoaderCircle
+              v-if="opBusy === 'commit-push'"
+              class="size-3 animate-spin"
+              aria-hidden="true"
+            />
+            <CloudUpload v-else class="size-3" aria-hidden="true" />
             {{ t("shell.commitAndPush") }}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-6 gap-1 px-1.5 text-[11px] font-normal"
-            :disabled="busying"
-            @click="sync('push')"
+          <label
+            class="ml-auto flex flex-none cursor-pointer items-center gap-1.5 text-[10px] text-[var(--color-mut)]"
           >
-            <Upload class="size-3" aria-hidden="true" />
-            {{ t("shell.push") }}
-          </Button>
+            <Checkbox v-model="includeUnstaged" class="size-3.5" />
+            {{ t("shell.includeUnstaged") }}
+          </label>
+        </div>
+      </div>
+
+      <!-- 分支与同步：分支全名独占一行（可换行，不省略），动作按「分支 / 同步」两组 -->
+      <div
+        class="flex min-w-0 flex-col gap-1 border-t border-[var(--color-line-soft)] px-2 py-2"
+      >
+        <div class="flex min-w-0 items-baseline gap-1.5">
+          <span :class="[blockLabelCls, 'flex-none']">{{ t("shell.branchLabel") }}</span>
+          <span
+            class="min-w-0 flex-1 break-all font-[family-name:var(--font-mono)] text-[11px] leading-4 text-[var(--color-txt)]"
+          >
+            {{ branch || t("shell.noWorkdir") }}
+          </span>
+        </div>
+
+        <div class="flex min-w-0 flex-wrap items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="ghost"
+                size="xs"
+                :class="actCls"
+                :aria-label="t('shell.switchBranch')"
+                :title="t('shell.switchBranch')"
+              >
+                <ArrowRightLeft class="size-3" aria-hidden="true" />
+                {{ t("shell.switchShort") }}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
+              <DropdownMenuLabel class="text-[11px] text-[var(--color-dim)]">
+                {{ t("shell.localBranches") }}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="item in localBranches"
+                :key="item.name"
+                class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
+                @select="checkout(item.name)"
+              >
+                <Check v-if="item.current" class="size-3.5 flex-none" aria-hidden="true" />
+                <span v-else class="size-3.5 flex-none" aria-hidden="true" />
+                <span class="truncate">{{ item.name }}</span>
+              </DropdownMenuItem>
+              <DropdownMenuLabel class="mt-1 text-[11px] text-[var(--color-dim)]">
+                {{ t("shell.remoteBranches") }}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="item in remoteBranches"
+                :key="item.name"
+                class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
+                @select="checkout(item.name)"
+              >
+                <span class="size-3.5 flex-none" aria-hidden="true" />
+                <span class="truncate">{{ item.name }}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="ghost"
+                size="xs"
+                :class="actCls"
+                :aria-label="t('shell.mergeBranch')"
+                :title="t('shell.mergeBranch')"
+                :disabled="!localBranches.length && !remoteBranches.length"
+              >
+                <GitMerge class="size-3" aria-hidden="true" />
+                {{ t("shell.mergeShort") }}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
+              <DropdownMenuItem
+                v-for="item in [...localBranches, ...remoteBranches].filter((entry) => !entry.current)"
+                :key="item.name"
+                class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
+                @select="merge(item.name)"
+              >
+                <span class="truncate">{{ item.name }}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             variant="ghost"
-            size="sm"
-            class="h-6 gap-1 px-1.5 text-[11px] font-normal"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('shell.newBranch')"
+            :title="tip(t('shell.newBranch'), SHORTCUTS.newBranch)"
+            @click="creatingBranch = !creatingBranch"
+          >
+            <GitBranchPlus class="size-3" aria-hidden="true" />
+            {{ t("shell.newBranchShort") }}
+          </Button>
+
+          <span class="mx-1 h-3.5 w-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
+
+          <Button
+            variant="ghost"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('panels.pull')"
+            :title="tip(t('panels.pull'), SHORTCUTS.pull)"
             :disabled="busying"
             @click="sync('pull')"
           >
-            <CloudDownload class="size-3" aria-hidden="true" />
-            {{ t("panels.pull") }}
+            <LoaderCircle v-if="opBusy === 'pull'" class="size-3 animate-spin" aria-hidden="true" />
+            <ArrowDown v-else class="size-3" aria-hidden="true" />
+            {{ t("shell.pullShort") }}
           </Button>
           <Button
             variant="ghost"
-            size="sm"
-            class="h-6 gap-1 px-1.5 text-[11px] font-normal"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('shell.push')"
+            :title="tip(t('shell.push'), SHORTCUTS.push)"
+            :disabled="busying"
+            @click="sync('push')"
+          >
+            <LoaderCircle v-if="opBusy === 'push'" class="size-3 animate-spin" aria-hidden="true" />
+            <ArrowUp v-else class="size-3" aria-hidden="true" />
+            {{ t("shell.pushShort") }}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('panels.fetch')"
+            :title="tip(t('panels.fetch'), SHORTCUTS.fetch)"
             :disabled="busying"
             @click="sync('fetch')"
           >
-            <RefreshCw class="size-3" aria-hidden="true" />
-            {{ t("panels.fetch") }}
+            <LoaderCircle v-if="opBusy === 'fetch'" class="size-3 animate-spin" aria-hidden="true" />
+            <RefreshCw v-else class="size-3" aria-hidden="true" />
+            {{ t("shell.fetchShort") }}
           </Button>
         </div>
-        <label class="flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-mut)]">
-          <Checkbox v-model="includeUnstaged" class="size-3.5" />
-          {{ t("shell.includeUnstaged") }}
-        </label>
-      </div>
 
-      <!-- PR -->
-      <p :class="subHeadCls">{{ t("shell.pullRequest") }}</p>
-      <p class="m-0 flex min-w-0 items-center gap-1 px-1 text-[11px] text-[var(--color-mut)]">
-        <template v-if="pullRequest">
-          <span class="min-w-0 flex-1 truncate">PR #{{ pullRequest.number }} · {{ pullRequest.title }}</span>
+        <!-- 新建分支：名称 + 基分支（当前 HEAD / 本地分支 / 远程分支） -->
+        <div v-if="creatingBranch" class="mt-0.5 flex min-w-0 items-center gap-1">
+          <Input
+            v-model="newBranchName"
+            class="h-6 max-w-[150px] flex-1 px-1.5 text-[11px]"
+            :placeholder="t('shell.newBranchName')"
+            @keydown.enter="createBranch"
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-6 min-w-0 max-w-[130px] gap-1 px-1.5 text-[11px] font-normal"
+                :aria-label="t('shell.baseBranch')"
+                :title="t('shell.baseBranchTitle')"
+              >
+                <GitBranchPlus class="size-3 flex-none" aria-hidden="true" />
+                <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ baseLabel }}</span>
+                <ChevronDown class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" class="max-h-[260px] w-[220px] overflow-auto">
+              <DropdownMenuItem class="gap-1.5 text-[12px]" @select="baseBranch = ''">
+                <Check v-if="!baseBranch" class="size-3.5 flex-none" aria-hidden="true" />
+                <span v-else class="size-3.5 flex-none" aria-hidden="true" />
+                <span class="min-w-0 truncate">
+                  {{ t("shell.currentBranch") }}<template v-if="branch">（{{ branch }}）</template>
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuLabel class="mt-1 text-[11px] text-[var(--color-dim)]">
+                {{ t("shell.localBranches") }}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="item in baseLocalBranches"
+                :key="`base-local-${item.name}`"
+                class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
+                @select="baseBranch = item.name"
+              >
+                <Check v-if="baseBranch === item.name" class="size-3.5 flex-none" aria-hidden="true" />
+                <span v-else class="size-3.5 flex-none" aria-hidden="true" />
+                <span class="truncate">{{ item.name }}</span>
+              </DropdownMenuItem>
+              <DropdownMenuLabel class="mt-1 text-[11px] text-[var(--color-dim)]">
+                {{ t("shell.remoteBranches") }}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="item in remoteBranches"
+                :key="`base-remote-${item.name}`"
+                class="gap-1.5 font-[family-name:var(--font-mono)] text-[12px]"
+                @select="baseBranch = item.name"
+              >
+                <Check v-if="baseBranch === item.name" class="size-3.5 flex-none" aria-hidden="true" />
+                <span v-else class="size-3.5 flex-none" aria-hidden="true" />
+                <span class="truncate">{{ item.name }}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="size-6 flex-none text-[var(--color-mut)] hover:text-[var(--color-txt)]"
+            :aria-label="t('shell.create')"
+            :title="t('shell.create')"
+            :disabled="!newBranchName.trim() || busying"
+            @click="createBranch"
+          >
+            <Check class="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+
+        <!-- PR：只在存在时占位，避免「暂无」文案占版面 -->
+        <p
+          v-if="pullRequest"
+          class="m-0 flex min-w-0 items-center gap-1 text-[11px] text-[var(--color-mut)]"
+        >
+          <span class="min-w-0 flex-1 truncate" :title="pullRequest.title">
+            PR #{{ pullRequest.number }} · {{ pullRequest.title }}
+          </span>
           <a
             :href="pullRequest.url"
             :class="linkCls"
@@ -688,29 +961,35 @@ const linkCls = "text-[var(--color-link)] hover:underline";
           >
             <ExternalLink class="size-3" aria-hidden="true" />
           </a>
-        </template>
-        <span v-else class="truncate">{{ t("shell.noPullRequest") }}</span>
-      </p>
-
-      <!-- 贮藏 -->
-      <p :class="subHeadCls">
-        {{ t("shell.stashLabel") }}
-        <span v-if="stashes.length" class="normal-case tracking-normal">{{ stashes.length }}</span>
-      </p>
-      <div class="flex min-w-0 flex-col gap-0.5 px-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          class="h-6 w-fit gap-1 px-1.5 text-[11px] font-normal"
-          :disabled="busying || !files.length"
-          @click="stashPush"
-        >
-          <Archive class="size-3" aria-hidden="true" />
-          {{ t("panels.stashChanges") }}
-        </Button>
-        <p v-if="!stashes.length" class="m-0 text-[11px] text-[var(--color-dim)]">
-          {{ t("panels.noStashes") }}
         </p>
+      </div>
+
+      <!-- 贮藏：入口与列表同处一组，避免和其它操作混在一起 -->
+      <div
+        v-if="files.length || stashes.length"
+        class="flex min-w-0 flex-col gap-1 border-t border-[var(--color-line-soft)] px-2 py-2"
+      >
+        <div class="flex min-w-0 items-center gap-1.5">
+          <span :class="blockLabelCls">{{ t("shell.stashLabel") }}</span>
+          <span
+            v-if="stashes.length"
+            class="inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full bg-[var(--color-chip-bg)] px-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-mut)]"
+          >
+            {{ stashes.length }}
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            class="ml-auto h-6 flex-none gap-1 px-1.5 text-[11px] font-normal"
+            :aria-label="t('panels.stashChanges')"
+            :title="t('panels.stashChanges')"
+            :disabled="busying || !files.length"
+            @click="stashPush"
+          >
+            <Archive class="size-3" aria-hidden="true" />
+            {{ t("panels.stashChanges") }}
+          </Button>
+        </div>
         <div
           v-for="item in stashes"
           :key="item.index"
@@ -728,7 +1007,7 @@ const linkCls = "text-[var(--color-link)] hover:underline";
             :disabled="busying"
             @click="stashApply(item.index, 'apply')"
           >
-            <GitBranch class="size-3" aria-hidden="true" />
+            <ArchiveRestore class="size-3" aria-hidden="true" />
           </Button>
           <Button
             variant="ghost"
@@ -739,12 +1018,12 @@ const linkCls = "text-[var(--color-link)] hover:underline";
             :disabled="busying"
             @click="stashDrop(item.index)"
           >
-            <Archive class="size-3" aria-hidden="true" />
+            <Trash2 class="size-3" aria-hidden="true" />
           </Button>
         </div>
       </div>
 
-      <p v-if="error" class="m-0 px-1 text-[11px] text-[var(--color-err)]" role="alert">
+      <p v-if="error" class="m-0 px-2 pb-2 text-[11px] text-[var(--color-err)]" role="alert">
         {{ error }}
       </p>
     </div>

@@ -131,7 +131,7 @@ async function exportSession(format: SessionExportFormat) {
       </Button>
     </div>
 
-    <div v-if="open" class="mt-1 flex min-w-0 flex-col gap-1 px-1">
+    <div v-if="open" class="mt-1 flex min-w-0 flex-col gap-2 px-1">
       <p
         v-if="gitStore.repositoriesLoading && !repos.length"
         class="m-0 py-1 text-[11px] text-[var(--color-dim)]"

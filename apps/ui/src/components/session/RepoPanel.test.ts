@@ -11,6 +11,7 @@ vi.mock("@/stores/git", () => ({
     repositoryBranches: {} as Record<string, string>,
     completionModel: () => ({ providerId: "p1", modelId: "m1" }),
     statusBadge: () => ({ text: "M", cls: "" }),
+    cwd: () => "/tmp/demo",
   }),
 }));
 
@@ -48,16 +49,18 @@ const git = {
   aiMessage: vi.fn().mockResolvedValue("feat: repo panel"),
 };
 
-function mountPanel(open = true) {
+/** attachToBody: 下拉菜单内容会 teleport 到 body，断言菜单项时需要真实挂载 */
+function mountPanel(open = true, attachToBody = false) {
   return mount(RepoPanel, {
     props: { repo, open },
     global: { stubs: { DiffView: true } },
+    ...(attachToBody ? { attachTo: document.body } : {}),
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal("zen", { git });
+  vi.stubGlobal("zen", { git, window: { getPlatform: () => "darwin" } });
 });
 
 afterEach(() => {
@@ -104,9 +107,10 @@ describe("RepoPanel 单仓库面板", () => {
     await flushPromises();
     await wrapper.find("textarea").setValue("feat: panel");
 
-    const commitButton = wrapper.findAll("button").find((item) => item.text() === "提交");
-    expect(commitButton).toBeTruthy();
-    await commitButton!.trigger("click");
+    // 操作栏是纯 icon：按 aria-label 定位提交按钮
+    const commitButton = wrapper.find('[aria-label="提交"]');
+    expect(commitButton.exists()).toBe(true);
+    await commitButton.trigger("click");
     await flushPromises();
 
     expect(git.commit).toHaveBeenCalledWith(repo.path, "feat: panel", ["src/a.ts"], {
@@ -123,5 +127,56 @@ describe("RepoPanel 单仓库面板", () => {
     await openButton.trigger("click");
 
     expect(wrapper.emitted("openPanel")?.[0]).toEqual([repo.path]);
+  });
+
+  it("新建分支默认基于当前分支（不传基分支）", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="新建分支"]').trigger("click");
+    await wrapper.find("input").setValue("feature/new");
+    await wrapper.find('[aria-label="创建"]').trigger("click");
+    await flushPromises();
+
+    expect(git.createBranch).toHaveBeenCalledWith(repo.path, "feature/new", undefined);
+  });
+
+  it("新建分支可指定远程分支作为基线", async () => {
+    const wrapper = mountPanel(true, true);
+    await flushPromises();
+
+    await wrapper.find('[aria-label="新建分支"]').trigger("click");
+    await wrapper.find("input").setValue("feature/from-origin");
+    await wrapper.find('[aria-label="基分支"]').trigger("click");
+    await flushPromises();
+
+    const remoteItem = Array.from(document.querySelectorAll("[role=menuitem]")).find((item) =>
+      item.textContent?.includes("origin/main"),
+    );
+    expect(remoteItem).toBeTruthy();
+    (remoteItem as HTMLElement).click();
+    await flushPromises();
+
+    await wrapper.find('[aria-label="创建"]').trigger("click");
+    await flushPromises();
+
+    expect(git.createBranch).toHaveBeenCalledWith(repo.path, "feature/from-origin", "origin/main");
+  });
+
+  it("⌘↵ 触发提交，输入框里只保留提交手势", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    await wrapper.find("textarea").setValue("feat: shortcut");
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }),
+    );
+    await flushPromises();
+
+    expect(git.commit).toHaveBeenCalledWith(repo.path, "feat: shortcut", ["src/a.ts"], {
+      push: false,
+      includeUnstaged: true,
+    });
+    wrapper.unmount();
   });
 });
