@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Pencil, Plus, RefreshCw, Search, Trash2 } from "@lucide/vue";
+import { CheckCircle2, Pencil, Plus, RefreshCw, Search, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
 
@@ -67,7 +67,8 @@ function onSelect(model: ProviderModel) {
 <template>
   <section class="flex min-w-0 flex-col gap-2 pt-2.5 pb-1">
     <div class="flex items-center justify-between gap-2">
-      <span class="text-[12px] text-[var(--color-txt-strong)]">
+      <span class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt-strong)]">
+        <CheckCircle2 v-if="enabledCount > 0" class="size-3.5 flex-none text-[var(--color-add)]" aria-hidden="true" />
         {{ t("settings.models.modelCount", { enabled: enabledCount, total: models.length }) }}
       </span>
       <div class="flex items-center gap-1">
@@ -76,13 +77,14 @@ function onSelect(model: ProviderModel) {
           {{ t("settings.models.addModel") }}
         </Button>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          size="sm"
           :aria-label="t('settings.models.refreshModelsAria')"
           :disabled="fetching"
           @click="emit('refresh')"
         >
           <RefreshCw :class="fetching ? 'animate-spin' : ''" />
+          {{ t("settings.models.refreshModels") }}
         </Button>
       </div>
     </div>
@@ -101,12 +103,12 @@ function onSelect(model: ProviderModel) {
 
     <ul
       v-if="filtered.length"
-      class="m-0 flex list-none flex-col gap-0.5 overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-sunken)] p-1"
+      class="m-0 flex list-none flex-col divide-y divide-[var(--color-line-soft)] overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-sunken)]"
     >
       <li
         v-for="model in filtered"
         :key="model.id"
-        :class="[rowClass(model), 'items-start gap-1 rounded-[6px] px-1.5 py-1']"
+        :class="[rowClass(model), 'items-start gap-1 px-2.5 py-1.5 hover:bg-[var(--color-menu-hover)]']"
       >
         <!-- 两行：上行名称 + 能力徽标，下行模型 id 与上下文/输出上限 -->
         <Button
@@ -141,7 +143,7 @@ function onSelect(model: ProviderModel) {
           </span>
         </Button>
         <Switch
-          class="mt-1 shrink-0 scale-90"
+          class="mt-1 shrink-0 scale-90 data-checked:bg-[var(--color-add)]"
           :model-value="model.enabled"
           :aria-label="t('settings.models.enableModelAria')"
           @update:model-value="(next) => emit('toggleEnabled', model, next === true)"

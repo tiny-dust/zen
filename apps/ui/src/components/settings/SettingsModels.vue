@@ -275,42 +275,8 @@ async function confirmRemoveModel() {
 <template>
   <section class="grid items-start gap-3.5 grid-cols-[208px_minmax(0,1fr)] max-[720px]:grid-cols-[minmax(0,1fr)]">
     <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" :aria-label="t('settings.models.providerListAria')">
-      <div class="flex flex-col gap-1.5 border-b border-[var(--color-line)] px-2 py-1.5">
-        <div class="flex h-[26px] items-center justify-between gap-1.5">
-          <span class="text-[12px] text-[var(--color-mut)]">{{ t("settings.models.providers") }}</span>
-          <div class="flex items-center gap-0.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger as-child>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 gap-1 px-1.5 text-[11px]"
-                  :disabled="codexLoginPending"
-                  :aria-label="t('settings.models.codexConnect')"
-                >
-                  <VendorLogo vendor="Codex" :size="14" />
-                  {{ codexLoginPending ? t("settings.models.chatgptPending") : t("settings.models.codexConnect") }}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" class="w-[260px]">
-                <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexConnect">
-                  <span class="text-[12px] text-[var(--color-txt)]">{{ t("settings.models.codexApiKeyChoice") }}</span>
-                  <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexApiKeyChoiceHint") }}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem class="flex flex-col items-start gap-0.5 py-2" @select="onCodexAccount">
-                  <span class="text-[12px] text-[var(--color-txt)]">
-                    {{ t(codexAccountProvider ? "settings.models.codexAccountExisting" : "settings.models.codexAccountChoice") }}
-                  </span>
-                  <span class="text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.models.codexAccountChoiceHint") }}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="ghost" size="icon-sm" :aria-label="t('settings.models.addProvider')" :title="t('settings.models.addProvider')" @click="startAdd">
-              <Plus />
-            </Button>
-          </div>
-        </div>
-        <div class="relative">
+      <div class="flex items-center gap-1 border-b border-[var(--color-line)] px-2 py-1.5">
+        <div class="relative min-w-0 flex-1">
           <Search
             class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-mut)]"
             aria-hidden="true"
@@ -321,6 +287,16 @@ async function confirmRemoveModel() {
             :placeholder="t('settings.models.searchProviderPlaceholder')"
           />
         </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="flex-none"
+          :aria-label="t('settings.models.addProvider')"
+          :title="t('settings.models.addProvider')"
+          @click="startAdd"
+        >
+          <Plus />
+        </Button>
       </div>
       <div class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto p-[5px]">
         <template v-for="group in providerGroups" :key="group.key">
@@ -350,6 +326,30 @@ async function confirmRemoveModel() {
         </template>
         <p v-if="!providers.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">{{ t("settings.models.noProviders") }}</p>
         <p v-else-if="!visibleProviders.length" class="m-0 px-2 py-1.5 text-[12px] text-[var(--color-dim)]">{{ t("settings.models.noMatchProviders") }}</p>
+      </div>
+      <div class="border-t border-[var(--color-line)] p-[5px]">
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              class="h-7 w-full justify-start gap-1.5 px-2 text-[12px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)]"
+            >
+              <Plus class="size-3.5" aria-hidden="true" />
+              {{ t("settings.models.addProvider") }}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" class="w-[240px]">
+            <DropdownMenuItem @select="startAdd">
+              {{ t("settings.models.newProvider") }}
+            </DropdownMenuItem>
+            <DropdownMenuItem :disabled="codexLoginPending" @select="onCodexConnect">
+              {{ t("settings.models.codexApiKeyChoice") }}
+            </DropdownMenuItem>
+            <DropdownMenuItem :disabled="codexLoginPending" @select="onCodexAccount">
+              {{ t(codexAccountProvider ? "settings.models.codexAccountExisting" : "settings.models.codexAccountChoice") }}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </aside>
 
