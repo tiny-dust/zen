@@ -10,7 +10,11 @@ import { parseIdTokenClaims, verifyChatGptIdToken } from "./chatgpt-oauth-valida
 
 import type { ChatGptAuthStatus } from "@zen/shared";
 
-/** Zen 自己的 ChatGPT 计划授权：动态注册客户端 + 回环回调 + PKCE。 */
+/**
+ * ChatGPT / Codex 授权，两套客户端并存：
+ * - zen：Zen 自己动态注册的客户端 + 本地回环自动回调（需要组织开通账号计划权限）；
+ * - codex：Codex CLI 公共客户端 + 浏览器授权后手动粘贴回调地址（个人账号即可）。
+ */
 
 const OAUTH_ISSUER = "https://auth.openai.com";
 const OAUTH_AUTHORIZE_URL = `${OAUTH_ISSUER}/api/accounts/authorize`;
@@ -19,6 +23,23 @@ const OAUTH_RESOURCE = "https://api.openai.com/v1";
 const OAUTH_SCOPE = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 const REGISTRATION_CLIENT_ID = "dynamic_agent_client";
 const CALLBACK_PORT = 1455;
+
+/**
+ * Codex CLI 公共客户端：OpenAI 已为它放行个人 ChatGPT 账号，
+ * 不需要组织（workspace）管理员开通权限。
+ */
+export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+const CODEX_AUTHORIZE_URL = `${OAUTH_ISSUER}/oauth/authorize`;
+const CODEX_TOKEN_URL = `${OAUTH_ISSUER}/oauth/token`;
+const CODEX_SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
+const CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
+const CODEX_ORIGINATOR = "codex_cli_rs";
+/** Codex 账号模式使用的接口前缀（ChatGPT 后端，而非 api.openai.com） */
+export const CODEX_API_BASE_URL = "https://chatgpt.com/backend-api/codex";
+export const CODEX_CLIENT_VERSION = "0.146.0";
+/** 授权链接生成后 10 分钟内可粘贴回调 */
+const CODEX_PENDING_TTL_MS = 10 * 60_000;
+
 /** access_token 到期前 5 分钟内触发刷新 */
 const REFRESH_MARGIN_MS = 5 * 60_000;
 /** 本地回调服务整体超时（浏览器一直不回来则放弃） */
@@ -33,7 +54,11 @@ const TERMINAL_REFRESH_ERRORS = new Set([
   "refresh_token_reused",
 ]);
 
+export type ChatGptAuthProfile = "zen" | "codex";
+
 interface StoredTokens {
+  /** 授权出自哪个客户端：zen = Zen 自注册，codex = Codex CLI 公共客户端 */
+  profile: ChatGptAuthProfile;
   clientId: string;
   subject: string;
   scopes: string[];
@@ -73,8 +98,16 @@ function scopesFrom(value: string | undefined): string[] {
   return value?.split(/\s+/).filter(Boolean) ?? [];
 }
 
-function hasPlanPermission(scopes: string[]): boolean {
-  return scopes.includes("chatgpt.tokens.use.direct");
+function profileOf(clientId: string, saved?: unknown): ChatGptAuthProfile {
+  if (saved === "codex" || saved === "zen") return saved;
+  return clientId === CODEX_CLIENT_ID ? "codex" : "zen";
+}
+
+/** 两套客户端的权限门槛不同：Zen 客户端要账号计划直用权限，Codex 客户端要 connectors 权限 */
+function isAuthorized(profile: ChatGptAuthProfile, scopes: string[]): boolean {
+  return profile === "codex"
+    ? scopes.includes("api.connectors.invoke")
+    : scopes.includes("chatgpt.tokens.use.direct");
 }
 
 function hostId(): string {
@@ -117,7 +150,6 @@ async function loadTokens(providerId: string): Promise<StoredTokens | null> {
     const parsed: unknown = JSON.parse(await decryptSecret(row.oauthEnc));
     if (!parsed || typeof parsed !== "object") return null;
     const tokens = parsed as Partial<StoredTokens>;
-    // 旧版借用 Codex CLI client_id 的令牌不属于 Zen 的 OAuth 注册，不能继续使用。
     if (
       typeof tokens.clientId !== "string" || !tokens.clientId ||
       typeof tokens.subject !== "string" || !tokens.subject ||
@@ -125,6 +157,7 @@ async function loadTokens(providerId: string): Promise<StoredTokens | null> {
       !Array.isArray(tokens.scopes)
     ) return null;
     return {
+      profile: profileOf(tokens.clientId, tokens.profile),
       clientId: tokens.clientId,
       subject: tokens.subject,
       hostId: tokens.hostId,
@@ -156,7 +189,7 @@ function clearTokens(providerId: string): void {
 
 export async function getChatGptAuthStatus(providerId: string): Promise<ChatGptAuthStatus> {
   const tokens = await loadTokens(providerId);
-  if (!tokens?.accessToken || !tokens.refreshToken || !hasPlanPermission(tokens.scopes)) {
+  if (!tokens?.accessToken || !tokens.refreshToken || !isAuthorized(tokens.profile, tokens.scopes)) {
     return { loggedIn: false, expiresAt: 0 };
   }
   return {
@@ -171,17 +204,32 @@ export async function getChatGptAuthStatus(providerId: string): Promise<ChatGptA
 /** 刷新去重：同 provider 并发解析只发一次刷新请求（refresh token 轮换下重放即失效） */
 const inflightRefresh = new Map<string, Promise<StoredTokens> | null>();
 
+function tokenEndpointOf(tokens: StoredTokens): { url: string; headers: Record<string, string> } {
+  return tokens.profile === "codex"
+    ? {
+        url: CODEX_TOKEN_URL,
+        headers: { "content-type": "application/x-www-form-urlencoded", originator: CODEX_ORIGINATOR },
+      }
+    : {
+        url: OAUTH_TOKEN_URL,
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      };
+}
+
 async function refreshTokens(providerId: string, tokens: StoredTokens): Promise<StoredTokens> {
-  const response = await fetch(OAUTH_TOKEN_URL, {
+  const endpoint = tokenEndpointOf(tokens);
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: tokens.clientId,
+    refresh_token: tokens.refreshToken,
+  });
+  // 只有 Zen 客户端按 resource 申请公开 API 的账号令牌
+  if (tokens.profile === "zen") body.set("resource", OAUTH_RESOURCE);
+  const response = await fetch(endpoint.url, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: endpoint.headers,
     signal: AbortSignal.timeout(OAUTH_FETCH_TIMEOUT_MS),
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: tokens.clientId,
-      refresh_token: tokens.refreshToken,
-      resource: OAUTH_RESOURCE,
-    }).toString(),
+    body: body.toString(),
   });
   const data = (await response.json().catch(() => ({}))) as OAuthTokenResponse;
   if (!response.ok || !data.access_token || !data.refresh_token) {
@@ -209,25 +257,25 @@ async function refreshTokens(providerId: string, tokens: StoredTokens): Promise<
     planType: claims.planType ?? tokens.planType,
   };
   await saveTokens(providerId, next);
-  if (!hasPlanPermission(scopes)) {
+  if (!isAuthorized(tokens.profile, scopes)) {
     throw new Error("ChatGPT 未授权使用账号计划，请重新登录并允许该权限");
   }
   return next;
 }
 
 /**
- * 解析可用凭据：临近过期（或已过期）先刷新。返回 access_token 与账号 id；
+ * 解析可用凭据：临近过期（或已过期）先刷新。返回 access_token、账号 id 与授权来源；
  * 未登录抛错（调用方决定提示登录）。
  */
 export async function resolveChatGptCredentials(
   providerId: string,
-): Promise<{ accessToken: string; accountId?: string }> {
+): Promise<{ accessToken: string; accountId?: string; profile: ChatGptAuthProfile }> {
   const row = readTokensRow(providerId);
   if (row?.authMode !== "chatgpt-oauth") {
     throw new Error("该供应商未启用 ChatGPT 登录");
   }
   let tokens = await loadTokens(providerId);
-  if (!tokens?.accessToken || !tokens.refreshToken || !hasPlanPermission(tokens.scopes)) {
+  if (!tokens?.accessToken || !tokens.refreshToken || !isAuthorized(tokens.profile, tokens.scopes)) {
     throw new Error("ChatGPT 未登录，请到设置页完成登录");
   }
   if (tokens.expiresAt - REFRESH_MARGIN_MS <= Date.now()) {
@@ -238,7 +286,7 @@ export async function resolveChatGptCredentials(
     inflightRefresh.set(providerId, task);
     tokens = await task;
   }
-  return { accessToken: tokens.accessToken, accountId: tokens.accountId };
+  return { accessToken: tokens.accessToken, accountId: tokens.accountId, profile: tokens.profile };
 }
 
 // ---------- 登录流程（本地回调 + 浏览器授权） ----------
@@ -261,6 +309,7 @@ async function exchangeCode(
   clientId: string,
   redirectUri: string,
   verifier: string,
+  profile: ChatGptAuthProfile,
 ): Promise<OAuthTokenResponse> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -268,11 +317,13 @@ async function exchangeCode(
     code,
     redirect_uri: redirectUri,
     code_verifier: verifier,
-    resource: OAUTH_RESOURCE,
   });
-  const response = await fetch(OAUTH_TOKEN_URL, {
+  if (profile === "zen") body.set("resource", OAUTH_RESOURCE);
+  const response = await fetch(profile === "codex" ? CODEX_TOKEN_URL : OAUTH_TOKEN_URL, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: profile === "codex"
+      ? { "content-type": "application/x-www-form-urlencoded", originator: CODEX_ORIGINATOR }
+      : { "content-type": "application/x-www-form-urlencoded" },
     signal: AbortSignal.timeout(OAUTH_FETCH_TIMEOUT_MS),
     body: body.toString(),
   });
@@ -313,7 +364,9 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
   const active = loginInFlight.get(providerId);
   if (active) return active;
   const login = (async () => {
-    const previous = await loadTokens(providerId);
+    const stored = await loadTokens(providerId);
+    // 只有 zen 客户端的注册 ID 能在这一套流程里复用；codex 令牌的 client_id 属于另一套注册
+    const previous = stored?.profile === "zen" ? stored : null;
     const requestClientId = previous?.clientId ?? REGISTRATION_CLIENT_ID;
     const currentHostId = hostId();
     const verifier = b64url(randomBytes(32));
@@ -379,7 +432,7 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
         ...(previous ? {} : { agent_name_hint: "Zen" }),
         ...(previous?.idToken ? { id_token_hint: previous.idToken } : {}),
         ...(previous?.email ? { login_hint: previous.email } : {}),
-        ...(previous && !hasPlanPermission(previous.scopes) ? { prompt: "consent" } : {}),
+        ...(previous && !isAuthorized("zen", previous.scopes) ? { prompt: "consent" } : {}),
       }).toString();
 
     try {
@@ -389,13 +442,14 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
       if (!clientId || clientId === REGISTRATION_CLIENT_ID || (previous && callback.clientId && callback.clientId !== previous.clientId)) {
         throw new Error("ChatGPT 客户端注册未完成，请重新登录");
       }
-      const tokens = await exchangeCode(callback.code, clientId, redirectUri, verifier);
+      const tokens = await exchangeCode(callback.code, clientId, redirectUri, verifier, "zen");
       const claims = await verifyChatGptIdToken(tokens.id_token!, clientId, nonce, previous?.subject);
       const scopes = scopesFrom(tokens.scope);
       if (tokens.token_type && tokens.token_type.toLowerCase() !== "bearer") {
         throw new Error("ChatGPT 返回了不支持的令牌类型");
       }
       await saveTokens(providerId, {
+        profile: "zen",
         clientId,
         subject: claims.subject,
         hostId: currentHostId,
@@ -408,7 +462,7 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
         accountId: claims.accountId,
         planType: claims.planType,
       });
-      if (!hasPlanPermission(scopes)) {
+      if (!isAuthorized("zen", scopes)) {
         // 保留 Zen 的注册 ID 与已验身份；此供应商暂不能使用 ChatGPT 计划推理。
         throw new Error("ChatGPT 未授权使用账号计划，请在授权页允许该权限");
       }
@@ -425,8 +479,134 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
   return login;
 }
 
+// ---------- Codex CLI 客户端：浏览器授权 + 手动粘贴回调 ----------
+
+interface PendingCodexLogin {
+  verifier: string;
+  state: string;
+  createdAt: number;
+}
+
+const pendingCodexLogins = new Map<string, PendingCodexLogin>();
+
+export interface CodexLoginStartResult {
+  /** 完整授权地址（浏览器未自动打开时可手动复制） */
+  authorizeUrl: string;
+  /** 授权完成后浏览器地址栏应出现的回调地址前缀 */
+  redirectUri: string;
+}
+
+/**
+ * 解析用户粘贴回来的回调串：支持完整 URL、`?a=b` 查询串与裸 `code=…&state=…`。
+ * 只做解析，state 与授权码是否对得上由调用方校验。
+ */
+export function parseCodexCallbackInput(input: string): { code: string; state: string | null } {
+  const value = input.trim();
+  if (!value) {
+    throw new Error("请粘贴浏览器地址栏里的完整回调地址");
+  }
+  let query: string;
+  if (/^https?:\/\//i.test(value)) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error("回调地址格式无效，请重新复制");
+    }
+    query = url.search;
+  } else if (value.startsWith("?") || value.startsWith("#")) {
+    query = value.slice(1);
+  } else if (/^(code|state|error|error_description)=/i.test(value)) {
+    query = value;
+  } else {
+    throw new Error(`请粘贴完整回调地址（以 ${CODEX_REDIRECT_URI} 开头）`);
+  }
+  const params = new URLSearchParams(query);
+  const error = params.get("error");
+  if (error) {
+    throw new Error(`授权被拒绝：${params.get("error_description") || error}`);
+  }
+  const code = params.get("code");
+  if (!code) {
+    throw new Error("回调地址里没有授权码，请重新授权");
+  }
+  return { code, state: params.get("state") };
+}
+
+/**
+ * 第一步：用 Codex CLI 客户端生成授权地址并打开浏览器。
+ * 浏览器跳回 localhost:1455 时页面打不开是正常的，用户把地址栏整条复制回来即可。
+ */
+export async function codexLoginStart(providerId: string): Promise<CodexLoginStartResult> {
+  const verifier = b64url(randomBytes(32));
+  const challenge = b64url(createHash("sha256").update(verifier).digest());
+  const state = b64url(randomBytes(24));
+  const authorizeUrl =
+    `${CODEX_AUTHORIZE_URL}?` +
+    new URLSearchParams({
+      response_type: "code",
+      client_id: CODEX_CLIENT_ID,
+      redirect_uri: CODEX_REDIRECT_URI,
+      scope: CODEX_SCOPE,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      codex_cli_simplified_flow: "true",
+      id_token_add_organizations: "true",
+      originator: CODEX_ORIGINATOR,
+      state,
+    }).toString();
+  pendingCodexLogins.set(providerId, { verifier, state, createdAt: Date.now() });
+  await shell.openExternal(authorizeUrl);
+  return { authorizeUrl, redirectUri: CODEX_REDIRECT_URI };
+}
+
+/** 第二步：用粘贴回来的回调串换令牌并落库。 */
+export async function codexLoginComplete(
+  providerId: string,
+  callbackInput: string,
+): Promise<ChatGptAuthStatus> {
+  const pending = pendingCodexLogins.get(providerId);
+  if (!pending) {
+    throw new Error("授权已失效，请重新点击「打开浏览器授权」");
+  }
+  if (Date.now() - pending.createdAt > CODEX_PENDING_TTL_MS) {
+    pendingCodexLogins.delete(providerId);
+    throw new Error("授权已过期，请重新点击「打开浏览器授权」");
+  }
+  const { code, state } = parseCodexCallbackInput(callbackInput);
+  if (!state || state !== pending.state) {
+    throw new Error("回调地址校验失败（state 不匹配），请重新授权");
+  }
+  const tokens = await exchangeCode(code, CODEX_CLIENT_ID, CODEX_REDIRECT_URI, pending.verifier, "codex");
+  const claims = await verifyChatGptIdToken(tokens.id_token!, CODEX_CLIENT_ID);
+  const scopes = tokens.scope ? scopesFrom(tokens.scope) : scopesFrom(CODEX_SCOPE);
+  if (!isAuthorized("codex", scopes)) {
+    throw new Error("该 ChatGPT 账号未授权 Codex，请重新登录并在授权页允许");
+  }
+  if (tokens.token_type && tokens.token_type.toLowerCase() !== "bearer") {
+    throw new Error("ChatGPT 返回了不支持的令牌类型");
+  }
+  await saveTokens(providerId, {
+    profile: "codex",
+    clientId: CODEX_CLIENT_ID,
+    subject: claims.subject,
+    hostId: hostId(),
+    scopes,
+    accessToken: tokens.access_token!,
+    refreshToken: tokens.refresh_token!,
+    idToken: tokens.id_token!,
+    expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+    email: claims.email,
+    accountId: claims.accountId,
+    planType: claims.planType,
+  });
+  pendingCodexLogins.delete(providerId);
+  return getChatGptAuthStatus(providerId);
+}
+
 /** 退出登录时先撤销可续期会话；保留注册 ID 供下次登录。 */
 export async function chatgptLogout(providerId: string): Promise<void> {
+  pendingCodexLogins.delete(providerId);
   const tokens = await loadTokens(providerId);
   if (!tokens) {
     clearTokens(providerId);

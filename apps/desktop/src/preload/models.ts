@@ -7,6 +7,7 @@ import type {
   CatalogRefreshResult,
   CatalogVendor,
   ChatGptAuthStatus,
+  CodexLoginStart,
   FetchModelsResult,
   ModelCapabilities,
   ModelSelection,
@@ -84,6 +85,17 @@ export const modelsApi = {
       provider: ProviderSummary | null;
     }> {
       return ipcRenderer.invoke("models:chatgpt-login", providerId);
+    },
+    /** Codex 手动回调登录第一步：生成授权地址并打开浏览器 */
+    codexLoginStart(providerId?: string): Promise<CodexLoginStart> {
+      return ipcRenderer.invoke("models:codex-login-start", providerId);
+    },
+    /** Codex 手动回调登录第二步：粘贴浏览器回调地址换令牌 */
+    codexLoginComplete(providerId: string, callbackInput: string): Promise<{
+      status: ChatGptAuthStatus;
+      provider: ProviderSummary | null;
+    }> {
+      return ipcRenderer.invoke("models:codex-login-complete", providerId, callbackInput);
     },
     chatgptStatus(providerId: string): Promise<ChatGptAuthStatus> {
       return ipcRenderer.invoke("models:chatgpt-status", providerId);

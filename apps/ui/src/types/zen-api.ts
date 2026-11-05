@@ -258,6 +258,13 @@ export interface ZenApi {
       status: ChatGptAuthStatus;
       provider: ProviderSummary | null;
     }>;
+    /** Codex 手动回调登录第一步：生成授权地址并打开浏览器 */
+    codexLoginStart(providerId?: string): Promise<{ authorizeUrl: string; redirectUri: string }>;
+    /** Codex 手动回调登录第二步：粘贴浏览器回调地址换令牌 */
+    codexLoginComplete(providerId: string, callbackInput: string): Promise<{
+      status: ChatGptAuthStatus;
+      provider: ProviderSummary | null;
+    }>;
     chatgptStatus(providerId: string): Promise<ChatGptAuthStatus>;
     chatgptLogout(providerId: string): Promise<ChatGptAuthStatus>;
     getUsage(providerId: string): Promise<ProviderUsageSnapshot>;

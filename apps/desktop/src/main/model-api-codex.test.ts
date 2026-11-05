@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resolveChatGptCredentials } from "./chatgpt-auth";
 import { completeOnce, completeVisionOnce, fetchModelsFromProvider, mapChatGptModels } from "./model-api";
 import { listProviders } from "./model-db";
 
@@ -7,6 +8,8 @@ import type { ProviderSummary } from "@zen/shared";
 
 vi.mock("./model-catalog", () => ({ matchCatalogModel: () => ({ model: null }) }));
 vi.mock("./chatgpt-auth", () => ({
+  CODEX_API_BASE_URL: "https://chatgpt.com/backend-api/codex",
+  CODEX_CLIENT_VERSION: "0.146.0",
   resolveChatGptCredentials: vi.fn(async () => ({ accessToken: "account-token" })),
 }));
 vi.mock("./model-db", () => ({
@@ -59,6 +62,51 @@ describe("Codex model configuration", () => {
     expect(result.models[0]?.name).toBe("GPT 6.1 Sol");
     expect(result.models[0]?.capabilities?.vision).toBeUndefined();
     expect(result.models[0]?.capabilities?.reasoning).toBe(true);
+  });
+
+  it("uses the Codex backend for the account catalog and requests", async () => {
+    vi.mocked(resolveChatGptCredentials).mockResolvedValueOnce({
+      accessToken: "codex-token",
+      accountId: "acct-1",
+      profile: "codex",
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
+      models: [{ slug: "gpt-5.6-sol", display_name: "GPT-5.6-Sol", visibility: "list" }],
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchModelsFromProvider(provider);
+    expect(result.models.map((model) => model.id)).toEqual(["gpt-5.6-sol"]);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent("0.146.0")}`);
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: "Bearer codex-token",
+      "ChatGPT-Account-ID": "acct-1",
+      originator: "codex_cli_rs",
+    });
+  });
+
+  it("posts Codex completions to the Codex responses endpoint with the account header", async () => {
+    vi.mocked(resolveChatGptCredentials).mockResolvedValueOnce({
+      accessToken: "codex-token",
+      accountId: "acct-1",
+      profile: "codex",
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response([
+      'data: {"type":"response.output_text.delta","delta":"Hello"}',
+      'data: {"type":"response.completed"}',
+      '',
+    ].join("\n\n"), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await completeOnce("Say hello")).toBe("Hello");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect((init as RequestInit).headers).toMatchObject({
+      Authorization: "Bearer codex-token",
+      "ChatGPT-Account-ID": "acct-1",
+      originator: "codex_cli_rs",
+    });
   });
 
   it("rejects a non-account model catalog shape", () => {

@@ -1,5 +1,6 @@
 import { extractChatText } from "./model-api-transform";
-import { resolveChatGptCredentials } from "./chatgpt-auth";
+import { CODEX_API_BASE_URL, CODEX_CLIENT_VERSION, resolveChatGptCredentials } from "./chatgpt-auth";
+import type { ChatGptAuthProfile } from "./chatgpt-auth";
 import { inspectModelCapabilities, mergeApiModelCapabilities, parseApiModelCapabilities, resolveModelCapabilities } from "./model-capabilities";
 import {
   getSelection,
@@ -209,10 +210,19 @@ export async function fetchModelsByCredentials(input: {
 
 export async function fetchModelsFromProvider(provider: ProviderSummary): Promise<FetchModelsResult> {
   if (provider.authMode === "chatgpt-oauth") {
-    const { accessToken } = await resolveChatGptCredentials(provider.id);
-    const data = await fetchJson(`${CHATGPT_PROVIDER_BASE_URL}/models`, {
+    const credentials = await resolveChatGptCredentials(provider.id);
+    const codex = credentials.profile === "codex";
+    // Codex 账号的模型目录挂在 ChatGPT 后端，需要附带客户端版本
+    const url = codex
+      ? `${CODEX_API_BASE_URL}/models?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`
+      : `${CHATGPT_PROVIDER_BASE_URL}/models`;
+    const data = await fetchJson(url, {
       method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${credentials.accessToken}`,
+        Accept: "application/json",
+        ...(codex ? codexAccountHeaders(credentials.accountId) : {}),
+      },
     });
     return mapChatGptModels(data);
   }
@@ -246,6 +256,17 @@ function chatUrl(baseUrl: string, protocol: ProviderProtocol): string {
   return `${base}/v1${path}`;
 }
 
+/**
+ * Codex 账号模式的请求头：账号 id 决定扣哪个 ChatGPT 账号的额度，
+ * originator 让后端识别请求来自 Codex 客户端。
+ */
+function codexAccountHeaders(accountId?: string): Record<string, string> {
+  return {
+    originator: "codex_cli_rs",
+    ...(accountId ? { "ChatGPT-Account-ID": accountId } : {}),
+  };
+}
+
 /** 补全请求的公共准备：解析供应商/模型、密钥、UA、token 预算、推理档与请求头 */
 async function resolveCompletion(options?: {
   maxTokens?: number;
@@ -275,9 +296,13 @@ async function resolveCompletion(options?: {
   // ChatGPT 方案登录：access_token 当 API Key 用（Bearer）；
   // 其余供应商走静态 API Key
   let apiKey: string;
+  let accountId: string | undefined;
+  let profile: ChatGptAuthProfile | null = null;
   if (provider.authMode === "chatgpt-oauth") {
     const credentials = await resolveChatGptCredentials(provider.id);
     apiKey = credentials.accessToken;
+    accountId = credentials.accountId;
+    profile = credentials.profile;
   } else {
     apiKey = await loadProviderApiKey(provider.id);
   }
@@ -309,12 +334,16 @@ async function resolveCompletion(options?: {
           "content-type": "application/json",
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": userAgent,
+          ...(profile === "codex" ? codexAccountHeaders(accountId) : {}),
         };
   return {
     provider: { ...provider, protocol },
     modelId,
     maxTokens,
-    url: chatUrl(provider.authMode === "chatgpt-oauth" ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl, protocol),
+    // Codex 账号走 ChatGPT 后端（不带 /v1 前缀），Zen 客户端走公开 API
+    url: profile === "codex"
+      ? `${CODEX_API_BASE_URL}/responses`
+      : chatUrl(provider.authMode === "chatgpt-oauth" ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl, protocol),
     headers,
     effort,
   };

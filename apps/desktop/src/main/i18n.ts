@@ -400,19 +400,10 @@ const dict: Record<string, { "zh-CN": string; "en-US": string }> = {
   },
   "lark.ask.from": { "zh-CN": "来自 {name}", "en-US": "From {name}" },
   "lark.ask.cardFrom": { "zh-CN": "**来自** {name}", "en-US": "**From** {name}" },
-  "lark.ask.priority": { "zh-CN": "优先级：{level}", "en-US": "Priority: {level}" },
-  "lark.ask.priorityHigh": {
-    "zh-CN": "高（阻塞当前工作）",
-    "en-US": "High (blocks current work)",
-  },
-  "lark.ask.priorityMedium": {
-    "zh-CN": "中（常规决策）",
-    "en-US": "Medium (normal decision)",
-  },
-  "lark.ask.priorityLow": {
-    "zh-CN": "低（可稍后决定）",
-    "en-US": "Low (decide later)",
-  },
+  "lark.ask.optionLevelStrong": { "zh-CN": "强烈推荐", "en-US": "Strongly recommend" },
+  "lark.ask.optionLevelRecommended": { "zh-CN": "推荐", "en-US": "Recommend" },
+  "lark.ask.optionLevelNeutral": { "zh-CN": "一般", "en-US": "Neutral" },
+  "lark.ask.optionLevelAvoid": { "zh-CN": "不推荐", "en-US": "Not recommended" },
   "lark.ask.multiSelectHint": {
     "zh-CN": "（可多选：回复「1,2」这样的编号组合）",
     "en-US": "(Multi-select: reply with option numbers like \"1,2\")",

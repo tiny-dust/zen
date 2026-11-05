@@ -92,6 +92,15 @@ export interface PreviewModelsInput {
 }
 
 /** ChatGPT OAuth 登录状态（UI 展示；不含任何令牌明文） */
+/**
+ * Codex CLI 授权第一步的结果：authorizeUrl 供手动复制，
+ * redirectUri 是授权完成后浏览器地址栏应出现的前缀。
+ */
+export interface CodexLoginStart {
+  authorizeUrl: string;
+  redirectUri: string;
+}
+
 export interface ChatGptAuthStatus {
   /** 已登录（存在刷新令牌） */
   loggedIn: boolean;

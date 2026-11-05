@@ -1,6 +1,13 @@
 import { ipcMain } from "electron";
 
-import { chatgptLogin, chatgptLogout, getChatGptAuthStatus } from "./chatgpt-auth";
+import {
+  CODEX_API_BASE_URL,
+  chatgptLogin,
+  chatgptLogout,
+  codexLoginComplete,
+  codexLoginStart,
+  getChatGptAuthStatus,
+} from "./chatgpt-auth";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
 import { chatGptUsageAccountKey, getProviderUsage } from "./model-usage";
@@ -140,6 +147,23 @@ export function registerModelIpc(): void {
     const providers = await listProviders();
     return { status, provider: providers.find((item) => item.id === target) ?? null };
   });
+
+  // Codex CLI 客户端授权：个人账号即可，回调地址由用户粘贴回来
+  ipcMain.handle("models:codex-login-start", async (_event, providerId?: string) => {
+    const target = (await ensureChatGptProvider(providerId)).id;
+    return codexLoginStart(target);
+  });
+
+  ipcMain.handle(
+    "models:codex-login-complete",
+    async (_event, providerId: string, callbackInput: string) => {
+      const status = await codexLoginComplete(providerId, callbackInput);
+      // Codex 账号走 ChatGPT 后端，把供应商基础地址同步过去（界面展示与实际请求一致）
+      await updateProvider(providerId, { baseUrl: CODEX_API_BASE_URL });
+      const providers = await listProviders();
+      return { status, provider: providers.find((item) => item.id === providerId) ?? null };
+    },
+  );
 
   ipcMain.handle("models:chatgpt-status", async (_event, providerId: string) => {
     return getChatGptAuthStatus(providerId);
