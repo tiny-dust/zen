@@ -5,21 +5,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AskUserCard from "@/components/chat/AskUserCard.vue";
 import { useChatStore } from "@/stores/chat";
 
-import type { AskUserQuestionEvent } from "@zen/shared";
+import type { AskUserOptionPriority, AskUserQuestionEvent } from "@zen/shared";
 
 const resolveAsk = vi.fn().mockResolvedValue({ ok: true });
 
 function askOf(
   askId: string,
   question: string,
-  priority: "high" | "medium" | "low",
+  level: AskUserOptionPriority = "neutral",
 ): AskUserQuestionEvent {
   return {
     askId,
     toolCallId: `tc-${askId}`,
     question,
-    priority,
-    options: ["选项 A", "选项 B"],
+    options: [
+      { label: "选项 A", priority: level },
+      { label: "选项 B", priority: "avoid" },
+    ],
     allowFreeText: true,
   };
 }
@@ -39,15 +41,15 @@ beforeEach(() => {
 describe("AskUserCard", () => {
   it("展示模型给出的推荐优先级徽标", () => {
     const chat = store();
-    chat.pendingAsks = [askOf("a1", "先做哪个？", "high")];
+    chat.pendingAsks = [askOf("a1", "先做哪个？", "strong")];
     const wrapper = mount(AskUserCard);
-    expect(wrapper.text()).toContain("高");
+    expect(wrapper.text()).toContain("强烈推荐");
     expect(wrapper.text()).toContain("先做哪个？");
   });
 
   it("多问询：答一题只暂存并跳到下一题，全部答完才能统一提交", async () => {
     const chat = store();
-    chat.pendingAsks = [askOf("a1", "第一问", "high"), askOf("a2", "第二问", "low")];
+    chat.pendingAsks = [askOf("a1", "第一问", "strong"), askOf("a2", "第二问", "neutral")];
     const wrapper = mount(AskUserCard);
 
     // 第一题选 A：只暂存，不写回主进程
@@ -82,7 +84,7 @@ describe("AskUserCard", () => {
 
   it("单问询：点选项即回答，无统一提交栏", async () => {
     const chat = store();
-    chat.pendingAsks = [askOf("a1", "只此一问", "medium")];
+    chat.pendingAsks = [askOf("a1", "只此一问", "neutral")];
     const wrapper = mount(AskUserCard);
     expect(wrapper.text()).not.toContain("提交全部回答");
 

@@ -15,14 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat";
 
-import type { AskUserQuestionEvent, AskUserPriority } from "@zen/shared";
+import type { AskUserOption, AskUserOptionPriority, AskUserQuestionEvent } from "@zen/shared";
+import { askOptionLabel, askOptionPriority, sortAskOptions } from "@zen/shared";
 
 /**
  * askUser 提问卡片：Agent 请求用户决策时显示在输入框上方。
  * 多问询合并为一张卡：单题展示 + 进度指示。答完一题先暂存（可在卡内返回修改），
  * 自动跳到下一道未答的题；全部答完后点「提交全部回答」一次性交给 Agent。
  * 只有一道题时保持「点一下即回答」的即时提交。
- * 每题带推荐优先级徽标（高/中/低），模型给出，帮助用户判断先答哪道。
+ * 优先级落在选项上：每条预设选项带推荐等级徽标（强烈推荐/推荐/一般/不推荐），
+ * 列表按推荐度排序，帮助用户一眼看出模型更倾向哪条。
  */
 const { t } = useI18n();
 const chatStore = useChatStore();
@@ -52,33 +54,48 @@ const allAnswered = computed(() => asks.value.length > 0 && answeredCount.value 
 /** 多问询：走「暂存 + 统一提交」，单问询即答 */
 const isBatch = computed(() => asks.value.length > 1);
 
-/** 问询优先级：老事件缺省按 medium 展示 */
-const PRIORITY_LABEL_KEY: Record<AskUserPriority, string> = {
-  high: "chat.ask.priorityHigh",
-  medium: "chat.ask.priorityMedium",
-  low: "chat.ask.priorityLow",
+/** 选项推荐等级 → 徽标文案 / 悬浮说明 / 配色；等级是模型对「选项」的推荐，不是问题优先级 */
+const OPTION_LEVEL_LABEL_KEY: Record<AskUserOptionPriority, string> = {
+  strong: "chat.ask.optionLevelStrong",
+  recommended: "chat.ask.optionLevelRecommended",
+  neutral: "chat.ask.optionLevelNeutral",
+  avoid: "chat.ask.optionLevelAvoid",
 };
-const PRIORITY_TITLE_KEY: Record<AskUserPriority, string> = {
-  high: "chat.ask.priorityHighTitle",
-  medium: "chat.ask.priorityMediumTitle",
-  low: "chat.ask.priorityLowTitle",
+const OPTION_LEVEL_TITLE_KEY: Record<AskUserOptionPriority, string> = {
+  strong: "chat.ask.optionLevelStrongTitle",
+  recommended: "chat.ask.optionLevelRecommendedTitle",
+  neutral: "chat.ask.optionLevelNeutralTitle",
+  avoid: "chat.ask.optionLevelAvoidTitle",
 };
-const PRIORITY_CLASS: Record<AskUserPriority, string> = {
-  high: "bg-[color-mix(in_srgb,var(--color-err)_12%,transparent)] text-[var(--color-err)]",
-  medium: "bg-[color-mix(in_srgb,var(--color-blue)_10%,transparent)] text-[var(--color-blue)]",
-  low: "bg-[var(--color-chip-bg)] text-[var(--color-mut)]",
+const OPTION_LEVEL_CLASS: Record<AskUserOptionPriority, string> = {
+  strong: "bg-[color-mix(in_srgb,var(--color-ok)_14%,transparent)] text-[var(--color-ok)]",
+  recommended: "bg-[color-mix(in_srgb,var(--color-blue)_10%,transparent)] text-[var(--color-blue)]",
+  neutral: "bg-[var(--color-chip-bg)] text-[var(--color-mut)]",
+  avoid: "bg-[color-mix(in_srgb,var(--color-err)_12%,transparent)] text-[var(--color-err)]",
 };
 
-function priorityOf(ask: AskUserQuestionEvent | undefined): AskUserPriority {
-  return ask?.priority ?? "medium";
+/** 选项展示顺序：强烈推荐在前、不推荐在后，未标注排末尾 */
+function optionsOf(ask: AskUserQuestionEvent): Array<AskUserOption | string> {
+  return sortAskOptions(ask.options);
 }
 
-function priorityLabel(ask: AskUserQuestionEvent): string {
-  return t(PRIORITY_LABEL_KEY[priorityOf(ask)]);
+function levelOf(option: AskUserOption | string): AskUserOptionPriority | undefined {
+  return askOptionPriority(option);
 }
 
-function priorityTitle(ask: AskUserQuestionEvent): string {
-  return t("chat.ask.priorityLabel", { level: t(PRIORITY_TITLE_KEY[priorityOf(ask)]) });
+function levelClass(option: AskUserOption | string): string {
+  const level = levelOf(option);
+  return level ? OPTION_LEVEL_CLASS[level] : "";
+}
+
+function levelLabel(option: AskUserOption | string): string {
+  const level = levelOf(option);
+  return level ? t(OPTION_LEVEL_LABEL_KEY[level]) : "";
+}
+
+function levelTitle(option: AskUserOption | string): string {
+  const level = levelOf(option);
+  return level ? t(OPTION_LEVEL_TITLE_KEY[level]) : "";
 }
 
 function draftOf(askId: string) {
@@ -203,7 +220,7 @@ async function submitAll() {
     role="group"
     :aria-label="t('chat.ask.title')"
   >
-    <!-- 卡头：图标 + 标题 + 优先级 + 已答进度 + 上/下切换 -->
+    <!-- 卡头：图标 + 标题 + 已答进度 + 上/下切换（优先级在选项上，不在题上） -->
     <div class="flex items-center gap-2.5">
       <div
         class="grid size-6 flex-none place-items-center rounded-[7px] bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)] text-[var(--color-accent)]"
@@ -212,13 +229,6 @@ async function submitAll() {
       </div>
       <div class="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-medium text-[var(--color-txt-strong)]">
         <span class="truncate">{{ t("chat.ask.title") }}</span>
-        <span
-          class="flex-none rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
-          :class="PRIORITY_CLASS[priorityOf(current)]"
-          :title="priorityTitle(current)"
-        >
-          {{ priorityLabel(current) }}
-        </span>
       </div>
       <span v-if="asks.length > 1" class="flex-none text-[11px] font-normal text-[var(--color-mut)]">
         {{ t("chat.ask.answeredCount", { n: answeredCount, total: asks.length }) }}
@@ -307,27 +317,35 @@ async function submitAll() {
           :aria-multiselectable="isMulti(current)"
         >
           <Button
-            v-for="option in current.options"
-            :key="option"
+            v-for="option in optionsOf(current)"
+            :key="askOptionLabel(option)"
             variant="ghost"
             role="option"
-            :aria-selected="isPicked(current, option)"
+            :aria-selected="isPicked(current, askOptionLabel(option))"
             class="h-auto w-full justify-start gap-2 whitespace-normal rounded-lg border px-2.5 py-1.5 text-left font-normal text-[12px] md:text-[12px] transition-colors duration-[var(--motion-fast)]"
             :class="
-              isPicked(current, option)
+              isPicked(current, askOptionLabel(option))
                 ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] text-[var(--color-txt-strong)] hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] dark:hover:bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] hover:text-[var(--color-txt-strong)]'
                 : 'border-[var(--color-line)] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
-            @click="pick(current, option)"
+            @click="pick(current, askOptionLabel(option))"
           >
             <span
               class="grid size-3.5 flex-none place-items-center border text-[var(--color-accent)]"
               :class="isMulti(current) ? 'rounded-[4px]' : 'rounded-full'"
               :aria-hidden="true"
             >
-              <Check v-if="isPicked(current, option)" class="size-2.5" />
+              <Check v-if="isPicked(current, askOptionLabel(option))" class="size-2.5" />
             </span>
-            <span class="min-w-0 flex-1 break-words">{{ option }}</span>
+            <span class="min-w-0 flex-1 break-words">{{ askOptionLabel(option) }}</span>
+            <span
+              v-if="levelOf(option)"
+              class="flex-none rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+              :class="levelClass(option)"
+              :title="levelTitle(option)"
+            >
+              {{ levelLabel(option) }}
+            </span>
           </Button>
         </div>
 

@@ -341,13 +341,15 @@ describe("createChatEventGateway 后台运行态与缓冲生命周期", () => {
 });
 
 describe("createChatEventGateway askUser 暂存回答与统一提交", () => {
-  function askOf(askId: string, priority?: "high" | "medium" | "low"): AskUserQuestionEvent {
+  function askOf(askId: string): AskUserQuestionEvent {
     return {
       askId,
       toolCallId: `tc-${askId}`,
       question: `问题 ${askId}`,
-      priority,
-      options: ["A", "B"],
+      options: [
+        { label: "A", priority: "strong" },
+        { label: "B", priority: "avoid" },
+      ],
       allowFreeText: true,
     };
   }
@@ -375,7 +377,7 @@ describe("createChatEventGateway askUser 暂存回答与统一提交", () => {
 
   it("多问询：answerAsk 只暂存，等统一提交才写回", async () => {
     const { ctx, resolveAsk, answerAsk } = setup();
-    ctx.pendingAsks.value = [askOf("a1", "high"), askOf("a2", "low")];
+    ctx.pendingAsks.value = [askOf("a1"), askOf("a2")];
     await answerAsk("a1", "A");
     expect(resolveAsk).not.toHaveBeenCalled();
     expect(ctx.askAnswers.value).toEqual({ a1: "A" });
