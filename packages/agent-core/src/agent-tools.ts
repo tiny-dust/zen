@@ -22,11 +22,12 @@ import { resolveDefaultShell } from "@zen/tools-terminal";
 import type { ToolSet } from "ai";
 import type {
   AgentStreamEvent,
+  AskUserOption,
   AskUserQuestionEvent,
   McpAppToolOutput,
   TaskItem,
 } from "@zen/shared";
-import { MCP_TOOL_NAME_MAX, mcpToolWireName } from "@zen/shared";
+import { isAskUserOptionPriority, MCP_TOOL_NAME_MAX, mcpToolWireName } from "@zen/shared";
 import type { ResourceLock } from "./resource-lock";
 import type { AgentSessionConfig } from "./agent-config";
 import { uuidLike } from "./agent-parts";
@@ -65,6 +66,15 @@ async function exclusive<T>(
   }
   // 等锁阶段可被 abort 中断：否则持锁任务卡死时，后续独占工具永久排队，会话假死
   return lock.run(owner, kind, fn, signal);
+}
+
+/**
+ * 从用户回答里挑出命中的选项：单选是整段文本，多选按「、/，/；」拼接，
+ * 因此逐段精确匹配，避免把一个选项当成另一个选项的子串。
+ */
+function pickedOptionsOf(answer: string, options: AskUserOption[]): AskUserOption[] {
+  const tokens = new Set([answer.trim(), ...answer.split(/[、,，;；]/).map((part) => part.trim())]);
+  return options.filter((option) => tokens.has(option.label));
 }
 
 export function buildToolSet(
@@ -377,49 +387,61 @@ export function buildToolSet(
     askUser: tool({
       description:
         "Ask the user one question with optional preset options; shown above the chat input. " +
-        "Every question MUST include priority: high = blocks current work / large blast radius, " +
-        "medium = normal decision, low = can be decided later. The priority is shown as a badge " +
-        "on the card and echoed in the result, so choose it honestly instead of always using medium. " +
-        "Options render as a vertical list — single-select by default (one tap answers). " +
+        "Every option carries a recommendation level so the user sees your preference at a glance: " +
+        "strong = strongly recommend doing this, recommended = recommend, neutral = viable but no strong " +
+        "preference, avoid = not recommended. Mark levels honestly instead of labelling everything strong. " +
+        "Options render as a vertical list sorted by level (strong first, avoid last); single-select by default " +
+        "(one tap answers), and the picked option's level is echoed in the result. " +
         "Set multiSelect=true when the options are not mutually exclusive (the user picks several and submits together). " +
         "Multiple questions may be pending at once (from this agent or parallel sub-agents); the user can answer them in any order and revise earlier answers before submitting. " +
         "Use when the requirement has branches, key info is missing, or several implementations are reasonable. Never ask what you can find out from the code.",
       inputSchema: z.object({
         question: z.string().describe("One concrete question."),
-        priority: z
-          .enum(["high", "medium", "low"])
-          .describe(
-            "REQUIRED recommended priority: high = blocks current work / large blast radius; " +
-              "medium = normal decision; low = can be decided later.",
-          ),
         options: z
-          .array(z.string())
+          .array(
+            z.object({
+              label: z
+                .string()
+                .describe("Option text; the picked label is returned to you as the answer."),
+              priority: z
+                .enum(["strong", "recommended", "neutral", "avoid"])
+                .describe(
+                  "Recommendation level shown as a badge: strong = strongly recommend, " +
+                    "recommended = recommend, neutral = viable but no strong preference, avoid = not recommended.",
+                ),
+            }),
+          )
           .optional()
-          .describe("2-6 preset answers for the user to pick; empty for free text only."),
+          .describe("2-6 preset answers with recommendation levels; empty for free text only."),
         multiSelect: z
           .boolean()
           .optional()
           .describe("Set true when several options may be chosen at once; default single-select."),
         allowFreeText: z.boolean().optional().describe("Whether free text is allowed (default true)."),
       }),
-      execute: async ({ question, priority, options, multiSelect, allowFreeText }, { toolCallId }) => {
+      execute: async ({ question, options, multiSelect, allowFreeText }, { toolCallId }) => {
         const askId = uuidLike();
-        // 个别供应商不按 schema 校验参数：优先级缺失时按 medium 兜底，不让问询卡缺徽标
-        const resolvedPriority = priority ?? "medium";
+        // 个别供应商不按 schema 校验参数：等级缺失/非法时按 neutral 兜底，空文案选项丢弃
+        const resolvedOptions: AskUserOption[] = (options ?? [])
+          .slice(0, 6)
+          .map((option) => ({
+            label: option.label.trim(),
+            priority: isAskUserOptionPriority(option.priority) ? option.priority : "neutral",
+          }))
+          .filter((option) => option.label.length > 0);
         const event: AskUserQuestionEvent = {
           askId,
           toolCallId,
           question,
-          priority: resolvedPriority,
-          options: (options ?? []).slice(0, 6),
+          options: resolvedOptions,
           multiSelect: multiSelect === true,
           allowFreeText: allowFreeText !== false,
         };
         hooks.emitAskEvent(event);
         const answer = await hooks.waitForUserAnswer(event, toolCallId);
         hooks.emitAskResolved(askId, toolCallId, answer);
-        // 结果把优先级一并回给模型：后续汇总/排序时保持同一口径
-        return { answer, priority: resolvedPriority };
+        // 结果把选中选项的等级回给模型：方便它接着按用户的选择走（多选答案按「、」拼接）
+        return { answer, picked: pickedOptionsOf(answer, resolvedOptions) };
       },
     }),
     loadSkill: tool({

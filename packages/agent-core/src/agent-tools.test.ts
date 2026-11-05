@@ -349,15 +349,22 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
 
     const result = (await execTool(tools.askUser, {
       question: "选哪个？",
-      priority: "high",
-      options: ["A", "B", "C", "D", "E", "F", "G"],
+      options: [
+        { label: "A", priority: "strong" },
+        { label: "B", priority: "recommended" },
+        { label: "C", priority: "neutral" },
+        { label: "D", priority: "avoid" },
+        { label: "E" },
+        { label: "F" },
+        { label: "G" },
+      ],
       multiSelect: true,
       allowFreeText: false,
-    })) as { answer: string; priority: string };
+    })) as { answer: string; picked: Array<{ label: string; priority?: string }> };
 
     expect(result.answer).toBe("用户答复");
-    // 优先级随事件展示、随结果回给模型
-    expect(result.priority).toBe("high");
+    // 选项等级随事件展示；回答命中选项时不回带等级（自由输入视为未命中）
+    expect(result.picked).toEqual([]);
     expect(asked).toEqual(["选哪个？"]);
     expect(resolved[0]).toContain(":用户答复");
     const askEvent = events.find((event) => event.type === "ask_user");
@@ -367,7 +374,9 @@ describe("askUser / updateTasks / webSearch / loadSkill / updateMemory", () => {
       expect(askEvent.question.options).toHaveLength(6);
       expect(askEvent.question.multiSelect).toBe(true);
       expect(askEvent.question.allowFreeText).toBe(false);
-      expect(askEvent.question.priority).toBe("high");
+      expect(askEvent.question.options[0]).toEqual({ label: "A", priority: "strong" });
+      // 缺省等级按 neutral 兜底
+      expect(askEvent.question.options[4]).toEqual({ label: "E", priority: "neutral" });
     }
   });
 

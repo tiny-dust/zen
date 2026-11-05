@@ -299,7 +299,7 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
     return seq === 1
       ? toolCall(
           "askUser",
-          { question: "主会话问题？", priority: "high", options: ["A", "B"] },
+          { question: "主会话问题？", options: [{ label: "A", priority: "strong" }, { label: "B", priority: "avoid" }] },
           "call_ask_1",
         )
       : textBlocks("answered");
@@ -323,7 +323,7 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
       return seq === 1
         ? toolCall(
             "askUser",
-            { question: "子任务问题？", priority: "low", options: ["A", "B"] },
+            { question: "子任务问题？", options: [{ label: "A", priority: "strong" }, { label: "B", priority: "avoid" }] },
             "call_child_ask",
           )
         : textBlocks("子任务已回答");
