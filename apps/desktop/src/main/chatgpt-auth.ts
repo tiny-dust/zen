@@ -32,7 +32,6 @@ export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_AUTHORIZE_URL = `${OAUTH_ISSUER}/oauth/authorize`;
 const CODEX_TOKEN_URL = `${OAUTH_ISSUER}/oauth/token`;
 const CODEX_SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
-const CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback";
 const CODEX_ORIGINATOR = "codex_cli_rs";
 /** Codex 账号模式使用的接口前缀（ChatGPT 后端，而非 api.openai.com） */
 export const CODEX_API_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -479,15 +478,56 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
   return login;
 }
 
-// ---------- Codex CLI 客户端：浏览器授权 + 手动粘贴回调 ----------
+// ---------- Codex CLI 客户端：本地回调页 + 手动粘贴确认 ----------
+//
+// 与 DimAgent 一致的流程：先在本机起一个回调服务（1455，占用则 1457），
+// 浏览器授权后跳到该服务的 /auth/callback，页面提示「复制地址栏 URL 回 Zen」；
+// 用户把整条地址粘回应用点确认，Zen 用其中的 code + PKCE verifier 换令牌。
+
+const CODEX_CALLBACK_PATH = "/auth/callback";
+/** Codex 客户端允许的回调端口，按顺序尝试 */
+const CODEX_CALLBACK_PORTS = [1455, 1457] as const;
+
+const CODEX_CALLBACK_PAGE = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>完成 Codex 登录</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#1f2328;background:#fff}
+main{max-width:420px;padding:24px;line-height:1.6}
+h1{font-size:18px;margin:0 0 8px}
+p{margin:0 0 10px;color:#57606a;font-size:14px}
+code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;background:#f3f2ef;border-radius:4px;padding:2px 4px}
+</style></head>
+<body><main>
+<h1>已完成授权</h1>
+<p>把浏览器地址栏里的<strong>完整地址</strong>复制回 Zen，粘贴到「粘贴回调地址」输入框后点击「确认登录」。</p>
+<p>Copy the full URL from the address bar back into Zen, paste it into the callback field, then confirm.</p>
+<p><code>http://localhost:1455/auth/callback?code=…</code></p>
+</main></body></html>`;
 
 interface PendingCodexLogin {
   verifier: string;
   state: string;
-  createdAt: number;
+  redirectUri: string;
+  server: http.Server;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 const pendingCodexLogins = new Map<string, PendingCodexLogin>();
+
+/** 关闭本地回调服务并丢弃本次授权态（成功、取消、超时都走这里） */
+async function closeCodexLogin(providerId: string): Promise<void> {
+  const pending = pendingCodexLogins.get(providerId);
+  if (!pending) return;
+  pendingCodexLogins.delete(providerId);
+  clearTimeout(pending.timer);
+  pending.server.close();
+  pending.server.closeAllConnections?.();
+}
+
+/** 显式取消进行中的 Codex 授权（登出、退出时清理本地端口） */
+export async function codexLoginCancel(providerId: string): Promise<void> {
+  await closeCodexLogin(providerId);
+}
 
 export interface CodexLoginStartResult {
   /** 完整授权地址（浏览器未自动打开时可手动复制） */
@@ -519,7 +559,7 @@ export function parseCodexCallbackInput(input: string): { code: string; state: s
   } else if (/^(code|state|error|error_description)=/i.test(value)) {
     query = value;
   } else {
-    throw new Error(`请粘贴完整回调地址（以 ${CODEX_REDIRECT_URI} 开头）`);
+    throw new Error("请粘贴完整回调地址（以 http://localhost:1455/auth/callback 开头）");
   }
   const params = new URLSearchParams(query);
   const error = params.get("error");
@@ -534,19 +574,48 @@ export function parseCodexCallbackInput(input: string): { code: string; state: s
 }
 
 /**
- * 第一步：用 Codex CLI 客户端生成授权地址并打开浏览器。
- * 浏览器跳回 localhost:1455 时页面打不开是正常的，用户把地址栏整条复制回来即可。
+ * 第一步：起本地回调服务 → 生成授权地址 → 打开浏览器。
+ * 回调页只展示「复制地址栏」的说明，不消费 code，避免与手动粘贴冲突。
  */
 export async function codexLoginStart(providerId: string): Promise<CodexLoginStartResult> {
+  await closeCodexLogin(providerId);
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash("sha256").update(verifier).digest());
   const state = b64url(randomBytes(24));
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    if (url.pathname !== CODEX_CALLBACK_PATH) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("Not found");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    });
+    res.end(CODEX_CALLBACK_PAGE);
+  });
+
+  let port = 0;
+  for (const candidate of CODEX_CALLBACK_PORTS) {
+    if (await listenOn(server, candidate)) {
+      port = candidate;
+      break;
+    }
+  }
+  if (!port) {
+    server.close();
+    throw new Error("本地回调端口被占用（1455 / 1457），请关闭占用程序后重试");
+  }
+
+  const redirectUri = `http://localhost:${port}${CODEX_CALLBACK_PATH}`;
   const authorizeUrl =
     `${CODEX_AUTHORIZE_URL}?` +
     new URLSearchParams({
       response_type: "code",
       client_id: CODEX_CLIENT_ID,
-      redirect_uri: CODEX_REDIRECT_URI,
+      redirect_uri: redirectUri,
       scope: CODEX_SCOPE,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -555,12 +624,22 @@ export async function codexLoginStart(providerId: string): Promise<CodexLoginSta
       originator: CODEX_ORIGINATOR,
       state,
     }).toString();
-  pendingCodexLogins.set(providerId, { verifier, state, createdAt: Date.now() });
-  await shell.openExternal(authorizeUrl);
-  return { authorizeUrl, redirectUri: CODEX_REDIRECT_URI };
+
+  const timer = setTimeout(() => {
+    void closeCodexLogin(providerId);
+  }, CODEX_PENDING_TTL_MS);
+  pendingCodexLogins.set(providerId, { verifier, state, redirectUri, server, timer });
+
+  try {
+    await shell.openExternal(authorizeUrl);
+  } catch (error) {
+    await closeCodexLogin(providerId);
+    throw error;
+  }
+  return { authorizeUrl, redirectUri };
 }
 
-/** 第二步：用粘贴回来的回调串换令牌并落库。 */
+/** 第二步：用粘贴回来的回调串换令牌并落库；成功后关掉本地回调服务。 */
 export async function codexLoginComplete(
   providerId: string,
   callbackInput: string,
@@ -569,15 +648,17 @@ export async function codexLoginComplete(
   if (!pending) {
     throw new Error("授权已失效，请重新点击「打开浏览器授权」");
   }
-  if (Date.now() - pending.createdAt > CODEX_PENDING_TTL_MS) {
-    pendingCodexLogins.delete(providerId);
-    throw new Error("授权已过期，请重新点击「打开浏览器授权」");
-  }
   const { code, state } = parseCodexCallbackInput(callbackInput);
   if (!state || state !== pending.state) {
     throw new Error("回调地址校验失败（state 不匹配），请重新授权");
   }
-  const tokens = await exchangeCode(code, CODEX_CLIENT_ID, CODEX_REDIRECT_URI, pending.verifier, "codex");
+  const tokens = await exchangeCode(
+    code,
+    CODEX_CLIENT_ID,
+    pending.redirectUri,
+    pending.verifier,
+    "codex",
+  );
   const claims = await verifyChatGptIdToken(tokens.id_token!, CODEX_CLIENT_ID);
   const scopes = tokens.scope ? scopesFrom(tokens.scope) : scopesFrom(CODEX_SCOPE);
   if (!isAuthorized("codex", scopes)) {
@@ -600,13 +681,13 @@ export async function codexLoginComplete(
     accountId: claims.accountId,
     planType: claims.planType,
   });
-  pendingCodexLogins.delete(providerId);
+  await closeCodexLogin(providerId);
   return getChatGptAuthStatus(providerId);
 }
 
 /** 退出登录时先撤销可续期会话；保留注册 ID 供下次登录。 */
 export async function chatgptLogout(providerId: string): Promise<void> {
-  pendingCodexLogins.delete(providerId);
+  await closeCodexLogin(providerId);
   const tokens = await loadTokens(providerId);
   if (!tokens) {
     clearTokens(providerId);

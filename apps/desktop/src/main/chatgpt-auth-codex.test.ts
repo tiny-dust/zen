@@ -16,6 +16,7 @@ vi.mock("./secret", () => ({
 import {
   CODEX_API_BASE_URL,
   CODEX_CLIENT_ID,
+  codexLoginCancel,
   codexLoginComplete,
   codexLoginStart,
   getChatGptAuthStatus,
@@ -26,6 +27,8 @@ import {
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: "jwk" }), kid: "codex-login-test", alg: "RS256", use: "sig" };
 const REDIRECT = "http://localhost:1455/auth/callback";
+/** 走真实网络：用于验证本地回调页与「登录后端口关闭」 */
+const realFetch = globalThis.fetch.bind(globalThis);
 
 function signedIdToken(): string {
   const encode = (value: Record<string, unknown>) =>
@@ -47,8 +50,8 @@ function signedIdToken(): string {
   return `${body}.${sign("RSA-SHA256", Buffer.from(body), privateKey).toString("base64url")}`;
 }
 
-function callbackUrl(state: string, code = "one-time-code"): string {
-  return `${REDIRECT}?code=${code}&state=${state}`;
+function callbackUrl(redirectUri: string, state: string, code = "one-time-code"): string {
+  return `${redirectUri}?code=${code}&state=${state}`;
 }
 
 beforeEach(() => {
@@ -59,7 +62,9 @@ beforeEach(() => {
   browser.openExternal.mockReset();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await codexLoginCancel("p");
+  await codexLoginCancel("p-fresh");
   conn.close();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -103,15 +108,21 @@ describe("Codex CLI 手动回调登录", () => {
     const authorize = new URL(start.authorizeUrl);
     expect(authorize.origin + authorize.pathname).toBe("https://auth.openai.com/oauth/authorize");
     expect(authorize.searchParams.get("client_id")).toBe(CODEX_CLIENT_ID);
-    expect(authorize.searchParams.get("redirect_uri")).toBe(REDIRECT);
+    expect(authorize.searchParams.get("redirect_uri")).toBe(start.redirectUri);
+    expect(start.redirectUri).toMatch(/^http:\/\/localhost:(1455|1457)\/auth\/callback$/);
     expect(authorize.searchParams.get("scope")).toContain("api.connectors.invoke");
     expect(authorize.searchParams.get("codex_cli_simplified_flow")).toBe("true");
     expect(authorize.searchParams.get("originator")).toBe("codex_cli_rs");
     expect(browser.openExternal).toHaveBeenCalledWith(start.authorizeUrl);
-    expect(start.redirectUri).toBe(REDIRECT);
+    expect(start.redirectUri).toMatch(/^http:\/\/localhost:(1455|1457)\/auth\/callback$/);
+
+    // 回调页是一个真实的本地服务页面，提示用户复制地址栏
+    const page = await realFetch(`${start.redirectUri}?code=x&state=y`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("复制回 Zen");
 
     const state = authorize.searchParams.get("state")!;
-    const status = await codexLoginComplete("p", callbackUrl(state));
+    const status = await codexLoginComplete("p", callbackUrl(start.redirectUri, state));
     expect(status).toMatchObject({
       loggedIn: true,
       email: "codex@example.com",
@@ -126,7 +137,7 @@ describe("Codex CLI 手动回调登录", () => {
     const body = new URLSearchParams(String((tokenCall[1] as RequestInit).body));
     expect(body.get("grant_type")).toBe("authorization_code");
     expect(body.get("client_id")).toBe(CODEX_CLIENT_ID);
-    expect(body.get("redirect_uri")).toBe(REDIRECT);
+    expect(body.get("redirect_uri")).toBe(start.redirectUri);
     expect(body.has("resource")).toBe(false);
 
     expect(await resolveChatGptCredentials("p")).toEqual({
@@ -135,21 +146,28 @@ describe("Codex CLI 手动回调登录", () => {
       profile: "codex",
     });
     expect(await getChatGptAuthStatus("p")).toMatchObject({ loggedIn: true });
+
+    // 登录完成后本地回调服务应已关闭
+    await expect(realFetch(`${start.redirectUri}`)).rejects.toThrow();
   });
 
   it("回调 state 不匹配时拒绝，不落库", async () => {
-    await codexLoginStart("p");
-    await expect(codexLoginComplete("p", callbackUrl("forged"))).rejects.toThrow("state 不匹配");
+    const start = await codexLoginStart("p");
+    await expect(
+      codexLoginComplete("p", callbackUrl(start.redirectUri, "forged")),
+    ).rejects.toThrow("state 不匹配");
     expect(await getChatGptAuthStatus("p")).toEqual({ loggedIn: false, expiresAt: 0 });
   });
 
   it("未先发起授权就粘贴回调会提示重新授权", async () => {
     // 用没发起过授权的 provider，避开同文件里已缓存的授权态
-    await expect(codexLoginComplete("p-fresh", callbackUrl("whatever"))).rejects.toThrow("授权已失效");
+    await expect(
+      codexLoginComplete("p-fresh", "http://localhost:1455/auth/callback?code=a&state=b"),
+    ).rejects.toThrow("授权已失效");
   });
 
   it("刷新用 Codex token 端点且不带 resource，保留 codex 授权来源", async () => {
-    await codexLoginStart("p");
+    const start = await codexLoginStart("p");
     const authorize = new URL(browser.openExternal.mock.calls[0]![0]);
     vi.stubGlobal("fetch", vi.fn()
       // 换码 → 验签取 JWKS → 刷新
@@ -166,7 +184,7 @@ describe("Codex CLI 手动回调登录", () => {
         refresh_token: "refresh-2",
         expires_in: 3600,
       }), { status: 200 })));
-    await codexLoginComplete("p", callbackUrl(authorize.searchParams.get("state")!));
+    await codexLoginComplete("p", callbackUrl(start.redirectUri, authorize.searchParams.get("state")!));
 
     // 让令牌过期以触发刷新
     const row = conn.prepare("SELECT oauth_enc FROM model_providers WHERE id = 'p'").get() as { oauth_enc: string };
