@@ -117,7 +117,7 @@ const ghostActionCls = classes(
     <Button
       variant="ghost"
       class="h-full flex min-w-0 flex-1 items-center px-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent"
-      @click="batchMode ? emit('toggle-select') : emit('open')"
+      @click.stop="batchMode ? emit('toggle-select') : emit('open')"
     >
       <span :class="titleCls">{{ session.title }}</span>
     </Button>

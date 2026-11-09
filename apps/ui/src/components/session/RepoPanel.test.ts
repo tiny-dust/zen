@@ -97,6 +97,29 @@ describe("RepoPanel 单仓库面板", () => {
     expect(git.status).toHaveBeenCalledWith(repo.path);
   });
 
+  it("折叠时整行承担 hover 底色，展开时恢复仓库标题的独立 hover", async () => {
+    const wrapper = mountPanel(false);
+    const surface = wrapper.find("section");
+    const title = wrapper.find('button[aria-expanded="false"]');
+    const refresh = wrapper.find('[aria-label="刷新该仓库"]');
+    const openPanel = wrapper.find('[aria-label="在 Git 面板打开"]');
+
+    expect(surface.classes()).toContain("rounded-[10px]");
+    expect(surface.classes()).toContain("hover:bg-[var(--color-menu-hover)]");
+    expect(title.classes()).toContain("hover:bg-transparent!");
+    expect(title.classes()).toContain("dark:hover:bg-transparent!");
+    for (const icon of [refresh, openPanel]) {
+      expect(icon.classes()).toContain("hover:bg-transparent!");
+      expect(icon.classes()).toContain("hover:text-[var(--color-txt)]");
+    }
+
+    await wrapper.setProps({ open: true });
+    expect(surface.classes()).toContain("bg-[var(--color-sunken)]");
+    expect(surface.classes()).not.toContain("hover:bg-[var(--color-menu-hover)]");
+    expect(title.classes()).toContain("hover:bg-[var(--color-menu-hover)]");
+    wrapper.unmount();
+  });
+
   it("变更文件分组可独立折叠展开", async () => {
     const wrapper = mountPanel();
     await flushPromises();

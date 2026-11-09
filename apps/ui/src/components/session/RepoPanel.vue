@@ -530,7 +530,7 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
     :class="
       open
         ? 'border-[var(--color-line)] bg-[var(--color-sunken)]'
-        : 'border-[var(--color-line-soft)] hover:border-[var(--color-line)]'
+        : 'border-[var(--color-line-soft)] hover:border-[var(--color-line)] hover:bg-[var(--color-menu-hover)]'
     "
   >
     <!-- 仓库头：第一行仓库名 + 变更统计，第二行分支与同步状态。
@@ -538,7 +538,8 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
     <div class="flex min-w-0 items-start gap-0.5 py-1 pl-1 pr-1.5">
       <Button
         variant="ghost"
-        class="flex h-auto min-w-0 flex-1 flex-col items-stretch rounded-[6px] px-1 py-1 text-left hover:bg-[var(--color-menu-hover)]"
+        class="flex h-auto min-w-0 flex-1 flex-col items-stretch rounded-[6px] px-1 py-1 text-left"
+        :class="open ? 'hover:bg-[var(--color-menu-hover)]' : 'hover:bg-transparent! dark:hover:bg-transparent!'"
         :aria-expanded="open"
         @click="emit('toggle')"
       >

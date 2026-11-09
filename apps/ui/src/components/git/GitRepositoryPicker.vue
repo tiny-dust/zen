@@ -4,6 +4,14 @@ import { useI18n } from "vue-i18n";
 
 import type { GitRepository } from "@zen/shared";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useGitStore } from "@/stores/git";
 
 const { t } = useI18n();
@@ -15,8 +23,8 @@ function location(repo: GitRepository): string {
   return repo.relativePath;
 }
 
-async function select(event: Event) {
-  const path = (event.target as HTMLSelectElement).value;
+async function select(path: unknown) {
+  if (typeof path !== "string") return;
   try {
     await gitStore.selectRepository(path);
   } catch (error) {
@@ -38,20 +46,25 @@ async function refresh() {
   <div class="flex min-w-0 flex-col gap-1">
     <div class="flex min-w-0 items-center gap-1.5" role="group" :aria-label="t('panels.gitRepositories')">
       <GitBranch class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-      <select
-        :value="gitStore.selectedRepositoryPath"
-        :disabled="gitStore.repositoriesLoading || !gitStore.repositories.length || gitStore.mutationBusy"
-        :aria-label="t('panels.selectGitRepository')"
-        class="h-7 min-w-0 flex-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-input-bg)] px-1.5 text-[11px] text-[var(--color-txt)]"
-        @change="select"
-      >
-        <option v-if="!gitStore.repositories.length" value="">
-          {{ gitStore.repositoriesLoading ? t("panels.scanningGitRepositories") : t("panels.noGitRepositories") }}
-        </option>
-        <option v-for="repo in gitStore.repositories" :key="repo.path" :value="repo.path">
-          {{ location(repo) }} · {{ gitStore.repositoryBranches[repo.path] || t("panels.unknownGitBranch") }}
-        </option>
-      </select>
+      <Select :model-value="gitStore.selectedRepositoryPath" @update:model-value="select">
+        <SelectTrigger
+          size="sm"
+          class="h-7 min-w-0 flex-1 rounded-[var(--radius-sm)] bg-[var(--color-input-bg)] text-[11px] text-[var(--color-txt)]"
+          :disabled="gitStore.repositoriesLoading || !gitStore.repositories.length || gitStore.mutationBusy"
+          :aria-label="t('panels.selectGitRepository')"
+        >
+          <SelectValue
+            :placeholder="gitStore.repositoriesLoading ? t('panels.scanningGitRepositories') : t('panels.noGitRepositories')"
+          />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem v-for="repo in gitStore.repositories" :key="repo.path" :value="repo.path">
+              {{ location(repo) }} · {{ gitStore.repositoryBranches[repo.path] || t("panels.unknownGitBranch") }}
+            </SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
       <Button
         variant="ghost"
         size="icon-xs"

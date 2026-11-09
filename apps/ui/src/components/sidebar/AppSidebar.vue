@@ -332,8 +332,8 @@
 
     <!-- 常驻入口：会话列表上方，竖排小卡片（每个独占一行） -->
     <nav class="flex flex-none flex-col gap-1 px-2.5 pb-0.5 pt-2" :aria-label="t('sidebar.tools')">
-      <button type="button"
-        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+      <Button variant="ghost"
+        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
         @click="skillsOpen = true">
         <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
           aria-hidden="true">
@@ -342,18 +342,18 @@
         <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
           {{ t("sidebar.skills") }}
         </span>
-      </button>
-      <button type="button"
-        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+      </Button>
+      <Button variant="ghost"
+        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
         @click="mcpOpen = true">
         <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
           aria-hidden="true">
           <Cable class="size-3.5 text-[var(--color-mut)]" />
         </span>
         <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">MCP</span>
-      </button>
-      <button type="button"
-        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+      </Button>
+      <Button variant="ghost"
+        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
         @click="schedulerOpen = true">
         <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
           aria-hidden="true">
@@ -362,9 +362,9 @@
         <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
           {{ t("scheduler.entry") }}
         </span>
-      </button>
-      <button type="button"
-        class="group flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)]"
+      </Button>
+      <Button variant="ghost"
+        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
         @click="featuresOpen = true">
         <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
           aria-hidden="true">
@@ -373,7 +373,7 @@
         <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
           {{ t("features.entry") }}
         </span>
-      </button>
+      </Button>
     </nav>
 
     <!-- 会话搜索：常驻入口与会话分区之间；输入即时查询，有词时会话区切换为结果列表 -->

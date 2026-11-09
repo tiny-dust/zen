@@ -3,6 +3,7 @@ import { createPinia, disposePinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import ProjectSessionGroup from "@/components/sidebar/ProjectSessionGroup.vue";
+import SessionRow from "@/components/sidebar/SessionRow.vue";
 
 import type { VueWrapper } from "@vue/test-utils";
 import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
@@ -191,6 +192,32 @@ describe("ProjectSessionGroup 会话列表截断与展开", () => {
     expect(wrapper.emitted("pin")?.[0]).toEqual([sessions[0]]);
     expect(wrapper.emitted("archive")?.[0]).toEqual([sessions[0], true]);
     expect(wrapper.emitted("remove")?.[0]).toEqual([sessions[0]]);
+    wrapper.unmount();
+  });
+});
+
+describe("批量管理交互", () => {
+  it("点击会话标题只切换一次，点击行空白仍可切换", async () => {
+    const wrapper = mount(SessionRow, {
+      props: { session: sessionOf("s-1", "会话一"), active: false, batchMode: true },
+      global: { plugins: [pinia] },
+    });
+
+    await wrapper.find("button").trigger("click");
+    expect(wrapper.emitted("toggle-select")).toHaveLength(1);
+    expect(wrapper.emitted("open")).toBeUndefined();
+    await wrapper.trigger("click");
+    expect(wrapper.emitted("toggle-select")).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("批量操作条可换行，计数独占一行且所有操作可达", async () => {
+    const wrapper = mountGroup({ sessions: [sessionOf("s-1", "会话一")] });
+    await wrapper.find('button[aria-label="批量管理会话"]').trigger("click");
+    const toolbar = wrapper.find('[role="toolbar"]');
+    expect(toolbar.classes()).toContain("flex-wrap");
+    expect(toolbar.find("span").classes()).toContain("basis-full");
+    expect(toolbar.findAll("button")).toHaveLength(5);
     wrapper.unmount();
   });
 });

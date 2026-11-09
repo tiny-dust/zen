@@ -256,9 +256,9 @@
     <div v-if="open && sessions.length" class="mt-0.5">
       <!-- 批量管理操作条：计数 + 全选 + 置顶/归档/删除 + 退出 -->
       <div v-if="batchMode"
-        class="mb-1 flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-side-hover)] px-1.5 py-1"
+        class="mb-1 flex flex-wrap items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-side-hover)] px-1.5 py-1"
         :class="isZone ? 'ml-3' : 'ml-5'" role="toolbar" :aria-label="t('sidebar.batchManage')">
-        <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]">
+        <span class="min-w-0 basis-full truncate text-[11px] text-[var(--color-mut)]">
           {{ selectedSessions.length ? t("sidebar.batchSelectedCount", { n: selectedSessions.length }) : t("sidebar.batchNoneSelected") }}
         </span>
         <Button variant="ghost" size="xs" class="h-6 flex-none px-1.5 text-[11px]" @click="toggleSelectAll">

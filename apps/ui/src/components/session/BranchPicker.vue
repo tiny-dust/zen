@@ -5,6 +5,15 @@ import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useGitStore } from "@/stores/git";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +30,11 @@ const creating = ref(false);
 const newBranch = ref("");
 /** 基分支："" = 当前分支（从 HEAD 创建） */
 const baseBranch = ref("");
+/** Select 不接受空串选项；@ 不是合法 Git 分支名。 */
+const baseBranchSelection = computed({
+  get: () => baseBranch.value || "@",
+  set: (value: string) => { baseBranch.value = value === "@" ? "" : value; },
+});
 const repositoryLabel = computed(() => {
   const repo = gitStore.repositories.find((item) => item.path === gitStore.cwd());
   return repo ? (repo.relativePath === "." ? repo.name : repo.relativePath) : "";
@@ -115,6 +129,7 @@ onMounted(() => {
         v-model="filter"
         variant="default"
         :placeholder="t('shell.filterBranches')"
+        :aria-label="t('shell.filterBranches')"
         class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.escape="emit('close')"
       />
@@ -140,45 +155,47 @@ onMounted(() => {
         v-model="newBranch"
         variant="default"
         :placeholder="t('shell.newBranchName')"
+        :aria-label="t('shell.newBranchName')"
         class="h-7 rounded-md bg-[var(--color-input-bg)] px-2 text-[12px] placeholder:text-[var(--color-composer-placeholder)]"
         @keydown.enter="create"
         @keydown.escape="creating = false"
       />
       <div class="flex items-center gap-1">
-        <select
-          v-model="baseBranch"
-          class="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-line)] bg-[var(--color-input-bg)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
-          :aria-label="t('shell.baseBranch')"
-          :title="t('shell.baseBranchTitle')"
-        >
-          <option value="">{{ t("shell.currentBranch") }}{{ gitStore.branch ? `（${gitStore.branch}）` : "" }}</option>
-          <optgroup
-            v-if="baseLocalBranches.length"
-            class="bg-[var(--color-popover)] text-[var(--color-txt)]"
-            :label="t('shell.localBranches')"
+        <Select v-model="baseBranchSelection">
+          <SelectTrigger
+            size="sm"
+            class="h-7 min-w-0 flex-1 bg-[var(--color-input-bg)] text-[12px] text-[var(--color-txt)]"
+            :aria-label="t('shell.baseBranch')"
+            :title="t('shell.baseBranchTitle')"
           >
-            <option
-              v-for="item in baseLocalBranches"
-              :key="`base-local-${item.name}`"
-              :value="item.name"
-            >
-              {{ item.name }}
-            </option>
-          </optgroup>
-          <optgroup
-            v-if="baseRemoteBranches.length"
-            class="bg-[var(--color-popover)] text-[var(--color-txt)]"
-            :label="t('shell.remoteBranches')"
-          >
-            <option
-              v-for="item in baseRemoteBranches"
-              :key="`base-remote-${item.name}`"
-              :value="item.name"
-            >
-              {{ item.name }}
-            </option>
-          </optgroup>
-        </select>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="@">{{ t("shell.currentBranch") }}{{ gitStore.branch ? `（${gitStore.branch}）` : "" }}</SelectItem>
+            </SelectGroup>
+            <SelectGroup v-if="baseLocalBranches.length">
+              <SelectLabel>{{ t("shell.localBranches") }}</SelectLabel>
+              <SelectItem
+                v-for="item in baseLocalBranches"
+                :key="`base-local-${item.name}`"
+                :value="item.name"
+              >
+                {{ item.name }}
+              </SelectItem>
+            </SelectGroup>
+            <SelectGroup v-if="baseRemoteBranches.length">
+              <SelectLabel>{{ t("shell.remoteBranches") }}</SelectLabel>
+              <SelectItem
+                v-for="item in baseRemoteBranches"
+                :key="`base-remote-${item.name}`"
+                :value="item.name"
+              >
+                {{ item.name }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <Button variant="secondary" size="xs" :disabled="!newBranch.trim() || busy" @click="create">
           {{ t("shell.create") }}
         </Button>

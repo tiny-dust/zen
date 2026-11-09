@@ -57,7 +57,7 @@ const layoutStore = useLayoutStore();
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const modelsStore = useModelsStore();
-const { leftWidth, leftCollapsed, rightWidth, rightCollapsed, bottomCollapsed, sessionOpen } =
+const { leftWidth, leftCollapsed, rightWidth, rightCollapsed, bottomHeight, bottomCollapsed, sessionOpen } =
   storeToRefs(layoutStore);
 
 const isWide = useMediaQuery("(min-width: 1100px)");
@@ -145,7 +145,7 @@ onMounted(() => {
   }
   void userStore.waitForReady().then(() => useWorkspaceStore().refresh());
   void schedulerStore.load();
-  // 窗口缩放后按新边界回收两侧面板宽度，防止中央聊天区被挤出视口
+  // 窗口缩放后按新边界回收面板尺寸，防止中央聊天区被挤出视口
   layoutStore.syncViewport();
   window.addEventListener("resize", layoutStore.syncViewport);
 });
@@ -167,6 +167,11 @@ function onLeftDrag(delta: number) {
 function onRightDrag(delta: number) {
   // 手柄在中央与右栏之间：左拖（delta 负）让右栏变宽
   layoutStore.setRightWidth(rightWidth.value - delta);
+}
+
+function onBottomDrag(delta: number) {
+  // 水平手柄每次只发本次位移；向上拖（负位移）增加底部高度。
+  layoutStore.setBottomHeight(bottomHeight.value - delta);
 }
 
 const sideRail =
@@ -196,9 +201,13 @@ const sideRail =
 
           <div
             v-if="!bottomCollapsed"
-            class="flex h-[min(42vh,360px)] min-h-[180px] flex-none flex-col bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
+            class="flex flex-none flex-col bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
+            :style="{ height: `${bottomHeight}px` }"
           >
-            <TerminalPanel />
+            <ResizeHandle orientation="horizontal" @drag="onBottomDrag" />
+            <div class="min-h-0 flex-1">
+              <TerminalPanel />
+            </div>
           </div>
         </div>
       </div>
