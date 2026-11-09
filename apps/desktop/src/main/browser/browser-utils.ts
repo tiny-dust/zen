@@ -8,6 +8,21 @@ export function kernelLabels(): { chromeVersion: string; electronVersion: string
   };
 }
 
+/** 合成器只有在视图可见且尺寸非 0 时才有帧可截 */
+export function canCaptureSurface(
+  visible: boolean,
+  bounds: { width: number; height: number } | null,
+): boolean {
+  return visible && !!bounds && bounds.width > 1 && bounds.height > 1;
+}
+
+/** 截图彻底失败时的可操作提示（底层 viz 错误附在末尾便于排查） */
+export function screenshotFailureMessage(detail: string): string {
+  return `截图失败：窗口可能被最小化或被其他窗口遮挡。请把 Zen 切到前台、确认浏览器面板已展开后重试${
+    detail ? `（原始错误：${detail}）` : ""
+  }`;
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -24,7 +24,7 @@ import type {
   BrowserSnapshot,
 } from "@zen/shared";
 
-import { withTimeout } from "./browser-utils";
+import { canCaptureSurface, delay, screenshotFailureMessage, withTimeout } from "./browser-utils";
 import { BrowserCdpClient } from "./browser-cdp";
 
 function screenshotDir(): string {
@@ -210,15 +210,77 @@ export class BrowserContentApi extends BrowserCdpClient {
     return { metrics, navigation, paint };
   }
 
+  /**
+   * 截图前等到「有帧可截」：视图可见、尺寸非 0、主帧不在加载中。
+   * 否则 Chromium 合成器会直接回 UnknownVizError（窗口被遮挡/最小化、面板刚打开时最常见）。
+   */
+  private async waitForPaintingSurface(wc: Electron.WebContents): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      if (canCaptureSurface(this.state.visible, this.view?.getBounds() ?? null) && !wc.isLoadingMainFrame()) {
+        return;
+      }
+      await delay(100);
+    }
+  }
+
+  /** capturePage 偶发拿不到帧：重试一次，仍失败交给 CDP 兜底 */
+  private async capturePagePng(): Promise<Buffer> {
+    const wc = this.requireWebContents();
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const image = await withTimeout(wc.capturePage(), 8_000, "截图");
+        const png = image.toPNG();
+        if (png.length > 0) {
+          return png;
+        }
+        lastError = new Error("截图为空");
+      } catch (error) {
+        lastError = error;
+      }
+      await delay(200);
+    }
+    throw lastError instanceof Error ? lastError : new Error("截图失败");
+  }
+
+  /** CDP 兜底：绕过窗口合成表面直接抓取页面 */
+  private async capturePngViaCdp(): Promise<Buffer | null> {
+    try {
+      const result = await this.sendDebugger<{ data?: string }>("Page.captureScreenshot", {
+        format: "png",
+        fromSurface: true,
+        captureBeyondViewport: false,
+      });
+      return result?.data ? Buffer.from(result.data, "base64") : null;
+    } catch {
+      return null;
+    }
+  }
+
   async screenshot(): Promise<BrowserScreenshotResult> {
+    let png: Buffer | null = null;
+    let detail = "";
     try {
       await this.ensureRunning();
       const wc = this.requireWebContents();
-      const image = await withTimeout(wc.capturePage(), 8000, "截图");
+      await this.waitForPaintingSurface(wc);
+      png = await this.capturePagePng();
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error);
+    }
+    if (!png) {
+      png = await this.capturePngViaCdp();
+      if (!png) {
+        // 把底层 viz 错误换成可操作提示，避免用户只看到 UnknownVizError
+        return { ok: false, error: screenshotFailureMessage(detail) };
+      }
+    }
+    try {
       const dir = screenshotDir();
       await mkdir(dir, { recursive: true });
       const path = join(dir, `zen-browser-${Date.now()}.png`);
-      await writeFile(path, image.toPNG());
+      await writeFile(path, png);
       return { ok: true, path };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "screenshot failed" };
