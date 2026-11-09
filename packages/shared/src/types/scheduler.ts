@@ -60,7 +60,7 @@ export interface ScheduledTaskSchedule {
   everyMinutes?: number;
 }
 
-/** 定时任务：到点自动在目标工作区新建会话并运行 agent */
+/** 定时任务：到点在目标会话中运行 agent；首次无目标时创建专属会话 */
 export interface ScheduledTask {
   id: string;
   name: string;
@@ -70,12 +70,14 @@ export interface ScheduledTask {
   enabled: boolean;
   /** 目标工作区目录；null = 公共区（无项目会话） */
   workspacePath: string | null;
+  /** 复用的目标会话；null = 首次执行时创建专属会话 */
+  targetSessionId: string | null;
   lastRunAt: number | null;
   /** 最近一次运行结果摘要（助手回复截断或错误信息） */
   lastResult: string | null;
   /** 最近一次运行是否成功；null = 从未运行 */
   lastRunOk: boolean | null;
-  /** 最近一次运行新建的会话 id；null = 从未运行（用于跳转会话查看完整过程） */
+  /** 最近一次运行使用的会话 id；null = 从未运行（用于跳转会话查看完整过程） */
   lastSessionId: string | null;
   createdAt: number;
   updatedAt: number;
@@ -88,13 +90,15 @@ export interface ScheduledTaskInput {
   schedule: ScheduledTaskSchedule;
   enabled?: boolean;
   workspacePath: string | null;
+  /** null = 首次执行时创建专属会话；省略按 null 处理（兼容旧调用方） */
+  targetSessionId: string | null;
 }
 
 /** 运行事件推送（scheduler:run-event）：started → done / error */
 export interface ScheduledTaskRunEvent {
   taskId: string;
   state: "started" | "done" | "error";
-  /** 本次运行新建的会话 id */
+  /** 本次运行使用的会话 id */
   sessionId?: string;
   /** done/error 时的结果摘要 */
   summary?: string;
@@ -104,7 +108,7 @@ export interface ScheduledTaskRunEvent {
 export interface ScheduledTaskRun {
   id: string;
   taskId: string;
-  /** 本次运行新建的会话 id；运行启动前失败时为 null */
+  /** 本次运行使用的会话 id；确定会话前失败时为 null */
   sessionId: string | null;
   startedAt: number;
   /** 结束时间戳；null = 仍在运行 */

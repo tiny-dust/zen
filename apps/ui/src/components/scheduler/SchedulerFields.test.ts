@@ -93,6 +93,20 @@ describe("ScheduleEditor", () => {
     wrapper.unmount();
   });
 
+  it("重复任务默认收起日历预览，可展开；指定日期始终显示日历", async () => {
+    const wrapper = mountEditor({ kind: "recurrence", every: 1, unit: "day", times: ["09:00"] });
+    expect(wrapper.find("calendar-stub").exists()).toBe(false);
+    const toggle = wrapper.find('button[aria-expanded="false"]');
+    expect(toggle.text()).toContain("日历预览");
+    await toggle.trigger("click");
+    expect(wrapper.find("calendar-stub").exists()).toBe(true);
+    wrapper.unmount();
+
+    const dates = mountEditor({ kind: "dates", dates: [], times: ["09:00"] });
+    expect(dates.find("calendar-stub").exists()).toBe(true);
+    dates.unmount();
+  });
+
   it("切单位为周 → 草稿带 weekdays；再切月 → 带 monthlyOn", async () => {
     const wrapper = mountEditor({ kind: "recurrence", every: 1, unit: "day", times: ["09:00"] });
     const weekSelect = wrapper.findAll(".select-stub").find((item) => item.attributes("data-value") === "day");

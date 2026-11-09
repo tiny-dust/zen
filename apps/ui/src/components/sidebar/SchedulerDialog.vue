@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarClock, History, Loader2, MessageSquareText, Pencil, Play, Plus, Trash2, X } from "@lucide/vue";
+import { CalendarClock, History, Loader2, MessageSquareText, Pencil, Play, Plus, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -88,8 +88,31 @@ const form = reactive({
   prompt: "",
   schedule: defaultSchedule(),
   workspacePath: COMMON_WORKSPACE,
+  targetSessionId: null as string | null,
   enabled: true,
 });
+
+/** 仅允许选择目标工作区内未归档的会话；公共区会话的 workspaceId 为 null。 */
+const sessionOptions = computed(() => {
+  const group = workspaceStore.groups.find(
+    (item) => (item.path ?? COMMON_WORKSPACE) === form.workspacePath && !item.archived,
+  );
+  return group?.sessions.filter((session) => !session.archived) ?? [];
+});
+
+const targetSessionChoice = computed({
+  get: () => form.targetSessionId ?? "__new_session__",
+  set: (value: string) => { form.targetSessionId = value === "__new_session__" ? null : value; },
+});
+
+function changeWorkspace(value: string) {
+  form.workspacePath = value;
+  form.targetSessionId = null;
+}
+
+const selectedSessionMissing = computed(
+  () => form.targetSessionId !== null && !sessionOptions.value.some((item) => item.id === form.targetSessionId),
+);
 
 /** 可选目标工作区：有目录的项目工作区 + 公共区（哨兵值） */
 const workspaceOptions = computed(() => {
@@ -108,6 +131,7 @@ watch(open, (value) => {
     view.value = "list";
     resetForm();
     void schedulerStore.load();
+    void workspaceStore.refresh();
   }
 });
 
@@ -118,6 +142,7 @@ function resetForm() {
   form.prompt = "";
   form.schedule = defaultSchedule();
   form.workspacePath = COMMON_WORKSPACE;
+  form.targetSessionId = null;
   form.enabled = true;
 }
 
@@ -135,6 +160,7 @@ function startEdit(task: ScheduledTask) {
   // 旧类型任务（interval/daily/monthly）由编辑器导入时前向迁移到「重复」
   form.schedule = task.schedule;
   form.workspacePath = toFormWorkspace(task.workspacePath);
+  form.targetSessionId = task.targetSessionId;
   form.enabled = task.enabled;
   view.value = "form";
 }
@@ -155,6 +181,9 @@ function buildInput(): { input: ScheduledTaskInput } | { error: string } {
   if (!prompt) {
     return { error: t("scheduler.errPromptRequired") };
   }
+  if (selectedSessionMissing.value) {
+    return { error: t("scheduler.errSessionUnavailable") };
+  }
   const scheduleError = editorRef.value?.validate() ?? null;
   if (scheduleError) {
     return { error: scheduleError };
@@ -170,6 +199,7 @@ function buildInput(): { input: ScheduledTaskInput } | { error: string } {
       schedule: form.schedule,
       enabled: form.enabled,
       workspacePath: fromFormWorkspace(form.workspacePath),
+      targetSessionId: form.targetSessionId,
     },
   };
 }
@@ -380,10 +410,10 @@ function lastRunLabel(task: ScheduledTask): string {
               :key="task.id"
               class="rounded-lg border border-[var(--color-line)] px-3 py-2"
             >
-              <div class="flex items-start gap-2">
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ task.name }}</span>
+              <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="min-w-0 max-w-full break-words text-[12px] font-medium text-[var(--color-txt-strong)]">{{ task.name }}</span>
                   <Badge variant="secondary" class="text-[10px]">
                     <CalendarClock class="mr-0.5 size-3" aria-hidden="true" />{{ scheduleLabel(task) }}
                   </Badge>
@@ -527,47 +557,65 @@ function lastRunLabel(task: ScheduledTask): string {
         </template>
 
         <!-- 新建 / 编辑配置页：从列表进入，提交/取消回列表 -->
-        <div v-else class="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+        <div v-else class="flex min-w-0 flex-col gap-4">
+          <div class="flex items-center justify-between gap-2 border-b border-[var(--color-line-soft)] pb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ editingId ? t("scheduler.editTask") : t("scheduler.add") }}
           </div>
-          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(150px,200px)]">
-            <Input
-              v-model="form.name"
-              class="h-8 text-[12px]"
-              :placeholder="t('scheduler.namePlaceholder')"
-              :aria-label="t('scheduler.name')"
-            />
-            <Select v-model="form.workspacePath">
-              <SelectTrigger class="h-8 text-[12px]" :aria-label="t('scheduler.workspace')">
-                <SelectValue :placeholder="t('scheduler.workspace')" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="item in workspaceOptions" :key="item.path || 'common'" :value="item.path">
-                  {{ item.label }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <div class="flex min-w-0 flex-col gap-3">
+            <div class="flex min-w-0 flex-col gap-1.5">
+              <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.name") }}</span>
+              <Input v-model="form.name" class="h-8 min-w-0 text-[12px]" :placeholder="t('scheduler.namePlaceholder')" :aria-label="t('scheduler.name')" />
+            </div>
+            <div class="flex min-w-0 flex-col gap-1.5">
+              <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.prompt") }}</span>
+              <Textarea v-model="form.prompt" class="min-h-[76px] min-w-0 text-[12px]" :placeholder="t('scheduler.promptPlaceholder')" :aria-label="t('scheduler.prompt')" />
+            </div>
           </div>
-          <Textarea
-            v-model="form.prompt"
-            class="min-h-[60px] text-[12px]"
-            :placeholder="t('scheduler.promptPlaceholder')"
-            :aria-label="t('scheduler.prompt')"
-          />
-          <!-- 统一调度编辑器：重复/每日时间范围/单次/指定日期（Calendar + DatePicker） -->
-          <ScheduleEditor ref="editorRef" v-model="form.schedule" />
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="min-w-0 border-t border-[var(--color-line-soft)] pt-3">
+            <div class="mb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.schedule") }}</div>
+            <ScheduleEditor ref="editorRef" v-model="form.schedule" />
+          </div>
+          <div class="flex min-w-0 flex-col gap-2 border-t border-[var(--color-line-soft)] pt-3">
+            <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.destination") }}</div>
+            <div class="grid min-w-0 gap-2 sm:grid-cols-2">
+              <div class="min-w-0">
+                <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.workspace") }}</div>
+                <Select :model-value="form.workspacePath" @update:model-value="changeWorkspace(String($event))">
+                  <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.workspace')">
+                    <SelectValue :placeholder="t('scheduler.workspace')" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="item in workspaceOptions" :key="item.path" :value="item.path">{{ item.label }}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="min-w-0">
+                <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.targetSession") }}</div>
+                <Select v-model="targetSessionChoice">
+                  <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.targetSession')">
+                    <SelectValue :placeholder="t('scheduler.targetSession')" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__new_session__">{{ t("scheduler.newSession") }}</SelectItem>
+                    <SelectItem v-for="session in sessionOptions" :key="session.id" :value="session.id">{{ session.title }}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p class="m-0 break-words text-[11px] text-[var(--color-mut)]">
+              {{ selectedSessionMissing ? t("scheduler.errSessionUnavailable") : form.targetSessionId ? t("scheduler.existingSessionHint") : t("scheduler.newSessionHint") }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-line-soft)] pt-3">
             <label class="flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
-              <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />
-              {{ t("scheduler.enabled") }}
+              <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />{{ t("scheduler.enabled") }}
             </label>
-            <Button size="sm" @click="submitForm">{{ t("common.save") }}</Button>
-            <Button variant="ghost" size="sm" @click="cancelEdit">
-              <X class="size-3.5" />{{ t("common.cancel") }}
-            </Button>
-            <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
+            <div class="flex items-center gap-2">
+              <Button variant="ghost" size="sm" @click="cancelEdit">{{ t("common.cancel") }}</Button>
+              <Button size="sm" @click="submitForm">{{ t("common.save") }}</Button>
+            </div>
           </div>
+          <p v-if="formError" role="alert" class="m-0 break-words text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</p>
         </div>
       </div>
     </DialogContent>

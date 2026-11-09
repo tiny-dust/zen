@@ -3,10 +3,11 @@ import { createPinia, disposePinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SchedulerDialog from "@/components/sidebar/SchedulerDialog.vue";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { VueWrapper } from "@vue/test-utils";
 import type { Mock } from "vitest";
-import type { ScheduledTask } from "@zen/shared";
+import type { ScheduledTask, WorkspaceGroup } from "@zen/shared";
 
 /**
  * 计划任务弹窗：统一调度编辑器（ScheduleEditor）驱动的表单切换、校验与提交载荷；
@@ -25,6 +26,7 @@ function taskFixture(patch: Partial<ScheduledTask> = {}): ScheduledTask {
     schedule: { kind: "interval", every: 30, unit: "minute" },
     enabled: true,
     workspacePath: null,
+    targetSessionId: null,
     lastRunAt: null,
     lastResult: null,
     lastRunOk: null,
@@ -85,13 +87,18 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
               <button type="button" data-set="second" @click="$emit('update:modelValue', 'second')">second</button>
               <button type="button" data-set="week" @click="$emit('update:modelValue', 'week')">week</button>
               <button type="button" data-set="month" @click="$emit('update:modelValue', 'month')">month</button>
+              <button type="button" data-set="/repo" @click="$emit('update:modelValue', '/repo')">repo</button>
+              <button type="button" data-set="__common__" @click="$emit('update:modelValue', '__common__')">common</button>
+              <button type="button" data-set="s-1" @click="$emit('update:modelValue', 's-1')">session</button>
+              <button type="button" data-set="__new_session__" @click="$emit('update:modelValue', '__new_session__')">new</button>
+              <slot />
             </div>
           `,
         },
         SelectTrigger: true,
         SelectValue: true,
         SelectContent: true,
-        SelectItem: true,
+        SelectItem: { props: ["value"], template: '<div class="select-item-stub" :data-value="value"><slot /></div>' },
         // TimePicker/DateField 桩：保持 input + aria-label 语义
         TimePicker: {
           props: ["modelValue", "ariaLabel"],
@@ -334,6 +341,50 @@ describe("SchedulerDialog 统一调度编辑器", () => {
     await flushPromises();
     expect(wrapper.find('button[aria-label="编辑任务"]').exists(), "取消后应回到列表").toBe(true);
     expect(wrapper.find('input[aria-label="名称"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+describe("SchedulerDialog 目标会话", () => {
+  const group: WorkspaceGroup = {
+    id: "repo", name: "项目", path: "/repo", kind: "workspace", pinned: false,
+    archived: false, createdAt: 1,
+    sessions: [
+      { id: "s-1", title: "进行中的讨论", workspaceId: "repo", draft: "", pinned: false, archived: false, createdAt: 1, updatedAt: 1 },
+      { id: "s-old", title: "已归档", workspaceId: "repo", draft: "", pinned: false, archived: true, createdAt: 1, updatedAt: 1 },
+    ],
+  };
+
+  it("仅列出目标工作区的活跃会话，提交会话 ID；切换工作区重置为新会话", async () => {
+    const wrapper = await mountDialog();
+    useWorkspaceStore().groups = [group];
+    await openCreateForm(wrapper);
+    await inputByLabel(wrapper, "名称").setValue("巡检");
+    await inputByLabel(wrapper, "指令").setValue("检查");
+    expect(wrapper.find('.select-stub[data-value="__new_session__"]').exists()).toBe(true);
+    await setSelect(wrapper, "__common__", "/repo");
+    expect(wrapper.text()).toContain("进行中的讨论");
+    expect(wrapper.text()).not.toContain("已归档");
+    await setSelect(wrapper, "__new_session__", "s-1");
+    expect(wrapper.text()).toContain("将指令追加到所选会话");
+    await setSelect(wrapper, "/repo", "__common__");
+    expect(wrapper.find('.select-stub[data-value="__new_session__"]').exists()).toBe(true);
+    await setSelect(wrapper, "__common__", "/repo");
+    await setSelect(wrapper, "__new_session__", "s-1");
+    await submit(wrapper);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ workspacePath: "/repo", targetSessionId: "s-1" });
+    wrapper.unmount();
+  });
+
+  it("编辑回显并阻止保存已删除或归档的目标会话", async () => {
+    const wrapper = await mountDialog([taskFixture({ workspacePath: "/repo", targetSessionId: "s-1" })]);
+    useWorkspaceStore().groups = [group];
+    await wrapper.find('button[aria-label="编辑任务"]').trigger("click");
+    expect(wrapper.find('.select-stub[data-value="s-1"]').exists()).toBe(true);
+    useWorkspaceStore().groups = [{ ...group, sessions: [] }];
+    await submit(wrapper);
+    expect(wrapper.text()).toContain("所选会话已删除、归档或不在该工作区");
+    expect((window.zen!.scheduler.update as Mock)).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

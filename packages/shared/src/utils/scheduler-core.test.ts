@@ -22,6 +22,7 @@ function task(patch: Partial<ScheduledTask>): ScheduledTask {
     schedule: { kind: "interval", every: 30, unit: "minute" },
     enabled: true,
     workspacePath: null,
+    targetSessionId: null,
     lastRunAt: null,
     lastResult: null,
     lastRunOk: null,

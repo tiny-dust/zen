@@ -5,7 +5,7 @@ import type { CalendarDate as CalendarDateValue } from "@internationalized/date"
 import type { DateValue } from "reka-ui";
 import type { MonthlyPattern, ScheduledTaskSchedule, ScheduleUnit } from "@zen/shared";
 import { matchesDate, nextOccurrences } from "@zen/shared";
-import { CalendarClock, Plus, X } from "@lucide/vue";
+import { CalendarClock, ChevronDown, ChevronRight, Plus, X } from "@lucide/vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -319,10 +319,10 @@ function removeTime(index: number): void {
 
 // ---------- 日历预览（重复·天/周/月 与 指定日期 共用） ----------
 
+const calendarExpanded = ref(false);
 const showCalendar = computed(
-  () =>
-    state.mode === "dates" ||
-    (state.mode === "recurrence" && TIMED_UNITS.includes(state.unit)),
+  () => state.mode === "dates" ||
+    (calendarExpanded.value && state.mode === "recurrence" && TIMED_UNITS.includes(state.unit)),
 );
 
 /** 日历当前展示月（placeholder），翻月时更新 */
@@ -603,7 +603,19 @@ function weekdayLabel(weekday: number): string {
       </div>
     </template>
 
-    <!-- 日历（指定日期=多选交互；重复·天/周/月=只读高亮会运行的日期） -->
+    <!-- 指定日期需直接选取；重复模式的只读日历按需展开，不占用默认配置空间 -->
+    <Button
+      v-if="state.mode === 'recurrence' && TIMED_UNITS.includes(state.unit)"
+      variant="ghost"
+      size="sm"
+      class="h-7 self-start gap-1 px-1 text-[11px] text-[var(--color-mut)]"
+      :aria-expanded="calendarExpanded"
+      @click="calendarExpanded = !calendarExpanded"
+    >
+      <ChevronDown v-if="calendarExpanded" class="size-3" />
+      <ChevronRight v-else class="size-3" />
+      {{ t('scheduler.calendarPreview') }}
+    </Button>
     <div v-if="showCalendar" class="flex justify-center rounded-xl border border-[var(--color-line)] p-2">
       <Calendar
         :model-value="highlightedDates"

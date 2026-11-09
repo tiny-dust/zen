@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Notification } from "electron";
 
 import { isTaskDue, isValidSchedule } from "@zen/shared";
+import { expandElementTokens } from "@zen/tools-browser";
 
 import { runAgentRequest } from "./agent-runner";
 import { currentLocale, mainT } from "./i18n";
@@ -11,6 +12,7 @@ import {
   createSession,
   createWorkspace,
   getSession as loadSessionRecord,
+  getWorkspace,
   listWorkspaceGroups,
   renameSession,
 } from "./workspace-db";
@@ -19,6 +21,8 @@ import type { AgentSession } from "@zen/agent-core";
 import type {
   ScheduledTask,
   ScheduledTaskInput,
+  ChatTurn,
+  BrowserElementRef,
   ScheduledTaskRun,
   ScheduledTaskRunEvent,
 } from "@zen/shared";
@@ -27,7 +31,7 @@ import type {
  * 定时/计划任务：scheduled_tasks + scheduled_task_runs 表（复用 zen.sqlite 连接）
  * + 每秒 tick 的最小调度器。触发执行走 runAgentRequest（飞书入口同款 headless：
  * 不传 send，流事件只落库），跑完把结果摘要写回任务并 Notification 通知（失败静默降级）。
- * 每次运行同时落一条历史（含新建会话 id，渲染层据此跳转会话查看完整过程）。
+ * 每次运行同时落一条历史（含复用的会话 id，渲染层据此跳转会话查看完整过程）。
  * 到期判断等纯函数在 @zen/shared 的 scheduler-core（带单测）。
  */
 
@@ -38,6 +42,7 @@ interface TaskRow {
   schedule_json: string;
   enabled: number;
   workspace_path: string | null;
+  target_session_id: string | null;
   last_run_at: number | null;
   last_result: string | null;
   last_run_ok: number | null;
@@ -73,6 +78,7 @@ function ensureTable(): void {
       schedule_json TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
       workspace_path TEXT,
+      target_session_id TEXT,
       last_run_at INTEGER,
       last_result TEXT,
       last_run_ok INTEGER,
@@ -100,6 +106,9 @@ function ensureTable(): void {
   }>;
   if (!taskCols.some((col) => col.name === "last_session_id")) {
     db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN last_session_id TEXT`);
+  }
+  if (!taskCols.some((col) => col.name === "target_session_id")) {
+    db.exec(`ALTER TABLE scheduled_tasks ADD COLUMN target_session_id TEXT`);
   }
 }
 
@@ -145,6 +154,7 @@ function toTask(row: TaskRow): ScheduledTask {
     schedule: parseSchedule(row.schedule_json),
     enabled: row.enabled === 1,
     workspacePath: row.workspace_path,
+    targetSessionId: row.target_session_id,
     lastRunAt: row.last_run_at,
     lastResult: row.last_result,
     lastRunOk: row.last_run_ok === null ? null : row.last_run_ok === 1,
@@ -192,6 +202,20 @@ function sanitizeInput(
     typeof input.workspacePath === "string" && input.workspacePath.trim()
       ? input.workspacePath.trim()
       : null;
+  if (input.targetSessionId !== undefined && input.targetSessionId !== null &&
+      (typeof input.targetSessionId !== "string" || !input.targetSessionId.trim())) {
+    return { error: "invalid target session id" };
+  }
+  const targetSessionId = input.targetSessionId?.trim() ?? null;
+  if (targetSessionId) {
+    const record = loadSessionRecord(targetSessionId);
+    if (!record || record.session.archived) {
+      return { error: "target session not found or archived" };
+    }
+    if ((getWorkspace(record.session.workspaceId)?.path ?? null) !== workspacePath) {
+      return { error: "target session workspace mismatch" };
+    }
+  }
   return {
     value: {
       name,
@@ -199,6 +223,7 @@ function sanitizeInput(
       schedule,
       enabled: input.enabled !== false,
       workspacePath,
+      targetSessionId,
     },
   };
 }
@@ -219,6 +244,7 @@ export function createScheduledTask(
     schedule_json: JSON.stringify(parsed.value.schedule),
     enabled: parsed.value.enabled ? 1 : 0,
     workspace_path: parsed.value.workspacePath,
+    target_session_id: parsed.value.targetSessionId,
     last_run_at: null,
     last_result: null,
     last_run_ok: null,
@@ -229,8 +255,8 @@ export function createScheduledTask(
   getDb()
     .prepare(
       `INSERT INTO scheduled_tasks
-       (id, name, prompt, schedule_json, enabled, workspace_path, last_run_at, last_result, last_run_ok, last_session_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, prompt, schedule_json, enabled, workspace_path, target_session_id, last_run_at, last_result, last_run_ok, last_session_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -239,6 +265,7 @@ export function createScheduledTask(
       row.schedule_json,
       row.enabled,
       row.workspace_path,
+      row.target_session_id,
       row.last_run_at,
       row.last_result,
       row.last_run_ok,
@@ -262,11 +289,16 @@ export function updateScheduledTask(
   if ("error" in merged) {
     return merged;
   }
+  if (runningIds.has(id) &&
+      (merged.value.targetSessionId !== existing.targetSessionId ||
+        merged.value.workspacePath !== existing.workspacePath)) {
+    return { error: "cannot change task destination while running" };
+  }
   const now = Date.now();
   getDb()
     .prepare(
       `UPDATE scheduled_tasks
-       SET name = ?, prompt = ?, schedule_json = ?, enabled = ?, workspace_path = ?, updated_at = ?
+       SET name = ?, prompt = ?, schedule_json = ?, enabled = ?, workspace_path = ?, target_session_id = ?, updated_at = ?
        WHERE id = ?`,
     )
     .run(
@@ -275,6 +307,7 @@ export function updateScheduledTask(
       JSON.stringify(merged.value.schedule),
       merged.value.enabled ? 1 : 0,
       merged.value.workspacePath,
+      merged.value.targetSessionId,
       now,
       id,
     );
@@ -364,6 +397,7 @@ export type SchedulerBroadcast = (channel: string, payload: unknown) => void;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 /** 进行中的任务（防同一任务并发重入） */
 const runningIds = new Set<string>();
+const runningSessionIds = new Set<string>();
 let broadcast: SchedulerBroadcast | null = null;
 let sessions: Map<string, AgentSession> | null = null;
 
@@ -409,7 +443,7 @@ function sessionResultSummary(sessionId: string): string {
     : content;
 }
 
-/** 执行一次任务：在目标工作区（或公共区）新建会话并 headless 运行 agent */
+/** 执行一次任务：首次建立专属会话，此后复用会话 headless 运行 agent */
 async function executeTask(task: ScheduledTask): Promise<void> {
   if (runningIds.has(task.id)) {
     return;
@@ -423,37 +457,85 @@ async function executeTask(task: ScheduledTask): Promise<void> {
   getDb()
     .prepare("UPDATE scheduled_tasks SET last_run_at = ?, updated_at = ? WHERE id = ?")
     .run(startedAt, startedAt, task.id);
+  let lockedSessionId: string | null = null;
   try {
     let workspaceId: string;
-    if (task.workspacePath) {
-      const existing = listWorkspaceGroups().find(
-        (group) => group.kind === "workspace" && group.path === task.workspacePath,
-      );
-      workspaceId = (existing ?? createWorkspace(task.workspacePath)).id;
+    let sessionId: string;
+    let history: ChatTurn[] = [];
+    if (task.targetSessionId) {
+      const record = loadSessionRecord(task.targetSessionId);
+      if (!record || record.session.archived) {
+        throw new Error("target session not found or archived");
+      }
+      if ((getWorkspace(record.session.workspaceId)?.path ?? null) !== task.workspacePath) {
+        throw new Error("target session workspace mismatch");
+      }
+      const runState = sessions?.get(record.session.id)?.getRunState();
+      if (runningSessionIds.has(record.session.id) ||
+          (runState && (runState.runActive || runState.waitingApproval ||
+            runState.waitingAskCount > 0 || runState.inserting))) {
+        throw new Error("target session is already running");
+      }
+      runningSessionIds.add(record.session.id);
+      lockedSessionId = record.session.id;
+      sessionId = record.session.id;
+      workspaceId = record.session.workspaceId ?? "common";
+      history = record.messages
+        .filter((message): message is typeof message & { role: "user" | "assistant" } =>
+          (message.role === "user" || message.role === "assistant") && !!message.content.trim())
+        .slice(-40)
+        .map((message) => ({
+          role: message.role,
+          content: message.role === "user"
+            ? expandElementTokens(message.content,
+                (Array.isArray(message.meta?.elementMarks) ? message.meta.elementMarks : [])
+                  .filter((mark): mark is { token: string; ref: BrowserElementRef } =>
+                    !!mark && typeof mark.token === "string" && mark.ref != null))
+            : message.content,
+        }));
     } else {
-      workspaceId = "common";
+      if (task.workspacePath) {
+        const existing = listWorkspaceGroups().find(
+          (group) => group.kind === "workspace" && group.path === task.workspacePath,
+        );
+        workspaceId = (existing ?? createWorkspace(task.workspacePath)).id;
+      } else {
+        workspaceId = "common";
+      }
+      const session = createSession(workspaceId);
+      sessionId = session.id;
+      // 先绑定再执行；即使本轮 agent 失败或应用重启，下轮也继续同一会话。
+      const bound = getDb()
+        .prepare(
+          `UPDATE scheduled_tasks SET target_session_id = ?, updated_at = ?
+           WHERE id = ? AND target_session_id IS NULL AND workspace_path IS ?`,
+        )
+        .run(sessionId, Date.now(), task.id, task.workspacePath);
+      if (bound.changes !== 1) {
+        throw new Error("task destination changed before session binding");
+      }
+      runningSessionIds.add(sessionId);
+      lockedSessionId = sessionId;
+      renameSession(
+        sessionId,
+        mainT(await currentLocale(), "scheduler.sessionTitle", { name: task.name }),
+      );
     }
-    const session = createSession(workspaceId);
-    // 会话命名成任务名（缺省会叫「新会话」，侧栏无法辨识）+ 任务/历史记下会话 id
-    renameSession(
-      session.id,
-      mainT(await currentLocale(), "scheduler.sessionTitle", { name: task.name }),
-    );
-    setRunSession(runId, session.id);
+    setRunSession(runId, sessionId);
     getDb()
       .prepare(
         "UPDATE scheduled_tasks SET last_session_id = ?, updated_at = ? WHERE id = ?",
       )
-      .run(session.id, Date.now(), task.id);
-    pushRunEvent({ taskId: task.id, state: "started", sessionId: session.id });
+      .run(sessionId, Date.now(), task.id);
+    pushRunEvent({ taskId: task.id, state: "started", sessionId });
     const result = await runAgentRequest(
       {
-        sessionId: session.id,
+        sessionId,
         workspaceId,
         // main 侧按 workspaceId 解析实际目录，该字段仅对齐渲染层口径
         workspaceRoot: task.workspacePath ?? "",
         userMessage: task.prompt,
-        history: [],
+        history,
       },
       {
         sessions: sessions ?? new Map(),
@@ -464,7 +546,7 @@ async function executeTask(task: ScheduledTask): Promise<void> {
       },
     );
     const summary = result.ok
-      ? sessionResultSummary(session.id) || mainT(await currentLocale(), "scheduler.noReply")
+      ? sessionResultSummary(sessionId) || mainT(await currentLocale(), "scheduler.noReply")
       : result.error ?? "agent run failed";
     getDb()
       .prepare(
@@ -475,7 +557,7 @@ async function executeTask(task: ScheduledTask): Promise<void> {
     pushRunEvent({
       taskId: task.id,
       state: result.ok ? "done" : "error",
-      sessionId: session.id,
+      sessionId,
       summary,
     });
     void notify(task.name, result.ok, summary);
@@ -491,6 +573,7 @@ async function executeTask(task: ScheduledTask): Promise<void> {
     void notify(task.name, false, summary);
   } finally {
     runningIds.delete(task.id);
+    if (lockedSessionId) runningSessionIds.delete(lockedSessionId);
     // 单次任务触发后自动停用（无论成败）；lastRunAt 已能防重放，这里让列表状态直观
     if (task.schedule.kind === "once") {
       getDb()
