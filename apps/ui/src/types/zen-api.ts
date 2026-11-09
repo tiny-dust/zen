@@ -99,7 +99,13 @@ import type {
   Workspace,
   WorkspaceGroup,
 } from "@zen/shared";
-import type { SessionExportFormat, SessionGoal, SessionGoalRuntime, SessionMode } from "@zen/shared";
+import type {
+  SessionExportFormat,
+  SessionExportOptions,
+  SessionGoal,
+  SessionGoalRuntime,
+  SessionMode,
+} from "@zen/shared";
 
 export interface AppInfo {
   workspaceRoot: string;
@@ -485,6 +491,7 @@ export interface ZenApi {
     exportSession(
       id: string,
       format: SessionExportFormat,
+      options?: SessionExportOptions,
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
     /** 从某条消息分叉出新会话（复制该消息及之前的对话，原会话不变） */
     fork(

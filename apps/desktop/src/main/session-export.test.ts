@@ -217,3 +217,61 @@ describe("renderSessionMarkdown", () => {
     expect(empty).toContain("（无消息）");
   });
 });
+
+describe("导出思考内容", () => {
+  const session = { title: "带思考的会话", createdAt: 1, updatedAt: 2 };
+  const messages: ChatMessage[] = [
+    { id: "u1", role: "user", content: "帮我改一下登录", createdAt: 1 },
+    { id: "a1", role: "assistant", content: "已改好。", reasoning: "先看认证流程\n再改回调", createdAt: 2 },
+  ];
+
+  it("默认不导出思考内容（Markdown / HTML）", () => {
+    const md = renderSessionMarkdown({ session, messages, exportedAt: 3 });
+    expect(md).not.toContain("先看认证流程");
+    expect(md).not.toContain("**思考**");
+    const html = renderSessionHtml({ session, messages, exportedAt: 3 });
+    expect(html).not.toContain("先看认证流程");
+    expect(html).not.toContain('class="reasoning"');
+  });
+
+  it("开启后 Markdown 以引用块写入思考", () => {
+    const md = renderSessionMarkdown({
+      session,
+      messages,
+      options: { includeReasoning: true },
+      exportedAt: 3,
+    });
+    expect(md).toContain("**思考**");
+    expect(md).toContain("> 先看认证流程");
+    expect(md).toContain("> 再改回调");
+    expect(md).toContain("已改好。");
+  });
+
+  it("开启后 HTML 增加 reasoning 区块并排在正文之前", () => {
+    const html = renderSessionHtml({
+      session,
+      messages,
+      options: { includeReasoning: true },
+      exportedAt: 3,
+    });
+    expect(html).toContain('class="reasoning"');
+    expect(html.indexOf("先看认证流程")).toBeLessThan(html.indexOf("已改好。"));
+  });
+
+  it("只有思考没有正文的助手消息，开启后仍会保留", () => {
+    const reasoningOnly: ChatMessage[] = [
+      { id: "a2", role: "assistant", content: "", reasoning: "只有思考", createdAt: 4 },
+    ];
+    expect(renderSessionMarkdown({ session, messages: reasoningOnly, exportedAt: 5 })).not.toContain(
+      "只有思考",
+    );
+    const md = renderSessionMarkdown({
+      session,
+      messages: reasoningOnly,
+      options: { includeReasoning: true },
+      exportedAt: 5,
+    });
+    expect(md).toContain("只有思考");
+    expect(md).toContain("条消息");
+  });
+});

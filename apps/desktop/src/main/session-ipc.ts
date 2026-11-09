@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 
 import type { ChatMessage, SessionMode } from "@zen/shared";
 import { isSessionExportFormat, SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
-import type { SessionExportFormat } from "@zen/shared";
+import type { SessionExportFormat, SessionExportOptions } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
 import { completeOnce } from "./model-api";
@@ -388,6 +388,7 @@ export function registerSessionIpc(
     event: Electron.IpcMainInvokeEvent,
     sessionId: string,
     format: SessionExportFormat,
+    options?: SessionExportOptions,
   ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
     if (typeof sessionId !== "string" || !sessionId.trim()) {
       return { ok: false, error: "invalid session id" };
@@ -397,7 +398,12 @@ export function registerSessionIpc(
       return { ok: false, error: "session not found" };
     }
     const spec = SESSION_EXPORT_RENDERERS[format];
-    const text = spec.render({ session: record.session, messages: record.messages });
+    // 思考内容默认不导出；只有请求里显式打开才带上
+    const text = spec.render({
+      session: record.session,
+      messages: record.messages,
+      options: { includeReasoning: options?.includeReasoning === true },
+    });
     const defaultName = `${sanitizeTitle(record.session.title) || "session"}.${spec.extension}`.replace(
       /[\\/:*?"<>|]/g,
       "_",
@@ -420,10 +426,14 @@ export function registerSessionIpc(
   }
 
   // 会话导出：格式走 @zen/shared 的 SESSION_EXPORT_FORMATS 注册表，新增格式只加渲染器
-  ipcMain.handle("session:export", (event, sessionId: string, format: unknown) => {
+  ipcMain.handle("session:export", (event, sessionId: string, format: unknown, options?: unknown) => {
     if (!isSessionExportFormat(format)) {
       return { ok: false, error: "unsupported export format" };
     }
-    return exportSessionFile(event, sessionId, format);
+    const includeReasoning =
+      typeof options === "object" && options !== null
+        ? (options as SessionExportOptions).includeReasoning === true
+        : false;
+    return exportSessionFile(event, sessionId, format, { includeReasoning });
   });
 }

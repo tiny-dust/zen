@@ -30,6 +30,11 @@ export const SESSION_EXPORT_FORMATS: readonly SessionExportFormatInfo[] = [
   },
 ];
 
+/** 导出选项：目前只有「是否连同助手思考过程一起导出」 */
+export interface SessionExportOptions {
+  includeReasoning?: boolean;
+}
+
 export function isSessionExportFormat(value: unknown): value is SessionExportFormat {
   return SESSION_EXPORT_FORMATS.some((item) => item.id === value);
 }

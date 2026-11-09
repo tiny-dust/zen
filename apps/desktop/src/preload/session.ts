@@ -3,6 +3,7 @@ import { ipcRenderer } from "electron";
 import type {
   ChatMessage,
   SessionExportFormat,
+  SessionExportOptions,
   SessionGoal,
   SessionGoalRuntime,
   SessionMode,
@@ -109,8 +110,9 @@ export const sessionApi = {
     exportSession(
       id: string,
       format: SessionExportFormat,
+      options?: SessionExportOptions,
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> {
-      return ipcRenderer.invoke("session:export", id, format);
+      return ipcRenderer.invoke("session:export", id, format, options);
     },
     /** 从某条消息分叉：新建会话复制该消息及之前的对话，原会话不变 */
     fork(

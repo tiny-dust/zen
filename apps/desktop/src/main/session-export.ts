@@ -1,4 +1,9 @@
-import type { ChatMessage, SessionExportFormat, SessionRecord } from "@zen/shared";
+import type {
+  ChatMessage,
+  SessionExportFormat,
+  SessionExportOptions,
+  SessionRecord,
+} from "@zen/shared";
 
 /**
  * 会话分享导出：把会话渲染成自包含单文件 HTML（内联 CSS，浏览器直接打开）。
@@ -229,19 +234,24 @@ interface ExportMessage {
   role: "user" | "assistant";
   /** user：转义原文（气泡内 pre-wrap 原样展示）；assistant：markdown 渲染结果 */
   body: string;
+  /** 助手思考过程（仅 includeReasoning 时填充，已渲染为 HTML） */
+  reasoningHtml?: string;
   createdAt: number;
   attachments?: string[];
 }
 
 /** 消息筛选与归一：只导出 user / assistant 的有效内容；附件只留文件名提示 */
-function toExportMessages(messages: ChatMessage[]): ExportMessage[] {
+function toExportMessages(messages: ChatMessage[], includeReasoning = false): ExportMessage[] {
   const out: ExportMessage[] = [];
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
-    const content = message.content?.trim();
-    if (!content) {
+    const content = message.content?.trim() ?? "";
+    // 思考内容默认不导出；开启后即使是「只有思考没有正文」的消息也保留
+    const reasoning =
+      includeReasoning && message.role === "assistant" ? message.reasoning?.trim() ?? "" : "";
+    if (!content && !reasoning) {
       continue;
     }
     const meta = message.meta as { attachments?: Array<{ name?: string }> } | undefined;
@@ -250,7 +260,10 @@ function toExportMessages(messages: ChatMessage[]): ExportMessage[] {
       : undefined;
     out.push({
       role: message.role,
-      body: message.role === "assistant" ? renderMarkdownLite(content) : escapeHtml(content),
+      body: content
+        ? message.role === "assistant" ? renderMarkdownLite(content) : escapeHtml(content)
+        : "",
+      ...(reasoning ? { reasoningHtml: renderMarkdownLite(reasoning) } : {}),
       createdAt: message.createdAt,
       ...(attachments?.length ? { attachments } : {}),
     });
@@ -321,6 +334,9 @@ const EXPORT_CSS = [
   ".md-content table{border-collapse:collapse;margin:10px 0;font-size:12px;display:block;max-width:100%;overflow-x:auto}",
   ".md-content th,.md-content td{border:1px solid var(--color-line);padding:6px 10px}",
   ".md-content th{background:var(--color-chip-bg);color:var(--color-txt-strong);font-weight:600;text-align:left}",
+  ".reasoning{margin:0 0 10px;padding:2px 0 2px 10px;border-left:2px solid var(--color-line-strong);color:var(--color-mut)}",
+  ".reasoning-label{margin-bottom:2px;font-size:11px;font-weight:600;color:var(--color-dim)}",
+  ".reasoning .md-content{font-size:13px;color:var(--color-mut)}",
   ".empty{margin:0;color:var(--color-mut)}",
   ".footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--color-line);font-size:11px;color:var(--color-dim);text-align:center}",
 ].join("");
@@ -329,12 +345,14 @@ const EXPORT_CSS = [
 export function renderSessionHtml(input: {
   session: Pick<SessionRecord, "title" | "createdAt" | "updatedAt">;
   messages: ChatMessage[];
+  options?: SessionExportOptions;
   /** 导出时间戳，缺省取调用时刻；测试可注入固定值 */
   exportedAt?: number;
 }): string {
   const exportedAt = input.exportedAt ?? Date.now();
   const title = input.session.title?.trim() || "未命名会话";
-  const exportMessages = toExportMessages(input.messages);
+  const includeReasoning = input.options?.includeReasoning === true;
+  const exportMessages = toExportMessages(input.messages, includeReasoning);
   const timeRange =
     exportMessages.length && input.session.updatedAt
       ? `${formatExportTime(input.session.createdAt)} — ${formatExportTime(input.session.updatedAt)}`
@@ -346,7 +364,7 @@ export function renderSessionHtml(input: {
           ? `<div class="bubble"><div class="bubble-text">${message.body}</div>${
               message.attachments?.length ? attachmentHtml(message.attachments) : ""
             }</div>`
-          : `<div class="md-content">${message.body}</div>`;
+          : `${message.reasoningHtml ? `<div class="reasoning"><div class="reasoning-label">思考</div><div class="md-content">${message.reasoningHtml}</div></div>` : ""}${message.body ? `<div class="md-content">${message.body}</div>` : ""}`;
       const time = formatMessageTime(message.createdAt, exportedAt);
       return [
         `<div class="msg ${message.role}">`,
@@ -390,25 +408,35 @@ ${body || `<p class="empty">（无消息）</p>`}
 export function renderSessionMarkdown(input: {
   session: Pick<SessionRecord, "title" | "createdAt" | "updatedAt">;
   messages: ChatMessage[];
+  options?: SessionExportOptions;
   /** 导出时间戳，缺省取调用时刻；测试可注入固定值 */
   exportedAt?: number;
 }): string {
   const exportedAt = input.exportedAt ?? Date.now();
   const title = input.session.title?.trim() || "未命名会话";
-  const items: Array<{ role: "user" | "assistant"; content: string; createdAt: number; attachments: string[] }> = [];
+  const includeReasoning = input.options?.includeReasoning === true;
+  const items: Array<{
+    role: "user" | "assistant";
+    content: string;
+    reasoning: string;
+    createdAt: number;
+    attachments: string[];
+  }> = [];
   for (const message of input.messages) {
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
-    const content = message.content?.trim();
-    if (!content) {
+    const content = message.content?.trim() ?? "";
+    const reasoning =
+      includeReasoning && message.role === "assistant" ? message.reasoning?.trim() ?? "" : "";
+    if (!content && !reasoning) {
       continue;
     }
     const meta = message.meta as { attachments?: Array<{ name?: string }> } | undefined;
     const attachments = Array.isArray(meta?.attachments)
       ? meta.attachments.map((item) => item?.name).filter((name): name is string => !!name)
       : [];
-    items.push({ role: message.role, content, createdAt: message.createdAt, attachments });
+    items.push({ role: message.role, content, reasoning, createdAt: message.createdAt, attachments });
   }
   const timeRange =
     items.length && input.session.updatedAt
@@ -417,7 +445,16 @@ export function renderSessionMarkdown(input: {
   const body = items
     .map((item) => {
       const heading = `## ${item.role === "user" ? "用户" : "助手"} · ${formatExportTime(item.createdAt)}`;
-      const lines = [heading, "", item.content];
+      const lines = [heading, ""];
+      if (item.reasoning) {
+        lines.push(
+          "**思考**",
+          "",
+          ...item.reasoning.split(/\r?\n/).map((line) => (line ? `> ${line}` : ">")),
+          "",
+        );
+      }
+      lines.push(item.content);
       if (item.attachments.length) {
         lines.push("", `附件：${item.attachments.map((name) => `\`${name}\``).join("、")}`);
       }
@@ -450,6 +487,7 @@ export interface SessionExportRenderer {
   render: (input: {
     session: Pick<SessionRecord, "title" | "createdAt" | "updatedAt">;
     messages: ChatMessage[];
+    options?: SessionExportOptions;
   }) => string;
 }
 

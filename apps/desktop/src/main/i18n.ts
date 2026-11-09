@@ -9,6 +9,28 @@
 export type MainLocale = "zh-CN" | "en-US";
 
 const dict: Record<string, { "zh-CN": string; "en-US": string }> = {
+  // ---------- 内嵌浏览器（browser/password-capture.ts） ----------
+  "browser.savePasswordTitle": {
+    "zh-CN": "保存登录密码",
+    "en-US": "Save password",
+  },
+  "browser.savePasswordMessage": {
+    "zh-CN": "保存 {host} 的登录密码？",
+    "en-US": "Save the password for {host}?",
+  },
+  "browser.savePasswordDetail": {
+    "zh-CN": "用户名：{username}",
+    "en-US": "Username: {username}",
+  },
+  "browser.savePasswordConfirm": {
+    "zh-CN": "保存",
+    "en-US": "Save",
+  },
+  "browser.savePasswordCancel": {
+    "zh-CN": "不保存",
+    "en-US": "Not now",
+  },
+
   // ---------- 用户/登录/设置（user-ipc.ts） ----------
   "user.sessionExpired": {
     "zh-CN": "登录已超过 3 个月，请重新登录",
