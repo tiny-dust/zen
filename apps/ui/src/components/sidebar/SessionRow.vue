@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ArchiveRestore, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
+import { Archive, ArchiveRestore, Download, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -27,6 +27,7 @@ const emit = defineEmits<{
   pin: [];
   archive: [archived: boolean];
   remove: [];
+  export: [];
   "toggle-select": [];
 }>();
 
@@ -165,6 +166,16 @@ const ghostActionCls = classes(
     </button>
 
     <div v-if="!batchMode" :class="hoverClusterCls">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        :class="ghostActionCls"
+        :aria-label="t('features.exportSession')"
+        :title="t('features.exportSession')"
+        @click.stop="emit('export')"
+      >
+        <Download class="size-[13px] shrink-0" />
+      </Button>
       <Button
         variant="ghost"
         size="icon-sm"

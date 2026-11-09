@@ -42,6 +42,7 @@
     pin: [session: SessionRecord];
     archive: [session: SessionRecord, archived: boolean];
     remove: [session: SessionRecord];
+    export: [session: SessionRecord];
     "pin-workspace": [];
     rename: [];
     "copy-path": [];
@@ -284,6 +285,7 @@
           :active="activeSessionId === session.id" :batch-mode="batchMode"
           :selected="selectedIds.has(session.id)" @open="emit('open', session)" @pin="emit('pin', session)"
           @archive="(archived) => emit('archive', session, archived)" @remove="emit('remove', session)"
+          @export="emit('export', session)"
           @toggle-select="toggleSelect(session)" />
       </div>
       <div v-if="showExpandToggle" class="flex justify-center pr-10 pt-0.5">

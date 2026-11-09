@@ -8,9 +8,11 @@
   import FeaturesDialog from "@/components/sidebar/FeaturesDialog.vue";
   import McpDialog from "@/components/sidebar/McpDialog.vue";
   import ProjectSessionGroup from "@/components/sidebar/ProjectSessionGroup.vue";
+  import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
   import SchedulerDialog from "@/components/sidebar/SchedulerDialog.vue";
   import SkillsDialog from "@/components/sidebar/SkillsDialog.vue";
   import UserBlock from "@/components/sidebar/UserBlock.vue";
+  import { sortGroupsByActivity, sortSessionsByActivity } from "@/lib/workspace-order";
   import { Button } from "@/components/ui/button";
   import {
     Dialog,
@@ -42,6 +44,8 @@
   const schedulerOpen = ref(false);
   const featuresOpen = ref(false);
   const pendingSessionDelete = ref<SessionRecord | null>(null);
+  /** 导出目标会话：侧栏任意会话都可直接导出，不用先切换过去 */
+  const exportTarget = ref<SessionRecord | null>(null);
   /** 批量删除确认：所选会话一次性确认后逐个删除 */
   const pendingBatchDelete = ref<SessionRecord[] | null>(null);
   /** 工作区右键：重命名弹窗与删除确认 */
@@ -63,22 +67,13 @@
     groups.value.find((item) => item.id === "common" && !item.archived) ?? null,
   );
 
-  /** 项目工作区列表（后端已按置顶/更新时间排序） */
+  /** 项目工作区列表：置顶优先，其余按最近活动排序（刚有对话的目录浮到顶部） */
   const workspaceGroups = computed(() =>
-    groups.value.filter((item) => !item.archived && item.kind === "workspace"),
+    sortGroupsByActivity(groups.value.filter((item) => !item.archived && item.kind === "workspace")),
   );
 
-  function sortSessions(list: SessionRecord[]): SessionRecord[] {
-    return [...list].sort((a, b) => {
-      if (a.pinned !== b.pinned) {
-        return a.pinned ? -1 : 1;
-      }
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-  }
-
   function sessionsOf(group: WorkspaceGroup): SessionRecord[] {
-    return sortSessions(group.sessions.filter((item) => !item.archived));
+    return sortSessionsByActivity(group.sessions.filter((item) => !item.archived));
   }
 
   /** 会话搜索：防抖 200ms 查询；有词时会话区切换为结果列表（搜索结果行 = 标题 + 所属组名小字） */
@@ -426,6 +421,7 @@
           @new-session="onNewSessionIn(commonGroup.id)" @open="openSession" @pin="onPinSession"
           @archive="(session, archived) => onArchiveSession(session, archived)"
           @batch="onBatchSessions"
+          @export="exportTarget = $event"
           @remove="pendingSessionDelete = $event" />
 
         <div class="mx-2.5 h-px flex-none bg-[var(--color-line-soft)]" aria-hidden="true" />
@@ -479,7 +475,8 @@
               @open="openSession" @pin="onPinSession"
               @archive="(session, archived) => onArchiveSession(session, archived)"
               @batch="onBatchSessions"
-              @remove="pendingSessionDelete = $event" @pin-workspace="workspaceStore.pin(group.id, !group.pinned)"
+              @remove="pendingSessionDelete = $event" @export="exportTarget = $event"
+              @pin-workspace="workspaceStore.pin(group.id, !group.pinned)"
               @rename="beginRenameWorkspace(group)" @copy-path="onCopyWorkspacePath(group)"
               @show-in-folder="onShowWorkspaceInFolder(group)" @delete-workspace="pendingWorkspaceDelete = group" />
           </div>
@@ -523,6 +520,13 @@
   <ConfirmDialog :open="!!pendingBatchDelete" :title="t('sidebar.batchDeleteTitle', { n: pendingBatchDelete?.length ?? 0 })"
     :description="t('sidebar.batchDeleteDesc')" :confirm-label="t('sidebar.batchDelete')" :cancel-label="t('sidebar.keep')"
     @update:open="pendingBatchDelete = null" @confirm="onBatchDeleteConfirm" />
+
+  <ExportSessionDialog
+    :open="!!exportTarget"
+    :session-id="exportTarget?.id ?? ''"
+    :session-title="exportTarget?.title"
+    @update:open="(open: boolean) => { if (!open) exportTarget = null; }"
+  />
 
   <SkillsDialog v-model:open="skillsOpen" />
   <McpDialog v-model:open="mcpOpen" />
