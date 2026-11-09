@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -19,6 +20,7 @@ const emit = defineEmits<{
   drag: [delta: number];
 }>();
 
+const { t } = useI18n();
 const dragging = ref(false);
 let lastX = 0;
 let lastY = 0;
@@ -49,6 +51,15 @@ function onPointerUp() {
   dragging.value = false;
 }
 
+function onKeydown(event: KeyboardEvent) {
+  const direction = props.orientation === "vertical"
+    ? event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
+    : event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+  if (!direction) return;
+  event.preventDefault();
+  emit("drag", (props.invert ? -direction : direction) * (event.shiftKey ? 1 : 10));
+}
+
 const rootClass = computed(() =>
   [
     "group relative z-5 flex-none touch-none after:absolute after:transition-colors after:duration-[var(--motion-fast)] after:ease-[var(--ease-enter)]",
@@ -56,7 +67,7 @@ const rootClass = computed(() =>
       ? // 常显 1px 分隔线；悬停/拖拽时让位于整条高亮
         "after:inset-y-0 after:left-1/2 after:right-auto after:w-px after:bg-[var(--color-line)]"
       : "after:inset-0 after:bg-transparent",
-    "hover:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]",
+    "hover:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)] focus-visible:after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]",
   ].join(" "),
 );
 </script>
@@ -71,7 +82,10 @@ const rootClass = computed(() =>
       dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]!' : '',
     ]"
     role="separator"
+    tabindex="0"
+    :aria-label="t('panel.resize')"
     :aria-orientation="orientation"
+    @keydown="onKeydown"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"

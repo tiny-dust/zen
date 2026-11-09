@@ -18,12 +18,27 @@ const WIDE_BREAKPOINT = 1100;
 /** 两条 5px 拖拽手柄的宽度预算 */
 const HANDLE_BUDGET = 10;
 
+/** 底部终端默认 42vh（至多 360px），拖动时给上方工作区留出空间 */
+const BOTTOM_MIN = 180;
+const BOTTOM_DEFAULT_MAX = 360;
+const BOTTOM_MAX_RATIO = 0.7;
+const TOP_MIN = 240;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
 function viewportWidth(): number {
   return typeof window === "undefined" ? 1440 : window.innerWidth;
+}
+
+function viewportHeight(): number {
+  return typeof window === "undefined" ? 900 : window.innerHeight;
+}
+
+function bottomMax(): number {
+  const height = viewportHeight();
+  return Math.max(0, Math.min(height * BOTTOM_MAX_RATIO, height - TOP_MIN));
 }
 
 /** 右侧面板打开时的默认宽度：窗口的 50%，并给中央区留足空间 */
@@ -42,6 +57,11 @@ function defaultSideWidth(withSession: boolean): number {
 export const useLayoutStore = defineStore("layout", () => {
   const leftWidth = ref(LEFT_DEFAULT);
   const rightWidth = ref(defaultSideWidth(true));
+  const bottomHeight = ref(clamp(
+    Math.max(BOTTOM_MIN, Math.min(viewportHeight() * 0.42, BOTTOM_DEFAULT_MAX)),
+    Math.min(BOTTOM_MIN, bottomMax()),
+    bottomMax(),
+  ));
 
   const leftCollapsed = ref(false);
   const rightCollapsed = ref(false);
@@ -85,7 +105,12 @@ export const useLayoutStore = defineStore("layout", () => {
     rightWidth.value = clamp(value, RIGHT_MIN, rightMax());
   }
 
-  /** 窗口尺寸变化后：左右侧栏按比例同步缩放，再按边界钳制（中央区始终保底） */
+  function setBottomHeight(value: number) {
+    const max = bottomMax();
+    bottomHeight.value = clamp(value, Math.min(BOTTOM_MIN, max), max);
+  }
+
+  /** 窗口尺寸变化后：左右侧栏按比例缩放，终端高度与侧栏一并按新边界钳制 */
   let lastViewportW = typeof window === "undefined" ? 0 : window.innerWidth;
 
   function syncViewport() {
@@ -100,6 +125,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
     setLeftWidth(leftWidth.value);
     setRightWidth(rightWidth.value);
+    setBottomHeight(bottomHeight.value);
   }
 
   function toggleLeft() {
@@ -130,6 +156,7 @@ export const useLayoutStore = defineStore("layout", () => {
   return {
     leftWidth,
     rightWidth,
+    bottomHeight,
     leftCollapsed,
     rightCollapsed,
     bottomCollapsed,
@@ -137,6 +164,7 @@ export const useLayoutStore = defineStore("layout", () => {
     infoOpen,
     setLeftWidth,
     setRightWidth,
+    setBottomHeight,
     syncViewport,
     toggleLeft,
     toggleRight,

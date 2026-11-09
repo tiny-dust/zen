@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ChevronDown } from "@lucide/vue";
 
+import { Button } from "@/components/ui/button";
+
 /**
  * Git 面板的通用可折叠分区（VS Code 视图分节样式）：
  * 头行整行点击折叠/展开；右侧 actions 插槽放行内操作按钮，不随折叠触发。
@@ -38,9 +40,9 @@ defineEmits<{ toggle: [] }>();
         </span>
       </button>
       <!-- 头行补充信息（如 +N -M 统计）：置于折叠按钮外，窄宽度时随 header 裁剪，不与 actions 重叠 -->
-      <span v-if="$slots.meta" class="flex flex-none items-center" @click="$emit('toggle')">
+      <Button v-if="$slots.meta" variant="ghost" size="xs" type="button" class="h-7 flex-none px-1" :aria-label="title" :aria-expanded="open" @click="$emit('toggle')">
         <slot name="meta" />
-      </span>
+      </Button>
       <slot name="actions" />
     </header>
     <div v-show="open" class="flex min-h-0 flex-1 flex-col gap-1 pt-0.5">

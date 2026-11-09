@@ -336,7 +336,7 @@ async function openExternal() {
           <Button
             variant="ghost"
             size="icon-sm"
-            class="size-5! flex-none rounded-[4px]! opacity-0 text-[var(--color-dim)] group-hover/term:opacity-100 hover:text-[var(--color-del)]"
+            class="size-5! flex-none rounded-[4px]! opacity-0 text-[var(--color-dim)] group-hover/term:opacity-100 focus-visible:opacity-100 focus-visible:text-[var(--color-txt-strong)] hover:text-[var(--color-del)]"
             :aria-label="t('shell.closeTerminalAria', { name: terminalStore.displayName(item.id, index) })"
             :title="t('shell.closeTerminal')"
             @click.stop="onCloseSession(item.id)"

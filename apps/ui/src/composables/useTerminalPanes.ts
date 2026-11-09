@@ -7,7 +7,14 @@ import { useAppTheme } from "@/composables/useAppTheme";
 import { openAppLink } from "@/lib/open-link";
 import { useTerminalStore } from "@/stores/terminal";
 
-type TermEntry = { term: Terminal; fit: FitAddon; host: HTMLElement };
+type TermEntry = { term: Terminal; fit: FitAddon; host: HTMLElement; onFocus: () => void };
+
+// 两个面板各持有自己的 xterm DOM；同一 PTY 的尺寸只由最近聚焦的面板同步。
+const resizeOwners = new Map<string, TermEntry>();
+
+interface TerminalPanesOptions {
+  visibleIds?: () => string[];
+}
 
 /** 终端配色：深浅各一套，光标沿用品牌橙 */
 const TERM_THEME_DARK = {
@@ -24,12 +31,34 @@ const TERM_THEME_LIGHT = {
 } as const;
 
 /** 终端 pane 的 xterm 实例生命周期：按可见分屏挂载、适配尺寸、回放缓冲、销毁 */
-export function useTerminalPanes() {
+export function useTerminalPanes(options: TerminalPanesOptions = {}) {
   const terminalStore = useTerminalStore();
   const hostEls = ref(new Map<string, HTMLElement>());
   const entries = new Map<string, TermEntry>();
-  const booting = new Set<string>();
+  const booting = new Map<string, Promise<void>>();
   let ro: ResizeObserver | null = null;
+  let unmounted = false;
+
+  function visibleIds(): string[] {
+    return options.visibleIds?.() ?? terminalStore.visibleSessions.map((item) => item.id);
+  }
+
+  function fitAndResize(id: string, entry: TermEntry) {
+    entry.fit.fit();
+    if (!resizeOwners.has(id) || resizeOwners.get(id) === entry) {
+      resizeOwners.set(id, entry);
+      void terminalStore.resize(entry.term.cols, entry.term.rows, id);
+    }
+  }
+
+  function focusPane(id: string) {
+    const entry = entries.get(id);
+    if (entry) {
+      resizeOwners.set(id, entry);
+      fitAndResize(id, entry);
+      entry.term.focus();
+    }
+  }
 
   // 主题切换就地更新已挂终端配色（xterm options 支持运行时改）
   const { isDark } = useAppTheme();
@@ -60,11 +89,10 @@ export function useTerminalPanes() {
     }
   }
 
-  async function createEntry(id: string, host: HTMLElement): Promise<TermEntry> {
+  async function createEntry(id: string, host: HTMLElement): Promise<TermEntry | null> {
     const existing = entries.get(id);
     if (existing) {
-      existing.term.dispose();
-      entries.delete(id);
+      disposeEntry(id);
     }
     const term = new Terminal({
       fontFamily: fontStack(),
@@ -89,12 +117,23 @@ export function useTerminalPanes() {
     } catch {
       // optional
     }
+    if (unmounted || hostEls.value.get(id) !== host || !visibleIds().includes(id)) {
+      term.dispose();
+      return null;
+    }
     term.open(host);
-    fit.fit();
     term.onData((data) => {
       void terminalStore.write(data, id);
     });
-    const entry: TermEntry = { term, fit, host };
+    const onFocus = () => {
+      const entry = entries.get(id);
+      if (entry?.host === host) {
+        resizeOwners.set(id, entry);
+        fitAndResize(id, entry);
+      }
+    };
+    const entry: TermEntry = { term, fit, host, onFocus };
+    host.addEventListener("focusin", onFocus);
     entries.set(id, entry);
     const buf = terminalStore.getBuffer(id);
     if (buf) {
@@ -108,45 +147,52 @@ export function useTerminalPanes() {
     if (!entry) {
       return;
     }
+    ro?.unobserve(entry.host);
+    entry.host.removeEventListener("focusin", entry.onFocus);
+    if (resizeOwners.get(id) === entry) {
+      resizeOwners.delete(id);
+    }
     entry.term.dispose();
     entries.delete(id);
   }
 
   async function mountPane(id: string) {
-    if (!id || booting.has(id)) {
-      return;
-    }
-    booting.add(id);
+    if (!id) return;
+    const pending = booting.get(id);
+    if (pending) return pending;
+    const task = doMountPane(id);
+    booting.set(id, task);
     try {
-      await nextTick();
-      const host = hostEls.value.get(id);
-      if (!host) {
-        return;
-      }
-      const existing = entries.get(id);
-      if (existing && existing.host === host) {
-        existing.fit.fit();
-        void terminalStore.resize(existing.term.cols, existing.term.rows, id);
-        if (id === terminalStore.activeId) {
-          existing.term.focus();
-        }
-        ro?.observe(host);
-        return;
-      }
-      const entry = await createEntry(id, host);
-      entry.fit.fit();
-      void terminalStore.resize(entry.term.cols, entry.term.rows, id);
-      if (id === terminalStore.activeId) {
-        entry.term.focus();
-      }
-      ro?.observe(host);
+      await task;
     } finally {
       booting.delete(id);
+      const currentHost = hostEls.value.get(id);
+      if (!unmounted && currentHost && visibleIds().includes(id) && entries.get(id)?.host !== currentHost) {
+        void mountPane(id);
+      }
     }
   }
 
+  async function doMountPane(id: string) {
+    await nextTick();
+    const host = hostEls.value.get(id);
+    if (!host || unmounted) return;
+    const existing = entries.get(id);
+    if (existing && existing.host === host) {
+      fitAndResize(id, existing);
+      if (id === terminalStore.activeId && resizeOwners.get(id) === existing) existing.term.focus();
+      ro?.observe(host);
+      return;
+    }
+    const entry = await createEntry(id, host);
+    if (!entry) return;
+    fitAndResize(id, entry);
+    if (id === terminalStore.activeId && resizeOwners.get(id) === entry) entry.term.focus();
+    ro?.observe(host);
+  }
+
   async function mountVisible() {
-    const ids = terminalStore.visibleSessions.map((item) => item.id);
+    const ids = visibleIds();
     if (!ids.length && terminalStore.activeId) {
       ids.push(terminalStore.activeId);
     }
@@ -158,13 +204,9 @@ export function useTerminalPanes() {
   /** 观察可见 pane 的尺寸变化：自动 fit 并同步到主进程 */
   function startResizeObserver() {
     ro = new ResizeObserver(() => {
-      for (const item of terminalStore.visibleSessions) {
-        const entry = entries.get(item.id);
-        if (!entry) {
-          continue;
-        }
-        entry.fit.fit();
-        void terminalStore.resize(entry.term.cols, entry.term.rows, item.id);
+      for (const id of visibleIds()) {
+        const entry = entries.get(id);
+        if (entry) fitAndResize(id, entry);
       }
     });
   }
@@ -182,9 +224,9 @@ export function useTerminalPanes() {
     },
   );
   watch(
-    () => terminalStore.visibleSessions.map((item) => item.id).join(","),
+    () => [visibleIds().join(","), terminalStore.sessions.map((item) => item.id).join(",")],
     async () => {
-      const alive = new Set(terminalStore.sessions.map((item) => item.id));
+      const alive = new Set(options.visibleIds ? visibleIds() : terminalStore.sessions.map((item) => item.id));
       for (const id of [...entries.keys()]) {
         if (!alive.has(id)) {
           disposeEntry(id);
@@ -196,11 +238,12 @@ export function useTerminalPanes() {
   );
 
   onBeforeUnmount(() => {
+    unmounted = true;
     ro?.disconnect();
     for (const id of [...entries.keys()]) {
       disposeEntry(id);
     }
   });
 
-  return { entries, setHostRef, mountVisible, disposeEntry, startResizeObserver };
+  return { entries, setHostRef, mountVisible, disposeEntry, startResizeObserver, focusPane };
 }

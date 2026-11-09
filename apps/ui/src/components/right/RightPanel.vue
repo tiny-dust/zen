@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Bot, Bug, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, Server, Sparkles, SquareTerminal, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
-import { ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { Component } from "vue";
 
@@ -83,13 +83,40 @@ function iconFor(kind: string) {
   return PANEL_ITEMS.find((item) => item.kind === kind)?.icon ?? RefreshCw;
 }
 
+const tabListEl = ref<HTMLElement | null>(null);
+
 function tabCls(id: string) {
   return cn(
-    "flex h-7 max-w-[120px] flex-none items-center gap-1 rounded-[6px] px-2 text-left text-[12px]",
+    "h-7 min-w-0 max-w-[120px] justify-start gap-1 rounded-[var(--radius-sm)] px-2 text-left text-[12px] font-normal hover:bg-transparent! dark:hover:bg-transparent!",
     id === activeId.value
-      ? "bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]"
+      ? "text-[var(--color-txt-strong)]"
       : "text-[var(--color-mut)] hover:text-[var(--color-txt)]",
   );
+}
+
+function focusActiveTab() {
+  tabListEl.value?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus();
+}
+
+function onTabKeydown(event: KeyboardEvent, id: string) {
+  const index = tabs.value.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  let nextIndex: number;
+  switch (event.key) {
+    case "ArrowRight": nextIndex = (index + 1) % tabs.value.length; break;
+    case "ArrowLeft": nextIndex = (index - 1 + tabs.value.length) % tabs.value.length; break;
+    case "Home": nextIndex = 0; break;
+    case "End": nextIndex = tabs.value.length - 1; break;
+    default: return;
+  }
+  event.preventDefault();
+  rightPanel.activate(tabs.value[nextIndex].id);
+  void nextTick(focusActiveTab);
+}
+
+function closeTab(id: string) {
+  rightPanel.closeTab(id);
+  void nextTick(focusActiveTab);
 }
 </script>
 
@@ -102,29 +129,34 @@ function tabCls(id: string) {
     <header
       class="flex h-[var(--titlebar-h)] flex-none items-center gap-1 px-2 select-none [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag] [&_[role='tab']]:[-webkit-app-region:no-drag]"
     >
-      <div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist">
-        <div
-          v-for="tab in tabs"
-          :key="tab.id"
-          :class="tabCls(tab.id)"
-          role="tab"
-          :aria-selected="tab.id === activeId"
-          @click="rightPanel.activate(tab.id)"
-        >
-          <component
-            :is="iconFor(tab.kind)"
-            class="size-3.5 flex-none"
-            :class="tab.kind === 'git' && gitStore.loading ? 'animate-spin' : ''"
-            aria-hidden="true"
-          />
-          <span class="min-w-0 truncate">{{ tab.title }}</span>
+      <div ref="tabListEl" class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist" :aria-label="t('panels.panelAria')">
+        <div v-for="tab in tabs" :key="tab.id" class="flex min-w-0 flex-none items-center rounded-[var(--radius-sm)]" :class="tab.id === activeId ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)]' : 'hover:bg-[var(--color-menu-hover)]'">
+          <Button
+            variant="ghost"
+            :class="tabCls(tab.id)"
+            role="tab"
+            :id="`panel-tab-${tab.id}`"
+            :aria-controls="`panel-content-${tab.id}`"
+            :aria-selected="tab.id === activeId"
+            :tabindex="tab.id === activeId ? 0 : -1"
+            @click="rightPanel.activate(tab.id)"
+            @keydown="onTabKeydown($event, tab.id)"
+          >
+            <component
+              :is="iconFor(tab.kind)"
+              class="size-3.5 flex-none"
+              :class="tab.kind === 'git' && gitStore.loading ? 'animate-spin' : ''"
+              aria-hidden="true"
+            />
+            <span class="min-w-0 truncate">{{ tab.title }}</span>
+          </Button>
           <Button
             v-if="tabs.length > 1"
             variant="ghost"
             size="icon-xs"
-            class="ml-0.5 size-4 flex-none rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-            :aria-label="t('panels.closeTab')"
-            @click.stop="rightPanel.closeTab(tab.id)"
+            class="mr-1 size-4 flex-none rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+            :aria-label="`${t('panels.closeTab')}: ${tab.title}`"
+            @click="closeTab(tab.id)"
           >
             <X class="size-3" />
           </Button>
@@ -176,7 +208,13 @@ function tabCls(id: string) {
       <span class="h-full w-[var(--titlebar-trail)] flex-none" aria-hidden="true" />
     </header>
 
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">
+    <div
+      class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2"
+      role="tabpanel"
+      :id="`panel-content-${activeId}`"
+      :aria-labelledby="`panel-tab-${activeId}`"
+      tabindex="0"
+    >
       <FilePanel v-if="activeTab?.kind === 'files'" />
       <BrowserPanel v-else-if="activeTab?.kind === 'browser'" />
       <GitPanel v-else-if="activeTab?.kind === 'git'" />

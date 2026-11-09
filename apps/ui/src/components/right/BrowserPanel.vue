@@ -22,6 +22,7 @@ import SiteFavicon from "@/components/brand/SiteFavicon.vue";
 import BrowserImportDialog from "@/components/right/BrowserImportDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { elementLabel, formatElementDetail } from "@/lib/browser-element";
 import { siteHost, siteInitial } from "@/lib/site-url";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
@@ -57,7 +58,7 @@ const {
 const viewHost = ref<HTMLElement | null>(null);
 const urlInputEl = ref<InstanceType<typeof Input> | null>(null);
 const suggestOpen = ref(false);
-const suggestIndex = ref(0);
+const suggestIndex = ref(-1);
 /** 用户是否用方向键明确选择过联想项 */
 const suggestSelected = ref(false);
 let unbind: (() => void) | null = null;
@@ -169,18 +170,28 @@ function onSubmitUrl() {
 
 function onFocusUrl() {
   suggestOpen.value = true;
-  suggestIndex.value = 0;
+  suggestIndex.value = -1;
   suggestSelected.value = false;
   // 防止 WebContentsView 抢走键盘焦点
   void browserStore.focusHostInput();
   urlInputEl.value?.focus();
 }
 
-function onBlurUrl() {
+function onBlurUrl(event: FocusEvent) {
+  if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[data-browser-suggestions]')) {
+    return;
+  }
   setTimeout(() => {
     suggestOpen.value = false;
     suggestSelected.value = false;
   }, 150);
+}
+
+function onBlurSuggestions(event: FocusEvent) {
+  if (!(event.relatedTarget instanceof Node) || !(event.currentTarget as HTMLElement).contains(event.relatedTarget)) {
+    suggestOpen.value = false;
+    suggestSelected.value = false;
+  }
 }
 
 function onUrlKeydown(event: KeyboardEvent) {
@@ -210,8 +221,9 @@ function onUrlKeydown(event: KeyboardEvent) {
   if (event.key === "ArrowUp") {
     event.preventDefault();
     suggestSelected.value = true;
-    suggestIndex.value =
-      (suggestIndex.value - 1 + suggestions.value.length) % suggestions.value.length;
+    suggestIndex.value = suggestIndex.value < 0
+      ? suggestions.value.length - 1
+      : (suggestIndex.value - 1 + suggestions.value.length) % suggestions.value.length;
     return;
   }
   if (event.key === "Escape") {
@@ -343,7 +355,9 @@ watch(
         </form>
         <div
           v-if="suggestOpen && suggestions.length"
+          data-browser-suggestions
           class="absolute top-full right-0 left-0 z-[var(--z-popup)] max-h-48 overflow-auto rounded-b-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-raise)] py-1 shadow-[var(--shadow-menu)]"
+          @focusout="onBlurSuggestions"
         >
           <Button
             v-for="(item, index) in suggestions"
@@ -355,7 +369,8 @@ watch(
                 ? 'bg-[var(--color-menu-active)] hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]'
                 : 'hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]'
             "
-            @mousedown.prevent="pickSuggestion(item.url)"
+            @mousedown.prevent
+            @click="pickSuggestion(item.url)"
           >
             <span class="truncate text-[12px] text-[var(--color-txt-strong)]">{{
               item.title || item.url
@@ -463,21 +478,32 @@ watch(
           <span class="mb-0.5 block text-[11px] text-[var(--color-dim)]">
             {{ t("panels.zoomLabel") }}
           </span>
-          <select
-            v-model.number="zoomDraft"
-            class="h-7 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)] outline-none"
+          <Select
+            :model-value="String(zoomDraft)"
+            @update:model-value="zoomDraft = Number($event)"
           >
-            <option :value="50">50%</option>
-            <option :value="67">67%</option>
-            <option :value="80">80%</option>
-            <option :value="90">90%</option>
-            <option :value="100">{{ t("panels.zoomDefault") }}</option>
-            <option :value="110">110%</option>
-            <option :value="125">125%</option>
-            <option :value="150">150%</option>
-            <option :value="200">200%</option>
-            <option :value="300">300%</option>
-          </select>
+            <SelectTrigger
+              size="sm"
+              class="w-full rounded-[var(--radius-sm)] border-[var(--color-line)] bg-[var(--color-composer-surface)] px-1.5 text-[12px] text-[var(--color-txt)]"
+              :aria-label="t('panels.zoomLabel')"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="50">50%</SelectItem>
+                <SelectItem value="67">67%</SelectItem>
+                <SelectItem value="80">80%</SelectItem>
+                <SelectItem value="90">90%</SelectItem>
+                <SelectItem value="100">{{ t("panels.zoomDefault") }}</SelectItem>
+                <SelectItem value="110">110%</SelectItem>
+                <SelectItem value="125">125%</SelectItem>
+                <SelectItem value="150">150%</SelectItem>
+                <SelectItem value="200">200%</SelectItem>
+                <SelectItem value="300">300%</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </label>
         <div class="flex items-center justify-end gap-1">
           <Button variant="ghost" size="xs" class="font-normal text-[11px] md:text-[11px] text-[var(--color-dim)]" @click="settingsOpen = false">

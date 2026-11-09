@@ -90,6 +90,27 @@ function tabLabel(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
+function onTabKeydown(event: KeyboardEvent) {
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) {
+    return;
+  }
+  const tabs = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]'));
+  const current = (event.target as HTMLElement).closest('[role="tab"]');
+  const index = tabs.indexOf(current as HTMLElement);
+  if (index < 0) {
+    return;
+  }
+  event.preventDefault();
+  const next = tabs[(index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+  const path = next === tabs[0] ? "graph" : gitStore.diffTabs[tabs.indexOf(next) - 1];
+  if (path === "graph") {
+    gitStore.activeDiffTab = "graph";
+  } else if (path) {
+    gitStore.openFileTab(path);
+  }
+  next?.focus();
+}
+
 function tabCls(id: string) {
   return cn(
     "flex h-7 max-w-[150px] flex-none items-center gap-1 rounded-[6px] px-2 text-left text-[12px]",
@@ -118,33 +139,41 @@ function tabCls(id: string) {
 
       <!-- 右侧：图谱固定 tab + 文件 diff 多 tab -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
-        <div class="flex min-w-0 flex-none items-center gap-0.5 overflow-x-auto" role="tablist">
+        <div class="flex min-w-0 flex-none items-center gap-0.5 overflow-x-auto" role="tablist" @keydown="onTabKeydown">
           <!-- 图谱 tab：固定，不可关闭 -->
-          <div
+          <Button
+            variant="ghost"
             :class="tabCls('graph')"
             role="tab"
             :aria-selected="gitStore.activeDiffTab === 'graph'"
+            :tabindex="gitStore.activeDiffTab === 'graph' ? 0 : -1"
             @click="gitStore.activeDiffTab = 'graph'"
           >
             <GitGraphIcon class="size-3.5 flex-none" aria-hidden="true" />
             <span class="min-w-0 truncate">{{ t("panels.graphTab") }}</span>
-          </div>
+          </Button>
           <div
             v-for="path in gitStore.diffTabs"
             :key="path"
             :class="tabCls(path)"
-            role="tab"
-            :aria-selected="gitStore.activeDiffTab === path"
-            :title="path"
-            @click="gitStore.openFileTab(path)"
           >
-            <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ tabLabel(path) }}</span>
+            <Button
+              variant="ghost"
+              class="h-full min-w-0 flex-1 justify-start rounded-none p-0 text-left font-normal hover:bg-transparent dark:hover:bg-transparent focus-visible:text-[var(--color-txt-strong)]"
+              role="tab"
+              :aria-selected="gitStore.activeDiffTab === path"
+              :tabindex="gitStore.activeDiffTab === path ? 0 : -1"
+              :title="path"
+              @click="gitStore.openFileTab(path)"
+            >
+              <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ tabLabel(path) }}</span>
+            </Button>
             <Button
               variant="ghost"
               size="icon-xs"
               class="ml-0.5 size-4 flex-none rounded text-[var(--color-dim)] hover:text-[var(--color-txt)]"
               :aria-label="t('panels.closeDiffTab')"
-              @click.stop="gitStore.closeDiffTab(path)"
+              @click="gitStore.closeDiffTab(path)"
             >
               <X class="size-3" />
             </Button>

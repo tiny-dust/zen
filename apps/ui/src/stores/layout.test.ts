@@ -3,11 +3,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { useLayoutStore } from "@/stores/layout";
 
-function setViewport(width: number) {
+function setViewport(width: number, height = 900) {
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
     writable: true,
     value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    writable: true,
+    value: height,
   });
 }
 
@@ -65,6 +70,48 @@ describe("useLayoutStore 宽度边界", () => {
     store.setLeftWidth(400);
     // 中央保底只按 420：1000-240-420-10=330
     expect(store.leftWidth).toBe(330);
+  });
+});
+
+describe("useLayoutStore 底部终端高度", () => {
+  it("默认高度沿用 42vh 且至多 360px，终端默认关闭", () => {
+    const store = useLayoutStore();
+    expect(store.bottomCollapsed).toBe(true);
+    expect(store.bottomHeight).toBe(360);
+    setViewport(1440, 600);
+    setActivePinia(createPinia());
+    expect(useLayoutStore().bottomHeight).toBe(252);
+  });
+
+  it("拖拽高度限制在 180px 和为上方保留空间的上限之间", () => {
+    const store = useLayoutStore();
+    store.setBottomHeight(100);
+    expect(store.bottomHeight).toBe(180);
+    store.setBottomHeight(1000);
+    expect(store.bottomHeight).toBe(630); // 900px 窗口：70% 比保留 240px 更严格
+    store.setBottomHeight(320);
+    expect(store.bottomHeight).toBe(320);
+  });
+
+  it("窗口缩小时钳制；极矮窗口优先给上方留空间", () => {
+    const store = useLayoutStore();
+    store.setBottomHeight(630);
+    setViewport(1440, 500);
+    store.syncViewport();
+    expect(store.bottomHeight).toBe(260);
+    setViewport(1440, 350);
+    store.syncViewport();
+    expect(store.bottomHeight).toBe(110);
+    store.setBottomHeight(1);
+    expect(store.bottomHeight).toBe(110);
+  });
+
+  it("收起后再次展开保留拖拽高度", () => {
+    const store = useLayoutStore();
+    store.setBottomHeight(420);
+    store.toggleBottom();
+    store.toggleBottom();
+    expect(store.bottomHeight).toBe(420);
   });
 });
 
