@@ -23,7 +23,6 @@ import BrowserImportDialog from "@/components/right/BrowserImportDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { elementLabel, formatElementDetail } from "@/lib/browser-element";
 import { siteHost, siteInitial } from "@/lib/site-url";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useBrowserStore } from "@/stores/browser";
@@ -48,7 +47,6 @@ const {
   busy,
   isRunning,
   kernelLabel,
-  lastPicked,
   consoleEntries,
   isPip,
   isPipHidden,
@@ -699,26 +697,6 @@ watch(
       class="relative min-h-[160px] flex-1 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-sunken)]"
       data-browser-view-host
     />
-
-    <div
-      v-if="lastPicked"
-      class="flex-none rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2 py-1.5"
-      :title="formatElementDetail(lastPicked)"
-    >
-      <div class="text-[11px] text-[var(--color-dim)]">{{ t("panels.lastPickedLabel") }}</div>
-      <div class="flex min-w-0 items-center gap-1.5">
-        <Globe class="size-3.5 flex-none text-[var(--color-accent)]" aria-hidden="true" />
-        <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
-          {{ elementLabel(lastPicked) }}
-        </span>
-        <span class="flex-none text-[11px] text-[var(--color-mut)]">{{ lastPicked.tag }}</span>
-      </div>
-      <div
-        class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
-      >
-        {{ lastPicked.selector }}
-      </div>
-    </div>
 
     <BrowserImportDialog v-model:open="importOpen" />
 

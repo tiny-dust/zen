@@ -49,6 +49,7 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
   const tip = document.createElement("div");
   tip.id = "zen-pick-tip";
   document.documentElement.appendChild(tip);
+  let tipTimer = null;
 
   function selectorFor(el) {
     if (!el || el.nodeType !== 1) return "";
@@ -168,23 +169,43 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
     box.style.top = rect.top + "px";
     box.style.width = rect.width + "px";
     box.style.height = rect.height + "px";
-    tip.style.display = "block";
-    tip.style.left = Math.min(window.innerWidth - 200, Math.max(8, rect.left)) + "px";
-    tip.style.top = Math.max(8, rect.top - 28) + "px";
-    tip.textContent = describe(el).selector;
+  }
+
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipTimer = null;
+    tip.style.display = "none";
   }
 
   function onMove(event) {
+    hideTip();
     const el = event.target;
     if (!(el instanceof Element)) return;
     highlight(el);
+    tipTimer = setTimeout(function() {
+      const rect = el.getBoundingClientRect();
+      tip.style.left = Math.min(window.innerWidth - 200, Math.max(8, rect.left)) + "px";
+      tip.style.top = Math.max(8, rect.top - 28) + "px";
+      tip.textContent = selectorFor(el);
+      tip.style.display = "block";
+      tipTimer = null;
+    }, 1000);
+  }
+
+  function onLeave(event) {
+    if (event.relatedTarget !== null) return;
+    hideTip();
+    box.style.display = "none";
   }
 
   function onClick(event) {
     event.preventDefault();
     event.stopPropagation();
     const el = event.target;
-    if (!(el instanceof Element)) return;
+    if (!(el instanceof Element)) {
+      cleanup();
+      return;
+    }
     const payload = describe(el);
     cleanup();
     if (typeof window.zenElementPicked === "function") {
@@ -199,7 +220,9 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
   }
 
   function cleanup() {
+    hideTip();
     document.removeEventListener("mousemove", onMove, true);
+    document.removeEventListener("mouseout", onLeave, true);
     document.removeEventListener("click", onClick, true);
     document.removeEventListener("keydown", onKey, true);
     box.remove();
@@ -212,6 +235,7 @@ export const ELEMENT_PICK_SCRIPT = `(() => {
 
   window.__zenElementPickCleanup = cleanup;
   document.addEventListener("mousemove", onMove, true);
+  document.addEventListener("mouseout", onLeave, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("keydown", onKey, true);
   document.documentElement.style.cursor = "crosshair";
