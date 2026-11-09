@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import { useModelsStore } from "@/stores/models";
 
+import type { ProviderSummary } from "@zen/shared";
+
 const agentRun = vi.fn();
 
 function stubZen() {
@@ -115,6 +117,43 @@ describe("ChatComposer 发送交互", () => {
     await more.trigger("click");
     expect(more.attributes("aria-expanded")).toBe("true");
     expect(wrapper.find("session-mode-picker-stub").exists()).toBe(true);
+  });
+
+  it("推理模型的思考强度常驻模型左侧，非推理模型不显示且高级区不重复", async () => {
+    const models = useModelsStore();
+    const provider: ProviderSummary = {
+      id: "p1", name: "Test", protocol: "openai-chat", baseUrl: "", enabled: true,
+      hasApiKey: false, apiKeyMask: "", createdAt: 1, updatedAt: 1,
+      models: [
+        { id: "m1", name: "Reasoner", enabled: true, capabilities: { reasoning: true, reasoningEfforts: ["low", "high"] } },
+        { id: "m2", name: "Plain", enabled: true, capabilities: { reasoning: false } },
+      ],
+    };
+    models.providers = [provider];
+    const wrapper = composer();
+    const effort = wrapper.get("effort-slider-stub");
+    const picker = wrapper.get("model-picker-stub");
+    expect(effort.element.nextElementSibling).toBe(picker.element);
+    expect(effort.attributes("allowed")).toBe("low,high");
+
+    await wrapper.get('button[aria-controls="composer-advanced-options"]').trigger("click");
+    expect(wrapper.findAll("effort-slider-stub")).toHaveLength(1);
+    models.selection = { providerId: "p1", modelId: "m2" };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("effort-slider-stub").exists()).toBe(false);
+  });
+
+  it("窄底栏收起更多选项的文字，保留可访问名称和模型入口", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+    const wrapper = composer();
+    const more = wrapper.get('button[aria-controls="composer-advanced-options"]');
+    expect(more.text()).toBe("");
+    expect(more.attributes("aria-label")).toBe("更多选项");
+    expect(wrapper.get("model-picker-stub").attributes("compact")).toBe("true");
   });
 
   it("输入后 Enter 发送：agent.run 被调起", async () => {

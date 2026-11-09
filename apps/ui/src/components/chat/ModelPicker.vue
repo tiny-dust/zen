@@ -104,7 +104,7 @@ const routingReason = computed(() => {
   return routing.rules
     .map((rule) => t(`model-routing.modelRouting.rule.${rule}`))
     .filter(Boolean)
-    .join("；");
+    .join(t("model-routing.modelRouting.reasonSeparator"));
 });
 
 /** 触发按钮 title：自动模式下展示「自动模式 + 当前生效模型 + 上次理由」 */
@@ -316,7 +316,7 @@ watch(providers, () => {
                 class="m-0 px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[var(--color-mut)]"
                 :title="routingReason"
               >
-                {{ t("model-routing.modelRouting.reasonPrefix") }}：{{ routingReason }}
+                {{ t("model-routing.modelRouting.reasonPrefix") }}{{ routingReason }}
               </p>
             </div>
             <Button
