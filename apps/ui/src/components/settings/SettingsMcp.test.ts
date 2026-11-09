@@ -150,4 +150,38 @@ describe("SettingsMcp 服务编辑", () => {
     expect(wrapper.find('button[aria-label="编辑 desk"]').exists()).toBe(true);
     wrapper.unmount();
   });
+
+  it("删除保存成功但刷新失败时关闭确认框，并明确提示刷新失败", async () => {
+    const wrapper = await mountWith([importedConfig]);
+    vi.spyOn(window.zen!.mcp, "list").mockRejectedValueOnce(new Error("refresh unavailable"));
+
+    await wrapper.find('button[aria-label="删除 desk"]').trigger("click");
+    const confirm = Array.from(document.body.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "删除");
+    expect(confirm).toBeTruthy();
+    confirm!.click();
+    await flushPromises();
+
+    expect(setServers).toHaveBeenCalledTimes(1);
+    expect(setServers.mock.calls[0]?.[0]).toEqual([]);
+    expect(document.body.textContent).not.toContain("将移除 desk");
+    expect(wrapper.find('[role="alert"]').text()).toContain("服务已删除，但刷新状态失败：refresh unavailable");
+    wrapper.unmount();
+  });
+
+  it("删除保存失败时保留确认框并提示保存错误", async () => {
+    const wrapper = await mountWith([importedConfig]);
+    setServers.mockRejectedValueOnce(new Error("save unavailable"));
+
+    await wrapper.find('button[aria-label="删除 desk"]').trigger("click");
+    const confirm = Array.from(document.body.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "删除");
+    expect(confirm).toBeTruthy();
+    confirm!.click();
+    await flushPromises();
+
+    expect(document.body.textContent).toContain("将移除 desk");
+    expect(wrapper.find('[role="alert"]').text()).toBe("save unavailable");
+    wrapper.unmount();
+  });
 });

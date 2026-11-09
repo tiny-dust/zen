@@ -212,7 +212,12 @@ describe("SettingsLark 快捷命令 CRUD 与校验", () => {
 
     // 编辑 qc-1 后删除它 → 退出编辑态
     await wrapper.find('button[aria-label="编辑快捷命令"]').trigger("click");
-    await wrapper.find('button[aria-label="删除快捷命令"]').trigger("click");
+    await wrapper.find('button[aria-label="删除快捷命令 /a"]').trigger("click");
+    await flushPromises();
+    expect(setSettings).not.toHaveBeenCalled();
+    const confirm = [...document.body.querySelectorAll("button")].find((button) => button.textContent?.trim() === "删除快捷命令");
+    expect(confirm).toBeTruthy();
+    confirm!.click();
     await flushPromises();
 
     expect(setSettings).toHaveBeenCalledTimes(1);
@@ -220,7 +225,10 @@ describe("SettingsLark 快捷命令 CRUD 与校验", () => {
     expect(buttonByText(wrapper, "添加快捷命令").exists()).toBe(true);
 
     // 删除另一条不再进入编辑
-    await wrapper.findAll('button[aria-label="删除快捷命令"]')[0]?.trigger("click");
+    await wrapper.find('button[aria-label="删除快捷命令 /b"]').trigger("click");
+    await flushPromises();
+    expect(setSettings).toHaveBeenCalledTimes(1);
+    [...document.body.querySelectorAll("button")].find((button) => button.textContent?.trim() === "删除快捷命令")!.click();
     await flushPromises();
     expect(savedQuickCommands()).toHaveLength(0);
     wrapper.unmount();

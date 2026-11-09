@@ -158,6 +158,12 @@
   --color-send: #151c13;
   --color-send-fg: #fff;
   --color-send-empty: #bbbbb6;
+  --accent-preview-orange: #b64b16;
+  --accent-preview-blue: #2556bd;
+  --accent-preview-purple: #7034b4;
+  --accent-preview-red: #b73549;
+  --accent-preview-green: #147a57;
+  --accent-preview-cyan: #087b8e;
   --color-accent: #ff6a2b;
   --color-accent-fg: #fff;
   --color-accent-2: #ffb02e;
@@ -300,6 +306,12 @@
   --color-send-empty: #6e6e6e;
   --color-link: #3295fb;
   --color-blue: #5a9cff;
+  --accent-preview-orange: #ff8c55;
+  --accent-preview-blue: #80aaff;
+  --accent-preview-purple: #bf8dff;
+  --accent-preview-red: #ff8192;
+  --accent-preview-green: #64d5a1;
+  --accent-preview-cyan: #6ed4e4;
 
   /* 图谱泳道色板（暗色提亮一档保证对比） */
   --color-graph-1: var(--color-accent);
@@ -373,6 +385,22 @@
   --sidebar-accent-foreground: var(--color-txt-strong);
   --sidebar-border: var(--color-line);
   --sidebar-ring: #6a6a6a;
+}
+
+/* 仅替换装饰强调色；danger/success、功能模式与中性背景保持独立。 */
+:root[data-accent-color="orange"] { --color-accent: #ff6a2b; }
+:root[data-accent-color="blue"] { --color-accent: var(--accent-preview-blue); }
+:root[data-accent-color="purple"] { --color-accent: var(--accent-preview-purple); }
+:root[data-accent-color="red"] { --color-accent: var(--accent-preview-red); }
+:root[data-accent-color="green"] { --color-accent: var(--accent-preview-green); }
+:root[data-accent-color="cyan"] { --color-accent: var(--accent-preview-cyan); }
+:root[data-accent-color]:not([data-accent-color="orange"]) {
+  --color-accent-2: color-mix(in srgb, var(--color-accent) 65%, white);
+}
+:root.dark[data-accent-color="orange"] { --color-accent: #ff6a2b; }
+:root.dark[data-accent-color]:not([data-accent-color="orange"]) {
+  --color-accent-fg: #151c13;
+  --color-accent-2: color-mix(in srgb, var(--color-accent) 75%, #181818);
 }
 
 @theme inline {

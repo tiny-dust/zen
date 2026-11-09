@@ -15,6 +15,7 @@ import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
 import { searchSettings } from "@/components/settings/settings-search";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsStore } from "@/stores/settings";
@@ -106,6 +107,12 @@ const paneDesc = computed(() => {
   }
 });
 
+function onDialogOpenChange(open: boolean) {
+  if (!open) {
+    settingsStore.closeSettings();
+  }
+}
+
 function selectTab(next: SettingsTab) {
   settingsStore.openSettings(next);
   const hash = `#settings/${next}`;
@@ -148,25 +155,21 @@ watch(
 </script>
 
 <template>
-  <div
-    v-if="settingsOpen"
-    class="fixed inset-0 z-[var(--z-overlay)] grid place-items-center bg-[var(--color-scrim)]"
-    @click.self="settingsStore.closeSettings()"
-  >
-    <div
-      class="grid h-[min(820px,calc(100vh-56px))] w-[min(1180px,calc(100vw-48px))] grid-cols-[208px_minmax(0,1fr)] overflow-hidden rounded-[14px] border border-[var(--color-line)] bg-[var(--color-settings-content)] text-[var(--color-txt)] shadow-[var(--shadow-pop)]"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="t('settings.nav.title')"
+  <Dialog :open="settingsOpen" @update:open="onDialogOpenChange">
+    <DialogContent
+      data-large-panel="true"
+      :show-close-button="false"
+      class="grid h-[min(820px,calc(100vh-56px))] w-[min(1180px,calc(100vw-48px))] grid-cols-[208px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[var(--radius)] border border-[var(--color-line)] bg-[var(--color-settings-content)] p-0 text-[var(--color-txt)] shadow-[var(--shadow-pop)] ring-0"
       data-select-text
     >
       <aside
         class="flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-settings-nav)] p-3.5"
       >
-        <div class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.nav.title") }}</div>
+        <DialogTitle class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.nav.title") }}</DialogTitle>
         <Input
           v-model="search"
           class="h-[30px] w-full flex-none bg-[var(--color-np-btn-bg)] text-[13px]"
+          :aria-label="t('settings.nav.searchPlaceholder')"
           :placeholder="t('settings.nav.searchPlaceholder')"
         />
 
@@ -234,7 +237,7 @@ watch(
             <h2 class="m-0 text-[15px] font-semibold text-[var(--color-txt-strong)]">
               {{ paneTitle }}
             </h2>
-            <p class="mt-0.5 truncate text-[12px] text-[var(--color-mut)]">{{ paneDesc }}</p>
+            <DialogDescription class="mt-0.5 truncate text-[12px] text-[var(--color-mut)]">{{ paneDesc }}</DialogDescription>
           </div>
           <Button
             variant="ghost"
@@ -269,6 +272,6 @@ watch(
           </div>
         </div>
       </main>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 </template>

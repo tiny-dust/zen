@@ -4,6 +4,8 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -14,7 +16,7 @@ import type { LarkQuickCommand } from "@zen/shared";
 /**
  * 飞书桥接：开关走 AgentSettings.larkBridge，状态来自 lark:status / lark:changed
  */
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const agentStore = useAgentStore();
 const { larkStatus, settings } = storeToRefs(agentStore);
 
@@ -94,6 +96,8 @@ async function sendTestAskCard() {
 const quickForm = ref({ alias: "", label: "", prompt: "" });
 const editingQuickId = ref<string | null>(null);
 const quickHint = ref<string | null>(null);
+const quickToRemove = ref<LarkQuickCommand | null>(null);
+const removingQuick = ref(false);
 
 const quickCommands = computed(() => settings.value.larkBridge.quickCommands ?? []);
 
@@ -146,10 +150,23 @@ function submitQuickCommand() {
   cancelEditQuick();
 }
 
-function removeQuickCommand(id: string) {
-  saveQuickCommands(quickCommands.value.filter((item) => item.id !== id));
-  if (editingQuickId.value === id) {
-    cancelEditQuick();
+async function removeQuickCommand() {
+  const target = quickToRemove.value;
+  if (!target || removingQuick.value || !quickCommands.value.some((item) => item.id === target.id)) return;
+  removingQuick.value = true;
+  try {
+    await agentStore.updateSettings({
+      larkBridge: {
+        ...settings.value.larkBridge,
+        quickCommands: quickCommands.value.filter((item) => item.id !== target.id),
+      },
+    });
+    if (editingQuickId.value === target.id) cancelEditQuick();
+    quickToRemove.value = null;
+  } catch (error) {
+    quickHint.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    removingQuick.value = false;
   }
 }
 </script>
@@ -270,9 +287,9 @@ function removeQuickCommand(id: string) {
           <Button variant="ghost" size="icon" class="size-6" :aria-label="t('settings.lark.editQuickAria')" @click="startEditQuick(item)">
             <Pencil :size="12" />
           </Button>
-          <Button variant="ghost" size="icon" class="size-6" :aria-label="t('settings.lark.deleteQuickAria')" @click="removeQuickCommand(item.id)">
+          <DangerIconButton class="size-6" :label="`${t('settings.lark.deleteQuickAria')} /${item.alias}`" @click="quickToRemove = item">
             <Trash2 :size="12" />
-          </Button>
+          </DangerIconButton>
         </div>
       </div>
       <div class="flex flex-col gap-1.5">
@@ -314,5 +331,16 @@ function removeQuickCommand(id: string) {
       <div>{{ t("settings.lark.guide5") }}</div>
     </div>
     <p v-if="actionError" class="m-0 text-[11px] text-[var(--color-err)]">{{ actionError }}</p>
+    <ConfirmDialog
+      :open="!!quickToRemove"
+      :title="`${t('settings.lark.deleteQuickAria')} /${quickToRemove?.alias ?? ''}${locale.startsWith('zh') ? '？' : '?'}`"
+      :description="locale.startsWith('zh')
+        ? `将移除快捷命令 /${quickToRemove?.alias ?? ''} 的预设内容和飞书菜单入口，操作不可撤销。`
+        : `This removes the preset and Lark menu entry for /${quickToRemove?.alias ?? ''}. This cannot be undone.`"
+      :confirm-label="t('settings.lark.deleteQuickAria')"
+      :pending="removingQuick"
+      @update:open="(value) => { if (!value) quickToRemove = null; }"
+      @confirm="removeQuickCommand"
+    />
   </section>
 </template>

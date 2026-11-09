@@ -310,7 +310,10 @@ describe("McpDialog 编辑表单", () => {
     const wrapper = await mountWith([statusOf(stdioConfig)]);
 
     await wrapper.find('button[aria-label="编辑 filesystem"]').trigger("click");
-    await wrapper.find('button[aria-label="移除服务"]').trigger("click");
+    await wrapper.find('button[aria-label="移除服务 filesystem"]').trigger("click");
+    await flushPromises();
+    expect(setServers).not.toHaveBeenCalled();
+    await buttonByText(wrapper, "移除服务").trigger("click");
     await flushPromises();
 
     expect(wrapper.text()).toContain("添加服务");
@@ -399,7 +402,7 @@ describe("McpDialog 工具列表与参数摘要", () => {
     expect(toolButton).toBeTruthy();
     await toolButton!.trigger("click");
 
-    const summary = wrapper.text().match(/参数：[^\n]+/)?.[0] ?? "";
+    const summary = wrapper.findAll("p").find((item) => item.text().startsWith("参数："))?.text() ?? "";
     expect(summary).toContain("f: string");
     expect(summary.endsWith("…")).toBe(true);
     expect(summary).not.toContain("g:");

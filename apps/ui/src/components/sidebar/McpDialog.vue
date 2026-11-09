@@ -16,6 +16,8 @@ import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,7 +49,7 @@ const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
 const { mcpStatuses } = storeToRefs(agentStore);
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 // 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
 useBrowserOverlayGuard(open);
@@ -70,6 +72,9 @@ const form = ref<{
 // 正在编辑的服务 id；null 表示表单处于「添加」模式（与 SettingsMcp 一致）
 const editingId = ref<string | null>(null);
 const formError = ref("");
+const serverToRemove = ref<McpServerConfig | null>(null);
+const removingServer = ref(false);
+const removeError = ref("");
 
 const mcpServers = computed<McpServerConfig[]>(() =>
   mcpStatuses.value.map((item) => item.config),
@@ -243,11 +248,20 @@ async function submitForm() {
   }
 }
 
-async function removeServer(config: McpServerConfig) {
-  if (editingId.value === config.id) {
-    cancelEdit();
+async function removeServer() {
+  const target = serverToRemove.value;
+  if (!target || removingServer.value || !mcpServers.value.some((item) => item.id === target.id)) return;
+  removingServer.value = true;
+  removeError.value = "";
+  try {
+    await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== target.id));
+    if (editingId.value === target.id) cancelEdit();
+    serverToRemove.value = null;
+  } catch (error) {
+    removeError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    removingServer.value = false;
   }
-  await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== config.id));
 }
 
 // 扫描其它 AI 工具已配置的 MCP（Codex / Claude / Cursor / VS Code / MiMo / DimAgent 等）并一键导入
@@ -568,20 +582,29 @@ async function authorizeServer(id: string) {
               >
                 <Pencil class="size-3.5" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                class="text-[var(--color-danger-fg)] hover:bg-transparent!"
-                :aria-label="t('sidebar.mcp.removeServer')"
-                @click="removeServer(item.config)"
+              <DangerIconButton
+                :label="`${t('sidebar.mcp.removeServer')} ${item.config.name}`"
+                @click="serverToRemove = item.config; removeError = ''"
               >
                 <Trash2 class="size-3.5" />
-              </Button>
+              </DangerIconButton>
             </div>
           </div>
           <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.mcp.noServers") }}</p>
+          <p v-if="removeError" role="alert" class="m-0 mt-2 text-[11px] text-[var(--color-danger-fg)]">{{ removeError }}</p>
         </div>
       </div>
     </DialogContent>
   </Dialog>
+  <ConfirmDialog
+    :open="!!serverToRemove"
+    :title="`${t('sidebar.mcp.removeServer')} ${serverToRemove?.name ?? ''}${locale.startsWith('zh') ? '？' : '?'}`"
+    :description="locale.startsWith('zh')
+      ? `将移除 ${serverToRemove?.name ?? ''} 的 MCP 服务配置并断开连接，操作不可撤销。`
+      : `This removes the MCP configuration for ${serverToRemove?.name ?? ''} and disconnects it. This cannot be undone.`"
+    :confirm-label="t('sidebar.mcp.removeServer')"
+    :pending="removingServer"
+    @update:open="(value) => { if (!value) serverToRemove = null; }"
+    @confirm="removeServer"
+  />
 </template>

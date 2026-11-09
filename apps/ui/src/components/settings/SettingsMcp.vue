@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Download, Pencil, Plus, RefreshCw, ScanSearch, Trash2, Wand2, X } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Download, Pencil, Plus, RefreshCw, ScanSearch, Trash2, Wand2, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
+import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +60,17 @@ const formError = ref("");
 const scanBusy = ref(false);
 const scanned = ref<McpDiscoveredServer[]>([]);
 const scannedNote = ref("");
+const serverToRemove = ref<McpServerConfig | null>(null);
+const removingServer = ref(false);
+const removeError = ref("");
+const expandedToolIds = ref<Set<string>>(new Set());
+
+function toggleTools(id: string) {
+  const next = new Set(expandedToolIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedToolIds.value = next;
+}
 
 const mcpServers = computed<McpServerConfig[]>(
   () => mcpStatuses.value.map((item) => item.config),
@@ -214,9 +227,26 @@ async function toggleServer(config: McpServerConfig) {
   await agentStore.refreshMcp();
 }
 
-async function removeServer(config: McpServerConfig) {
-  await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== config.id));
-  await agentStore.refreshMcp();
+async function removeServer() {
+  const target = serverToRemove.value;
+  if (!target || removingServer.value || !mcpServers.value.some((item) => item.id === target.id)) return;
+  removingServer.value = true;
+  removeError.value = "";
+  try {
+    await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== target.id));
+    if (editingId.value === target.id) cancelEdit();
+    serverToRemove.value = null;
+    try {
+      await agentStore.refreshMcp();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      removeError.value = t("settings.mcp.deletedRefreshFailed", { error: detail });
+    }
+  } catch (error) {
+    removeError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    removingServer.value = false;
+  }
 }
 
 /** 扫描当前仓库与系统里已有的 MCP 配置 */
@@ -486,16 +516,31 @@ function endpointText(config: McpServerConfig): string {
           >
             {{ item.config.enabled ? t("settings.mcp.disable") : t("settings.mcp.enable") }}
           </Button>
-          <Button variant="ghost" size="icon-sm" :aria-label="t('settings.mcp.deleteAria')" @click="removeServer(item.config)">
+          <DangerIconButton
+            :label="`${t('settings.mcp.deleteAria')} ${item.config.name}`"
+            @click="serverToRemove = item.config; removeError = ''"
+          >
             <Trash2 :size="13" />
-          </Button>
+          </DangerIconButton>
         </div>
         <p
           class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
         >
           {{ endpointText(item.config) }}
         </p>
-        <p v-if="item.tools.length" class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
+        <Button
+          v-if="item.tools.length"
+          variant="ghost"
+          size="sm"
+          class="mt-0.5 h-6 gap-1 px-1 text-[11px] text-[var(--color-mut)]"
+          :aria-expanded="expandedToolIds.has(item.config.id)"
+          @click="toggleTools(item.config.id)"
+        >
+          <ChevronDown v-if="expandedToolIds.has(item.config.id)" :size="12" />
+          <ChevronRight v-else :size="12" />
+          {{ t("settings.mcp.toolsSummary", { count: item.tools.length }) }}
+        </Button>
+        <p v-if="item.tools.length && expandedToolIds.has(item.config.id)" class="m-0 mt-0.5 break-all text-[11px] text-[var(--color-mut)]">
           {{ t("settings.mcp.toolsCount", { count: item.tools.length, list: item.tools.map((tool) => tool.name).join("、") }) }}
         </p>
         <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-err)]">
@@ -505,6 +550,16 @@ function endpointText(config: McpServerConfig): string {
       <p v-if="!mcpStatuses.length" class="m-0 text-[12px] text-[var(--color-dim)]">
         {{ t("settings.mcp.emptyHint") }}
       </p>
+      <p v-if="removeError" role="alert" class="m-0 text-[11px] text-[var(--color-err)]">{{ removeError }}</p>
     </section>
+    <ConfirmDialog
+      :open="!!serverToRemove"
+      :title="t('settings.mcp.deleteConfirmTitle', { name: serverToRemove?.name ?? '' })"
+      :description="t('settings.mcp.deleteConfirmDescription', { name: serverToRemove?.name ?? '' })"
+      :confirm-label="t('settings.mcp.deleteAria')"
+      :pending="removingServer"
+      @update:open="(value) => { if (!value) serverToRemove = null; }"
+      @confirm="removeServer"
+    />
   </div>
 </template>

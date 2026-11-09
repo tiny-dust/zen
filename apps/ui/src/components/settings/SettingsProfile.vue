@@ -266,31 +266,33 @@ function resetLark() {
         >
           <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.profile.linkedAccounts") }}</div>
           <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors duration-[var(--motion-fast)]"
+            <Button
+              variant="ghost"
+              class="h-auto gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-normal transition-colors duration-[var(--motion-fast)] hover:bg-transparent dark:hover:bg-transparent"
               :class="
                 displayPref === 'lark'
-                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)]'
-                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)]'
+                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)] hover:text-[var(--color-txt-strong)]'
+                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)] hover:text-[var(--color-mut)]'
               "
+              :aria-pressed="displayPref === 'lark'"
               @click="settingsStore.setDisplayAccount('lark')"
             >
               <FeishuLogo class="size-3.5 flex-none" />
               {{ t("settings.profile.displayLark", { name: larkIdentity }) }}
-            </button>
-            <button
-              type="button"
-              class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors duration-[var(--motion-fast)]"
+            </Button>
+            <Button
+              variant="ghost"
+              class="h-auto gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-normal transition-colors duration-[var(--motion-fast)] hover:bg-transparent dark:hover:bg-transparent"
               :class="
                 displayPref !== 'lark'
-                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)]'
-                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)]'
+                  ? 'border-[var(--color-ok)] text-[var(--color-txt-strong)] hover:text-[var(--color-txt-strong)]'
+                  : 'border-[var(--color-line-soft)] text-[var(--color-mut)] hover:border-[var(--color-line)] hover:text-[var(--color-mut)]'
               "
+              :aria-pressed="displayPref !== 'lark'"
               @click="settingsStore.setDisplayAccount('github')"
             >
               {{ t("settings.profile.displayGithub", { login: user.login }) }}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -414,9 +416,9 @@ function resetLark() {
         <!-- 登录方式选择（飞书优先 / GitHub） -->
         <div v-else-if="loginChoiceOpen" class="flex w-full flex-col gap-2">
           <div class="grid w-full grid-cols-2 gap-2">
-            <button
-              type="button"
-              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+            <Button
+              variant="outline"
+              class="h-auto w-full flex-col items-start gap-1.5 whitespace-normal rounded-lg border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
               @click="chooseLark"
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
@@ -426,10 +428,10 @@ function resetLark() {
               <span class="text-[11px] leading-snug text-[var(--color-mut)]">
                 {{ t("settings.profile.chooseLarkDesc") }}
               </span>
-            </button>
-            <button
-              type="button"
-              class="flex flex-col items-start gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)]"
+            </Button>
+            <Button
+              variant="outline"
+              class="h-auto w-full flex-col items-start gap-1.5 whitespace-normal rounded-lg border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)] p-3 text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-np-btn-bg)] dark:hover:bg-[var(--color-np-btn-bg)]"
               @click="chooseGithub"
             >
               <span class="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">
@@ -439,7 +441,7 @@ function resetLark() {
               <span class="text-[11px] leading-snug text-[var(--color-mut)]">
                 {{ t("settings.profile.chooseGithubDesc") }}
               </span>
-            </button>
+            </Button>
           </div>
           <Button variant="ghost" size="xs" class="w-fit" @click="loginChoiceOpen = false">
             {{ t("settings.profile.back") }}

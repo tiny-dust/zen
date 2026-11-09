@@ -5,13 +5,15 @@ import { setCodeThemeId } from "@/components/ai-elements/response/extensions";
 import { useAppTheme } from "@/composables/useAppTheme";
 import { setAppLocale } from "@/locales";
 
-import type { AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
+import type { AccentColor, AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
 import {
+  DEFAULT_ACCENT_COLOR,
   DEFAULT_CODE_THEME,
   DEFAULT_LOCALE,
   DEFAULT_SHORTCUTS,
   DEFAULT_THEME,
   DEFAULT_UPDATE_FEED_URL,
+  normalizeAccentColor,
   normalizeShortcutKey,
 } from "@zen/shared";
 
@@ -20,6 +22,7 @@ const fallbackSettings: AppSettings = {
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
   theme: DEFAULT_THEME,
+  accentColor: DEFAULT_ACCENT_COLOR,
   locale: DEFAULT_LOCALE,
   displayAccount: "auto",
 };
@@ -39,6 +42,9 @@ export type SettingsTab =
 
 export const useSettingsStore = defineStore("settings", () => {
   const settings = ref<AppSettings>({ ...fallbackSettings });
+  let accentColorWrite: Promise<void> = Promise.resolve();
+  let pendingAccentColorWrites = 0;
+  let savedAccentColor = settings.value.accentColor;
   const settingsOpen = ref(false);
   const activeTab = ref<SettingsTab>("general");
 
@@ -84,6 +90,7 @@ export const useSettingsStore = defineStore("settings", () => {
     return {
       ...value,
       theme,
+      accentColor: normalizeAccentColor(value.accentColor),
       locale,
       codeTheme: value.codeTheme || DEFAULT_CODE_THEME,
       shortcuts: [
@@ -97,7 +104,11 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   // 主题与语言是全局副作用：settings 一变（含其它窗口的 onChanged 广播）即刻应用
-  const { setThemeMode } = useAppTheme();
+  const { setThemeMode, setAccentColor: applyAccentColor } = useAppTheme();
+  watch(
+    () => settings.value.accentColor,
+    (accentColor) => applyAccentColor(accentColor),
+  );
   watch(
     () => settings.value.theme,
     (theme) => {
@@ -122,15 +133,17 @@ export const useSettingsStore = defineStore("settings", () => {
       };
     }
 
-    void zen.settings.get().then((value) => {
-      settings.value = normalizeSettings(value);
+    function receiveSettings(value: AppSettings) {
+      const incoming = normalizeSettings(value);
+      if (!pendingAccentColorWrites) savedAccentColor = incoming.accentColor;
+      settings.value = pendingAccentColorWrites
+        ? { ...incoming, accentColor: settings.value.accentColor }
+        : incoming;
       setCodeThemeId(settings.value.codeTheme);
-    });
+    }
 
-    const offChanged = zen.settings.onChanged((value) => {
-      settings.value = normalizeSettings(value);
-      setCodeThemeId(settings.value.codeTheme);
-    });
+    void zen.settings.get().then(receiveSettings);
+    const offChanged = zen.settings.onChanged(receiveSettings);
 
     return () => {
       offChanged();
@@ -164,6 +177,31 @@ export const useSettingsStore = defineStore("settings", () => {
       return;
     }
     settings.value = await zen.settings.set({ theme });
+  }
+
+  /** 强调色即时切换；写入按选择顺序串行，失败只回滚最后一次选择。 */
+  async function setAccentColor(accentColor: AccentColor) {
+    const zen = window.zen;
+    if (zen && !pendingAccentColorWrites) savedAccentColor = settings.value.accentColor;
+    settings.value = { ...settings.value, accentColor };
+    if (!zen) return;
+    pendingAccentColorWrites++;
+    const write = accentColorWrite.then(async () => {
+      try {
+        const saved = normalizeSettings(await zen.settings.set({ accentColor }));
+        savedAccentColor = saved.accentColor;
+        settings.value = { ...saved, accentColor: settings.value.accentColor };
+      } catch (error) {
+        if (pendingAccentColorWrites === 1) {
+          settings.value = { ...settings.value, accentColor: savedAccentColor };
+        }
+        throw error;
+      } finally {
+        pendingAccentColorWrites--;
+      }
+    });
+    accentColorWrite = write.then(() => undefined, () => undefined);
+    return write;
   }
 
   /** 切换界面语言：即时生效 + 持久化 */
@@ -223,6 +261,7 @@ export const useSettingsStore = defineStore("settings", () => {
     setFeedUrl,
     setCodeTheme,
     setTheme,
+    setAccentColor,
     setLocale,
     updateShortcut,
     setShortcutGlobal,

@@ -1,12 +1,23 @@
 import { computed, ref, watchEffect } from "vue";
 
-import { DEFAULT_THEME } from "@zen/shared";
+import { DEFAULT_THEME, normalizeAccentColor } from "@zen/shared";
 
-import type { ThemeMode } from "@zen/shared";
+import type { AccentColor, ThemeMode } from "@zen/shared";
 
 /** 本地镜像键：首帧免 IPC 往返直接上主题（设置加载后由 settings store 校正） */
 const THEME_MIRROR_KEY = "zen.theme.dark";
+const ACCENT_MIRROR_KEY = "zen.theme.accent";
 
+/** 首帧读取上次生效的强调色；无效或旧配置回退为暖橙。 */
+export function cachedAccentColor(): AccentColor {
+  try {
+    return normalizeAccentColor(localStorage.getItem(ACCENT_MIRROR_KEY));
+  } catch {
+    return normalizeAccentColor(null);
+  }
+}
+
+const accentColor = ref<AccentColor>(cachedAccentColor());
 const mode = ref<ThemeMode>(DEFAULT_THEME);
 const systemDark = ref(window.matchMedia("(prefers-color-scheme: dark)").matches);
 
@@ -30,6 +41,15 @@ watchEffect(() => {
   }
 });
 
+watchEffect(() => {
+  document.documentElement.dataset.accentColor = accentColor.value;
+  try {
+    localStorage.setItem(ACCENT_MIRROR_KEY, accentColor.value);
+  } catch {
+    // 与深浅主题镜像一样：只影响下次首帧
+  }
+});
+
 /** 读取首帧镜像（main.ts 挂载前调用，避免亮色用户看到深色闪烁） */
 export function cachedThemeIsDark(): boolean {
   try {
@@ -45,5 +65,9 @@ export function useAppTheme() {
     mode.value = next;
   }
 
-  return { mode, isDark, setThemeMode };
+  function setAccentColor(next: AccentColor) {
+    accentColor.value = next;
+  }
+
+  return { mode, isDark, accentColor, setThemeMode, setAccentColor };
 }
