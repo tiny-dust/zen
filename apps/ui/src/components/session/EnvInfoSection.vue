@@ -1,21 +1,15 @@
 <script setup lang="ts">
-import { Download, Info, LoaderCircle, RefreshCw } from "@lucide/vue";
+import { Download, Info, RefreshCw } from "@lucide/vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
 import RepoPanel from "@/components/session/RepoPanel.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useGitStore } from "@/stores/git";
-import { SESSION_EXPORT_FORMATS } from "@zen/shared";
-import type { SessionExportFormat } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
+import { useSessionWorktreeStore } from "@/stores/session-worktree";
 
 /**
  * 会话信息「环境信息」节：
@@ -32,7 +26,15 @@ const open = ref(true);
 const openRepos = ref(new Set<string>());
 
 const repos = computed(() => gitStore.repositories);
-const exportFormats = SESSION_EXPORT_FORMATS;
+const worktrees = useSessionWorktreeStore();
+/** 当前会话绑定的工作树：环境信息展示的是工作树内的仓库 */
+const worktree = computed(() => worktrees.current(chatStore.sessionId));
+
+// 工作树创建/移除会换掉扫描根：显式重扫一次，保证面板立刻指向工作树而不是主仓库
+watch(
+  () => worktree.value?.path ?? "",
+  () => void gitStore.refreshRepositories(),
+);
 
 watch(
   () => repos.value.map((repo) => repo.path).join("\0"),
@@ -72,36 +74,9 @@ onMounted(() => {
   void gitStore.refreshRepositories();
 });
 
-// ---------- 导出会话：单入口 + 格式菜单，结果行内反馈 ----------
-const exporting = ref(false);
-const exportFeedback = ref("");
-const pendingFormat = ref<SessionExportFormat | null>(null);
+// 导出会话：统一走 ExportSessionDialog（格式 + 是否含思考）
+const exportOpen = ref(false);
 
-async function exportSession(format: SessionExportFormat) {
-  const zen = window.zen;
-  const sessionId = chatStore.sessionId;
-  if (!zen?.session?.exportSession || !sessionId || exporting.value) {
-    return;
-  }
-  exporting.value = true;
-  pendingFormat.value = format;
-  exportFeedback.value = t("features.exporting");
-  try {
-    const result = await zen.session.exportSession(sessionId, format);
-    exportFeedback.value = result.canceled
-      ? t("features.exportCanceled")
-      : result.ok
-        ? t("features.exportDone", { path: result.path ?? "" })
-        : t("features.exportFailed", { error: result.error ?? "" });
-  } catch (error) {
-    exportFeedback.value = t("features.exportFailed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    exporting.value = false;
-    pendingFormat.value = null;
-  }
-}
 </script>
 
 <template>
@@ -145,10 +120,19 @@ async function exportSession(format: SessionExportFormat) {
         {{ t("shell.noRepos") }}
       </p>
 
+      <p
+        v-if="worktree"
+        class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-mut)]"
+        :title="worktree.path"
+      >
+        {{ t("worktree.envHint", { branch: worktree.branch }) }}
+      </p>
+
       <RepoPanel
         v-for="repo in repos"
         :key="repo.path"
         :repo="repo"
+        :worktree-path="worktree?.path"
         :open="openRepos.has(repo.path)"
         @toggle="toggleRepo(repo.path)"
         @open-panel="openInGitPanel"
@@ -158,45 +142,21 @@ async function exportSession(format: SessionExportFormat) {
         {{ gitStore.repositoryError }}
       </p>
 
-      <!-- 导出会话：单入口聚合所有格式 -->
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <Button
-            variant="ghost"
-            class="mt-1 h-auto min-h-8 w-full justify-start gap-2 rounded-[var(--radius-sm)] px-1 text-[13px] font-normal text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
-            :disabled="exporting || !chatStore.sessionId"
-            :title="t('features.exportSessionTitle')"
-          >
-            <LoaderCircle
-              v-if="exporting"
-              class="size-3.5 flex-none animate-spin text-[var(--color-mut)]"
-              aria-hidden="true"
-            />
-            <Download v-else class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-            <span class="min-w-0 flex-1 text-left">{{ t("features.exportSession") }}</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" class="w-[220px]">
-          <DropdownMenuItem
-            v-for="format in exportFormats"
-            :key="format.id"
-            class="gap-2"
-            :title="t(format.descriptionKey)"
-            @select="exportSession(format.id)"
-          >
-            <Download class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
-            <span class="min-w-0 flex-1 truncate">{{ t(format.labelKey) }}</span>
-            <LoaderCircle
-              v-if="exporting && pendingFormat === format.id"
-              class="size-3 flex-none animate-spin"
-              aria-hidden="true"
-            />
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <p v-if="exportFeedback" class="m-0 text-[11px] text-[var(--color-mut)]" role="status">
-        {{ exportFeedback }}
-      </p>
+      <Button
+        variant="ghost"
+        class="mt-1 h-auto min-h-8 w-full justify-start gap-2 rounded-[var(--radius-sm)] px-1 text-[13px] font-normal text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)] dark:hover:bg-[var(--color-menu-hover)]"
+        :disabled="!chatStore.sessionId"
+        :title="t('features.exportSessionTitle')"
+        @click="exportOpen = true"
+      >
+        <Download class="size-3.5 flex-none text-[var(--color-mut)]" aria-hidden="true" />
+        <span class="min-w-0 flex-1 text-left">{{ t("features.exportSession") }}</span>
+      </Button>
+      <ExportSessionDialog
+        v-model:open="exportOpen"
+        :session-id="chatStore.sessionId"
+        :session-title="chatStore.sessionName"
+      />
     </div>
   </section>
 </template>

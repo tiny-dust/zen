@@ -22,7 +22,6 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import DiffView from "@/components/right/DiffView.vue";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -52,22 +51,26 @@ import type {
  * 变更/diff、分支切换与合并、提交推送拉取、PR 与贮藏。
  * 所有操作都按 repo.path 独立发起，多个仓库面板可同时展开互不干扰。
  */
-const props = defineProps<{ repo: GitRepository; open: boolean }>();
+const props = defineProps<{
+  repo: GitRepository;
+  open: boolean;
+  /** 会话工作树根目录；命中时本面板展示的是工作树而不是主仓库 */
+  worktreePath?: string;
+}>();
 const emit = defineEmits<{ toggle: []; openPanel: [path: string] }>();
 
 const { t } = useI18n();
 const gitStore = useGitStore();
 
 const loaded = ref(false);
+/** 变更文件列表的展开态（与仓库面板折叠独立，默认展开） */
+const filesOpen = ref(true);
 const loading = ref(false);
 const error = ref("");
 const status = ref<GitStatus | null>(null);
 const branches = ref<GitBranches>({ local: [], remote: [] });
 const pullRequest = ref<GitPullRequest | null>(null);
 const stashes = ref<GitStashEntry[]>([]);
-const diffPath = ref("");
-const diff = ref("");
-const diffLoading = ref(false);
 const commitMessage = ref("");
 const includeUnstaged = ref(true);
 const opBusy = ref("");
@@ -92,6 +95,14 @@ const SHORTCUTS = {
 function tip(label: string, key?: string): string {
   return key ? `${label}（${shortcutDisplayParts(key).join("")}）` : label;
 }
+
+/** 当前面板对应的目录是否落在会话工作树内 */
+const inWorktree = computed(() => {
+  const root = props.worktreePath?.replace(/\/+$/, "");
+  if (!root) return false;
+  const path = props.repo.path.replace(/\/+$/, "");
+  return path === root || path.startsWith(`${root}/`);
+});
 
 const displayName = computed(() =>
   props.repo.relativePath === "." ? props.repo.name : props.repo.relativePath,
@@ -178,8 +189,6 @@ function reset() {
   branches.value = { local: [], remote: [] };
   pullRequest.value = null;
   stashes.value = [];
-  diffPath.value = "";
-  diff.value = "";
   commitMessage.value = "";
   newBranchName.value = "";
   error.value = "";
@@ -201,6 +210,32 @@ watch(
   { immediate: true },
 );
 
+/** 展开时轮询 status：Agent 在会话工作树里的改动无需手动刷新即可出现 */
+const POLL_MS = 3000;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    stopPolling();
+    if (!open) return;
+    pollTimer = setInterval(() => {
+      if (!loaded.value || loading.value || busying.value) return;
+      loadStatus().catch(() => undefined);
+    }, POLL_MS);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(stopPolling);
+
 async function withOp(name: string, action: () => Promise<void>) {
   if (busying.value) return;
   opBusy.value = name;
@@ -214,42 +249,14 @@ async function withOp(name: string, action: () => Promise<void>) {
   }
 }
 
-async function selectFile(change: GitFileChange) {
-  if (diffPath.value === change.path) {
-    diffPath.value = "";
-    diff.value = "";
-    return;
-  }
-  diffPath.value = change.path;
-  diff.value = "";
-  diffLoading.value = true;
-  try {
-    const zen = window.zen;
-    if (!zen?.git) return;
-    let raw: string | null = null;
-    if (change.untracked) {
-      const content = await zen.workspace.readFile(props.repo.path, change.path);
-      raw = content?.content
-        ? `diff --git a/${change.path} b/${change.path}\n@@ -0,0 +1 @@\n${content.content
-            .replace(/\n$/, "")
-            .split("\n")
-            .map((line) => `+${line}`)
-            .join("\n")}`
-        : null;
-    } else {
-      raw = await zen.git.diff(props.repo.path, change.path);
-      if (!raw) {
-        raw = await zen.git.diff(props.repo.path, change.path, true);
-      }
-    }
-    if (diffPath.value === change.path) {
-      diff.value = raw ?? "";
-    }
-  } catch (reason) {
-    reportError(reason);
-  } finally {
-    diffLoading.value = false;
-  }
+/**
+ * 变更文件统一在右侧面板（Git tab）查看：先切到该仓库，再打开文件 diff tab。
+ * 环境信息面板只保留「看到改了什么」这一层，不再内联渲染 diff。
+ */
+async function openDiffInPanel(change: GitFileChange) {
+  await gitStore.selectRepository(props.repo.path);
+  gitStore.openFileTab(change.path);
+  gitStore.openGitPanel();
 }
 
 async function checkout(name: string) {
@@ -511,7 +518,8 @@ async function stashDrop(index: number) {
 const rowCls = "flex w-full min-w-0 items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left";
 const linkCls = "text-[var(--color-link)] hover:underline";
 /** 分组内操作按钮：图标 + 文字（11px），一排纯图标难以分辨 */
-const actCls = "h-6 gap-1 px-1.5 text-[11px] font-normal";
+/** 环境信息面板的 git 按钮：只留图标，功能与快捷键走悬浮提示 */
+const actCls = "size-6 flex-none px-0";
 /** 分组标题：小号弱化文字，只承担分组标识 */
 const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
 </script>
@@ -546,6 +554,13 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
             :title="repo.path"
           >
             {{ displayName }}
+          </span>
+          <span
+            v-if="inWorktree"
+            class="flex-none rounded-full bg-[var(--color-chip-bg)] px-1.5 text-[10px] text-[var(--color-mut)]"
+            :title="t('worktree.badgeTitle')"
+          >
+            {{ t("worktree.badge") }}
           </span>
           <span
             v-if="files.length"
@@ -618,7 +633,18 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
 
       <!-- 变更 -->
       <div class="flex min-w-0 flex-col gap-1 px-2 py-2">
-        <div class="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          class="-mx-1 flex h-5 min-w-0 items-center gap-1.5 rounded-[4px] px-1 text-left hover:bg-[var(--color-menu-hover)]"
+          :aria-expanded="filesOpen"
+          :title="t('shell.changedFiles')"
+          @click="filesOpen = !filesOpen"
+        >
+          <ChevronDown
+            class="size-3 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+            :class="filesOpen ? '' : '-rotate-90'"
+            aria-hidden="true"
+          />
           <span :class="blockLabelCls">{{ t("shell.changedFiles") }}</span>
           <span
             v-if="files.length"
@@ -629,45 +655,31 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           <span v-else-if="loaded" class="text-[10px] text-[var(--color-dim)]">
             {{ t("shell.repoClean") }}
           </span>
-        </div>
+        </button>
 
-        <template v-for="change in files" :key="change.path">
-          <button
-            type="button"
-            :class="[
-              rowCls,
-              'hover:bg-[var(--color-menu-hover)]',
-              diffPath === change.path ? 'bg-[var(--color-menu-hover)]' : '',
-            ]"
-            :title="change.path"
-            @click="selectFile(change)"
-          >
-            <span
-              class="w-3 flex-none text-center font-[family-name:var(--font-mono)] text-[10px]"
-              :class="gitStore.statusBadge(change).cls"
+        <template v-if="filesOpen">
+          <template v-for="change in files" :key="change.path">
+            <button
+              type="button"
+              :class="[rowCls, 'hover:bg-[var(--color-menu-hover)]']"
+              :title="t('shell.openDiffInPanel', { path: change.path })"
+              @click="openDiffInPanel(change)"
             >
-              {{ gitStore.statusBadge(change).text }}
-            </span>
-            <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]">
-              {{ change.path }}
-            </span>
-            <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums">
-              <span class="text-[var(--color-add)]">+{{ change.add }}</span>
-              <span class="text-[var(--color-del)]">&nbsp;-{{ change.del }}</span>
-            </span>
-          </button>
-          <div
-            v-if="diffPath === change.path"
-            class="my-0.5 max-h-[240px] min-w-0 overflow-auto rounded-md border border-[var(--color-line-soft)]"
-          >
-            <p v-if="diffLoading" class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
-              {{ t("panels.loadingDiff") }}
-            </p>
-            <DiffView v-else-if="diff" :diff="diff" :path="change.path" />
-            <p v-else class="m-0 p-2 text-[11px] text-[var(--color-dim)]">
-              {{ t("panels.noDiffContent") }}
-            </p>
-          </div>
+              <span
+                class="w-3 flex-none text-center font-[family-name:var(--font-mono)] text-[10px]"
+                :class="gitStore.statusBadge(change).cls"
+              >
+                {{ gitStore.statusBadge(change).text }}
+              </span>
+              <span class="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[11px]">
+                {{ change.path }}
+              </span>
+              <span class="flex-none font-[family-name:var(--font-mono)] text-[10px] tabular-nums">
+                <span class="text-[var(--color-add)]">+{{ change.add }}</span>
+                <span class="text-[var(--color-del)]">&nbsp;-{{ change.del }}</span>
+              </span>
+            </button>
+          </template>
         </template>
       </div>
 
@@ -695,26 +707,24 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           >
             <LoaderCircle v-if="generating" class="size-3 animate-spin" aria-hidden="true" />
             <Sparkles v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.aiGenerate") }}
           </Button>
           <Button
             variant="outline"
             size="xs"
             :class="actCls"
-            aria-label="提交"
+            :aria-label="t('shell.commit')"
             :title="tip(t('shell.commit'), SHORTCUTS.commit)"
             :disabled="busying || !files.length"
             @click="commit('commit')"
           >
             <LoaderCircle v-if="opBusy === 'commit'" class="size-3 animate-spin" aria-hidden="true" />
             <GitCommitHorizontal v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.commit") }}
           </Button>
           <Button
             variant="ghost"
             size="xs"
             :class="actCls"
-            aria-label="提交并推送"
+            :aria-label="t('shell.commitAndPush')"
             :title="tip(t('shell.commitAndPush'), SHORTCUTS.commitPush)"
             :disabled="busying || !files.length"
             @click="commit('commit-push')"
@@ -725,7 +735,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
               aria-hidden="true"
             />
             <CloudUpload v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.commitAndPush") }}
           </Button>
           <label
             class="ml-auto flex flex-none cursor-pointer items-center gap-1.5 text-[10px] text-[var(--color-mut)]"
@@ -760,7 +769,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
                 :title="t('shell.switchBranch')"
               >
                 <ArrowRightLeft class="size-3" aria-hidden="true" />
-                {{ t("shell.switchShort") }}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
@@ -803,7 +811,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
                 :disabled="!localBranches.length && !remoteBranches.length"
               >
                 <GitMerge class="size-3" aria-hidden="true" />
-                {{ t("shell.mergeShort") }}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" class="max-h-[280px] w-[220px] overflow-auto">
@@ -827,7 +834,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
             @click="creatingBranch = !creatingBranch"
           >
             <GitBranchPlus class="size-3" aria-hidden="true" />
-            {{ t("shell.newBranchShort") }}
           </Button>
 
           <span class="mx-1 h-3.5 w-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
@@ -843,7 +849,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           >
             <LoaderCircle v-if="opBusy === 'pull'" class="size-3 animate-spin" aria-hidden="true" />
             <ArrowDown v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.pullShort") }}
           </Button>
           <Button
             variant="ghost"
@@ -856,7 +861,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           >
             <LoaderCircle v-if="opBusy === 'push'" class="size-3 animate-spin" aria-hidden="true" />
             <ArrowUp v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.pushShort") }}
           </Button>
           <Button
             variant="ghost"
@@ -869,7 +873,6 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           >
             <LoaderCircle v-if="opBusy === 'fetch'" class="size-3 animate-spin" aria-hidden="true" />
             <RefreshCw v-else class="size-3" aria-hidden="true" />
-            {{ t("shell.fetchShort") }}
           </Button>
         </div>
 
@@ -980,14 +983,13 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
           <Button
             variant="ghost"
             size="xs"
-            class="ml-auto h-6 flex-none gap-1 px-1.5 text-[11px] font-normal"
+            class="ml-auto size-6 flex-none px-0"
             :aria-label="t('panels.stashChanges')"
             :title="t('panels.stashChanges')"
             :disabled="busying || !files.length"
             @click="stashPush"
           >
             <Archive class="size-3" aria-hidden="true" />
-            {{ t("panels.stashChanges") }}
           </Button>
         </div>
         <div

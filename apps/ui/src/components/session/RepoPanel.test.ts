@@ -5,8 +5,15 @@ import RepoPanel from "@/components/session/RepoPanel.vue";
 
 import type { GitRepository, GitStatus } from "@zen/shared";
 
+const gitStoreMock = vi.hoisted(() => ({
+  selectRepository: vi.fn(),
+  openFileTab: vi.fn(),
+  openGitPanel: vi.fn(),
+}));
+
 vi.mock("@/stores/git", () => ({
   useGitStore: () => ({
+    ...gitStoreMock,
     repositories: [] as GitRepository[],
     repositoryBranches: {} as Record<string, string>,
     completionModel: () => ({ providerId: "p1", modelId: "m1" }),
@@ -90,7 +97,25 @@ describe("RepoPanel 单仓库面板", () => {
     expect(git.status).toHaveBeenCalledWith(repo.path);
   });
 
-  it("点击变更文件用该仓库路径取 diff", async () => {
+  it("变更文件分组可独立折叠展开", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    expect(wrapper.text()).toContain("src/a.ts");
+
+    const header = wrapper.findAll("button").find((item) => item.text().includes("变更文件"));
+    expect(header).toBeTruthy();
+    await header!.trigger("click");
+    await flushPromises();
+    expect(header!.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.text()).not.toContain("src/a.ts");
+
+    await header!.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("src/a.ts");
+    wrapper.unmount();
+  });
+
+  it("点击变更文件在右侧面板打开该仓库的 diff", async () => {
     const wrapper = mountPanel();
     await flushPromises();
 
@@ -99,7 +124,11 @@ describe("RepoPanel 单仓库面板", () => {
     await row!.trigger("click");
     await flushPromises();
 
-    expect(git.diff).toHaveBeenCalledWith(repo.path, "src/a.ts");
+    expect(gitStoreMock.selectRepository).toHaveBeenCalledWith(repo.path);
+    expect(gitStoreMock.openFileTab).toHaveBeenCalledWith("src/a.ts");
+    expect(gitStoreMock.openGitPanel).toHaveBeenCalledTimes(1);
+    // 面板内不再内联渲染 diff
+    expect(wrapper.text()).not.toContain("diff --git");
   });
 
   it("提交按该仓库路径调用 commit，默认包含未暂存更改", async () => {
@@ -117,6 +146,31 @@ describe("RepoPanel 单仓库面板", () => {
       push: false,
       includeUnstaged: true,
     });
+  });
+
+  it("面板展开时轮询 status（工作树里 Agent 的改动会自动出现）", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountPanel();
+      await flushPromises();
+      expect(git.status).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await flushPromises();
+      expect(git.status.mock.calls.length).toBeGreaterThanOrEqual(2);
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("仓库位于会话工作树时标注「工作树」", async () => {
+    const wrapper = mount(RepoPanel, {
+      props: { repo, open: true, worktreePath: "/tmp/demo" },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("工作树");
+    wrapper.unmount();
   });
 
   it("「在 Git 面板打开」抛出仓库路径", async () => {

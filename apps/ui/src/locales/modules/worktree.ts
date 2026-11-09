@@ -3,6 +3,9 @@ import type { LocaleModule } from "../index";
 export default {
   "zh-CN": {
     title: "会话工作树",
+    badge: "工作树",
+    badgeTitle: "该面板展示的是会话工作树，不是主仓库",
+    envHint: "当前展示会话工作树 · {branch}",
     active: "独立运行",
     description: "为当前会话创建独立的 Git 工作目录，便于与同项目的其他会话并行。",
     create: "创建工作树",
@@ -14,6 +17,9 @@ export default {
   },
   "en-US": {
     title: "Session worktree",
+    badge: "Worktree",
+    badgeTitle: "This panel shows the session worktree, not the main checkout",
+    envHint: "Showing the session worktree · {branch}",
     active: "Isolated",
     description: "Give this chat an isolated Git checkout so other chats can work on the same project in parallel.",
     create: "Create worktree",
