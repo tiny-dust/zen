@@ -10,6 +10,7 @@ import { buildApprovalGate } from "./approval-gate";
 import { getCuaService } from "./abilities/cua";
 import { getBrowserRegistry } from "./browser/service";
 import { getChatGptAuthStatus, resolveChatGptCredentials } from "./chatgpt-auth";
+import { chatGptRequestTarget } from "./model-api";
 import { notifyLarkEvent } from "./lark/ipc";
 import {
   appendMemoryNote,
@@ -20,7 +21,7 @@ import {
 import { enabledMcpTools } from "./mcp-ipc";
 import { inspectModelCapabilities } from "./model-capabilities";
 import { chatGptUsageAccountKey, recordProviderUsage } from "./model-usage";
-import { CHATGPT_PROVIDER_BASE_URL, getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
+import { getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
 import { resolveWorkspaceDir } from "./sandbox";
 import { resolveSessionWorktreeRoot } from "./session-worktree";
@@ -293,11 +294,16 @@ export async function runAgentRequest(
     // 其余供应商走静态 API Key
     let apiKey: string;
     let authHeaders: Record<string, string> | undefined;
+    /** 实际请求端点：Codex 账号走 ChatGPT 后端，Zen 自注册账号走公开 API */
+    let runBaseUrl = provider.baseUrl;
     if (isChatGptAuthProvider(provider)) {
       const credentials = await resolveChatGptCredentials(provider.id);
       apiKey = credentials.accessToken;
       const authStatus = await getChatGptAuthStatus(provider.id);
       usageAccountKey = chatGptUsageAccountKey(credentials.accountId ?? authStatus.accountId, authStatus.email);
+      const target = chatGptRequestTarget(credentials);
+      runBaseUrl = target.baseUrl;
+      authHeaders = Object.keys(target.headers).length ? target.headers : undefined;
     } else {
       apiKey = await loadProviderApiKey(provider.id);
       usageAccountKey = "";
@@ -352,7 +358,7 @@ export async function runAgentRequest(
       sessionId: request.sessionId,
       workspaceRoot,
       protocol,
-      baseUrl: isChatGptAuthProvider(provider) ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl,
+      baseUrl: runBaseUrl,
       apiKey,
       model: modelId,
       chatgptPlan: isChatGptAuthProvider(provider),

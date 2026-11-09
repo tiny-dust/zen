@@ -267,6 +267,20 @@ function codexAccountHeaders(accountId?: string): Record<string, string> {
   };
 }
 
+/**
+ * ChatGPT 授权的实际请求目标：Codex 账号走 ChatGPT 后端（需账号头），
+ * Zen 自注册账号走公开 API。补全与 Agent 运行必须共用这一处判断。
+ */
+export function chatGptRequestTarget(credentials: {
+  profile: ChatGptAuthProfile;
+  accountId?: string;
+}): { baseUrl: string; headers: Record<string, string> } {
+  if (credentials.profile === "codex") {
+    return { baseUrl: CODEX_API_BASE_URL, headers: codexAccountHeaders(credentials.accountId) };
+  }
+  return { baseUrl: CHATGPT_PROVIDER_BASE_URL, headers: {} };
+}
+
 /** 补全请求的公共准备：解析供应商/模型、密钥、UA、token 预算、推理档与请求头 */
 async function resolveCompletion(options?: {
   maxTokens?: number;
@@ -296,13 +310,11 @@ async function resolveCompletion(options?: {
   // ChatGPT 方案登录：access_token 当 API Key 用（Bearer）；
   // 其余供应商走静态 API Key
   let apiKey: string;
-  let accountId: string | undefined;
-  let profile: ChatGptAuthProfile | null = null;
+  let target: { baseUrl: string; headers: Record<string, string> } | null = null;
   if (provider.authMode === "chatgpt-oauth") {
     const credentials = await resolveChatGptCredentials(provider.id);
     apiKey = credentials.accessToken;
-    accountId = credentials.accountId;
-    profile = credentials.profile;
+    target = chatGptRequestTarget(credentials);
   } else {
     apiKey = await loadProviderApiKey(provider.id);
   }
@@ -334,16 +346,16 @@ async function resolveCompletion(options?: {
           "content-type": "application/json",
           Authorization: `Bearer ${apiKey}`,
           "User-Agent": userAgent,
-          ...(profile === "codex" ? codexAccountHeaders(accountId) : {}),
+          ...(target?.headers ?? {}),
         };
   return {
     provider: { ...provider, protocol },
     modelId,
     maxTokens,
-    // Codex 账号走 ChatGPT 后端（不带 /v1 前缀），Zen 客户端走公开 API
-    url: profile === "codex"
-      ? `${CODEX_API_BASE_URL}/responses`
-      : chatUrl(provider.authMode === "chatgpt-oauth" ? CHATGPT_PROVIDER_BASE_URL : provider.baseUrl, protocol),
+    // ChatGPT 授权按来源选端点（Codex 后端不带 /v1 前缀），其余供应商用自身 baseUrl
+    url: target
+      ? `${target.baseUrl}/responses`
+      : chatUrl(provider.baseUrl, protocol),
     headers,
     effort,
   };

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveChatGptCredentials } from "./chatgpt-auth";
-import { completeOnce, completeVisionOnce, fetchModelsFromProvider, mapChatGptModels } from "./model-api";
+import { chatGptRequestTarget, completeOnce, completeVisionOnce, fetchModelsFromProvider, mapChatGptModels } from "./model-api";
 import { listProviders } from "./model-db";
 
 import type { ProviderSummary } from "@zen/shared";
@@ -9,7 +9,7 @@ import type { ProviderSummary } from "@zen/shared";
 vi.mock("./model-catalog", () => ({ matchCatalogModel: () => ({ model: null }) }));
 vi.mock("./chatgpt-auth", () => ({
   CODEX_API_BASE_URL: "https://chatgpt.com/backend-api/codex",
-  CODEX_CLIENT_VERSION: "0.146.0",
+  CODEX_CLIENT_VERSION: "0.160.0",
   resolveChatGptCredentials: vi.fn(async () => ({ accessToken: "account-token" })),
 }));
 vi.mock("./model-db", () => ({
@@ -78,7 +78,7 @@ describe("Codex model configuration", () => {
     const result = await fetchModelsFromProvider(provider);
     expect(result.models.map((model) => model.id)).toEqual(["gpt-5.6-sol"]);
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe(`https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent("0.146.0")}`);
+    expect(url).toBe(`https://chatgpt.com/backend-api/codex/models?client_version=${encodeURIComponent("0.160.0")}`);
     expect((init as RequestInit).headers).toMatchObject({
       Authorization: "Bearer codex-token",
       "ChatGPT-Account-ID": "acct-1",
@@ -193,5 +193,21 @@ describe("Codex model configuration", () => {
     if (!init) throw new Error("missing request options");
     expect(init.headers).toMatchObject({ Authorization: "Bearer sk-test" });
     expect(JSON.parse(init.body as string)).toMatchObject({ max_output_tokens: 4096, store: false, stream: true });
+  });
+});
+
+describe("chatGptRequestTarget", () => {
+  it("Codex 账号走 ChatGPT 后端并带账号请求头", () => {
+    expect(chatGptRequestTarget({ profile: "codex", accountId: "acct-1" })).toEqual({
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+      headers: { originator: "codex_cli_rs", "ChatGPT-Account-ID": "acct-1" },
+    });
+  });
+
+  it("Zen 自注册账号走公开 API，不带额外请求头", () => {
+    expect(chatGptRequestTarget({ profile: "zen" })).toEqual({
+      baseUrl: "https://api.openai.com/v1",
+      headers: {},
+    });
   });
 });

@@ -35,7 +35,11 @@ const CODEX_SCOPE = "openid profile email offline_access api.connectors.read api
 const CODEX_ORIGINATOR = "codex_cli_rs";
 /** Codex 账号模式使用的接口前缀（ChatGPT 后端，而非 api.openai.com） */
 export const CODEX_API_BASE_URL = "https://chatgpt.com/backend-api/codex";
-export const CODEX_CLIENT_VERSION = "0.146.0";
+/**
+ * 模型目录按客户端版本下发：0.15x 起逐步放行 gpt-6 系列。
+ * 这里声明一个能覆盖当前全部可用模型的版本（与「我们支持最新协议」一致）。
+ */
+export const CODEX_CLIENT_VERSION = "0.160.0";
 /** 授权链接生成后 10 分钟内可粘贴回调 */
 const CODEX_PENDING_TTL_MS = 10 * 60_000;
 
