@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ArrowUpToLine, Pencil, X, Zap } from "@lucide/vue";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
 
 import type { QueuedMessage } from "@/stores/chat-types";
@@ -13,7 +15,7 @@ const props = defineProps<{
   insertDisabled?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   promote: [id: string];
   edit: [id: string];
   remove: [id: string];
@@ -21,6 +23,13 @@ defineEmits<{
 }>();
 
 const { t } = useI18n();
+const removeCandidateId = ref<string | null>(null);
+
+function confirmRemove() {
+  const id = removeCandidateId.value;
+  removeCandidateId.value = null;
+  if (id && props.items.some((item) => item.id === id)) emit("remove", id);
+}
 
 /** 队列条目展示文本：正文为空（纯附件消息）时退回附件名列表 */
 function displayText(item: QueuedMessage): string {
@@ -101,10 +110,17 @@ function insertButtonHint(item: QueuedMessage): { disabled: boolean; label: stri
         class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
         :title="t('common.delete')"
         :aria-label="t('chat.queued.remove')"
-        @click="$emit('remove', item.id)"
+        @click="removeCandidateId = item.id"
       >
         <X class="size-3" />
       </Button>
     </div>
+    <ConfirmDialog
+      :open="removeCandidateId !== null"
+      :title="t('chat.queued.removeConfirmTitle')"
+      :description="t('chat.queued.removeConfirmDescription')"
+      @update:open="(open) => { if (!open) removeCandidateId = null; }"
+      @confirm="confirmRemove"
+    />
   </div>
 </template>

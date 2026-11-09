@@ -187,6 +187,14 @@ function submitPicked(ask: AskUserQuestionEvent) {
   void answer(ask, [draft.picked.join("、"), extra].filter(Boolean).join("；补充："));
 }
 
+function onFreeTextEnter(event: KeyboardEvent, ask: AskUserQuestionEvent) {
+  if (event.isComposing || event.keyCode === 229) {
+    return;
+  }
+  event.preventDefault();
+  submitFreeText(ask);
+}
+
 function submitFreeText(ask: AskUserQuestionEvent) {
   const draft = draftOf(ask.askId);
   if (!draft.freeText.trim()) {
@@ -372,7 +380,7 @@ async function submitAll() {
             :placeholder="isMulti(current) ? t('chat.ask.freeTextWithMulti') : t('chat.ask.freeTextOnly')"
             :aria-label="t('chat.ask.freeAnswer')"
             @update:model-value="draftOf(current.askId).freeText = String($event)"
-            @keydown.enter.prevent="submitFreeText(current)"
+            @keydown.enter="onFreeTextEnter($event, current)"
           />
           <Button
             variant="ghost"

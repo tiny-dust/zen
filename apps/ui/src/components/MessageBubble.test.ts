@@ -24,9 +24,9 @@ vi.mock("@/stores/right-panel", () => ({
   }),
 }));
 
-function mountMessage(message: ChatMessage, streaming = false) {
+function mountMessage(message: ChatMessage, streaming = false, exportable = false) {
   return mount(MessageBubble, {
-    props: { message, streaming },
+    props: { message, streaming, exportable },
     global: {
       stubs: {
         Reasoning: true,
@@ -183,6 +183,27 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).not.toContain("运行失败");
     expect(wrapper.text()).not.toContain("已取消");
     expect(wrapper.text()).not.toContain("已达到步骤上限");
+  });
+
+  it("仅已完成且可导出的助手回复显示图标按钮，点击上报导出事件", async () => {
+    const completed: ChatMessage = {
+      id: "a-export", role: "assistant", content: "完成", createdAt: 1,
+      meta: { run: { reason: "stop" } },
+    };
+    const wrapper = mountMessage(completed, false, true);
+    const exportButton = wrapper.get('button[aria-label="导出本轮"]');
+    expect(exportButton.attributes("title")).toBe("导出本轮");
+    expect(exportButton.find(".lucide-download").exists()).toBe(true);
+    expect(exportButton.text()).toBe("");
+    await exportButton.trigger("click");
+    expect(wrapper.emitted("exportTurn")).toHaveLength(1);
+
+    expect(mountMessage(completed).find('button[aria-label="导出本轮"]').exists()).toBe(false);
+    expect(mountMessage(completed, true, true).find('button[aria-label="导出本轮"]').exists()).toBe(false);
+    expect(mountMessage({ ...completed, meta: { run: { reason: "error" } } }, false, true)
+      .find('button[aria-label="导出本轮"]').exists()).toBe(false);
+    expect(mountMessage({ ...completed, role: "user" }, false, true)
+      .find('button[aria-label="导出本轮"]').exists()).toBe(false);
   });
 
   it("contextCompact 走专用压缩卡，不走普通工具行", async () => {

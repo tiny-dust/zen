@@ -26,7 +26,12 @@ vi.mock("@/stores/chat", () => ({
 }));
 
 vi.mock("@/components/MessageBubble.vue", () => ({
-  default: { name: "MessageBubble", template: "<div class='stub-bubble' />" },
+  default: {
+    name: "MessageBubble",
+    props: ["message", "streaming", "exportable"],
+    emits: ["exportTurn"],
+    template: "<div class='stub-bubble' @click=\"$emit('exportTurn')\" />",
+  },
 }));
 vi.mock("@/components/chat/ToolCallGroup.vue", () => ({
   default: { name: "ToolCallGroup", template: "<div class='stub-tools' />" },
@@ -36,6 +41,7 @@ vi.mock("@/components/chat/ApprovalCard.vue", () => ({
 }));
 
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
+import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
 
 function userMsg(id: string): ChatMessage {
   return { id, role: "user", content: "在吗", createdAt: 1 };
@@ -117,5 +123,28 @@ describe("ChatTimeline 思考占位", () => {
     chatState.isPreparing = true;
 
     expect(mountTimeline().find('[role="status"]').exists()).toBe(true);
+  });
+});
+
+describe("ChatTimeline 本轮导出入口", () => {
+  it("仅用户轮次后的已完成助手消息可导出，事件保留弹窗目标 ID", async () => {
+    chatState.messages.value = [
+      { ...assistantMsg("orphan"), meta: { run: { reason: "stop" } } },
+      userMsg("u1"),
+      { ...assistantMsg("done"), meta: { run: { reason: "stop" } } },
+      userMsg("u2"),
+      { ...assistantMsg("failed"), meta: { run: { reason: "error" } } },
+    ];
+    chatState.isRunning = false;
+    chatState.isPreparing = false;
+    const wrapper = mountTimeline();
+    const bubbles = wrapper.findAllComponents({ name: "MessageBubble" });
+    expect(bubbles.map((bubble) => bubble.props("exportable"))).toEqual([false, false, true, false, false]);
+    expect(wrapper.find('[aria-label="导出本轮"]').exists()).toBe(false);
+
+    await bubbles[2]!.trigger("click");
+    const dialog = wrapper.findComponent(ExportSessionDialog);
+    expect(dialog.props("open")).toBe(true);
+    expect(dialog.props("assistantMessageId")).toBe("done");
   });
 });

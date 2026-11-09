@@ -82,6 +82,28 @@ describe("AskUserCard", () => {
     expect(resolveAsk).toHaveBeenNthCalledWith(2, expect.any(String), { askId: "a2", answer: "选项 A" });
   });
 
+  it("自由回答：中文输入法确认词时 Enter 不提交，结束后 Enter 才提交", async () => {
+    const chat = store();
+    chat.pendingAsks = [askOf("a1", "自由回答")];
+    const wrapper = mount(AskUserCard);
+    const input = wrapper.find('input[aria-label="自由回答"]');
+    await input.setValue("中文");
+    await input.trigger("keydown", { key: "Enter", isComposing: true });
+    await flushPromises();
+    expect(resolveAsk).not.toHaveBeenCalled();
+    expect(chat.pendingAsks).toHaveLength(1);
+
+    await input.trigger("keydown", { key: "Enter", keyCode: 229 });
+    await flushPromises();
+    expect(resolveAsk).not.toHaveBeenCalled();
+
+    await input.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(resolveAsk).toHaveBeenCalledOnce();
+    expect(resolveAsk).toHaveBeenCalledWith(expect.any(String), { askId: "a1", answer: "中文" });
+    wrapper.unmount();
+  });
+
   it("单问询：点选项即回答，无统一提交栏", async () => {
     const chat = store();
     chat.pendingAsks = [askOf("a1", "只此一问", "neutral")];

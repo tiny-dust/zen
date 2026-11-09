@@ -6,6 +6,7 @@ import { useI18n } from "vue-i18n";
 
 import { Loader } from "@/components/ai-elements/loader";
 import ApprovalCard from "@/components/chat/ApprovalCard.vue";
+import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
 import { groupTimelineMessages } from "@/components/chat/message-groups";
 import type { TimelineItem } from "@/components/chat/message-groups";
 import ToolCallGroup from "@/components/chat/ToolCallGroup.vue";
@@ -19,6 +20,24 @@ const { t } = useI18n();
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
 const timelineItems = computed(() => groupTimelineMessages(messages.value));
+const exportTurnId = ref("");
+const exportOpen = ref(false);
+const completedTurnIds = computed(() => {
+  const ids = new Set<string>();
+  let hasUser = false;
+  for (const message of messages.value) {
+    if (message.role === "user") hasUser = true;
+    if (hasUser && message.role === "assistant" && getMessageRun(message)?.reason === "stop") {
+      ids.add(message.id);
+    }
+  }
+  return ids;
+});
+
+watch(() => chatStore.sessionId, () => {
+  exportOpen.value = false;
+  exportTurnId.value = "";
+});
 
 const listEl = ref<HTMLElement | null>(null);
 const contentEl = ref<HTMLElement | null>(null);
@@ -412,6 +431,8 @@ onUnmounted(() => {
               v-else
               :message="item.message"
               :streaming="chatStore.isRunning && item.message.id === messages.at(-1)?.id"
+              :exportable="item.type === 'message' && completedTurnIds.has(item.message.id)"
+              @export-turn="exportTurnId = item.message.id; exportOpen = true"
             />
           </div>
           <!-- 首个流事件前的思考占位：助手气泡一到就让位（气泡内 loader 接管） -->
@@ -426,6 +447,13 @@ onUnmounted(() => {
         </template>
       </div>
     </div>
+
+    <ExportSessionDialog
+      v-model:open="exportOpen"
+      :session-id="chatStore.sessionId"
+      :session-title="chatStore.sessionName"
+      :assistant-message-id="exportTurnId"
+    />
 
     <!-- 离底较远时出现，回到底部（MiMo 同构圆形按钮） -->
     <Button

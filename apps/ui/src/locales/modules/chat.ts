@@ -242,6 +242,8 @@ export default {
       edit: "编辑插入消息",
       editTitle: "编辑：放回输入框",
       remove: "删除插入消息",
+      removeConfirmTitle: "删除这条排队消息？",
+      removeConfirmDescription: "这条待发送消息及其附件将从队列移除，无法撤销。",
       hint: "已加入队列，当前任务结束后自动执行",
     },
 
@@ -554,6 +556,8 @@ export default {
       edit: "Edit queued message",
       editTitle: "Edit: back to composer",
       remove: "Delete queued message",
+      removeConfirmTitle: "Delete this queued message?",
+      removeConfirmDescription: "This unsent message and its attachments will be removed from the queue. This can't be undone.",
       hint: "Queued — it will run automatically when the current task finishes",
     },
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, Ban, Check, CircleAlert, Copy, GitBranch, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
+import { AudioLines, Ban, Check, CircleAlert, Copy, Download, GitBranch, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -35,7 +35,10 @@ import { getMessageRun } from "@zen/shared";
 const props = defineProps<{
   message: ChatMessage;
   streaming?: boolean;
+  exportable?: boolean;
 }>();
+
+const emit = defineEmits<{ exportTurn: [] }>();
 
 const { t } = useI18n();
 
@@ -717,7 +720,7 @@ async function ocrAttachment(path: string) {
       </span>
     </div>
 
-    <!-- 消息底部操作行：发送时间 / 复制 / 重试（重新生成本轮回复） -->
+    <!-- 消息底部操作行：发送时间 / 复制 / 重试 / 分叉 / 导出本轮 -->
     <div v-if="!streaming" class="flex items-center gap-1 text-[var(--color-dim)]">
       <time
         class="text-[11px]"
@@ -756,6 +759,17 @@ async function ocrAttachment(path: string) {
         @click="forkFromHere"
       >
         <GitBranch class="size-3.5" />
+      </Button>
+      <Button
+        v-if="exportable && runSummary?.reason === 'stop'"
+        variant="ghost"
+        size="icon-xs"
+        class="rounded-md hover:text-[var(--color-txt-strong)]"
+        :aria-label="t('features.exportTurn')"
+        :title="t('features.exportTurn')"
+        @click="emit('exportTurn')"
+      >
+        <Download class="size-3.5" aria-hidden="true" />
       </Button>
       <!-- 朗读：TTS 播报本条消息（平台不支持时隐藏；播放中变停止） -->
       <Button

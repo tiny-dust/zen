@@ -460,15 +460,22 @@ function removeAttachment(id: string) {
                 size="sm"
                 class="h-7 gap-1 text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
                 :aria-expanded="advancedOpen"
+                :aria-label="t('chat.moreOptions')"
+                :title="isCompactBar ? t('chat.moreOptions') : undefined"
                 aria-controls="composer-advanced-options"
                 @click="advancedOpen = !advancedOpen"
               >
-                {{ t("chat.moreOptions") }}
+                <span v-if="!isCompactBar">{{ t("chat.moreOptions") }}</span>
                 <ChevronDown class="size-3.5 transition-transform" :class="advancedOpen ? 'rotate-180' : ''" />
               </Button>
             </div>
 
-            <div class="flex flex-none items-center gap-1">
+            <div class="flex min-w-0 flex-none items-center gap-1">
+              <EffortSlider
+                v-if="selectedSupportsReasoning"
+                v-model="effort"
+                :allowed="allowedEfforts"
+              />
               <ModelPicker :compact="isCompactBar" />
               <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
               <Button
@@ -541,11 +548,6 @@ function removeAttachment(id: string) {
             <div class="flex min-w-0 flex-wrap items-center gap-1">
               <PromptPicker :compact="isCompactBar" />
               <SessionModePicker :compact="isCompactBar" />
-              <EffortSlider
-                v-if="selectedSupportsReasoning"
-                v-model="effort"
-                :allowed="allowedEfforts"
-              />
               <WorkspacePicker :compact="isCompactBar" />
               <ComposerBranchPicker :compact="isCompactBar" />
               <!-- 会话目标（Goals 目标模式）：无目标=设定入口，有目标=摘要 chip -->

@@ -102,7 +102,7 @@ const routingReason = computed(() => {
     return "";
   }
   return routing.rules
-    .map((rule) => t(`modelRouting.rule.${rule}`))
+    .map((rule) => t(`model-routing.modelRouting.rule.${rule}`))
     .filter(Boolean)
     .join("；");
 });
@@ -114,7 +114,7 @@ const triggerTitle = computed(() => {
   if (!autoRoute.value) {
     return modelName;
   }
-  return t("modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("modelRouting.autoSubtitle") });
+  return t("model-routing.modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("model-routing.modelRouting.autoSubtitle") });
 });
 
 function railClass(id: string | "recent") {
@@ -257,8 +257,12 @@ watch(providers, () => {
           />
         </div>
 
-        <div class="grid min-h-[220px] max-h-[320px] grid-cols-[168px_minmax(0,1fr)]">
-          <nav class="flex flex-col gap-0.5 overflow-auto border-r border-[var(--color-line)] bg-[var(--color-sunken)] p-1.5" :aria-label="t('chat.model.providers')">
+        <div class="grid min-h-[220px] max-h-[320px]" :class="compact ? 'grid-cols-1' : 'grid-cols-[168px_minmax(0,1fr)]'">
+          <nav
+            class="flex gap-0.5 overflow-auto bg-[var(--color-sunken)] p-1.5"
+            :class="compact ? 'flex-row border-b border-[var(--color-line)]' : 'flex-col border-r border-[var(--color-line)]'"
+            :aria-label="t('chat.model.providers')"
+          >
             <Button variant="ghost" :class="railClass('recent')" @click="selectProvider('recent')">
               <History class="size-4 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
               <span class="truncate font-normal">{{ t("chat.model.recentlyUsed") }}</span>
@@ -286,7 +290,8 @@ watch(providers, () => {
                     ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
                     : 'text-[var(--color-txt)]'
                 "
-                :aria-label="t('modelRouting.autoAria')"
+                :aria-label="t('model-routing.modelRouting.autoAria')"
+                :title="t('model-routing.modelRouting.autoHint')"
                 @click="pickAuto"
               >
                 <Check
@@ -296,9 +301,12 @@ watch(providers, () => {
                 />
                 <Sparkles class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
                 <span class="flex min-w-0 flex-col">
-                  <span class="truncate">{{ t("modelRouting.auto") }}</span>
-                  <span class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
-                    {{ lastRouting ? t("modelRouting.routedTo", { model: lastRouting.modelName }) : t("modelRouting.autoSubtitle") }}
+                  <span class="truncate">{{ t("model-routing.modelRouting.auto") }}</span>
+                  <span class="text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                    {{ t("model-routing.modelRouting.autoSubtitle") }}
+                  </span>
+                  <span v-if="autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                    {{ t("model-routing.modelRouting.routedTo", { model: lastRouting.modelName }) }}
                   </span>
                 </span>
               </Button>
@@ -308,7 +316,7 @@ watch(providers, () => {
                 class="m-0 px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[var(--color-mut)]"
                 :title="routingReason"
               >
-                {{ t("modelRouting.reasonPrefix") }}：{{ routingReason }}
+                {{ t("model-routing.modelRouting.reasonPrefix") }}：{{ routingReason }}
               </p>
             </div>
             <Button

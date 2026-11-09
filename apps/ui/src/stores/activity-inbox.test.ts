@@ -30,6 +30,7 @@ function scheduledTask(id: string, lastSessionId: string | null): ScheduledTask 
     schedule: { kind: "once", at: 1000 },
     enabled: false,
     workspacePath: null,
+    targetSessionId: null,
     lastRunAt: 1000,
     lastRunOk: true,
     lastResult: "done",
