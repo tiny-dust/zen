@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TerminalSessionInfo } from "@zen/shared";
 
+import { useLayoutStore } from "@/stores/layout";
 import { useTerminalStore } from "@/stores/terminal";
 
 function termOf(id: string): TerminalSessionInfo {
@@ -115,6 +116,40 @@ describe("terminal bindWorkspaceScope 按工作区分桶", () => {
     store.bindWorkspaceScope("s1");
     expect(store.sessions.map((item) => item.id)).toEqual(["t2"]);
     expect(store.names["t1"]).toBeUndefined();
+  });
+
+  it("底部面板已打开时切到空工作区，自动补一个终端；已有终端不重复创建", async () => {
+    const create = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      session: termOf(`t${create.mock.calls.length}`),
+    }));
+    vi.stubGlobal("zen", {
+      terminal: { shell: vi.fn().mockResolvedValue({ path: "/bin/sh", args: [], label: "sh" }), create },
+    });
+    const layout = useLayoutStore();
+    const store = useTerminalStore();
+    store.bindWorkspaceScope("s1");
+    layout.toggleBottom();
+    await store.ensureForWorkspace();
+    expect(store.sessions).toHaveLength(1);
+
+    store.bindWorkspaceScope("s2");
+    await vi.waitFor(() => expect(store.sessions).toHaveLength(1));
+    expect(create).toHaveBeenCalledTimes(2);
+
+    store.bindWorkspaceScope("s1");
+    await store.ensureForWorkspace();
+    expect(store.sessions).toHaveLength(1);
+    expect(create).toHaveBeenCalledTimes(2);
+
+    layout.toggleBottom();
+    store.bindWorkspaceScope("s3");
+    expect(store.sessions).toHaveLength(0);
+    expect(create).toHaveBeenCalledTimes(2);
+    layout.toggleBottom();
+    await store.ensureForWorkspace();
+    expect(store.sessions).toHaveLength(1);
+    expect(create).toHaveBeenCalledTimes(3);
   });
 
   it("当前工作区的活动终端退出：refs 清理（含命名摘除）", () => {

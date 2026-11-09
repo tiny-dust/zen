@@ -7,6 +7,7 @@ import type {
   TerminalShellInfo,
 } from "@zen/shared";
 import { useChatStore } from "@/stores/chat";
+import { useLayoutStore } from "@/stores/layout";
 import { createSessionBuckets } from "@/stores/session-buckets";
 import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -75,7 +76,9 @@ export const useTerminalStore = defineStore("terminal", () => {
     const scope = useSessionWorktreeStore().current(sessionId)
       ? `${workspaceId}:worktree:${sessionId}`
       : workspaceId;
-    workspaceBuckets.switchTo(scope);
+    if (workspaceBuckets.switchTo(scope) && !useLayoutStore().bottomCollapsed && !sessions.value.length) {
+      void ensureForWorkspace();
+    }
   }
 
   /** 活跃会话的终端面板状态视图：getter/setter 直连 refs，可复用桶内的 prune 逻辑 */
