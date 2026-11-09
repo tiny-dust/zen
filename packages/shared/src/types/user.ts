@@ -18,6 +18,9 @@ export interface GitHubUser {
 /** 界面主题：system = 跟随操作系统深浅色 */
 export type ThemeMode = "dark" | "light" | "system";
 
+/** 全局强调色；语义状态色（成功、危险等）不随之变化。 */
+export type AccentColor = "orange" | "blue" | "purple" | "red" | "green" | "cyan";
+
 /** 界面语言 */
 export type AppLocale = "zh-CN" | "en-US";
 
@@ -46,6 +49,8 @@ export interface AppSettings {
   codeTheme: string;
   /** 界面主题（system = 跟随操作系统） */
   theme: ThemeMode;
+  /** 界面强调色，与深浅模式独立 */
+  accentColor: AccentColor;
   /** 界面语言 */
   locale: AppLocale;
   /** 左下角/资料页展示哪个账户的身份 */
@@ -57,6 +62,14 @@ export const DEFAULT_CODE_THEME = "github";
 
 /** 默认界面主题：深色（项目既有默认） */
 export const DEFAULT_THEME: ThemeMode = "dark";
+
+/** 默认强调色：保持旧版暖橙外观。 */
+export const DEFAULT_ACCENT_COLOR: AccentColor = "orange";
+export const ACCENT_COLORS: readonly AccentColor[] = ["orange", "blue", "purple", "red", "green", "cyan"];
+
+export function normalizeAccentColor(value: unknown): AccentColor {
+  return ACCENT_COLORS.find((color) => color === value) ?? DEFAULT_ACCENT_COLOR;
+}
 
 /** 默认界面语言：简体中文 */
 export const DEFAULT_LOCALE: AppLocale = "zh-CN";

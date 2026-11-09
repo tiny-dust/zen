@@ -16,7 +16,7 @@ import { currentLocale, mainT } from "./i18n";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
 import type { AppSettings, AuthState, GitHubUser } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME, DEFAULT_ACCENT_COLOR, normalizeAccentColor } from "@zen/shared";
 import { setCurrentUserId } from "./workspace-db";
 import { syncGlobalShortcuts } from "./global-shortcuts";
 
@@ -38,6 +38,7 @@ const defaultSettings: AppSettings = {
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
   theme: DEFAULT_THEME,
+  accentColor: DEFAULT_ACCENT_COLOR,
   locale: DEFAULT_LOCALE,
   displayAccount: "auto",
 };
@@ -104,6 +105,7 @@ async function loadSettings(): Promise<AppSettings> {
   cachedSettings = {
     ...defaultSettings,
     ...storedRest,
+    accentColor: normalizeAccentColor(stored.accentColor),
     shortcuts: stored.shortcuts?.length
       ? stored.shortcuts
       : defaultSettings.shortcuts.map((item) => ({ ...item })),
@@ -396,6 +398,7 @@ export function registerUserIpc(): void {
     const next: AppSettings = {
       ...current,
       ...partial,
+      accentColor: normalizeAccentColor(partial.accentColor ?? current.accentColor),
       shortcuts: partial.shortcuts?.length
         ? partial.shortcuts
         : current.shortcuts.map((item) => ({ ...item })),

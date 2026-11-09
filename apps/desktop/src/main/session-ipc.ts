@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain, Notification } from "electron";
 import { writeFile } from "node:fs/promises";
 
 import type { ChatMessage, SessionMode } from "@zen/shared";
-import { isSessionExportFormat, SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
+import { completedExportTurn, isSessionExportFormat, SESSION_MODES, normalizeSessionGoal } from "@zen/shared";
 import type { SessionExportFormat, SessionExportOptions } from "@zen/shared";
 
 import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
@@ -397,14 +397,28 @@ export function registerSessionIpc(
     if (!record) {
       return { ok: false, error: "session not found" };
     }
+    const turn = options?.assistantMessageId
+      ? completedExportTurn(record.messages, options.assistantMessageId)
+      : null;
+    if (options?.assistantMessageId && !turn) {
+      return { ok: false, error: "completed turn not found" };
+    }
     const spec = SESSION_EXPORT_RENDERERS[format];
+    const session = turn
+      ? {
+          ...record.session,
+          createdAt: turn[0]?.createdAt ?? record.session.createdAt,
+          updatedAt: turn.at(-1)?.createdAt ?? record.session.updatedAt,
+        }
+      : record.session;
     // 思考内容默认不导出；只有请求里显式打开才带上
     const text = spec.render({
-      session: record.session,
-      messages: record.messages,
+      session,
+      messages: turn ?? record.messages,
       options: { includeReasoning: options?.includeReasoning === true },
     });
-    const defaultName = `${sanitizeTitle(record.session.title) || "session"}.${spec.extension}`.replace(
+    const suffix = turn ? `-turn-${options?.assistantMessageId?.slice(0, 8)}` : "";
+    const defaultName = `${sanitizeTitle(record.session.title) || "session"}${suffix}.${spec.extension}`.replace(
       /[\\/:*?"<>|]/g,
       "_",
     );
@@ -430,10 +444,16 @@ export function registerSessionIpc(
     if (!isSessionExportFormat(format)) {
       return { ok: false, error: "unsupported export format" };
     }
-    const includeReasoning =
-      typeof options === "object" && options !== null
-        ? (options as SessionExportOptions).includeReasoning === true
-        : false;
-    return exportSessionFile(event, sessionId, format, { includeReasoning });
+    const raw = typeof options === "object" && options !== null
+      ? options as Record<string, unknown>
+      : {};
+    if (raw.assistantMessageId !== undefined &&
+      (typeof raw.assistantMessageId !== "string" || !raw.assistantMessageId.trim())) {
+      return { ok: false, error: "invalid assistant message id" };
+    }
+    return exportSessionFile(event, sessionId, format, {
+      includeReasoning: raw.includeReasoning === true,
+      ...(typeof raw.assistantMessageId === "string" ? { assistantMessageId: raw.assistantMessageId } : {}),
+    });
   });
 }

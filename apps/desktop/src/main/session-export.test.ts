@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { completedExportTurn } from "@zen/shared";
 import type { ChatMessage } from "@zen/shared";
 
 import { escapeHtml, renderMarkdownLite, renderSessionHtml, renderSessionMarkdown } from "./session-export";
@@ -12,6 +13,37 @@ function message(
 ): ChatMessage {
   return { id, role, content, createdAt: 1, ...(meta ? { meta } : {}) };
 }
+
+describe("completedExportTurn", () => {
+  const messages = [
+    message("u1", "user", "第一问"),
+    message("a1", "assistant", "第一答", { run: { reason: "stop" } }),
+    message("u2", "user", "第二问"),
+    message("tool", "tool", "结果"),
+    message("a2", "assistant", "第二答", { run: { reason: "stop" } }),
+    message("u3", "user", "第三问"),
+    message("a3", "assistant", "未完成", { run: { reason: "cancelled" } }),
+  ];
+
+  it("只选最近用户问题到已完成回复，并保留中间工具记录", () => {
+    const turn = completedExportTurn(messages, "a2");
+    expect(turn?.map((item) => item.id)).toEqual(["u2", "tool", "a2"]);
+    const session = { title: "多轮对话", createdAt: 1, updatedAt: 2 };
+    const md = renderSessionMarkdown({ session, messages: turn ?? [] });
+    const html = renderSessionHtml({ session, messages: turn ?? [] });
+    expect(md).toContain("第二问");
+    expect(md).not.toContain("第一问");
+    expect(html).toContain("第二答");
+    expect(html).not.toContain("未完成");
+  });
+
+  it("拒绝未完成、非助手、缺失用户问题及不存在的回复", () => {
+    expect(completedExportTurn(messages, "a3")).toBeNull();
+    expect(completedExportTurn(messages, "u2")).toBeNull();
+    expect(completedExportTurn(messages, "missing")).toBeNull();
+    expect(completedExportTurn([message("a", "assistant", "孤立", { run: { reason: "stop" } })], "a")).toBeNull();
+  });
+});
 
 describe("escapeHtml", () => {
   it("转义五个危险字符", () => {

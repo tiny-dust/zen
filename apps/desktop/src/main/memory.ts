@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { access, constants, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 
 import { MEMORY_CATEGORIES } from "@zen/shared";
 import type {
@@ -29,20 +29,20 @@ const NOTES_LIMIT = 100;
 const NOTE_TEXT_LIMIT = 500;
 /** 注入提示词的备注上限：记忆是背景信息，不挤占任务上下文 */
 const NOTES_PROMPT_LIMIT = 20;
+/** 工具清单升级时递增；旧快照只在升级后的首次启动重采一次。 */
+const TOOL_SCAN_VERSION = 3;
 
 /** 采集进设备快照的常用命令行工具（找不到的不落记录） */
 const SCAN_TOOLS = [
-  "node",
-  "npm",
-  "pnpm",
-  "yarn",
-  "bun",
-  "git",
-  "python3",
-  "python",
-  "uv",
-  "docker",
-  "code",
+  "node", "npm", "npx", "pnpm", "yarn", "corepack", "bun", "deno",
+  "tsc", "vite", "next", "nuxt", "vue", "ng",
+  "java", "javac", "mvn", "gradle", "kotlin", "kotlinc",
+  "go", "rustc", "cargo", "rustup",
+  "python3", "python", "pip3", "pip", "uv", "pipx", "poetry", "conda",
+  "ruby", "gem", "bundle", "rails", "php", "composer",
+  "dotnet", "swift", "swiftc", "gcc", "g++", "clang", "cmake",
+  "flutter", "dart", "pytest", "jupyter", "spring", "quarkus",
+  "git", "docker", "code",
 ] as const;
 
 function deviceFile(): string {
@@ -166,7 +166,8 @@ export async function findToolOnPath(
   pathValue: string,
   platform: string,
 ): Promise<string | null> {
-  const dirs = pathValue.split(delimiter).filter(Boolean);
+  // Windows 使用分号，macOS/Linux 使用冒号；不可用目录或空 PATH 均安全跳过。
+  const dirs = pathValue.split(platform === "win32" ? ";" : ":").filter(Boolean);
   for (const dir of dirs) {
     for (const candidate of candidateNames(name, platform)) {
       const full = join(dir, candidate);
@@ -192,8 +193,31 @@ function defaultShell(platform: string): string {
   return process.env["SHELL"] ?? "/bin/sh";
 }
 
+function toolSearchPath(platform: string): string {
+  const home = homedir();
+  // GUI 启动的 PATH 通常不含用户 shell 配置：按平台补常见安装目录，不执行 shell 配置脚本。
+  const common = platform === "win32"
+    ? [
+        join(home, "AppData", "Roaming", "npm"),
+        join(home, ".cargo", "bin"),
+        join(home, "go", "bin"),
+        ...(process.env["ProgramFiles"] ? [join(process.env["ProgramFiles"], "nodejs")] : []),
+      ]
+    : [
+        join(home, ".local", "bin"), join(home, ".cargo", "bin"),
+        join(home, ".local", "go", "bin"), join(home, "go", "bin"),
+        join(home, ".vite-plus", "bin"), join(home, "n", "bin"),
+        join(home, ".bun", "bin"), join(home, ".deno", "bin"),
+        join(home, ".sdkman", "candidates", "java", "current", "bin"),
+        "/usr/local/bin", "/usr/local/go/bin",
+        ...(platform === "darwin" ? ["/opt/homebrew/bin", "/opt/homebrew/opt/openjdk/bin"] : ["/snap/bin"]),
+      ];
+  const separator = platform === "win32" ? ";" : ":";
+  return [process.env["PATH"] ?? process.env["Path"] ?? "", ...common].filter(Boolean).join(separator);
+}
+
 async function scanTools(platform: string): Promise<Record<string, string>> {
-  const pathValue = process.env["PATH"] ?? process.env["Path"] ?? "";
+  const pathValue = toolSearchPath(platform);
   const found = await Promise.all(
     SCAN_TOOLS.map(async (name) => [name as string, await findToolOnPath(name, pathValue, platform)] as const),
   );
@@ -216,6 +240,7 @@ export async function collectDeviceMemory(): Promise<DeviceMemory> {
     shell: defaultShell(platform),
     locale: resolved.locale,
     timezone: resolved.timeZone,
+    toolScanVersion: TOOL_SCAN_VERSION,
     tools,
     notes: previous?.notes ?? [],
   };
@@ -238,6 +263,7 @@ async function readDeviceMemory(): Promise<DeviceMemory | null> {
       shell: String(parsed.shell ?? defaultShell(process.platform)),
       locale: String(parsed.locale ?? ""),
       timezone: String(parsed.timezone ?? ""),
+      toolScanVersion: typeof parsed.toolScanVersion === "number" ? parsed.toolScanVersion : undefined,
       tools: parsed.tools && typeof parsed.tools === "object" ? parsed.tools : {},
       notes: withCategories(normalizeNotes(Array.isArray(parsed.notes) ? parsed.notes : [])),
     };
@@ -266,11 +292,11 @@ async function writeUserMemory(user: UserMemory): Promise<void> {
   await writeFile(userFile(), JSON.stringify(user, null, 2), "utf8");
 }
 
-/** 启动时调用：无快照或工具记录为空时才采集，避免每次启动都扫 PATH */
+/** 启动时调用：缺失快照或扫描清单升级时采集一次；空 PATH 也不重复扫描。 */
 export async function initDeviceMemory(): Promise<void> {
   try {
     const existing = await readDeviceMemory();
-    if (!existing || !existing.collectedAt || Object.keys(existing.tools).length === 0) {
+    if (!existing || !existing.collectedAt || (existing.toolScanVersion ?? 0) < TOOL_SCAN_VERSION) {
       await collectDeviceMemory();
     }
   } catch {

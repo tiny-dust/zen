@@ -70,7 +70,9 @@ export interface DeviceMemory {
   shell: string;
   locale: string;
   timezone: string;
-  /** PATH 上解析到的常用工具绝对路径（node/npm/pnpm/git/python…） */
+  /** PATH 扫描清单版本；旧快照没有此字段。 */
+  toolScanVersion?: number;
+  /** PATH 上解析到的常用工具绝对路径（node/java/go/rustc/python…） */
   tools: Record<string, string>;
   notes: MemoryNote[];
 }

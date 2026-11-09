@@ -23,6 +23,7 @@ const props = defineProps<{
   open: boolean;
   sessionId: string;
   sessionTitle?: string;
+  assistantMessageId?: string;
 }>();
 
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
@@ -58,9 +59,10 @@ async function confirm() {
   try {
     const result = await zen.session.exportSession(props.sessionId, format.value, {
       includeReasoning: includeReasoning.value,
+      ...(props.assistantMessageId ? { assistantMessageId: props.assistantMessageId } : {}),
     });
     if (result.ok) {
-      emit("update:open", false);
+      if (!result.canceled) emit("update:open", false);
       return;
     }
     error.value = result.error || t("features.exportFailed", { error: "" });
@@ -92,7 +94,7 @@ function formatClass(id: string) {
       :show-close-button="false"
     >
       <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
-        {{ t("features.exportTitle") }}
+        {{ t(assistantMessageId ? "features.exportTurn" : "features.exportTitle") }}
       </DialogTitle>
       <DialogDescription class="truncate text-[12px] text-[var(--color-mut)]">
         {{ sessionTitle || t("features.exportUntitled") }}

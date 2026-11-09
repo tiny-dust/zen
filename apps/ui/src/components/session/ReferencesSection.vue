@@ -9,6 +9,7 @@ import {
 } from "@lucide/vue";
 import type { Component } from "vue";
 import { computed, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 import FilePreviewDialog from "@/components/base/FilePreviewDialog.vue";
 import SiteFavicon from "@/components/brand/SiteFavicon.vue";
@@ -20,6 +21,7 @@ import { useSessionRoot } from "@/composables/useSessionRoot";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
 
+const { t } = useI18n();
 const sessionInfo = useSessionInfoStore();
 const rightPanel = useRightPanelStore();
 const sessionRoot = useSessionRoot();
@@ -47,19 +49,19 @@ const groups = computed(() => {
   return [
     {
       key: "user",
-      label: "用户上传",
+      label: t("sessionReferences.userUploads"),
       icon: FileUp as Component,
       items: items.filter((item) => item.source === "user"),
     },
     {
       key: "project",
-      label: "项目文件",
+      label: t("sessionReferences.projectFiles"),
       icon: FolderOpen as Component,
       items: items.filter((item) => item.source === "project"),
     },
     {
       key: "web",
-      label: "网络搜索",
+      label: t("sessionReferences.webSearch"),
       icon: Globe as Component,
       items: items.filter((item) => (item.source ?? "web") === "web"),
     },
@@ -79,14 +81,14 @@ function toggleGroup(key: string) {
   <section class="flex flex-col">
     <SessionSectionHead
       :icon="Link2"
-      title="参考"
+      :title="t('sessionReferences.title')"
       :open="open"
       :count="refs.length ? String(refs.length) : undefined"
       @toggle="open = !open"
     />
     <div v-if="open" class="mt-1 flex flex-col gap-2 pb-1">
       <!-- 空态文字与节内行文字同列（27px，见 EnvInfoSection noteIndentCls） -->
-      <p v-if="!refs.length" class="m-0 pl-[27px] text-[12px] text-[var(--color-dim)]">暂无参考</p>
+      <p v-if="!refs.length" class="m-0 pl-[27px] text-[12px] text-[var(--color-dim)]">{{ t("sessionReferences.empty") }}</p>
 
       <div v-for="group in groups" :key="group.key" class="flex flex-col gap-1">
         <Button
@@ -136,7 +138,7 @@ function toggleGroup(key: string) {
               variant="ghost"
               class="h-auto min-w-0 flex-1 justify-start truncate text-left font-[family-name:var(--font-mono)] text-[11px] font-normal hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent"
               :title="group.key === 'user'
-                ? '打开文件预览'
+                ? t('sessionReferences.openPreview')
                 : sessionRoot
                   ? resolveFileRefPath(item.url, sessionRoot)
                   : item.url"
@@ -151,7 +153,7 @@ function toggleGroup(key: string) {
             <span
               v-if="item.agent"
               class="flex-none rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
-              :title="`来自 ${item.agent}`"
+              :title="t('sessionReferences.fromAgent', { name: item.agent })"
             >{{ item.agent }}</span>
             <ExternalLink
               v-if="group.key === 'web'"
