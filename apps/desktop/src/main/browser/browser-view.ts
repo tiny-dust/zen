@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { BrowserWindow, WebContentsView } from "electron";
 
 import type {
@@ -11,6 +13,7 @@ import type {
 import { DEFAULT_BROWSER_SETTINGS } from "@zen/shared";
 
 import { kernelLabels, withTimeout } from "./browser-utils";
+import { installPasswordCapture } from "./password-capture";
 
 type StatusListener = (status: BrowserStatus) => void;
 type PickListener = (ref: BrowserElementRef) => void;
@@ -231,8 +234,11 @@ export class BrowserViewManager {
         throw new Error("当前 Electron 不支持 contentView.addChildView");
       }
 
+      // 保存密码：guest preload 提交表单时上报，主进程弹窗确认后入库
+      installPasswordCapture();
       const view = new WebContentsView({
         webPreferences: {
+          preload: join(__dirname, "../preload/browser-guest.js"),
           // 远程页面：关掉 sandbox，避免个别环境下 guest 网络/渲染异常
           sandbox: false,
           contextIsolation: true,

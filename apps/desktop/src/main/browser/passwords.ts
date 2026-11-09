@@ -93,6 +93,37 @@ export function listStoredPasswords(): StoredPasswordEntry[] {
   return readStore().entries.map(toEntry).sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/** 浏览器提交表单后捕获到的凭据：只接受 HTTPS，同 origin + 用户名覆盖 */
+export async function saveCapturedPassword(input: {
+  url: string;
+  username: string;
+  password: string;
+}): Promise<"saved" | "insecure" | "empty" | "exists"> {
+  const origin = originFromUrl(input.url);
+  const username = input.username.trim();
+  if (!origin.startsWith("https://") || !input.password) {
+    return !origin.startsWith("https://") ? "insecure" : "empty";
+  }
+  const store = readStore();
+  const existing = store.entries.find(
+    (entry) => entry.origin === origin && entry.username === username,
+  );
+  if (existing) {
+    try {
+      if ((await decryptSecret(existing.passwordEnc)) === input.password) {
+        return "exists";
+      }
+    } catch {
+      // 解密失败按「密码已变」处理，直接覆盖
+    }
+  }
+  const host = new URL(input.url).host;
+  await upsertPasswords([
+    { url: input.url, name: existing?.title || host, username, password: input.password },
+  ]);
+  return "saved";
+}
+
 /**
  * 批量写入导入结果：同 origin + username 视为同一条（覆盖密码），其余新增。
  * 返回导入条数与被跳过的条数（URL 无法解析或字段缺失）。
