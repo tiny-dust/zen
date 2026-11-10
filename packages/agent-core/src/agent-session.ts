@@ -22,7 +22,7 @@ import type { ToolHooks } from "./agent-tools";
 import { evaluateApproval, riskForTool } from "./agent-approval";
 import { buildInstructions } from "./agent-config";
 import type { AgentSessionConfig } from "./agent-config";
-import { errorMessage } from "./agent-parts";
+import { errorMessage, uuidLike } from "./agent-parts";
 import type { PendingApproval, PendingAsk } from "./agent-parts";
 import {
   AUTO_COMPACT_RATIO,
@@ -121,6 +121,88 @@ const CANCEL_SETTLE_GRACE_MS = 500;
 /** 压缩回灌：单文件内容上限与总预算（字符） */
 const REINJECT_FILE_MAX_CHARS = 3000;
 const REINJECT_TOTAL_MAX_CHARS = 15_000;
+/** 每次用户确认延长的完整 run 步数（包含插入阶段，不随单次 SDK stream 重置） */
+const RUN_STEP_GRANT = 60;
+
+/** SDK 并发参数只能按整次请求设置，不能按工具选择；在审批的生成顺序处登记执行屏障。 */
+class StepToolOrder {
+  private lastMutation: Promise<void> = Promise.resolve();
+  private reads: Promise<void>[] = [];
+  private blockedByApproval = false;
+  private readonly slots = new Map<string, { wait: Promise<void>; finish: () => void }>();
+
+  register(id: string, name: string, resumedApproval = false): boolean {
+    if (this.blockedByApproval && !resumedApproval && name !== "askUser") {
+      return false;
+    }
+    if (name === "askUser") {
+      return true;
+    }
+    // 任务清单也会修改同一份状态；其余未知/网络工具按有副作用处理。
+    const readonly = riskForTool(name) === "read" && name !== "updateTasks";
+    let finish!: () => void;
+    const completed = new Promise<void>((resolve) => { finish = resolve; });
+    const wait = readonly
+      ? this.lastMutation
+      : Promise.all([this.lastMutation, ...this.reads]).then(() => undefined);
+    this.slots.set(id, { wait, finish });
+    if (readonly) {
+      this.reads.push(completed);
+    } else {
+      this.lastMutation = completed;
+      this.reads = [];
+    }
+    return true;
+  }
+
+  isBlocked(name: string): boolean {
+    return this.blockedByApproval && name !== "askUser";
+  }
+
+  pendingApproval(name: string): void {
+    if (name !== "askUser") {
+      // SDK 把需人工批准的调用从本步执行队列移除。后续依赖工具必须拒绝，
+      // 不能偷跑，也不能等待批准（等待会让本步流无法结束，UI 无法续跑）。
+      this.blockedByApproval = true;
+    }
+  }
+
+  async execute(id: string, name: string, run: () => Promise<unknown>): Promise<unknown> {
+    if (name === "askUser") {
+      return run();
+    }
+    // 已批准的工具在 SDK 续跑时直接执行，不再触发 toolApproval；SDK 按审批数组顺序
+    // 同步发起 execute，在这里登记该批调用。
+    if (!this.slots.has(id)) {
+      this.register(id, name, true);
+    }
+    const slot = this.slots.get(id);
+    if (!slot) {
+      throw new Error(`工具 ${name} 无法登记执行顺序`);
+    }
+    try {
+      await slot.wait;
+      return await run();
+    } finally {
+      slot.finish();
+      this.slots.delete(id);
+    }
+  }
+}
+
+function orderedTools(tools: ToolSet, order: StepToolOrder): ToolSet {
+  return Object.fromEntries(Object.entries(tools).map(([name, definition]) => {
+    if (!definition.execute) {
+      return [name, definition];
+    }
+    const execute = definition.execute as (input: unknown, options: { toolCallId: string }) => Promise<unknown>;
+    return [name, {
+      ...definition,
+      execute: (input: unknown, options: { toolCallId: string }) =>
+        order.execute(options.toolCallId, name, () => execute(input, options)),
+    }];
+  }));
+}
 
 /**
  * anthropic 协议下给最后一个工具定义打 cache_control 断点（工具排在请求前缀
@@ -178,6 +260,7 @@ export class AgentSession {
    */
   private pausedAcked = false;
   private step = 0;
+  private nextStepLimit = RUN_STEP_GRANT;
   /** 本 run 是否已做过溢出恢复重试（每次 run/插入阶段重置；每 run 只重试一次） */
   private overflowRetried = false;
   /** 连续「缺 finish_reason」重放次数：上限内视为上游抖动，超限按真实错误终态 */
@@ -309,9 +392,8 @@ export class AgentSession {
       // maxRetries=2（共 3 次尝试）常不够：提高到 5（共 6 次，指数退避 2s→32s，
       // 尊重 Retry-After 头），把短暂上游抖动吸收在重试里而不是把错误抛给用户
       maxRetries: 5,
-      // 同一步多个本地工具按生成顺序执行，后一个调用才能看到前一个调用的文件改动。
-      // 资源锁只约束同类资源，不能保证 writeFile → readFile 等跨类操作的顺序。
-      toolCallConcurrency: 1,
+      // SDK 仅支持整步并发数；依赖工具的顺序由 prepareCall 里的执行屏障保证。
+      // 不限并发，使独立只读工具与 askUser 能在同一步同时执行。
       // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
       // ChatGPT 方案的 Responses 通道只接受流式请求；修复器内部的 generateText 是非流式。
       repairToolCall: sessionConfig.chatgptPlan
@@ -341,8 +423,32 @@ export class AgentSession {
         const merged = [base, this.historyInstructions ?? undefined]
           .filter((part): part is string => !!part)
           .join("\n\n");
+        const order = new StepToolOrder();
+        let approvalOrder = Promise.resolve();
         return {
           ...options,
+          tools: orderedTools(options.tools ?? {}, order),
+          toolApproval: (context) => {
+            // 审批闸可能异步调用助手模型；按调用生成次序决定是否执行，
+            // 但工具真正 execute 仍可并发（只读与 askUser 不被闸串行影响）。
+            const decision = approvalOrder.then(async () => {
+              const name = context.toolCall.toolName;
+              if (order.isBlocked(name)) {
+                return { type: "denied" as const, reason: "前序工具等待人工审批，请批准后重新调用" };
+              }
+              const verdict = typeof options.toolApproval === "function"
+                ? await options.toolApproval(context)
+                : undefined;
+              if (verdict === "user-approval") {
+                order.pendingApproval(name);
+                return verdict;
+              }
+              order.register(context.toolCall.toolCallId, name);
+              return verdict;
+            });
+            approvalOrder = decision.then(() => undefined, () => undefined);
+            return decision;
+          },
           instructions: merged || undefined,
           messages: this.withCacheBreakpoints(options.messages),
         };
@@ -667,6 +773,7 @@ export class AgentSession {
     this.persistAppend();
     this.paused = false;
     this.step = 0;
+    this.nextStepLimit = RUN_STEP_GRANT;
     this.overflowRetried = false;
     this.missingFinishReplays = 0;
     this.lastInputTokens = null;
@@ -982,6 +1089,50 @@ export class AgentSession {
   }
 
   private async continueLoop(): Promise<void> {
+    if (!this.runActive || this.paused) {
+      return;
+    }
+    if (this.step >= this.nextStepLimit) {
+      const askId = uuidLike();
+      const toolCallId = `run-budget-${askId}`;
+      const answer = new Promise<string>((resolve, reject) => {
+        this.pendingAsks.set(askId, { askId, resolve, reject });
+      });
+      this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
+      this.config.emit({
+        type: "ask_user",
+        sessionId: this.sessionId,
+        question: {
+          askId,
+          toolCallId,
+          question: `本次任务已执行 ${this.step} 步。是否再执行最多 ${RUN_STEP_GRANT} 步？`,
+          options: [
+            { label: "继续执行", priority: "recommended" },
+            { label: "停止任务", priority: "neutral" },
+          ],
+          allowFreeText: false,
+        },
+      });
+      let choice: string;
+      try {
+        choice = await answer;
+      } catch {
+        // cancel() 已发送 done(cancelled)，不再发第二个终态。
+        return;
+      }
+      this.config.emit({ type: "ask_resolved", sessionId: this.sessionId, askId, toolCallId, answer: choice });
+      if (!this.runActive) {
+        return;
+      }
+      if (choice !== "继续执行") {
+        this.finishRun("max_steps");
+        return;
+      }
+      this.nextStepLimit += RUN_STEP_GRANT;
+    }
+    if (!this.runActive || this.paused) {
+      return;
+    }
     this.controller = new AbortController();
     this.config.emit({ type: "status", sessionId: this.sessionId, status: "thinking" });
     await this.runStep();

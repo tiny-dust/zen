@@ -24,7 +24,7 @@ let server: Server;
 let origin = "";
 let workspaceRoot = "";
 
-type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop" | "terminal-slow" | "browser-hang";
+type RouteKind = "ok" | "http-error" | "write-tool" | "terminal-tool" | "error-tool" | "edit-miss" | "slow" | "tool-loop" | "terminal-slow" | "browser-hang" | "ordered-batch";
 
 const routes = new Map<string, RouteKind>();
 /** tool-loop 路由的请求计数：每次请求返回唯一 toolCallId，模拟持续调工具的模型 */
@@ -148,6 +148,17 @@ function blocksFor(kind: RouteKind): string[] {
       "data: [DONE]\n\n",
     ];
   }
+  if (kind === "ordered-batch") {
+    return [
+      chunk({ role: "assistant", content: "" }, null),
+      chunk({ tool_calls: [
+        { index: 0, id: "call_order_write", type: "function", function: { name: "writeFile", arguments: JSON.stringify({ path: "ordered-batch.txt", content: "written first" }) } },
+        { index: 1, id: "call_order_read", type: "function", function: { name: "readFile", arguments: JSON.stringify({ path: "ordered-batch.txt" }) } },
+      ] }, null),
+      chunk({}, "tool_calls"),
+      "data: [DONE]\n\n",
+    ];
+  }
   if (kind === "slow") {
     return Array.from({ length: 40 }, (_, i) => chunk({ content: `tick-${i} ` }, null)).concat([
       chunk({}, "stop"),
@@ -184,9 +195,10 @@ function blocksFor(kind: RouteKind): string[] {
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  await readBody(req);
+  const body = await readBody(req);
   const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-  const kind = routes.get(path) ?? "ok";
+  const route = routes.get(path) ?? "ok";
+  const kind = route === "ordered-batch" && body.includes('"call_order_write"') ? "ok" : route;
   if (kind === "http-error") {
     // 400：客户端错误通常不重试，应立刻进入 error 终态
     res.writeHead(400, { "content-type": "application/json" });
@@ -281,20 +293,55 @@ describe("AgentSession 状态链路", () => {
     expect(doneReasons(events)).toEqual(["stop"]);
   });
 
-  it("步数预算耗尽自动续跑；run 不设步数上限，只有取消才停", async () => {
+  it("同批次 writeFile 先于 readFile 完成", async () => {
+    const events: AgentStreamEvent[] = [];
+    routes.set("/ordered-batch/v1/chat/completions", "ordered-batch");
+    const session = new AgentSession({
+      sessionId: "life-ordered-batch", workspaceRoot, protocol: "openai-chat",
+      baseUrl: `${origin}/ordered-batch`, apiKey: API_KEY, model: MODEL_ID,
+      permissionMode: "full", emit: (event) => events.push(event),
+    });
+    await session.start("write then read");
+    const ends = toolEnds(events);
+    expect(ends.map((event) => event.toolName)).toEqual(["writeFile", "readFile"]);
+    expect(ends.every((event) => event.ok)).toBe(true);
+    expect(JSON.stringify(ends[1]?.output)).toContain("written first");
+    expect(doneReasons(events)).toEqual(["stop"]);
+  });
+
+  it("run 满 60 步暂停询问，确认后续跑，拒绝则保留已完成步骤", async () => {
     const events: AgentStreamEvent[] = [];
     writeFileSync(join(workspaceRoot, "loop.txt"), "loop");
     const session = createSession(events, "life-loop", "tool-loop");
     const started = session.start("keep calling the tool");
-
-    // 单次 stream 预算是 1 步：>30 步说明每步结束后都在自动续跑
     const stepCount = () => events.filter((event) => event.type === "step_start").length;
-    for (let i = 0; i < 300 && stepCount() <= 30; i += 1) {
+    const asks = () => events.filter((event): event is Extract<AgentStreamEvent, { type: "ask_user" }> => event.type === "ask_user");
+    for (let i = 0; i < 1000 && asks().length === 0; i += 1) {
       await delay(20);
     }
-    expect(stepCount()).toBeGreaterThan(30);
-    // 没有 max_steps 上限：一直续跑，直到用户取消
+    expect(stepCount()).toBe(60);
+    expect(asks()).toHaveLength(1);
     expect(doneReasons(events)).toEqual([]);
+    expect(session.resolveAsk(asks()[0]!.question.askId, "继续执行")).toBe(true);
+    for (let i = 0; i < 1000 && asks().length < 2; i += 1) {
+      await delay(20);
+    }
+    expect(stepCount()).toBe(120);
+    expect(asks()).toHaveLength(2);
+    expect(session.resolveAsk(asks()[1]!.question.askId, "停止任务")).toBe(true);
+    await started;
+    expect(doneReasons(events)).toEqual(["max_steps"]);
+  }, 40_000);
+
+  it("预算问询期间取消仅发一次 cancelled", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "life-budget-cancel", "tool-loop");
+    const started = session.start("keep calling the tool");
+    const asks = () => events.filter((event): event is Extract<AgentStreamEvent, { type: "ask_user" }> => event.type === "ask_user");
+    for (let i = 0; i < 1000 && asks().length === 0; i += 1) {
+      await delay(20);
+    }
+    expect(asks()).toHaveLength(1);
     await session.cancel();
     await started;
     expect(doneReasons(events)).toEqual(["cancelled"]);
