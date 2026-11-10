@@ -37,6 +37,9 @@ const completedTurnIds = computed(() => {
 watch(() => chatStore.sessionId, () => {
   exportOpen.value = false;
   exportTurnId.value = "";
+  stickToBottom.value = true;
+  showJump.value = false;
+  scrollToBottom();
 });
 
 const listEl = ref<HTMLElement | null>(null);
@@ -77,20 +80,42 @@ function isFarFromBottom() {
   return el.scrollHeight - el.scrollTop - el.clientHeight > 80;
 }
 
+let viewportRaf = 0;
+let bottomRaf = 0;
+
 function onScroll() {
-  stickToBottom.value = !isFarFromBottom();
-  showJump.value = isFarFromBottom();
-  updateRulerViewport();
+  const far = isFarFromBottom();
+  stickToBottom.value = !far;
+  showJump.value = far;
+  if (!viewportRaf) {
+    viewportRaf = window.requestAnimationFrame(() => {
+      viewportRaf = 0;
+      updateRulerViewport();
+    });
+  }
 }
 
 function scrollToBottom(smooth = false) {
-  void nextTick(() => {
-    const el = listEl.value;
-    if (!el) {
-      return;
+  if (smooth) {
+    if (bottomRaf) {
+      window.cancelAnimationFrame(bottomRaf);
+      bottomRaf = 0;
     }
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  });
+    stickToBottom.value = true;
+    void nextTick(() => {
+      const el = listEl.value;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+    return;
+  }
+  // 多个 delta 在同一帧只滚动一次；实际 markdown 高度仍由 ResizeObserver 兜底。
+  if (!bottomRaf) {
+    bottomRaf = window.requestAnimationFrame(() => {
+      bottomRaf = 0;
+      const el = listEl.value;
+      if (el && stickToBottom.value) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +223,32 @@ function updateTicks() {
   updateRulerViewport();
 }
 
+/** 回复末尾增长只改变自身高度，不会移动前面消息的刻度；只有布局上方变化才重测全部行。 */
+function updateTicksIfPositionsChanged() {
+  const content = contentEl.value;
+  const lastTick = ticks.value.at(-1);
+  if (!content || !lastTick) {
+    scheduleTicksUpdate();
+    return;
+  }
+  let lastItem: HTMLElement | null = null;
+  for (let index = content.children.length - 1; index >= 0; index -= 1) {
+    const child = content.children[index];
+    if (child instanceof HTMLElement && child.dataset.mid) {
+      lastItem = child;
+      break;
+    }
+  }
+  if (
+    !lastItem || lastItem.dataset.mid !== lastTick.id ||
+    Math.abs(lastItem.getBoundingClientRect().top - content.getBoundingClientRect().top - lastTick.y) > 1
+  ) {
+    scheduleTicksUpdate();
+  } else {
+    updateRulerViewport();
+  }
+}
+
 /** 视口位置 → 高亮视口当前所在消息的刻度（视口上沿 1/3 处所在区间） */
 function updateRulerViewport() {
   const container = listEl.value;
@@ -299,8 +350,15 @@ watch(
     if (stickToBottom.value) {
       scrollToBottom();
     }
-    // 新消息/正文增长会改变内容高度，刻度位置需要重算
-    scheduleTicksUpdate();
+    // 流式内容只增长最后一行；旧消息的刻度坐标无需每个 token 全量测量。
+    const last = ticks.value.at(-1);
+    const latest = timelineItems.value.at(-1);
+    if (last && latest && last.id === latest.key) {
+      const label = tickLabel(latest).trim().replace(/\s+/g, " ");
+      last.label = label.length > 120 ? `${label.slice(0, 120)}…` : label || t("chat.emptyMessage");
+    } else {
+      scheduleTicksUpdate();
+    }
   },
 );
 
@@ -324,7 +382,7 @@ onMounted(() => {
         el.scrollTop = el.scrollHeight;
       }
     }
-    scheduleTicksUpdate();
+    updateTicksIfPositionsChanged();
   });
   if (contentEl.value) {
     resizeObserver.observe(contentEl.value);
@@ -335,10 +393,12 @@ onMounted(() => {
 onUnmounted(() => {
   resizeObserver?.disconnect();
   window.removeEventListener("resize", scheduleTicksUpdate);
-  if (rulerRaf) {
-    window.cancelAnimationFrame(rulerRaf);
-    rulerRaf = 0;
+  for (const frame of [rulerRaf, viewportRaf, bottomRaf]) {
+    if (frame) window.cancelAnimationFrame(frame);
   }
+  rulerRaf = 0;
+  viewportRaf = 0;
+  bottomRaf = 0;
   hideRulerTip();
 });
 </script>

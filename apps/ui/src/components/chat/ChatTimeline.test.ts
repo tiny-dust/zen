@@ -126,6 +126,47 @@ describe("ChatTimeline 思考占位", () => {
   });
 });
 
+describe("ChatTimeline 长会话流式刻度", () => {
+  it("末尾消息增长时只测末行位置，不每次重测整段历史", async () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    let notifyResize: ResizeObserverCallback = () => undefined;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { notifyResize = callback; }
+      observe() { /* test observer */ }
+      disconnect() { /* test observer */ }
+    });
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => ({ top: 0, right: 0, height: 0 } as DOMRect),
+    );
+    chatState.messages.value = Array.from({ length: 80 }, (_, index) =>
+      index % 2 ? assistantMsg(`a-${index}`) : userMsg(`u-${index}`),
+    );
+    chatState.isRunning = true;
+    chatState.isPreparing = false;
+    const wrapper = mountTimeline();
+    try {
+      await wrapper.vm.$nextTick();
+      frames.splice(0).forEach((frame) => frame(0));
+      expect(rect.mock.calls.length).toBeGreaterThan(80);
+      rect.mockClear();
+      chatState.messages.value.at(-1)!.content += "流式增量";
+      await wrapper.vm.$nextTick();
+      notifyResize([], {} as ResizeObserver);
+      frames.splice(0).forEach((frame) => frame(0));
+      expect(rect.mock.calls.length).toBeLessThan(10);
+    } finally {
+      wrapper.unmount();
+      raf.mockRestore();
+      rect.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("ChatTimeline 本轮导出入口", () => {
   it("仅用户轮次后的已完成助手消息可导出，事件保留弹窗目标 ID", async () => {
     chatState.messages.value = [
