@@ -96,6 +96,48 @@ describe("display 落库优先级", () => {
     );
   });
 
+  it("display.id 优先作为落库消息 id：与本地乐观气泡同 id，切会话合并不会出现两条", async () => {
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
+
+    await runAgentRequest(
+      {
+        sessionId: "s1",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "你好",
+        history: [],
+        display: { id: "local-bubble-id", content: "你好" },
+      },
+      { sessions: new Map() },
+    );
+
+    expect(appendMessage).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ id: "local-bubble-id", role: "user", content: "你好" }),
+    );
+  });
+
+  it("display.id 非法（空串）时回落自生成 id", async () => {
+    state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
+
+    await runAgentRequest(
+      {
+        sessionId: "s1",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "你好",
+        history: [],
+        display: { id: "   ", content: "你好" },
+      },
+      { sessions: new Map() },
+    );
+
+    const saved = vi.mocked(appendMessage).mock.lastCall?.[1];
+    expect(typeof saved?.id).toBe("string");
+    expect(saved?.id.trim()).not.toBe("");
+    expect(saved?.id).not.toBe("   ");
+  });
+
   it("无 display 的请求：沿用 userMessage，仅 attachments 进 meta（与旧行为一致）", async () => {
     state.sessionRecord = { session: { id: "s1" }, messages: [], taskLists: [] };
 

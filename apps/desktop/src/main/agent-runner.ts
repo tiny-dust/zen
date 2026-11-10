@@ -143,8 +143,11 @@ export async function runAgentRequest(
       ...(request.attachments?.length ? { attachments: request.attachments } : {}),
       ...(request.display?.meta ?? {}),
     };
+    // 渲染层自带的乐观气泡 id 优先：落库与本地同 id，切回运行中会话时
+    // 数据库与后台缓冲按 id 去重，同一条发送不会显示两条。非法值回落自生成。
+    const displayId = request.display?.id;
     appendMessage(request.sessionId, {
-      id: randomUUID(),
+      id: typeof displayId === "string" && displayId.trim() ? displayId : randomUUID(),
       role: "user",
       content: request.display?.content ?? request.userMessage,
       createdAt: Date.now(),

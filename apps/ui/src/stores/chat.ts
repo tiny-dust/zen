@@ -1108,8 +1108,11 @@ export const useChatStore = defineStore("chat", () => {
         : {}),
     };
 
+    // 该 id 同时交给 main 落库（display.id）：切走再切回运行中的会话时，
+    // 数据库前缀与后台缓冲按 id 合并，同一条发送不会出现两个气泡。
+    const userMessageId = uuid();
     appendMessage({
-      id: uuid(),
+      id: userMessageId,
       role: "user",
       content: text,
       createdAt: Date.now(),
@@ -1164,7 +1167,11 @@ export const useChatStore = defineStore("chat", () => {
         // 过桥前 JSON 序列化成纯对象，防 elementMarks 的响应式 Proxy 触发 clone 报错
         display: continued
           ? undefined
-          : { content: text, meta: JSON.parse(JSON.stringify(userMeta)) as Record<string, unknown> },
+          : {
+              id: userMessageId,
+              content: text,
+              meta: JSON.parse(JSON.stringify(userMeta)) as Record<string, unknown>,
+            },
         // 计划模式批准标记：main 侧识别后把会话切回 interactive 再继续执行
         approvePlan: options?.approvePlan === true ? true : undefined,
       });

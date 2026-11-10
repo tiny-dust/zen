@@ -309,6 +309,9 @@ export class AgentSession {
       // maxRetries=2（共 3 次尝试）常不够：提高到 5（共 6 次，指数退避 2s→32s，
       // 尊重 Retry-After 头），把短暂上游抖动吸收在重试里而不是把错误抛给用户
       maxRetries: 5,
+      // 同一步多个本地工具按生成顺序执行，后一个调用才能看到前一个调用的文件改动。
+      // 资源锁只约束同类资源，不能保证 writeFile → readFile 等跨类操作的顺序。
+      toolCallConcurrency: 1,
       // GPT 系模型工具名/入参畸形的自动修复：三层降级，修不了走 SDK 默认回喂
       // ChatGPT 方案的 Responses 通道只接受流式请求；修复器内部的 generateText 是非流式。
       repairToolCall: sessionConfig.chatgptPlan

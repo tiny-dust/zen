@@ -49,19 +49,19 @@ const groups = computed(() => {
   return [
     {
       key: "user",
-      label: t("sessionReferences.userUploads"),
+      label: t("app.sessionReferences.userUploads"),
       icon: FileUp as Component,
       items: items.filter((item) => item.source === "user"),
     },
     {
       key: "project",
-      label: t("sessionReferences.projectFiles"),
+      label: t("app.sessionReferences.projectFiles"),
       icon: FolderOpen as Component,
       items: items.filter((item) => item.source === "project"),
     },
     {
       key: "web",
-      label: t("sessionReferences.webSearch"),
+      label: t("app.sessionReferences.webSearch"),
       icon: Globe as Component,
       items: items.filter((item) => (item.source ?? "web") === "web"),
     },
@@ -81,14 +81,14 @@ function toggleGroup(key: string) {
   <section class="flex flex-col">
     <SessionSectionHead
       :icon="Link2"
-      :title="t('sessionReferences.title')"
+      :title="t('app.sessionReferences.title')"
       :open="open"
       :count="refs.length ? String(refs.length) : undefined"
       @toggle="open = !open"
     />
     <div v-if="open" class="mt-1 flex flex-col gap-2 pb-1">
       <!-- 空态文字与节内行文字同列（27px，见 EnvInfoSection noteIndentCls） -->
-      <p v-if="!refs.length" class="m-0 pl-[27px] text-[12px] text-[var(--color-dim)]">{{ t("sessionReferences.empty") }}</p>
+      <p v-if="!refs.length" class="m-0 pl-[27px] text-[12px] text-[var(--color-dim)]">{{ t("app.sessionReferences.empty") }}</p>
 
       <div v-for="group in groups" :key="group.key" class="flex flex-col gap-1">
         <Button
@@ -138,7 +138,7 @@ function toggleGroup(key: string) {
               variant="ghost"
               class="h-auto min-w-0 flex-1 justify-start truncate text-left font-[family-name:var(--font-mono)] text-[11px] font-normal hover:bg-transparent hover:text-[var(--color-txt)] dark:hover:bg-transparent"
               :title="group.key === 'user'
-                ? t('sessionReferences.openPreview')
+                ? t('app.sessionReferences.openPreview')
                 : sessionRoot
                   ? resolveFileRefPath(item.url, sessionRoot)
                   : item.url"
@@ -153,7 +153,7 @@ function toggleGroup(key: string) {
             <span
               v-if="item.agent"
               class="flex-none rounded-full bg-[var(--color-menu-active)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
-              :title="t('sessionReferences.fromAgent', { name: item.agent })"
+              :title="t('app.sessionReferences.fromAgent', { name: item.agent })"
             >{{ item.agent }}</span>
             <ExternalLink
               v-if="group.key === 'web'"

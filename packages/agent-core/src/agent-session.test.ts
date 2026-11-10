@@ -160,6 +160,7 @@ type Behavior =
   | "text"
   | "tasks"
   | "approve-write"
+  | "write-then-read"
   | "ask"
   | "spawn-tasks"
   | "spawn-ask"
@@ -294,6 +295,40 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
     return seq === 1
       ? toolCall("writeFile", { path: "approve.txt", content: "x" }, "call_write_1")
       : textBlocks("written");
+  }
+  if (behavior === "write-then-read") {
+    return seq === 1
+      ? [
+          chunk({ role: "assistant", content: "" }, null),
+          chunk(
+            {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_order_write",
+                  type: "function",
+                  function: {
+                    name: "writeFile",
+                    arguments: JSON.stringify({ path: "ordered.txt", content: "ready" }),
+                  },
+                },
+                {
+                  index: 1,
+                  id: "call_order_read",
+                  type: "function",
+                  function: {
+                    name: "readFile",
+                    arguments: JSON.stringify({ path: "ordered.txt" }),
+                  },
+                },
+              ],
+            },
+            null,
+          ),
+          chunk({}, "tool_calls"),
+          "data: [DONE]\n\n",
+        ]
+      : textBlocks("done");
   }
   if (behavior === "ask") {
     return seq === 1
@@ -617,6 +652,20 @@ describe("AgentSession 消息组装", () => {
 });
 
 describe("AgentSession 工具事件与审批", () => {
+  it("同一步的写入先完成，再读取新文件", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "sess-ordered-tools", "write-then-read", {
+      permissionMode: "full",
+    });
+    await session.start("先写后读");
+
+    const results = events.filter((event) => event.type === "tool_end");
+    expect(results.map((event) => event.toolName)).toEqual(["writeFile", "readFile"]);
+    expect(results.every((event) => event.ok)).toBe(true);
+    expect(results[1]?.output).toBe("ready");
+    expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+  });
+
   it("updateTasks 的 version 哨兵归一化为会话内版本号", async () => {
     const events: AgentStreamEvent[] = [];
     const session = createSession(events, "sess-tasks", "tasks");
