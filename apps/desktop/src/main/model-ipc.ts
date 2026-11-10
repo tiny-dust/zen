@@ -7,6 +7,7 @@ import {
   codexLoginComplete,
   codexLoginStart,
   getChatGptAuthStatus,
+  resolveChatGptCredentials,
 } from "./chatgpt-auth";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
@@ -167,6 +168,26 @@ export function registerModelIpc(): void {
 
   ipcMain.handle("models:chatgpt-status", async (_event, providerId: string) => {
     return getChatGptAuthStatus(providerId);
+  });
+
+  /**
+   * 界面的「刷新」：临近/已过期时续期一次，随后回读状态。
+   * 续期失败不抛到渲染层，而是随最新状态一起返回原因：
+   * refresh token 已失效时状态会变成未登录，界面据此引导重新授权。
+   */
+  ipcMain.handle("models:chatgpt-refresh", async (_event, providerId: string) => {
+    const before = await getChatGptAuthStatus(providerId);
+    if (!before.loggedIn) return { status: before };
+    try {
+      await resolveChatGptCredentials(providerId);
+    } catch (error) {
+      const status = await getChatGptAuthStatus(providerId);
+      return {
+        status,
+        error: error instanceof Error ? error.message : "ChatGPT 登录状态刷新失败",
+      };
+    }
+    return { status: await getChatGptAuthStatus(providerId) };
   });
 
   ipcMain.handle("models:usage", async (_event, providerId: string) => {

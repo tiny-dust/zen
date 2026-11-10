@@ -205,6 +205,44 @@ describe("Codex CLI 手动回调登录", () => {
   });
 });
 
+describe("Codex refresh token 轮换", () => {
+  function stored(refreshToken: string, accessToken: string, expiresAt = 0) {
+    return {
+      profile: "codex", clientId: CODEX_CLIENT_ID, subject: "user-codex", hostId: "urn:uuid:test",
+      scopes: ["api.connectors.invoke"], accessToken, refreshToken, idToken: "",
+      expiresAt, accountId: "acct-1",
+    };
+  }
+
+  function save(value: ReturnType<typeof stored>) {
+    conn.prepare("UPDATE model_providers SET oauth_enc = ? WHERE id = 'p'").run(JSON.stringify(value));
+  }
+
+  it("旧刷新被拒绝时不能抹去另一进程已轮换的有效令牌", async () => {
+    save(stored("old-refresh", "old-access"));
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    const pending = resolveChatGptCredentials("p");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    save(stored("new-refresh", "new-access", Date.now() + 3600_000));
+    finish(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }));
+    expect(await pending).toMatchObject({ accessToken: "new-access" });
+    expect(await getChatGptAuthStatus("p")).toMatchObject({ loggedIn: true });
+  });
+
+  it("旧刷新成功也不能覆盖另一进程已轮换的有效令牌", async () => {
+    save(stored("old-refresh", "old-access"));
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    const pending = resolveChatGptCredentials("p");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    save(stored("new-refresh", "new-access", Date.now() + 3600_000));
+    finish(new Response(JSON.stringify({ access_token: "stale-access", refresh_token: "stale-refresh", expires_in: 3600 }), { status: 200 }));
+    expect(await pending).toMatchObject({ accessToken: "new-access" });
+    expect(await resolveChatGptCredentials("p")).toMatchObject({ accessToken: "new-access" });
+  });
+});
+
 describe("Codex 账号接口前缀", () => {
   it("指向 ChatGPT 后端的 Codex 端点", () => {
     expect(CODEX_API_BASE_URL).toBe("https://chatgpt.com/backend-api/codex");

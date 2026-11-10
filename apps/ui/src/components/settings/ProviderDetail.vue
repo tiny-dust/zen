@@ -98,6 +98,13 @@ const codexCallback = ref("");
 const codexStarting = ref(false);
 const codexCompleting = ref(false);
 const codexCopied = ref(false);
+/** 刷新登录态进行中（续期请求未回） */
+const refreshing = ref(false);
+
+/** access_token 已过期；expiresAt=0 表示未知，不判过期 */
+const authExpired = computed(
+  () => Boolean(chatgpt.value?.loggedIn) && (chatgpt.value?.expiresAt ?? 0) > 0 && (chatgpt.value?.expiresAt ?? 0) <= Date.now(),
+);
 
 const isChatGpt = computed(() => props.provider.authMode === "chatgpt-oauth");
 const isCodex = computed(() => isChatGpt.value || (
@@ -120,12 +127,40 @@ async function refreshChatGptStatus() {
   }
 }
 
-async function onCodexStart() {
+/**
+ * 卡片上的「刷新」：先让主进程续期一次登录态。
+ * 续期后仍未登录（refresh token 已失效）就直接发起重新授权，
+ * 用户点一次刷新即可完成「过期 → 重新授权」。
+ */
+async function onRefreshAuth() {
+  if (refreshing.value || !window.zen?.models) {
+    return;
+  }
+  refreshing.value = true;
+  authError.value = null;
+  try {
+    const result = await window.zen.models.chatgptRefresh(props.provider.id);
+    chatgpt.value = result.status;
+    if (result.error) authError.value = result.error;
+    // 保留失效原因：发起授权本身不应把「为什么需要重新授权」的提示清掉
+    if (!result.status.loggedIn) await onCodexStart({ keepError: true });
+  } catch (error) {
+    authError.value = error instanceof Error ? error.message : t("settings.models.codexLoginFailed");
+    await refreshChatGptStatus();
+  } finally {
+    refreshing.value = false;
+  }
+}
+
+/** options.keepError：由「刷新→失效」链路调用时保留失效原因，不清成空 */
+async function onCodexStart(options?: { keepError?: boolean }) {
   if (codexStarting.value || !window.zen?.models) {
     return;
   }
   codexStarting.value = true;
-  authError.value = null;
+  if (!options?.keepError) {
+    authError.value = null;
+  }
   try {
     const result = await window.zen.models.codexLoginStart(props.provider.id);
     codexAuthorizeUrl.value = result.authorizeUrl;
@@ -372,14 +407,18 @@ const fieldStack = "flex min-w-0 flex-col gap-1";
             <span class="min-w-0 truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
               {{ chatgpt?.loggedIn ? (chatgpt.email || t("settings.models.chatgptLoggedIn")) : t("settings.models.chatgptLoggedOut") }}
             </span>
-            <span class="text-[11px] text-[var(--color-mut)]">
-              {{ chatgpt?.loggedIn && chatgpt.planType ? `${t("settings.models.chatgptAccount")} · ${chatgpt.planType}` : t("settings.models.codexAccountHint") }}
+            <span class="text-[11px]" :class="authExpired ? 'text-[var(--color-err)]' : 'text-[var(--color-mut)]'">
+              {{ authExpired
+                ? t("settings.models.chatgptExpired")
+                : chatgpt?.loggedIn && chatgpt.planType ? `${t("settings.models.chatgptAccount")} · ${chatgpt.planType}` : t("settings.models.codexAccountHint") }}
             </span>
           </div>
           <template v-if="chatgpt?.loggedIn">
-            <Button variant="outline" size="xs" class="flex-none" @click="refreshChatGptStatus">
-              <RefreshCw data-icon="inline-start" />
-              {{ t("settings.models.codexRefreshStatus") }}
+            <Button variant="outline" size="xs" class="flex-none" :disabled="refreshing" @click="onRefreshAuth">
+              <RefreshCw data-icon="inline-start" :class="refreshing ? 'animate-spin' : ''" />
+              {{ refreshing
+                ? t("settings.models.chatgptRefreshing")
+                : authExpired ? t("settings.models.codexReauthorize") : t("settings.models.codexRefreshStatus") }}
             </Button>
             <Button variant="ghost" size="xs" class="flex-none" @click="onChatGptLogout">
               {{ t("settings.models.chatgptLogout") }}
@@ -389,7 +428,7 @@ const fieldStack = "flex min-w-0 flex-col gap-1";
 
         <template v-if="!chatgpt?.loggedIn">
           <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-            <Button size="xs" :disabled="codexStarting" @click="onCodexStart">
+            <Button size="xs" :disabled="codexStarting" @click="onCodexStart()">
               <LogIn data-icon="inline-start" />
               {{ codexStarting ? t("settings.models.codexOpening") : t("settings.models.codexOpenAuth") }}
             </Button>
@@ -407,7 +446,8 @@ const fieldStack = "flex min-w-0 flex-col gap-1";
           <div class="flex min-w-0 items-center gap-1.5">
             <Input
               v-model="codexCallback"
-              class="h-7 flex-1 text-[12px]"
+              class="h-8 min-w-0 flex-1 border-[var(--color-line)] bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
+              :aria-label="t('settings.models.codexPastePlaceholder')"
               :placeholder="t('settings.models.codexPastePlaceholder')"
               @keydown.enter="onCodexComplete"
             />

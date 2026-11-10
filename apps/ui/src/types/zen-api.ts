@@ -272,6 +272,8 @@ export interface ZenApi {
       provider: ProviderSummary | null;
     }>;
     chatgptStatus(providerId: string): Promise<ChatGptAuthStatus>;
+    /** 刷新登录态：临近/已过期时续期；失效时返回未登录状态与原因 */
+    chatgptRefresh(providerId: string): Promise<{ status: ChatGptAuthStatus; error?: string }>;
     chatgptLogout(providerId: string): Promise<ChatGptAuthStatus>;
     getUsage(providerId: string): Promise<ProviderUsageSnapshot>;
   };

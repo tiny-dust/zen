@@ -219,6 +219,17 @@ function tokenEndpointOf(tokens: StoredTokens): { url: string; headers: Record<s
       };
 }
 
+/**
+ * 读取比本次请求更新的令牌：refresh_token 是一次性轮换的，
+ * 另一条刷新路径先完成时库里的令牌已不同于本次使用的 refresh_token。
+ * 此时旧请求的结果（成功或失败）都不能代表当前会话状态。
+ */
+async function rotatedSince(providerId: string, used: StoredTokens): Promise<StoredTokens | null> {
+  const latest = await loadTokens(providerId);
+  if (!latest?.accessToken || !latest.refreshToken) return null;
+  return latest.refreshToken === used.refreshToken ? null : latest;
+}
+
 async function refreshTokens(providerId: string, tokens: StoredTokens): Promise<StoredTokens> {
   const endpoint = tokenEndpointOf(tokens);
   const body = new URLSearchParams({
@@ -237,6 +248,10 @@ async function refreshTokens(providerId: string, tokens: StoredTokens): Promise<
   const data = (await response.json().catch(() => ({}))) as OAuthTokenResponse;
   if (!response.ok || !data.access_token || !data.refresh_token) {
     if (data.error && TERMINAL_REFRESH_ERRORS.has(data.error)) {
+      // refresh token 一次性轮换：库里若已换成另一份令牌，说明别的请求已完成刷新，
+      // 本次失败只代表旧令牌被轮换掉，不能据此清空整个登录态。
+      const rotated = await rotatedSince(providerId, tokens);
+      if (rotated) return rotated;
       // 只在明确确认 refresh token 不可用时清除会话；注册 ID 留给重新登录。
       await saveTokens(providerId, { ...tokens, accessToken: "", refreshToken: "", idToken: "", expiresAt: 0 });
       throw new Error("ChatGPT 登录已失效，请重新登录");
@@ -248,6 +263,9 @@ async function refreshTokens(providerId: string, tokens: StoredTokens): Promise<
   const claims = data.id_token
     ? await verifyChatGptIdToken(data.id_token, tokens.clientId, undefined, tokens.subject)
     : parseIdTokenClaims(tokens.idToken);
+  // 本请求期间另一条刷新路径已轮换出新令牌：旧令牌链的成功结果不能覆盖它。
+  const rotated = await rotatedSince(providerId, tokens);
+  if (rotated) return rotated;
   const next: StoredTokens = {
     ...tokens,
     accessToken: data.access_token,

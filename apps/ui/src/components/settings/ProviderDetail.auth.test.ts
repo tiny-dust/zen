@@ -139,3 +139,68 @@ describe("Codex 手动回调登录", () => {
     wrapper.unmount();
   });
 });
+
+describe("Codex 登录过期后的重新授权", () => {
+  const emptyUsage = {
+    providerId: provider.id,
+    source: "local",
+    total: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0, usageEvents: 0 },
+    today: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0, usageEvents: 0 },
+    byModel: [],
+    updatedAt: null,
+  };
+
+  it("过期时刷新按钮改为重新授权，并直接发起浏览器授权", async () => {
+    const chatgptStatus = vi.fn().mockResolvedValue({
+      loggedIn: true,
+      email: "codex@example.com",
+      expiresAt: 1,
+    });
+    const chatgptRefresh = vi.fn().mockResolvedValue({
+      status: { loggedIn: false, expiresAt: 0 },
+      error: "ChatGPT 登录已失效，请重新登录",
+    });
+    const codexLoginStart = vi.fn().mockResolvedValue({
+      authorizeUrl: "https://auth.openai.com/oauth/authorize?client_id=x",
+      redirectUri: "http://localhost:1455/auth/callback",
+    });
+    vi.stubGlobal("zen", { models: {
+      chatgptStatus,
+      chatgptRefresh,
+      codexLoginStart,
+      getUsage: vi.fn().mockResolvedValue(emptyUsage),
+    } });
+
+    const wrapper = mount(ProviderDetail, { props: { provider } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("登录已过期");
+    const reauthorize = wrapper.findAll("button").find((button) => button.text().includes("重新授权"));
+    expect(reauthorize).toBeTruthy();
+    await reauthorize!.trigger("click");
+    await flushPromises();
+
+    expect(chatgptRefresh).toHaveBeenCalledWith(provider.id);
+    expect(codexLoginStart).toHaveBeenCalledWith(provider.id);
+    expect(wrapper.find('[role="alert"]').text()).toContain("已失效");
+    wrapper.unmount();
+  });
+
+  it("回调地址输入框带边框与背景，可辨识输入位置", async () => {
+    const chatgptStatus = vi.fn().mockResolvedValue({ loggedIn: false, expiresAt: 0 });
+    vi.stubGlobal("zen", { models: {
+      chatgptStatus,
+      getUsage: vi.fn().mockResolvedValue(emptyUsage),
+    } });
+
+    const wrapper = mount(ProviderDetail, { props: { provider } });
+    await flushPromises();
+
+    const callback = wrapper.find('input[placeholder*="回调地址"]');
+    expect(callback.exists()).toBe(true);
+    const className = callback.classes().join(" ");
+    expect(className).toContain("border-[var(--color-line)]");
+    expect(className).toContain("bg-[var(--color-np-btn-bg)]");
+    wrapper.unmount();
+  });
+});
