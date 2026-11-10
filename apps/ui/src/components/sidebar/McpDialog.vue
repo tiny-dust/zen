@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
+import { parseNpxCommand } from "@/lib/mcp-npx-command";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -79,6 +80,41 @@ const removeError = ref("");
 const mcpServers = computed<McpServerConfig[]>(() =>
   mcpStatuses.value.map((item) => item.config),
 );
+
+const npxInput = ref("");
+const npxError = ref("");
+const npxSaving = ref(false);
+
+async function addNpxServer() {
+  if (npxSaving.value) return;
+  npxError.value = "";
+  const parsed = parseNpxCommand(npxInput.value);
+  if (!parsed) {
+    npxError.value = t("sidebar.mcp.npxInvalid");
+    return;
+  }
+  if (mcpServers.value.some((item) => item.name.toLowerCase() === parsed.name.toLowerCase())) {
+    npxError.value = t("sidebar.mcp.npxDuplicate", { name: parsed.name });
+    return;
+  }
+  npxSaving.value = true;
+  try {
+    await agentStore.saveMcpServers([
+      ...mcpServers.value,
+      {
+        ...parsed,
+        id: `${parsed.name}-${Date.now().toString(36)}`,
+        transport: "stdio",
+        enabled: true,
+      },
+    ]);
+    npxInput.value = "";
+  } catch {
+    npxError.value = t("sidebar.mcp.npxSaveFailed");
+  } finally {
+    npxSaving.value = false;
+  }
+}
 
 watch(open, (value) => {
   if (value) {
@@ -360,6 +396,26 @@ async function authorizeServer(id: string) {
       </DialogHeader>
 
       <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+        <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
+          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("sidebar.mcp.npxTitle") }}</div>
+          <div class="flex flex-wrap gap-2">
+            <Input
+              v-model="npxInput"
+              class="h-8 min-w-0 flex-1 text-[12px]"
+              :aria-label="t('sidebar.mcp.npxTitle')"
+              :placeholder="t('sidebar.mcp.npxPlaceholder')"
+              :disabled="npxSaving"
+              @keydown.enter="addNpxServer"
+            />
+            <Button size="sm" :disabled="npxSaving" @click="addNpxServer">
+              <Loader2 v-if="npxSaving" class="size-3.5 animate-spin" />
+              <Plus v-else class="size-3.5" />{{ t("sidebar.mcp.npxAdd") }}
+            </Button>
+          </div>
+          <p class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("sidebar.mcp.npxHint") }}</p>
+          <p v-if="npxError" role="alert" class="m-0 text-[11px] text-[var(--color-danger-fg)]">{{ npxError }}</p>
+        </div>
+
         <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
           <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
             {{ editingId ? t("sidebar.mcp.editServer") : t("sidebar.mcp.addServer") }}

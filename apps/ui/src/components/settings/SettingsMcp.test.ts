@@ -77,6 +77,77 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("SettingsMcp npx 快捷添加", () => {
+  it("有效命令保存解析后的配置、刷新状态并清空输入，普通表单不受影响", async () => {
+    const wrapper = await mountWith([importedConfig]);
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    await input.setValue('npx @modelcontextprotocol/server-filesystem "/my docs"');
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    await flushPromises();
+
+    expect(setServers).toHaveBeenCalledTimes(1);
+    expect(setServers.mock.calls[0]?.[0]).toEqual([
+      importedConfig,
+      expect.objectContaining({
+        name: "server-filesystem",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/my docs"],
+        transport: "stdio",
+        enabled: true,
+        id: expect.stringMatching(/^server-filesystem-/),
+      }),
+    ]);
+    expect(input.element.value).toBe("");
+    expect(wrapper.text()).toContain("server-filesystem");
+    expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
+    wrapper.unmount();
+  });
+
+  it("无效命令展示格式错误且不保存", async () => {
+    const wrapper = await mountWith([]);
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    await input.setValue("npm install unsafe");
+    await buttonByText(wrapper, "一键添加").trigger("click");
+
+    expect(setServers).not.toHaveBeenCalled();
+    expect(wrapper.find('[role="alert"]').text()).toContain("有效的 npx 命令");
+    expect(input.element.value).toBe("npm install unsafe");
+    wrapper.unmount();
+  });
+
+  it("同名服务不重复保存", async () => {
+    const wrapper = await mountWith([{ ...importedConfig, name: "SERVER-FILESYSTEM" }]);
+    await inputByPlaceholder(wrapper, "例如 npx").setValue("npx -y @modelcontextprotocol/server-filesystem");
+    await buttonByText(wrapper, "一键添加").trigger("click");
+
+    expect(setServers).not.toHaveBeenCalled();
+    expect(wrapper.find('[role="alert"]').text()).toContain("已存在");
+    wrapper.unmount();
+  });
+
+  it("保存失败保留命令与错误，等待期间禁用并阻止重复提交", async () => {
+    const wrapper = await mountWith([]);
+    let rejectSave!: (error: Error) => void;
+    setServers.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject; }));
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    const button = buttonByText(wrapper, "一键添加");
+    await input.setValue("npx -y example-server");
+    await button.trigger("click");
+    expect(input.element.disabled).toBe(true);
+    expect(button.element.disabled).toBe(true);
+    await button.trigger("click");
+    expect(setServers).toHaveBeenCalledTimes(1);
+
+    rejectSave(new Error("save unavailable"));
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').text()).toBe("save unavailable");
+    expect(input.element.value).toBe("npx -y example-server");
+    expect(input.element.disabled).toBe(false);
+    expect(button.element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+});
+
 describe("SettingsMcp 服务编辑", () => {
   it("扫描导入的服务与手动服务一样可编辑：保存保留 id/enabled 并更新字段", async () => {
     const wrapper = await mountWith([importedConfig]);

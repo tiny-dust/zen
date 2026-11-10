@@ -114,6 +114,85 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("McpDialog npx 快捷添加", () => {
+  it("解析粘贴命令并保存，等待期间禁用按钮，成功后清空输入", async () => {
+    const existing: McpServerConfig = {
+      id: "old", name: "old", transport: "stdio", command: "node", args: [], enabled: true,
+    };
+    const wrapper = await mountWith([statusOf(existing)]);
+    let finishSave!: (statuses: McpServerStatus[]) => void;
+    setServers.mockImplementationOnce(() => new Promise<McpServerStatus[]>((resolve) => {
+      finishSave = resolve;
+    }));
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    await input.setValue("npx @modelcontextprotocol/server-filesystem '/some path'");
+    const button = buttonByText(wrapper, "一键添加");
+    await button.trigger("click");
+
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(setServers).toHaveBeenCalledTimes(1);
+    const saved = setServers.mock.calls[0]?.[0] as McpServerConfig[];
+    expect(saved[0]).toMatchObject(existing);
+    expect(saved[1]).toMatchObject({
+      name: "server-filesystem", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/some path"],
+      transport: "stdio", enabled: true,
+    });
+    expect(saved[1]?.id).toBeTruthy();
+    expect(() => structuredClone(saved)).not.toThrow();
+    await button.trigger("click");
+    expect(setServers).toHaveBeenCalledTimes(1);
+
+    finishSave(saved.map((config) => statusOf(config)));
+    await flushPromises();
+    expect(button.attributes("disabled")).toBeUndefined();
+    expect(input.element.value).toBe("");
+    expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
+    wrapper.unmount();
+  });
+
+  it("无效命令在快捷入口提示错误，不调用保存", async () => {
+    const wrapper = await mountWith([]);
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    expect(wrapper.find('[role="alert"]').text()).toContain("请输入有效的 npx 命令");
+    await input.setValue("node server.js");
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    expect(setServers).not.toHaveBeenCalled();
+    expect(input.element.value).toBe("node server.js");
+    wrapper.unmount();
+  });
+
+  it("同名服务不重复添加", async () => {
+    const existing: McpServerConfig = {
+      id: "fs", name: "server-filesystem", transport: "stdio", command: "npx", args: [], enabled: true,
+    };
+    const wrapper = await mountWith([statusOf(existing)]);
+    await inputByPlaceholder(wrapper, "例如 npx").setValue("npx -y @modelcontextprotocol/server-filesystem /path");
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    expect(wrapper.find('[role="alert"]').text()).toContain("服务 server-filesystem 已存在");
+    expect(setServers).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("保存失败提示并保留输入，可重试成功", async () => {
+    const wrapper = await mountWith([]);
+    const input = inputByPlaceholder(wrapper, "例如 npx");
+    await input.setValue("npx -y example-mcp");
+    setServers.mockRejectedValueOnce(new Error("disk unavailable"));
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').text()).toContain("保存 MCP 服务失败，请重试");
+    expect(input.element.value).toBe("npx -y example-mcp");
+    expect(buttonByText(wrapper, "一键添加").attributes("disabled")).toBeUndefined();
+    await buttonByText(wrapper, "一键添加").trigger("click");
+    await flushPromises();
+    expect(setServers).toHaveBeenCalledTimes(2);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(input.element.value).toBe("");
+    wrapper.unmount();
+  });
+});
+
 describe("McpDialog 编辑表单", () => {
   const stdioConfig: McpServerConfig = {
     id: "srv-1",

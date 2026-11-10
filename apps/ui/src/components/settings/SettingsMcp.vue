@@ -9,6 +9,7 @@ import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { parseNpxCommand } from "@/lib/mcp-npx-command";
 import {
   Select,
   SelectContent,
@@ -57,6 +58,9 @@ const editingId = ref<string | null>(null);
 
 const appliedPreset = ref<McpServerPreset | null>(null);
 const formError = ref("");
+const npxInput = ref("");
+const npxError = ref("");
+const npxBusy = ref(false);
 const scanBusy = ref(false);
 const scanned = ref<McpDiscoveredServer[]>([]);
 const scannedNote = ref("");
@@ -149,6 +153,33 @@ function resetForm() {
   form.value = { name: "", transport: "stdio", command: "", env: "", url: "", headers: "" };
   appliedPreset.value = null;
   formError.value = "";
+}
+
+async function addNpxServer() {
+  if (npxBusy.value) return;
+  npxError.value = "";
+  const parsed = parseNpxCommand(npxInput.value);
+  if (!parsed) {
+    npxError.value = t("settings.mcp.npxInvalid");
+    return;
+  }
+  if (mcpServers.value.some((server) => server.name.toLowerCase() === parsed.name.toLowerCase())) {
+    npxError.value = t("settings.mcp.npxDuplicate", { name: parsed.name });
+    return;
+  }
+  npxBusy.value = true;
+  try {
+    await agentStore.saveMcpServers([
+      ...mcpServers.value,
+      { ...parsed, id: `${parsed.name}-${Date.now().toString(36)}`, transport: "stdio", enabled: true },
+    ]);
+    await agentStore.refreshMcp();
+    npxInput.value = "";
+  } catch (error) {
+    npxError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    npxBusy.value = false;
+  }
 }
 
 async function addServer() {
@@ -400,6 +431,28 @@ function endpointText(config: McpServerConfig): string {
           <Badge v-else variant="secondary" class="flex-none text-[10px]">{{ t("settings.mcp.importedTag") }}</Badge>
         </div>
       </div>
+    </section>
+
+    <!-- 粘贴 npx 命令快捷添加 -->
+    <section class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3">
+      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">
+        {{ t("settings.mcp.npxTitle") }}
+      </h3>
+      <div class="flex items-center gap-2">
+        <Input
+          v-model="npxInput"
+          class="h-8 min-w-0 flex-1 bg-[var(--color-np-btn-bg)] font-[family-name:var(--font-mono)] text-[12px]"
+          :aria-label="t('settings.mcp.npxTitle')"
+          :placeholder="t('settings.mcp.npxPlaceholder')"
+          :disabled="npxBusy"
+          @keydown.enter="addNpxServer"
+        />
+        <Button variant="outline" size="sm" class="flex-none" :disabled="npxBusy" @click="addNpxServer">
+          <Plus :size="13" data-icon="inline-start" />{{ t("settings.mcp.npxAdd") }}
+        </Button>
+      </div>
+      <p class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("settings.mcp.npxHint") }}</p>
+      <p v-if="npxError" role="alert" class="m-0 text-[11px] text-[var(--color-err)]">{{ npxError }}</p>
     </section>
 
     <!-- 添加表单 -->
