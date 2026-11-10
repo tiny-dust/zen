@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign } from "node:crypto";
+import { createServer } from "node:http";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -86,9 +87,44 @@ describe("parseCodexCallbackInput", () => {
     expect(() => parseCodexCallbackInput(`${REDIRECT}?state=xyz`)).toThrow("没有授权码");
     expect(() => parseCodexCallbackInput(`${REDIRECT}?error=access_denied`)).toThrow("授权被拒绝");
   });
+
+  it("完整地址必须指向本次授权的回调端点", () => {
+    expect(() => parseCodexCallbackInput(
+      "https://example.com/auth/callback?code=abc&state=xyz", REDIRECT,
+    )).toThrow("回调地址与本次授权地址不一致");
+    expect(() => parseCodexCallbackInput(
+      "http://localhost:1457/auth/callback?code=abc&state=xyz", REDIRECT,
+    )).toThrow("回调地址与本次授权地址不一致");
+    expect(parseCodexCallbackInput(`${REDIRECT}?code=abc&state=xyz`, REDIRECT))
+      .toEqual({ code: "abc", state: "xyz" });
+  });
 });
 
 describe("Codex CLI 手动回调登录", () => {
+  it("回调提示页端口都被占用时仍可打开授权链接供手动复制", async () => {
+    const blockers = [] as ReturnType<typeof createServer>[];
+    for (const port of [1455, 1457]) {
+      const server = createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", (error: NodeJS.ErrnoException) => {
+          if (error.code === "EADDRINUSE") resolve();
+          else reject(error);
+        });
+        server.listen(port, "127.0.0.1", () => {
+          blockers.push(server);
+          resolve();
+        });
+      });
+    }
+    try {
+      const start = await codexLoginStart("p");
+      expect(start.redirectUri).toBe(REDIRECT);
+      expect(browser.openExternal).toHaveBeenCalledWith(start.authorizeUrl);
+    } finally {
+      await Promise.all(blockers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+    }
+  });
+
   it("授权地址使用 Codex 公共客户端，并允许粘贴回调换令牌", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: string) => {
       if (input.endsWith("/jwks.json")) {

@@ -502,8 +502,9 @@ export async function chatgptLogin(providerId: string): Promise<ChatGptAuthStatu
 
 // ---------- Codex CLI 客户端：本地回调页 + 手动粘贴确认 ----------
 //
-// 与 DimAgent 一致的流程：先在本机起一个回调服务（1455，占用则 1457），
-// 浏览器授权后跳到该服务的 /auth/callback，页面提示「复制地址栏 URL 回 Zen」；
+// 与 DimAgent 一致的流程：先尝试在本机起回调提示页（1455，占用则 1457），
+// 即使端口无法监听，也继续浏览器授权；用户仍可复制地址栏中的回调 URL。
+// 浏览器授权后跳到 /auth/callback，页面提示「复制地址栏 URL 回 Zen」；
 // 用户把整条地址粘回应用点确认，Zen 用其中的 code + PKCE verifier 换令牌。
 
 const CODEX_CALLBACK_PATH = "/auth/callback";
@@ -517,7 +518,7 @@ body{font-family:-apple-system,system-ui,sans-serif;display:flex;align-items:cen
 main{max-width:420px;padding:24px;line-height:1.6}
 h1{font-size:18px;margin:0 0 8px}
 p{margin:0 0 10px;color:#57606a;font-size:14px}
-code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;background:#f3f2ef;border-radius:4px;padding:2px 4px}
+code{font-family:ui-monospace,monospace;font-size:12px;background:#f3f2ef;border-radius:4px;padding:2px 4px}
 </style></head>
 <body><main>
 <h1>已完成授权</h1>
@@ -530,7 +531,7 @@ interface PendingCodexLogin {
   verifier: string;
   state: string;
   redirectUri: string;
-  server: http.Server;
+  server?: http.Server;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -542,8 +543,8 @@ async function closeCodexLogin(providerId: string): Promise<void> {
   if (!pending) return;
   pendingCodexLogins.delete(providerId);
   clearTimeout(pending.timer);
-  pending.server.close();
-  pending.server.closeAllConnections?.();
+  pending.server?.close();
+  pending.server?.closeAllConnections?.();
 }
 
 /** 显式取消进行中的 Codex 授权（登出、退出时清理本地端口） */
@@ -562,7 +563,10 @@ export interface CodexLoginStartResult {
  * 解析用户粘贴回来的回调串：支持完整 URL、`?a=b` 查询串与裸 `code=…&state=…`。
  * 只做解析，state 与授权码是否对得上由调用方校验。
  */
-export function parseCodexCallbackInput(input: string): { code: string; state: string | null } {
+export function parseCodexCallbackInput(
+  input: string,
+  redirectUri?: string,
+): { code: string; state: string | null } {
   const value = input.trim();
   if (!value) {
     throw new Error("请粘贴浏览器地址栏里的完整回调地址");
@@ -574,6 +578,9 @@ export function parseCodexCallbackInput(input: string): { code: string; state: s
       url = new URL(value);
     } catch {
       throw new Error("回调地址格式无效，请重新复制");
+    }
+    if (redirectUri && (url.origin + url.pathname !== redirectUri || url.username || url.password)) {
+      throw new Error("回调地址与本次授权地址不一致，请重新复制浏览器地址栏");
     }
     query = url.search;
   } else if (value.startsWith("?") || value.startsWith("#")) {
@@ -596,7 +603,7 @@ export function parseCodexCallbackInput(input: string): { code: string; state: s
 }
 
 /**
- * 第一步：起本地回调服务 → 生成授权地址 → 打开浏览器。
+ * 第一步：尝试起本地回调提示页 → 生成授权地址 → 打开浏览器。
  * 回调页只展示「复制地址栏」的说明，不消费 code，避免与手动粘贴冲突。
  */
 export async function codexLoginStart(providerId: string): Promise<CodexLoginStartResult> {
@@ -626,12 +633,10 @@ export async function codexLoginStart(providerId: string): Promise<CodexLoginSta
       break;
     }
   }
-  if (!port) {
-    server.close();
-    throw new Error("本地回调端口被占用（1455 / 1457），请关闭占用程序后重试");
-  }
-
-  const redirectUri = `http://localhost:${port}${CODEX_CALLBACK_PATH}`;
+  // 提示页不是换令牌的前提。端口都不可用时浏览器仍会到达回调地址，
+  // 用户可直接从地址栏复制 URL；PKCE 与 state 继续保护授权码。
+  if (!port) server.close();
+  const redirectUri = `http://localhost:${port || CODEX_CALLBACK_PORTS[0]}${CODEX_CALLBACK_PATH}`;
   const authorizeUrl =
     `${CODEX_AUTHORIZE_URL}?` +
     new URLSearchParams({
@@ -650,7 +655,7 @@ export async function codexLoginStart(providerId: string): Promise<CodexLoginSta
   const timer = setTimeout(() => {
     void closeCodexLogin(providerId);
   }, CODEX_PENDING_TTL_MS);
-  pendingCodexLogins.set(providerId, { verifier, state, redirectUri, server, timer });
+  pendingCodexLogins.set(providerId, { verifier, state, redirectUri, server: port ? server : undefined, timer });
 
   try {
     await shell.openExternal(authorizeUrl);
@@ -670,7 +675,7 @@ export async function codexLoginComplete(
   if (!pending) {
     throw new Error("授权已失效，请重新点击「打开浏览器授权」");
   }
-  const { code, state } = parseCodexCallbackInput(callbackInput);
+  const { code, state } = parseCodexCallbackInput(callbackInput, pending.redirectUri);
   if (!state || state !== pending.state) {
     throw new Error("回调地址校验失败（state 不匹配），请重新授权");
   }

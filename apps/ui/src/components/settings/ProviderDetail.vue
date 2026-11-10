@@ -88,7 +88,6 @@ const enabledModelCount = computed(() => props.provider.models.filter((item) => 
 
 // ChatGPT 账号登录状态（仅 chatgpt-oauth 供应商展示）
 const chatgpt = ref<ChatGptAuthStatus | null>(null);
-const loginPending = ref(false);
 const authError = ref<string | null>(null);
 let statusRequestId = 0;
 
@@ -199,25 +198,6 @@ async function copyAuthorizeUrl() {
     setTimeout(() => { codexCopied.value = false; }, 1500);
   } catch {
     authError.value = t("settings.models.codexCopyFailed");
-  }
-}
-
-async function onChatGptLogin() {
-  if (loginPending.value || !window.zen?.models) {
-    return;
-  }
-  loginPending.value = true;
-  authError.value = null;
-  try {
-    await window.zen.models.chatgptLogin(props.provider.id);
-    await refreshChatGptStatus();
-    emit("authorized", props.provider.id);
-  } catch (error) {
-    console.warn("[chatgpt] 登录失败:", error);
-    authError.value = error instanceof Error ? error.message : t("settings.models.codexLoginFailed");
-    await refreshChatGptStatus();
-  } finally {
-    loginPending.value = false;
   }
 }
 
@@ -464,14 +444,6 @@ const fieldStack = "flex min-w-0 flex-col gap-1";
           <p class="m-0 text-[11px] leading-snug text-[var(--color-mut)]">
             {{ t("settings.models.codexPasteHint") }}
           </p>
-          <button
-            type="button"
-            class="self-start text-[11px] text-[var(--color-link)] hover:underline"
-            :disabled="loginPending"
-            @click="onChatGptLogin"
-          >
-            {{ loginPending ? t("settings.models.chatgptPending") : t("settings.models.codexAutoFallback") }}
-          </button>
         </template>
         <p v-if="authError" class="m-0 text-[11px] text-[var(--color-err)]" role="alert">{{ authError }}</p>
       </div>

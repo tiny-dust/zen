@@ -107,12 +107,17 @@ async function onCodexAccount() {
   codexError.value = null;
   codexLoginPending.value = true;
   try {
-    const { provider } = await zen.models.chatgptLogin();
-    if (!provider) throw new Error(t("settings.models.codexLoginFailed"));
-    await onCodexAuthorized(provider.id);
-  } catch (error) {
-    codexError.value = error instanceof Error ? error.message : t("settings.models.codexLoginFailed");
-    await modelsStore.refresh();
+    const provider = await modelsStore.addProvider({
+      name: "Codex",
+      protocol: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      authMode: "chatgpt-oauth",
+    });
+    if (provider) {
+      selectProvider(provider);
+    } else {
+      codexError.value = modelsStore.error ?? t("settings.models.codexLoginFailed");
+    }
   } finally {
     codexLoginPending.value = false;
   }
