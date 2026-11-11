@@ -190,7 +190,7 @@
       toast.err(error instanceof Error ? error.message : String(error));
       return;
     }
-    if (sessionId.value === session.id) await chatStore.newTask();
+    if (sessionId.value === session.id) await chatStore.newTask(undefined, false);
     workspaceStore.removeSessionLocal(session.id);
   }
 
@@ -231,7 +231,7 @@
         toast.err(error instanceof Error ? error.message : String(error));
         return;
       }
-      if (sessionId.value === session.id) await chatStore.newTask();
+      if (sessionId.value === session.id) await chatStore.newTask(undefined, false);
       workspaceStore.removeSessionLocal(session.id);
     }
   }

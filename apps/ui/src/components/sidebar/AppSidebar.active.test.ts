@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppSidebar from "./AppSidebar.vue";
+import ProjectSessionGroup from "./ProjectSessionGroup.vue";
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -80,6 +82,7 @@ function selRowTitles(wrapper: ReturnType<typeof mount>): string[] {
 
 describe("AppSidebar 会话激活高亮", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     setActivePinia(createPinia());
     vi.stubGlobal("window", { ...window, zen: zenMock });
     localStorage.clear();
@@ -134,5 +137,44 @@ describe("AppSidebar 会话激活高亮", () => {
     // 关键断言：视觉高亮 class 必须跟着点击迁移，旧会话底色清除
     expect(selRowTitles(wrapper)).toEqual(["会话 B"]);
     wrapper.unmount();
+  });
+
+  it.each(["single", "batch"])("删除当前会话（%s）后不自动创建持久会话", async (mode) => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const create = vi.spyOn(zenMock.session, "create");
+    const remove = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("window", { ...window, zen: { ...zenMock, session: { ...zenMock.session, remove } } });
+    const wrapper = mount(AppSidebar, {
+      global: {
+        plugins: [pinia],
+        stubs: { UserBlock: true, SkillsDialog: true, McpDialog: true, Dialog: true, DialogContent: true, ConfirmDialog: true, teleport: true },
+      },
+    });
+    const workspace = useWorkspaceStore();
+    await workspace.refresh();
+    const chat = useChatStore();
+    await chat.loadSession(sessionA);
+    await flushPromises();
+
+    const group = wrapper.findAllComponents(ProjectSessionGroup)
+      .find((item) => item.props("group").id === "ws-1");
+    expect(group).toBeTruthy();
+    if (mode === "single") {
+      group!.vm.$emit("remove", sessionA);
+    } else {
+      group!.vm.$emit("batch", "delete", [sessionA, sessionB]);
+    }
+    await flushPromises();
+    const dialogs = wrapper.findAllComponents(ConfirmDialog);
+    dialogs[mode === "single" ? 0 : 2]!.vm.$emit("confirm");
+    await flushPromises();
+
+    expect(remove).toHaveBeenCalledWith(sessionA.id);
+    expect(create).not.toHaveBeenCalled();
+    expect(chat.sessionId).not.toBe(sessionA.id);
+    expect(workspace.groups.flatMap((item) => item.sessions).map((item) => item.id)).not.toContain(sessionA.id);
+    wrapper.unmount();
+    create.mockRestore();
   });
 });
