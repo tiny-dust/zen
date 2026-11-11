@@ -1,6 +1,7 @@
 import { ipcRenderer } from "electron";
 
 import type {
+  GitBranchCleanupResult,
   GitBranches,
   GitCommitBatch,
   GitCommitDetail,
@@ -89,6 +90,9 @@ export const gitApi = {
     },
     pull(cwd?: string): Promise<GitSyncResult> {
       return ipcRenderer.invoke("git:pull", cwd);
+    },
+    cleanupBranches(cwd: string | undefined, confirmed: boolean): Promise<GitBranchCleanupResult> {
+      return ipcRenderer.invoke("git:cleanup-branches", cwd, confirmed);
     },
     merge(cwd: string | undefined, branch: string): Promise<GitSyncResult> {
       return ipcRenderer.invoke("git:merge", cwd, branch);

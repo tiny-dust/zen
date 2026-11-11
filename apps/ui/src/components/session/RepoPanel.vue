@@ -22,6 +22,7 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -38,6 +39,7 @@ import { shortcutDisplayParts } from "@/lib/shortcut-display";
 import { useGitStore } from "@/stores/git";
 
 import type {
+  GitBranchCleanupResult,
   GitBranches,
   GitFileChange,
   GitPullRequest,
@@ -74,6 +76,8 @@ const stashes = ref<GitStashEntry[]>([]);
 const commitMessage = ref("");
 const includeUnstaged = ref(true);
 const opBusy = ref("");
+const cleanupOpen = ref(false);
+const cleanupFeedback = ref<GitBranchCleanupResult | null>(null);
 const generating = ref(false);
 const creatingBranch = ref(false);
 const newBranchName = ref("");
@@ -191,6 +195,8 @@ function reset() {
   stashes.value = [];
   commitMessage.value = "";
   newBranchName.value = "";
+  cleanupOpen.value = false;
+  cleanupFeedback.value = null;
   error.value = "";
 }
 
@@ -470,6 +476,23 @@ async function sync(kind: "push" | "pull" | "fetch") {
       return;
     }
     await Promise.all([loadStatus(), loadBranches()]);
+  });
+}
+
+async function cleanupBranches() {
+  if (busying.value) return;
+  await withOp("cleanup", async () => {
+    const zen = window.zen;
+    if (!zen?.git) return;
+    const path = props.repo.path;
+    const result = await zen.git.cleanupBranches(path, true);
+    cleanupOpen.value = false;
+    cleanupFeedback.value = result;
+    if (!result.ok) {
+      error.value = result.error ?? t("shell.cleanupFailed");
+      return;
+    }
+    if (props.repo.path === path) await Promise.all([loadStatus(), loadBranches()]);
   });
 }
 
@@ -837,6 +860,19 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
             <GitBranchPlus class="size-3" aria-hidden="true" />
           </Button>
 
+          <Button
+            variant="ghost"
+            size="xs"
+            :class="actCls"
+            :aria-label="t('shell.cleanupBranches')"
+            :title="t('shell.cleanupBranches')"
+            :disabled="busying"
+            @click="cleanupOpen = true"
+          >
+            <LoaderCircle v-if="opBusy === 'cleanup'" class="size-3 animate-spin" aria-hidden="true" />
+            <Trash2 v-else class="size-3" aria-hidden="true" />
+          </Button>
+
           <span class="mx-1 h-3.5 w-px flex-none bg-[var(--color-line)]" aria-hidden="true" />
 
           <Button
@@ -1026,9 +1062,24 @@ const blockLabelCls = "text-[10px] font-medium text-[var(--color-mut)]";
         </div>
       </div>
 
+      <div v-if="cleanupFeedback" class="px-2 pb-2 text-[11px] text-[var(--color-mut)]" role="status">
+        <p v-if="cleanupFeedback.ok" class="m-0">{{ t('shell.cleanupResult', { deleted: cleanupFeedback.deleted.length, skipped: cleanupFeedback.skipped.length }) }}</p>
+        <p v-if="cleanupFeedback.deleted.length" class="m-0 break-all">{{ t('shell.cleanupDeleted') }}：{{ cleanupFeedback.deleted.map((item) => item.name + (item.upstreamGone ? ` (${t('shell.cleanupGone')})` : '')).join(', ') }}</p>
+        <p v-for="item in cleanupFeedback.skipped" :key="item.name" class="m-0 break-all">
+          {{ item.name }} — {{ t(`shell.cleanupSkip.${item.reason}`) }}<template v-if="item.upstreamGone"> · {{ t('shell.cleanupGone') }}</template><template v-if="item.error"> · {{ item.error }}</template>
+        </p>
+      </div>
       <p v-if="error" class="m-0 px-2 pb-2 text-[11px] text-[var(--color-err)]" role="alert">
         {{ error }}
       </p>
     </div>
+    <ConfirmDialog
+      v-model:open="cleanupOpen"
+      :title="t('shell.cleanupConfirmTitle', { name: displayName })"
+      :description="t('shell.cleanupConfirmDesc')"
+      :confirm-label="t('shell.cleanupBranches')"
+      :pending="opBusy === 'cleanup'"
+      @confirm="cleanupBranches"
+    />
   </section>
 </template>

@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 
+import { cleanupBranches } from "./git-cleanup";
 import { resolveWorkdir } from "./git-exec";
 import {
   abortMerge,
@@ -21,6 +22,12 @@ export function registerGitRemoteIpc(): void {
 
   ipcMain.handle("git:pull", async (_event, cwd?: string): Promise<ReturnType<typeof pullRemote>> =>
     pullRemote(resolveWorkdir(cwd)),
+  );
+
+  ipcMain.handle(
+    "git:cleanup-branches",
+    async (_event, cwd: string | undefined, confirmed: boolean): Promise<ReturnType<typeof cleanupBranches>> =>
+      cleanupBranches(resolveWorkdir(cwd), confirmed),
   );
 
   ipcMain.handle(

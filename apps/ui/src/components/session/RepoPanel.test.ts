@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import RepoPanel from "@/components/session/RepoPanel.vue";
 
 import type { GitRepository, GitStatus } from "@zen/shared";
@@ -50,6 +51,11 @@ const git = {
   checkout: vi.fn().mockResolvedValue({ ok: true }),
   createBranch: vi.fn().mockResolvedValue({ ok: true }),
   merge: vi.fn().mockResolvedValue({ ok: true }),
+  cleanupBranches: vi.fn().mockResolvedValue({
+    ok: true,
+    deleted: [{ name: "feature/old", upstreamGone: true }],
+    skipped: [{ name: "feature/repo-panel", upstreamGone: false, reason: "current" }],
+  }),
   stashPush: vi.fn().mockResolvedValue({ ok: true }),
   stashApply: vi.fn().mockResolvedValue({ ok: true }),
   stashDrop: vi.fn().mockResolvedValue({ ok: true }),
@@ -238,6 +244,22 @@ describe("RepoPanel 单仓库面板", () => {
     await flushPromises();
 
     expect(git.createBranch).toHaveBeenCalledWith(repo.path, "feature/from-origin", "origin/main");
+  });
+
+  it("清理分支需确认，完成后展示已删和跳过原因", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    await wrapper.find('[aria-label="清理已合并分支"]').trigger("click");
+    expect(git.cleanupBranches).not.toHaveBeenCalled();
+    expect(wrapper.findComponent(ConfirmDialog).props("open")).toBe(true);
+
+    wrapper.findComponent(ConfirmDialog).vm.$emit("confirm");
+    await flushPromises();
+    expect(git.cleanupBranches).toHaveBeenCalledWith(repo.path, true);
+    expect(wrapper.text()).toContain("feature/old");
+    expect(wrapper.text()).toContain("上游已删除");
+    expect(wrapper.text()).toContain("feature/repo-panel — 当前分支");
+    wrapper.unmount();
   });
 
   it("⌘↵ 触发提交，输入框里只保留提交手势", async () => {
