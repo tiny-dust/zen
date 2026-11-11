@@ -35,8 +35,18 @@ import { runWebFetch } from "./agent-webfetch";
 import { searchWeb } from "./agent-websearch";
 import { truncateOutput } from "./agent-model";
 
-/** 工具结果统一输出上限：超长 string 截断后再进对话历史，避免大输出每步重复挤占上下文 */
+/** 工具文本结果统一输出上限：避免大输出每步重复挤占上下文 */
 export const MAX_TOOL_RESULT_CHARS = 30_000;
+
+function capToolResultText(result: string): string {
+  if (result.length <= MAX_TOOL_RESULT_CHARS) {
+    return result;
+  }
+  const note =
+    `\n\n[工具输出已截断：原始 ${result.length} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}；` +
+    `请缩小查询范围或分次读取获取完整信息]`;
+  return result.slice(0, MAX_TOOL_RESULT_CHARS) + note;
+}
 
 type ToolExecute = (input: unknown, options: unknown) => Promise<unknown>;
 
@@ -769,7 +779,7 @@ export function buildToolSet(
         // MCP Apps（SEP-1865）：结果带 HTML 资源时返回 { output, html } 对象，
         // 渲染层据此用沙箱 iframe 展示交互 UI；output 字段仍是给模型看的文本
         if (result.html) {
-          return { output: result.text, html: capMcpAppHtml(result.html) } satisfies McpAppToolOutput;
+          return { output: capToolResultText(result.text), html: capMcpAppHtml(result.html) } satisfies McpAppToolOutput;
         }
         return result.text;
       },
@@ -786,13 +796,7 @@ export function buildToolSet(
     }
     toolDef.execute = async (input, options) => {
       const result = await originalExecute(input, options);
-      if (typeof result !== "string" || result.length <= MAX_TOOL_RESULT_CHARS) {
-        return result;
-      }
-      const note =
-        `\n\n[工具输出已截断：原始 ${result.length} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}；` +
-        `请缩小查询范围或分次读取获取完整信息]`;
-      return result.slice(0, MAX_TOOL_RESULT_CHARS) + note;
+      return typeof result === "string" ? capToolResultText(result) : result;
     };
   }
 

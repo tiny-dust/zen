@@ -502,7 +502,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       "cache-control": "no-cache",
       connection: "keep-alive",
     });
-    for (const block of anthropicTextBlocks("fable ok")) {
+    const blocks = anthropicTextBlocks("fable ok");
+    for (const block of path.includes("/interrupted/") ? blocks.slice(0, -2) : blocks) {
       res.write(block);
       await delay(2);
     }
@@ -1044,6 +1045,21 @@ describe("GPT 系工具调用修复与缺 finish_reason 兜底", () => {
 });
 
 describe("adaptive Claude 协议改写（fable 等新一代模型）", () => {
+  it("Anthropic 流有正文却缺少结束事件：不能误报正常完成", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "interrupted", "text", {
+      protocol: "anthropic-messages",
+      model: "claude-fable-5",
+    });
+    await session.start("你好");
+
+    expect(events.some((event) => event.type === "delta")).toBe(true);
+    expect(events.some((event) => event.type === "error")).toBe(true);
+    expect(events.filter((event) => event.type === "done")).toEqual([
+      expect.objectContaining({ reason: "error" }),
+    ]);
+  });
+
   it("openai-chat + fable：请求改走 /v1/messages 原生端点，body 带 adaptive 思考与 output_config.effort", async () => {
     const events: AgentStreamEvent[] = [];
     requestPaths.length = 0;

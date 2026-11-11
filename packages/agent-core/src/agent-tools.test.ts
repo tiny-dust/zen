@@ -572,6 +572,39 @@ describe("browser / mcp 工具桥接", () => {
     await expect(execTool(tools["mcp__lark__bad"], {})).rejects.toThrow("mcp 失败");
   });
 
+  it("MCP App 长文本按工具上限截断，短文本和 HTML 保持原样", async () => {
+    const html = "<main>app</main>";
+    const long = "x".repeat(MAX_TOOL_RESULT_CHARS + 42);
+    registerMcpRuntime(async () => ({
+      callMcpTool: async (_serverName, toolName) => ({
+        ok: true,
+        text: toolName === "long" ? long : "short-ok",
+        html,
+      }),
+    }));
+    const tools = build({
+      mcpTools: ["long", "short"].map((name) => ({
+        serverName: "app",
+        name,
+        inputSchema: { type: "object", properties: {} },
+      })),
+    });
+
+    const truncated = (await execTool(tools["mcp__app__long"], {})) as {
+      output: string;
+      html: string;
+    };
+    expect(truncated.output.slice(0, MAX_TOOL_RESULT_CHARS)).toBe(long.slice(0, MAX_TOOL_RESULT_CHARS));
+    expect(truncated.output).toContain(
+      `[工具输出已截断：原始 ${long.length} 字符，仅保留前 ${MAX_TOOL_RESULT_CHARS}`,
+    );
+    expect(truncated.html).toBe(html);
+    await expect(execTool(tools["mcp__app__short"], {})).resolves.toEqual({
+      output: "short-ok",
+      html,
+    });
+  });
+
   it("multiAgentTools 并入工具集", () => {
     const lock = new ResourceLock();
     const tools = buildToolSet(

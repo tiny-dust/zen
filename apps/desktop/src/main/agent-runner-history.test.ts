@@ -80,6 +80,7 @@ vi.mock("./workspace-db", () => ({
 }));
 
 import { runAgentRequest } from "./agent-runner";
+import { enabledMcpTools } from "./mcp-ipc";
 import { loadSessionModelHistory } from "./workspace-db";
 
 describe("runAgentRequest 跨模型历史回放", () => {
@@ -130,6 +131,32 @@ describe("runAgentRequest 跨模型历史回放", () => {
       state.history,
     ]);
     expect(state.history).toEqual(expect.objectContaining({ instructions: "[上下文已压缩] 上轮摘要" }));
+  });
+
+  it("MCP 工具准备一直挂起时，有界等待后仍启动模型且不注册未就绪工具", async () => {
+    vi.useFakeTimers();
+    vi.mocked(enabledMcpTools).mockImplementationOnce(() => new Promise(() => {}));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const sessions = new Map();
+      const run = runAgentRequest(
+        { sessionId: "s1", workspaceId: "w1", workspaceRoot: "", userMessage: "继续", history: [] },
+        { sessions },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(enabledMcpTools).toHaveBeenCalledOnce();
+      expect(state.starts).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(state.starts).toHaveLength(1);
+      expect(state.configs[0]).toEqual(expect.objectContaining({ mcpTools: [] }));
+      expect(sessions.has("s1")).toBe(true);
+      expect(warn).toHaveBeenCalledWith("[mcp] 工具准备超时，本轮不加载 MCP 工具");
+      await expect(run).resolves.toEqual({ ok: true });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("持久化历史读取失败时仍传入展示层历史兜底", async () => {

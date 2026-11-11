@@ -113,6 +113,21 @@ export interface GitBranches {
   remote: GitBranchInfo[];
 }
 
+export interface GitBranchCleanupSkipped {
+  name: string;
+  reason: "current" | "worktree" | "unmerged" | "delete-failed" | "no-remote" | "fetch-failed";
+  /** fetch --prune 后发现原追踪的 upstream 已不存在 */
+  upstreamGone: boolean;
+  error?: string;
+}
+
+export interface GitBranchCleanupResult {
+  ok: boolean;
+  deleted: Array<{ name: string; upstreamGone: boolean }>;
+  skipped: GitBranchCleanupSkipped[];
+  error?: string;
+}
+
 /** 当前分支关联的 PR（无则为 null） */
 export interface GitPullRequest {
   number: number;

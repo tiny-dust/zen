@@ -1370,6 +1370,17 @@ export class AgentSession {
       }
     }
 
+    // 新版 SDK 对有输出却缺少结束事件的流标记 interrupted；不能把半截回复当作正常完成。
+    if (state.finishReason === "interrupted") {
+      this.config.emit({
+        type: "error",
+        sessionId: this.sessionId,
+        message: "模型响应流意外中断，请重试",
+      });
+      this.finishRun("error");
+      return;
+    }
+
     // 完整 step 才落 checkpoint，避免把半截 step 写入后续上下文。
     const responseMessages = await stream.responseMessages;
     if (responseMessages.length) {

@@ -327,6 +327,18 @@ export async function runAgentRequest(
       await mkdir(workspaceRoot, { recursive: true });
     }
 
+    // MCP 准备可能在连接或枚举工具时挂起；本轮有界等待，超时只跳过工具，不取消会话/连接。
+    let mcpTimer: ReturnType<typeof setTimeout> | undefined;
+    const boundedMcpTools = Promise.race([
+      enabledMcpTools().catch(() => []),
+      new Promise<Awaited<ReturnType<typeof enabledMcpTools>>>((resolve) => {
+        mcpTimer = setTimeout(() => {
+          console.warn("[mcp] 工具准备超时，本轮不加载 MCP 工具");
+          resolve([]);
+        }, 10_000);
+      }),
+    ]).finally(() => clearTimeout(mcpTimer));
+
     // 技能与 MCP 惰性汇总（失败不阻塞会话）
     const [skills, mcpTools] = await Promise.all([
       import("@zen/skills")
@@ -335,7 +347,7 @@ export async function runAgentRequest(
           items.map((item) => ({ id: item.id, name: item.name, description: item.description })),
         )
         .catch(() => []),
-      enabledMcpTools().catch(() => []),
+      boundedMcpTools,
     ]);
 
     // 每轮 run 开始处打 turn 标记：本轮（含子 Agent/插入执行）全部文件改动
