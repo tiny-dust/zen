@@ -44,6 +44,7 @@ import type {
   FilePreview,
   FetchModelsResult,
   GitBranches,
+  GitBranchCleanupResult,
   GitCommitBatch,
   GitCommitDetail,
   GitLogEntry,
@@ -217,6 +218,7 @@ export interface ZenApi {
       base?: string,
     ): Promise<{ ok: boolean; error?: string }>;
     branches(cwd?: string): Promise<GitBranches>;
+    cleanupBranches(cwd: string | undefined, confirmed: boolean): Promise<GitBranchCleanupResult>;
     checkout(cwd: string | undefined, name: string): Promise<{ ok: boolean; error?: string }>;
     pr(cwd?: string): Promise<GitPullRequest | null>;
   };

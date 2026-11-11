@@ -16,6 +16,7 @@ export default {
     startConversation: "开始一段对话",
     startConversationHint: "在下方输入并发送，Agent 将流式回复。",
     scrollToBottom: "滚到底部",
+    loadEarlierMessages: "查看更早消息（还有 {n} 条）",
 
     /* 输入框 */
     placeholderIdle:
@@ -328,6 +329,7 @@ export default {
     startConversation: "Start a conversation",
     startConversationHint: "Type below and send — the agent will reply as it streams.",
     scrollToBottom: "Scroll to bottom",
+    loadEarlierMessages: "Show earlier messages ({n} remaining)",
 
     /* Composer */
     placeholderIdle:

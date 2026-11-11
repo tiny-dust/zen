@@ -19,7 +19,22 @@ import { getMessageRun } from "@zen/shared";
 const { t } = useI18n();
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
-const timelineItems = computed(() => groupTimelineMessages(messages.value));
+// content-visibility 仅跳过浏览器布局，不阻止 Vue 首次挂载所有历史气泡。
+const HISTORY_PAGE_SIZE = 80;
+const visibleMessageCount = ref(HISTORY_PAGE_SIZE);
+const hiddenMessageCount = computed(() => Math.max(0, messages.value.length - visibleMessageCount.value));
+const timelineItems = computed(() => groupTimelineMessages(messages.value.slice(hiddenMessageCount.value)));
+
+async function loadEarlierMessages() {
+  const el = listEl.value;
+  const previousHeight = el?.scrollHeight ?? 0;
+  const previousTop = el?.scrollTop ?? 0;
+  stickToBottom.value = false;
+  visibleMessageCount.value += HISTORY_PAGE_SIZE;
+  await nextTick();
+  if (el) el.scrollTop = previousTop + el.scrollHeight - previousHeight;
+  scheduleTicksUpdate();
+}
 const exportTurnId = ref("");
 const exportOpen = ref(false);
 const completedTurnIds = computed(() => {
@@ -35,6 +50,8 @@ const completedTurnIds = computed(() => {
 });
 
 watch(() => chatStore.sessionId, () => {
+  visibleMessageCount.value = HISTORY_PAGE_SIZE;
+  ticks.value = [];
   exportOpen.value = false;
   exportTurnId.value = "";
   stickToBottom.value = true;
@@ -471,6 +488,16 @@ onUnmounted(() => {
           </p>
         </div>
         <template v-else>
+          <Button
+            v-if="hiddenMessageCount > 0"
+            data-testid="load-earlier-messages"
+            variant="ghost"
+            size="sm"
+            class="mx-auto text-[var(--color-mut)]"
+            @click="loadEarlierMessages"
+          >
+            {{ t("chat.loadEarlierMessages", { n: hiddenMessageCount }) }}
+          </Button>
           <p
             v-if="showTopError"
             class="mx-auto w-full rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-2.5 py-2 text-[12px] text-[var(--color-danger-fg)] shadow-[var(--shadow-tip)]"

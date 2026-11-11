@@ -12,13 +12,15 @@ import type { ChatMessage } from "@zen/shared";
 // 真实 pinia store 的 computed/ref 经 store proxy 自动解包：组件直接读
 // chatStore.isRunning（布尔），而 messages/lastError 走 storeToRefs 必须是 ref。
 // 每个用例重新 mount 且测试前写好状态，故非 ref 属性无需响应式。
+const sessionId = ref("s-1");
 const chatState = {
   messages: ref<ChatMessage[]>([]),
   lastError: ref(""),
   isRunning: false,
   isPreparing: false,
   pendingApproval: null as unknown,
-  sessionId: "s-1",
+  get sessionId() { return sessionId.value; },
+  set sessionId(value: string) { sessionId.value = value; },
 };
 
 vi.mock("@/stores/chat", () => ({
@@ -123,6 +125,38 @@ describe("ChatTimeline 思考占位", () => {
     chatState.isPreparing = true;
 
     expect(mountTimeline().find('[role="status"]').exists()).toBe(true);
+  });
+});
+
+describe("ChatTimeline 长会话切换", () => {
+  it("切入长历史时首轮渲染受控，且仍能读取更早的记录", async () => {
+    const count = 1600;
+    chatState.messages.value = [userMsg("old")];
+    chatState.isRunning = false;
+    chatState.isPreparing = false;
+    const wrapper = mountTimeline();
+    const history = Array.from({ length: count }, (_, index) =>
+      index % 2 ? assistantMsg(`a-${index}`) : userMsg(`u-${index}`),
+    );
+    const started = performance.now();
+    chatState.sessionId = "long-session";
+    chatState.messages.value = history;
+    await wrapper.vm.$nextTick();
+    const duration = performance.now() - started;
+    const rendered = wrapper.findAll(".chat-item").length;
+    console.info(`[switch-benchmark] history=${count} firstPaint=${duration.toFixed(1)}ms rows=${rendered}`);
+    expect(rendered).toBeLessThanOrEqual(80);
+    expect(wrapper.find('.chat-item[data-mid="a-1599"]').exists()).toBe(true);
+    expect(wrapper.find('.chat-item[data-mid="u-0"]').exists()).toBe(false);
+    await wrapper.find('[data-testid="load-earlier-messages"]').trigger("click");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll(".chat-item").length).toBeGreaterThan(rendered);
+    chatState.sessionId = "another-session";
+    chatState.messages.value = history.map((message) => ({ ...message, id: `next-${message.id}` }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findAll(".chat-item").length).toBe(80);
+    expect(wrapper.find('.chat-item[data-mid="next-a-1599"]').exists()).toBe(true);
+    wrapper.unmount();
   });
 });
 

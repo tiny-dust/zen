@@ -1319,9 +1319,9 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** 新会话：缺省落在底部当前选中的工作区/公共区，与 WorkspacePicker 一致 */
-  async function newTask(workspaceId?: string) {
-    const run = doNewTask(workspaceId);
+  /** 新会话：正常入口立即建库；删除当前会话后仅重置为空白草稿 */
+  async function newTask(workspaceId?: string, persist = true) {
+    const run = doNewTask(workspaceId, persist);
     switchInFlight = run;
     try {
       await run;
@@ -1332,25 +1332,24 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  async function doNewTask(workspaceId?: string) {
+  async function doNewTask(workspaceId?: string, persist = true) {
     const workspaceStore = useWorkspaceStore();
     const target = workspaceId || sessionWorkspaceId.value;
     const zen = window.zen;
-    // 运行中的会话切到后台继续跑（主进程按 sessionId 隔离，支持多会话并行），
-    // 侧栏状态由 sessionStatusStore 标记「进行中」，不在此 cancel
-    flushDraft();
+    // 正常新建时保留旧会话现场；删除后的重置不再保存已删除会话的草稿。
+    if (persist) flushDraft();
     const seq = ++switchSeq;
     const inputAtSwitch = input.value;
-    // 旧会话的草稿与插入队列在此刻入桶（切换异步窗口内用户可能继续输入，
-    // 那部分内容保留给新会话，不进旧会话暂存）
-    stashComposerDraft();
-    stashQueuedMessages();
+    if (persist) {
+      stashComposerDraft();
+      stashQueuedMessages();
+    }
 
     // 先建库再切状态：创建失败时保留当前现场并提示。
     // 会话 id 由渲染层生成（uuidv7），保证每个会话有唯一 key，不依赖 DB 兜底
     const newId = uuidv7();
     let record: SessionRecord | undefined;
-    if (zen) {
+    if (zen && persist) {
       try {
         record = await zen.session.create(target, newId);
       } catch (error) {
@@ -1368,10 +1367,21 @@ export const useChatStore = defineStore("chat", () => {
     // 切换窗口内用户继续输入：保留刚输入的内容，不被新会话的清空覆盖
     const typedDuringSwitch = input.value !== inputAtSwitch;
 
-    // 切走前快照：当前会话仍在后台运行时，把未落库的流式消息存进后台缓冲
-    stashRunningTranscript();
-    stashPendingAsks();
-    stashPendingApproval();
+    if (persist) {
+      // 正常切走时保留后台运行现场；删除时丢弃已删除会话的本地缓存。
+      stashRunningTranscript();
+      stashPendingAsks();
+      stashPendingApproval();
+    } else {
+      const deletedId = sessionId.value;
+      cancelGoalAutoTimer(deletedId);
+      stashedDrafts.delete(deletedId);
+      stashedQueues.delete(deletedId);
+      stashedAsks.delete(deletedId);
+      stashedApprovals.delete(deletedId);
+      backgroundTranscripts.drop(deletedId);
+      sessionStatusStore.clear(deletedId);
+    }
 
     messages.value = [];
     if (!typedDuringSwitch) {
