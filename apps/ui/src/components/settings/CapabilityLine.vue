@@ -31,6 +31,9 @@ const badges = computed(() => {
   if (caps.media) {
     list.push("settings.models.capMedia");
   }
+  if (caps.imageEdit) {
+    list.push("settings.models.capImageEdit");
+  }
   return list;
 });
 

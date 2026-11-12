@@ -74,6 +74,7 @@ const form = reactive({
   vision: false,
   reasoning: false,
   media: false,
+  imageEdit: false,
   efforts: new Set<ReasoningEffort>(),
 });
 
@@ -93,6 +94,7 @@ function applyCapabilities(source?: ModelCapabilities) {
   form.toolCall = Boolean(source?.toolCall ?? true);
   form.vision = Boolean(source?.vision);
   form.media = Boolean(source?.media);
+  form.imageEdit = Boolean(source?.imageEdit);
   form.contextWindow = source?.contextWindow ?? 128000;
   form.maxOutputTokens = source?.maxOutputTokens ?? 8192;
   form.chatEndpoint = source?.chatEndpoint ?? "auto";
@@ -152,6 +154,7 @@ function buildCapabilities(): ModelCapabilities {
     vision: form.vision || undefined,
     reasoning: form.reasoning || undefined,
     media: form.media || undefined,
+    imageEdit: form.imageEdit || undefined,
     contextWindow: form.contextWindow > 0 ? form.contextWindow : undefined,
     maxOutputTokens: form.maxOutputTokens > 0 ? form.maxOutputTokens : undefined,
     chatEndpoint: form.chatEndpoint === "auto" ? undefined : form.chatEndpoint,
@@ -305,6 +308,12 @@ function protocolOptions() {
           <Label class="field-row-label font-normal">{{ t("settings.models.media") }}</Label>
           <div class="flex justify-end">
             <Switch v-model="form.media" :aria-label="t('settings.models.media')" />
+          </div>
+        </div>
+        <div class="field-row">
+          <Label class="field-row-label font-normal">{{ t("settings.models.imageEdit") }}</Label>
+          <div class="flex justify-end">
+            <Switch v-model="form.imageEdit" :aria-label="t('settings.models.imageEdit')" />
           </div>
         </div>
         <div class="field-row">

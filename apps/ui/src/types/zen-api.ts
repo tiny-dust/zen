@@ -67,6 +67,9 @@ import type {
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
+  PetGenerateInput,
+  PetState,
+  PetStatus,
   PromptPreset,
   ProviderInput,
   ProviderModel,
@@ -236,6 +239,14 @@ export interface ZenApi {
     set(partial: Partial<AppSettings>): Promise<AppSettings>;
     onChanged(handler: (settings: AppSettings) => void): () => void;
     onGlobalCommand(handler: (command: string) => void): () => void;
+  };
+  pet: {
+    get(): Promise<PetState>;
+    generate(input: PetGenerateInput): Promise<PetState>;
+    setVisible(visible: boolean): Promise<PetState>;
+    setSize(size: number): Promise<PetState>;
+    setStatus(status: PetStatus): Promise<void>;
+    onChanged(handler: (state: PetState) => void): () => void;
   };
   updates: {
     check(): Promise<{ ok: boolean; error?: string }>;

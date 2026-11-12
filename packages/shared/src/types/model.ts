@@ -59,11 +59,29 @@ export const CapabilitySourceEnum = enumOf({
   Manual: { value: "manual" as CapabilitySource, label: "手动" },
 });
 
+export interface PetState {
+  enabled: boolean;
+  size: number;
+  spriteDataUrl: string | null;
+  sourceDataUrl: string | null;
+}
+
+export interface PetGenerateInput {
+  providerId: string;
+  modelId: string;
+  sourceDataUrl: string;
+  style: string;
+}
+
+export type PetStatus = "idle" | "working" | "done" | "error";
+
 export interface ModelCapabilities {
   reasoning?: boolean;
   vision?: boolean;
   toolCall?: boolean;
   media?: boolean;
+  /** 图片编辑/生成能力，与 vision（读图）及 media（媒体输入）独立。 */
+  imageEdit?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
   /** 模型支持的推理强度档位；为空表示不限制 */
