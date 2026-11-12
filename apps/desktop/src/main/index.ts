@@ -24,6 +24,8 @@ import {
 import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
+import { registerPetIpc, restorePetWindow } from "./pet-service";
+import { isPetWindow } from "./pet-window";
 import { registerSessionIpc } from "./session-ipc";
 import { startGoalReminders, shutdownGoalReminders } from "./goal-reminders";
 import { resolveWorkspaceDir } from "./sandbox";
@@ -65,6 +67,7 @@ import type {
 } from "@zen/shared";
 
 const sessions = new Map<string, AgentSession>();
+let mainWindow: BrowserWindow | null = null;
 
 const execFileAsync = promisify(execFile);
 
@@ -99,6 +102,11 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  mainWindow = window;
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null;
+    if (process.platform !== "darwin") app.quit();
+  });
   window.on("ready-to-show", () => {
     window.show();
   });
@@ -416,7 +424,7 @@ function registerIpc(): void {
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
+    if (!win.isDestroyed() && !isPetWindow(win)) {
       win.webContents.send(channel, payload);
     }
   }
@@ -486,6 +494,7 @@ app.whenReady().then(() => {
   void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();
   registerModelIpc();
+  registerPetIpc(() => mainWindow);
   registerSessionIpc((sessionId) => sessions.has(sessionId));
   registerWorkspaceIpc();
   registerGitIpc();
@@ -517,10 +526,11 @@ app.whenReady().then(() => {
   // 应用菜单：去掉 Reload 角色（禁用整页刷新），保留复制粘贴等系统快捷键角色
   setupApplicationMenu(isDevRenderer);
   createWindow();
+  void restorePetWindow().catch((error) => console.warn("[zen] 桌宠恢复失败:", error));
   startGoalReminders({
     isSessionRunning: (sessionId) => sessions.has(sessionId),
     openSession: (sessionId) => {
-      const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed()) ?? createWindow();
+      const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow();
       window.show();
       window.focus();
       const sendOpenRequest = () => window.webContents.send("session:open-request", sessionId);
@@ -540,7 +550,7 @@ app.whenReady().then(() => {
   void initUserState();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
       createWindow();
     }
   });
