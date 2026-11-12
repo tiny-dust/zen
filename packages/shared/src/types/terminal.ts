@@ -5,6 +5,13 @@ export interface TerminalShellInfo {
   source: "env" | "login" | "fallback";
 }
 
+export interface TerminalActivity {
+  terminalId: string;
+  ownerSessionId: string | null;
+  active: boolean;
+  command?: string;
+}
+
 export interface TerminalSessionInfo {
   id: string;
   shell: string;

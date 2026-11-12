@@ -3,6 +3,7 @@ import { ipcRenderer } from "electron";
 import type {
   PtyDataEvent,
   PtyExitEvent,
+  TerminalActivity,
   TerminalCreateResult,
   TerminalSessionInfo,
   TerminalShellInfo,
@@ -19,16 +20,20 @@ export const terminalApi = {
     list(): Promise<TerminalSessionInfo[]> {
       return ipcRenderer.invoke("terminal:list");
     },
+    listActivities(): Promise<TerminalActivity[]> {
+      return ipcRenderer.invoke("terminal:list-activities");
+    },
     create(options?: {
       cwd?: string;
       cols?: number;
       rows?: number;
       shell?: string;
+      ownerSessionId?: string;
     }): Promise<TerminalCreateResult> {
       return ipcRenderer.invoke("terminal:create", options);
     },
-    write(sessionId: string, data: string): Promise<{ ok: boolean }> {
-      return ipcRenderer.invoke("terminal:write", sessionId, data);
+    write(sessionId: string, data: string, ownerSessionId?: string): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke("terminal:write", sessionId, data, ownerSessionId);
     },
     resize(sessionId: string, cols: number, rows: number): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("terminal:resize", sessionId, cols, rows);
@@ -55,6 +60,15 @@ export const terminalApi = {
       ipcRenderer.on("pty:exit", listener);
       return () => {
         ipcRenderer.removeListener("pty:exit", listener);
+      };
+    },
+    onActivity(handler: (event: TerminalActivity) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: TerminalActivity) => {
+        handler(payload);
+      };
+      ipcRenderer.on("pty:activity", listener);
+      return () => {
+        ipcRenderer.removeListener("pty:activity", listener);
       };
     },
   },

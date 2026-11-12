@@ -3,6 +3,7 @@ import { ipcMain } from "electron";
 import type {
   PtyDataEvent,
   PtyExitEvent,
+  TerminalActivity,
   TerminalCreateResult,
   TerminalFontSettings,
   TerminalSessionInfo,
@@ -22,6 +23,9 @@ export function registerTerminalIpc(
   service.onExit((event: PtyExitEvent) => {
     broadcast("pty:exit", event);
   });
+  service.onActivity((event: TerminalActivity) => {
+    broadcast("pty:activity", event);
+  });
 
   ipcMain.handle("terminal:shell", (): TerminalShellInfo => service.defaultShell());
 
@@ -29,19 +33,20 @@ export function registerTerminalIpc(
   ipcMain.handle("terminal:font", (): TerminalFontSettings => resolveSystemTerminalFont());
 
   ipcMain.handle("terminal:list", (): TerminalSessionInfo[] => service.list());
+  ipcMain.handle("terminal:list-activities", (): TerminalActivity[] => service.listActivities());
 
   ipcMain.handle(
     "terminal:create",
     async (
       _event,
-      options?: { cwd?: string; cols?: number; rows?: number; shell?: string },
+      options?: { cwd?: string; cols?: number; rows?: number; shell?: string; ownerSessionId?: string },
     ): Promise<TerminalCreateResult> => {
       return service.create(options);
     },
   );
 
-  ipcMain.handle("terminal:write", async (_event, sessionId: string, data: string) => {
-    return { ok: service.write(sessionId, data) };
+  ipcMain.handle("terminal:write", async (_event, sessionId: string, data: string, ownerSessionId?: string) => {
+    return { ok: service.write(sessionId, data, ownerSessionId) };
   });
 
   ipcMain.handle(

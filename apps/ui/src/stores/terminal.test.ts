@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TerminalSessionInfo } from "@zen/shared";
 
+import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useTerminalStore } from "@/stores/terminal";
 
@@ -169,5 +170,52 @@ describe("terminal bindWorkspaceScope 按工作区分桶", () => {
     expect(store.names["t1"]).toBeUndefined();
     // 退出提示写进缓冲（切回/重挂时可见）
     expect(store.getBuffer("t1")).toContain("1");
+  });
+
+  it("活动快照、推送与退出按终端 ID 同步，不把空闲 shell 计入", async () => {
+    let onActivity: ((event: { terminalId: string; ownerSessionId: string | null; active: boolean }) => void) | undefined;
+    let resolveSnapshot!: (items: Array<{ terminalId: string; ownerSessionId: string | null; active: boolean }>) => void;
+    const listActivities = vi.fn(() => new Promise<Awaited<Parameters<typeof resolveSnapshot>[0]>>((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+    vi.stubGlobal("zen", {
+      terminal: {
+        onData: vi.fn(() => () => undefined),
+        onExit: vi.fn((handler: ExitHandler) => { exitHandlers.push(handler); return () => undefined; }),
+        onActivity: vi.fn((handler: typeof onActivity) => { onActivity = handler; return () => undefined; }),
+        listActivities,
+      },
+    });
+    const store = useTerminalStore();
+    store.bindEvents();
+    onActivity?.({ terminalId: "t2", ownerSessionId: "s2", active: true });
+    exitHandlers[0]?.({ sessionId: "old", exitCode: 0 });
+    resolveSnapshot([
+      { terminalId: "idle", ownerSessionId: "s1", active: false },
+      { terminalId: "old", ownerSessionId: "s1", active: true },
+      { terminalId: "t1", ownerSessionId: "s1", active: true },
+    ]);
+    await vi.waitFor(() => expect(store.activeActivities.map((item) => item.terminalId)).toEqual(["t1", "t2"]));
+    onActivity?.({ terminalId: "t2", ownerSessionId: "s2", active: true });
+    store.bindWorkspaceScope("different-workspace");
+    expect(store.activeActivities.map((item) => item.terminalId)).toEqual(["t1", "t2"]);
+    onActivity?.({ terminalId: "t1", ownerSessionId: "s1", active: false });
+    exitHandlers[0]?.({ sessionId: "t2", exitCode: 0 });
+    expect(store.activeActivities).toEqual([]);
+  });
+
+  it("新建及写入终端附带当前会话归属", async () => {
+    const create = vi.fn().mockResolvedValue({ ok: true, session: termOf("t1") });
+    const write = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("zen", {
+      terminal: { shell: vi.fn().mockResolvedValue({ path: "/bin/zsh", args: [], label: "zsh" }), create, write },
+    });
+    const chat = useChatStore();
+    chat.sessionId = "owner-session";
+    const store = useTerminalStore();
+    await store.start();
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ ownerSessionId: "owner-session" }));
+    await store.write("npm run dev\\r", "t1");
+    expect(write).toHaveBeenCalledWith("t1", "npm run dev\\r", "owner-session");
   });
 });

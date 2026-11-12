@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
 import type {
+  TerminalActivity,
   TerminalFontSettings,
   TerminalSessionInfo,
   TerminalShellInfo,
@@ -29,6 +30,8 @@ export const useTerminalStore = defineStore("terminal", () => {
   const shellInfo = ref<TerminalShellInfo | null>(null);
   const fontInfo = ref<TerminalFontSettings>(fallbackFont);
   const sessions = ref<TerminalSessionInfo[]>([]);
+  /** 所有工作区的活跃命令快照；空闲 shell 不在其中。 */
+  const activeActivities = ref<TerminalActivity[]>([]);
   const activeId = ref("");
   /** 自定义名称（按会话）；未命名时用 shell + 序号 */
   const names = ref<Record<string, string>>({});
@@ -206,6 +209,11 @@ export const useTerminalStore = defineStore("terminal", () => {
 
   let eventsUnbind: (() => void) | null = null;
 
+  function applyActivity(event: TerminalActivity) {
+    activeActivities.value = activeActivities.value.filter((item) => item.terminalId !== event.terminalId);
+    if (event.active && event.ownerSessionId) activeActivities.value.push(event);
+  }
+
   /**
    * 终端事件跟随应用生命周期只绑一次（底部面板/右栏终端模块都可能挂载）；
    * 返回的清理函数保留兼容旧调用方，但不真正解绑，避免面板收起后丢事件。
@@ -218,7 +226,20 @@ export const useTerminalStore = defineStore("terminal", () => {
     const offData = zen.terminal.onData((event) => {
       appendData(event.sessionId, event.data);
     });
+    let pending: Map<string, TerminalActivity> | null = new Map();
+    const handleActivity = (event: TerminalActivity) => {
+      pending?.set(event.terminalId, event);
+      applyActivity(event);
+    };
+    const offActivity = zen.terminal.onActivity?.(handleActivity);
+    void zen.terminal.listActivities?.().then((list) => {
+      const merged = new Map(list.map((item) => [item.terminalId, item]));
+      for (const [id, event] of pending ?? []) merged.set(id, event);
+      activeActivities.value = [...merged.values()].filter((item) => item.active && item.ownerSessionId);
+      pending = null;
+    }).catch(() => undefined);
     const offExit = zen.terminal.onExit((event) => {
+      handleActivity({ terminalId: event.sessionId, ownerSessionId: null, active: false });
       appendData(
         event.sessionId,
         `\n${i18n.global.t("app.terminal.processExited", { code: event.exitCode })}\n`,
@@ -231,6 +252,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     });
     eventsUnbind = () => {
       offData();
+      offActivity?.();
       offExit();
     };
     return () => undefined;
@@ -283,6 +305,7 @@ export const useTerminalStore = defineStore("terminal", () => {
       cwd: workdir,
       cols,
       rows,
+      ownerSessionId: chat.sessionId || undefined,
     });
     if (!result.ok || !result.session) {
       error.value = result.error || i18n.global.t("app.terminal.startFailed");
@@ -363,7 +386,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     if (!window.zen?.terminal || !id) {
       return;
     }
-    await window.zen.terminal.write(id, data);
+    await window.zen.terminal.write(id, data, useChatStore().sessionId || undefined);
   }
 
   async function resize(cols: number, rows: number, id = activeId.value) {
@@ -450,6 +473,7 @@ export const useTerminalStore = defineStore("terminal", () => {
     shellInfo,
     fontInfo,
     sessions,
+    activeActivities,
     session,
     sessionId,
     activeId,
