@@ -33,6 +33,7 @@ export type SettingsTab =
   | "permissions"
   | "profile"
   | "models"
+  | "pet"
   | "shortcuts"
   | "agent"
   | "lark"
@@ -70,6 +71,7 @@ export const useSettingsStore = defineStore("settings", () => {
       "permissions",
       "profile",
       "models",
+      "pet",
       "shortcuts",
       "agent",
       "lark",

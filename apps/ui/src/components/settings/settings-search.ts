@@ -107,6 +107,13 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     titleKey: "settings.prompts.title",
     keywords: ["system prompt preset 提示词 系统提示词 自定义 custom distilled 提炼版"],
   },
+  // 宠物
+  {
+    tab: "pet",
+    titleKey: "settings.nav.pet",
+    descKey: "settings.nav.descPet",
+    keywords: ["pet companion sprite image 宠物 桌宠 图片生成"],
+  },
   // 个人资料
   {
     tab: "profile",

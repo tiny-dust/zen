@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Boxes, Keyboard, MessageSquare, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Cat, Keyboard, MessageSquare, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -9,6 +9,7 @@ import SettingsAppearance from "@/components/settings/SettingsAppearance.vue";
 import SettingsGeneral from "@/components/settings/SettingsGeneral.vue";
 import SettingsLark from "@/components/settings/SettingsLark.vue";
 import SettingsModels from "@/components/settings/SettingsModels.vue";
+import SettingsPet from "@/components/settings/SettingsPet.vue";
 import SettingsPermissions from "@/components/settings/SettingsPermissions.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
@@ -46,6 +47,7 @@ const navGroups = computed(() => [
       { id: "permissions" as const, label: t("settings.nav.permissions"), icon: ShieldCheck },
       { id: "lark" as const, label: t("settings.nav.lark"), icon: MessageSquare },
       { id: "prompts" as const, label: t("settings.nav.prompts"), icon: Sparkles },
+      { id: "pet" as const, label: t("settings.nav.pet"), icon: Cat },
     ],
   },
   {
@@ -75,6 +77,7 @@ function tabLabel(tab: SettingsTab): string {
     prompts: t("settings.nav.prompts"),
     profile: t("settings.nav.profile"),
     models: t("settings.nav.models"),
+    pet: t("settings.nav.pet"),
     skills: t("settings.nav.general"),
     mcp: t("settings.nav.general"),
   };
@@ -88,6 +91,8 @@ const paneDesc = computed(() => {
   switch (activeTab.value) {
     case "models":
       return t("settings.nav.descModels");
+    case "pet":
+      return t("settings.nav.descPet");
     case "profile":
       return t("settings.nav.descProfile");
     case "shortcuts":
@@ -259,6 +264,7 @@ watch(
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsProfile v-else-if="activeTab === 'profile'" />
             <SettingsModels v-else-if="activeTab === 'models'" />
+            <SettingsPet v-else-if="activeTab === 'pet'" />
             <SettingsAgent v-else-if="activeTab === 'agent'" />
             <SettingsPermissions v-else-if="activeTab === 'permissions'" />
             <SettingsLark v-else-if="activeTab === 'lark'" />

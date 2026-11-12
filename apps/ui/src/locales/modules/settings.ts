@@ -66,6 +66,7 @@ export default {
       prompts: "提示词",
       profile: "个人资料",
       models: "模型供应",
+      pet: "桌面宠物",
       descGeneral: "软件更新、版本检查与临时缓存清理。",
       descAppearance: "界面主题、语言与代码高亮主题。",
       descShortcuts: "点击输入框后按下组合键即可重新绑定；可注册为系统全局快捷键。",
@@ -75,6 +76,7 @@ export default {
       descPrompts: "选择知名工具的内置系统提示词，或自定义你的规则。",
       descProfile: "本地默认身份可用全部功能；登录 GitHub 后可同步个人资料与配置云。",
       descModels: "自定义 OpenAI / Anthropic 兼容供应商，支持三种消息协议。",
+      descPet: "选一张原图，生成并管理桌面宠物。",
       skillsMcpMoved: "技能与 MCP 已移至左侧栏独立弹窗，请点击侧栏「技能」或「MCP」打开。",
     },
     profile: {
@@ -275,6 +277,8 @@ export default {
       ctxLimit: "{value} 上下文",
       outLimit: "{value} 输出",
     },
+    pet: {
+      source: "原图", choose: "选择图片", imageHint: "支持 PNG、JPEG、WebP；建议主体清晰、背景简单。", invalidImage: "请选择小于 10 MB 的 PNG、JPEG 或 WebP 图片。", style: "生成风格", stylePlaceholder: "例如：像素风，保留角色特征", model: "图片模型", noModel: "暂无可用图片编辑模型，请先在模型供应中配置。", generate: "生成宠物", generating: "正在生成…", generated: "宠物已生成", preview: "宠物预览", empty: "生成后在这里预览桌面宠物。", visible: "显示桌面宠物", size: "显示大小", failed: "操作失败，请重试。", regenerateHint: "重新生成会替换当前宠物图片。" },
     shortcut: {
       action: "功能",
       command: "命令",
@@ -640,6 +644,7 @@ export default {
       prompts: "Prompts",
       profile: "Profile",
       models: "Model Providers",
+      pet: "Desktop Pet",
       descGeneral: "Software updates, version checks, and temporary cache cleanup.",
       descAppearance: "UI theme, language, and code highlight theme.",
       descShortcuts: "Click an input, then press a key combo to rebind it; shortcuts can be registered system-wide.",
@@ -650,6 +655,7 @@ export default {
       descProfile:
         "The local identity unlocks all features; sign in to GitHub to sync your profile and configs to the cloud.",
       descModels: "Custom OpenAI / Anthropic compatible providers, with three message protocols.",
+      descPet: "Create and manage a desktop pet from your image.",
       skillsMcpMoved:
         "Skills and MCP moved to their own dialogs in the sidebar — open them from “Skills” or “MCP” there.",
     },
@@ -854,6 +860,8 @@ export default {
       ctxLimit: "{value} ctx",
       outLimit: "{value} out",
     },
+    pet: {
+      source: "Source image", choose: "Choose image", imageHint: "PNG, JPEG or WebP; a clear subject and simple background work best.", invalidImage: "Choose a PNG, JPEG or WebP image under 10 MB.", style: "Style", stylePlaceholder: "e.g. Pixel art, preserve the character's features", model: "Image model", noModel: "No image editing model available. Configure one in Model Providers first.", generate: "Generate pet", generating: "Generating…", generated: "Pet generated", preview: "Pet preview", empty: "Your pet will appear here after generation.", visible: "Show desktop pet", size: "Display size", failed: "Operation failed. Try again.", regenerateHint: "Generating again replaces the current pet image." },
     shortcut: {
       action: "Action",
       command: "Command",
