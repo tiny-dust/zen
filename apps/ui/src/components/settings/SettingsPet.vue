@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { PetState, ProviderSummary } from "@zen/shared";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import type { PetCollectionState, ProviderSummary } from "@zen/shared";
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import { SliderRange } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 
 const { t } = useI18n();
-const pet = ref<PetState | null>(null);
+const collection = shallowRef<PetCollectionState>({ pets: [] });
+const sizes = ref<Record<string, number>>({});
 const providers = ref<ProviderSummary[]>([]);
 const source = ref<string | null>(null);
 const style = ref("");
@@ -26,8 +27,13 @@ const selection = ref("");
 const busy = ref(false);
 const error = ref("");
 const success = ref(false);
-const size = ref(160);
+const importMessage = ref("");
 let unsubscribe: (() => void) | undefined;
+
+function applyCollection(state: PetCollectionState) {
+  collection.value = state;
+  sizes.value = Object.fromEntries(state.pets.map((pet) => [pet.id, pet.size]));
+}
 
 const models = computed(() => providers.value.flatMap((provider) =>
   provider.enabled && provider.hasApiKey && (!provider.authMode || provider.authMode === "api-key")
@@ -37,15 +43,11 @@ const models = computed(() => providers.value.flatMap((provider) =>
 ));
 
 onMounted(async () => {
-  unsubscribe = window.zen!.pet.onChanged((state) => {
-    pet.value = state;
-    size.value = state.size;
-  });
+  unsubscribe = window.zen!.pet.onChanged(applyCollection);
   try {
     const [state, list] = await Promise.all([window.zen!.pet.get(), window.zen!.models.list()]);
-    pet.value = state;
-    source.value = state.sourceDataUrl;
-    size.value = state.size;
+    applyCollection(state);
+    source.value = state.pets.find((pet) => pet.sourceDataUrl)?.sourceDataUrl ?? null;
     providers.value = list;
     selection.value = models.value[0]?.value ?? "";
   } catch (cause) {
@@ -83,7 +85,7 @@ async function generate() {
   success.value = false;
   try {
     const [providerId, modelId] = JSON.parse(selection.value) as [string, string];
-    pet.value = await window.zen!.pet.generate({ providerId, modelId, sourceDataUrl: source.value, style: style.value.trim() });
+    applyCollection(await window.zen!.pet.generate({ providerId, modelId, sourceDataUrl: source.value, style: style.value.trim() }));
     success.value = true;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t("settings.pet.failed");
@@ -91,13 +93,42 @@ async function generate() {
     busy.value = false;
   }
 }
-async function setVisible(visible: boolean) {
-  try { pet.value = await window.zen!.pet.setVisible(visible); }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : t("settings.pet.failed"); }
+async function importDirectory() {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
+  importMessage.value = "";
+  try {
+    const existingIds = new Set(collection.value.pets.map((pet) => pet.id));
+    const state = await window.zen!.pet.importDirectory();
+    if (!state) return;
+    applyCollection(state);
+    const count = state.pets.filter((pet) => !existingIds.has(pet.id)).length;
+    if (count) importMessage.value = t("settings.pet.imported", { count });
+    else error.value = t("settings.pet.importEmpty");
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : t("settings.pet.importFailed");
+  } finally {
+    busy.value = false;
+  }
 }
-async function saveSize() {
-  try { pet.value = await window.zen!.pet.setSize(size.value); }
+async function setVisible(id: string, visible: boolean) {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try { applyCollection(await window.zen!.pet.setVisible(id, visible)); }
   catch (cause) { error.value = cause instanceof Error ? cause.message : t("settings.pet.failed"); }
+  finally { busy.value = false; }
+}
+async function saveSize(id: string) {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try { applyCollection(await window.zen!.pet.setSize(id, sizes.value[id] ?? 160)); }
+  catch (cause) {
+    error.value = cause instanceof Error ? cause.message : t("settings.pet.failed");
+    sizes.value[id] = collection.value.pets.find((pet) => pet.id === id)?.size ?? 160;
+  } finally { busy.value = false; }
 }
 </script>
 
@@ -133,25 +164,98 @@ async function saveSize() {
             <Input id="pet-style" v-model="style" :maxlength="500" :placeholder="t('settings.pet.stylePlaceholder')" :disabled="busy" />
             <p class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.uploadNotice") }}</p>
           </div>
-          <p v-if="pet?.spriteDataUrl" class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.regenerateHint") }}</p>
+          <p v-if="collection.pets.length" class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.regenerateHint") }}</p>
           <div class="flex items-center gap-3">
             <Button :disabled="busy || !source || !selection || !style.trim()" @click="generate">{{ t(busy ? "settings.pet.generating" : "settings.pet.generate") }}</Button>
             <span v-if="success" class="text-xs text-[var(--color-ok)]">{{ t("settings.pet.generated") }}</span>
           </div>
-          <p v-if="error" role="alert" class="m-0 text-xs text-[var(--color-err)]">{{ error }}</p>
         </CardContent>
       </Card>
     </section>
     <section id="set-pet-preview" class="flex flex-col scroll-mt-2">
       <h3 class="settings-section-title">{{ t("settings.pet.preview") }}</h3>
-      <Card size="sm" class="settings-card"><CardContent class="flex flex-col gap-4 p-4">
-        <div class="flex h-44 items-center justify-center rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)]">
-          <img v-if="pet?.spriteDataUrl" :src="pet.spriteDataUrl" :alt="t('settings.pet.preview')" class="max-h-full max-w-full object-contain">
-          <p v-else class="text-xs text-[var(--color-mut)]">{{ t("settings.pet.empty") }}</p>
+      <div class="flex flex-col gap-3">
+        <Card size="sm" class="settings-card">
+          <CardContent class="flex flex-col items-start gap-2 p-4">
+            <Button variant="outline" :disabled="busy" @click="importDirectory">{{ t(busy ? "settings.pet.importing" : "settings.pet.importDirectory") }}</Button>
+            <p class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.importHint") }}</p>
+            <p v-if="importMessage" role="status" class="m-0 text-xs text-[var(--color-ok)]">{{ importMessage }}</p>
+            <p v-if="error" role="alert" class="m-0 text-xs text-[var(--color-err)]">{{ error }}</p>
+          </CardContent>
+        </Card>
+        <p v-if="!collection.pets.length" class="text-xs text-[var(--color-mut)]">{{ t("settings.pet.empty") }}</p>
+        <div v-else class="pet-collection">
+          <div class="pet-grid">
+            <Card v-for="(item, index) in collection.pets" :key="item.id" size="sm" class="settings-card min-w-0">
+              <CardContent class="flex min-w-0 flex-col gap-3 px-3 py-2">
+                <h4 class="m-0 truncate text-sm font-medium" :title="item.name">{{ item.name }}</h4>
+                <div class="flex h-28 items-center justify-center rounded-xl border border-[var(--color-line)] bg-[var(--color-np-btn-bg)]">
+                  <div
+                    v-if="item.spriteDataUrl"
+                    class="pet-portrait"
+                    :class="item.spriteLayout === 'dimagent-v2' ? 'pet-portrait--dimagent' : 'pet-portrait--zen'"
+                    :style="{ backgroundImage: `url(${item.spriteDataUrl})` }"
+                    role="img"
+                    :aria-label="item.name"
+                  />
+                  <p v-else class="text-xs text-[var(--color-mut)]">{{ t("settings.pet.noPreview") }}</p>
+                </div>
+                <div class="flex min-h-8 items-center justify-between gap-2 text-sm">
+                  <label :for="`pet-visible-${index}`" class="min-w-0 truncate" :title="t('settings.pet.visible')">{{ t("settings.pet.visible") }}</label>
+                  <Switch :id="`pet-visible-${index}`" :model-value="item.enabled" :disabled="!item.spriteDataUrl || busy" @update:model-value="setVisible(item.id, $event)" />
+                </div>
+                <div class="flex min-h-8 min-w-0 items-center gap-2 text-sm">
+                  <label :for="`pet-size-${index}`" class="shrink-0">{{ t("settings.pet.size") }}</label>
+                  <SliderRange :id="`pet-size-${index}`" class="min-w-0 flex-1" :model-value="sizes[item.id] ?? item.size" :min="100" :max="300" :step="10" :disabled="!item.spriteDataUrl || busy" :aria-label="t('settings.pet.size')" @update:model-value="sizes[item.id] = $event" @change="saveSize(item.id)" />
+                  <span class="shrink-0 text-right tabular-nums">{{ sizes[item.id] ?? item.size }}px</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-        <div class="flex items-center justify-between text-sm"><label for="pet-visible">{{ t("settings.pet.visible") }}</label><Switch id="pet-visible" :model-value="pet?.enabled ?? false" :disabled="!pet?.spriteDataUrl || busy" @update:model-value="setVisible" /></div>
-        <div class="flex items-center gap-4 text-sm"><label for="pet-size" class="shrink-0">{{ t("settings.pet.size") }}</label><SliderRange id="pet-size" v-model="size" :min="100" :max="300" :step="10" :disabled="!pet?.spriteDataUrl" :aria-label="t('settings.pet.size')" @change="saveSize" /><span class="w-12 text-right tabular-nums">{{ size }}px</span></div>
-      </CardContent></Card>
+      </div>
     </section>
   </div>
 </template>
+
+<style scoped>
+.pet-collection {
+  container-type: inline-size;
+}
+
+.pet-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@container (min-width: 420px) {
+  .pet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 680px) {
+  .pet-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.pet-portrait {
+  flex: none;
+  width: 96px;
+  max-height: 100%;
+  background-position: left top;
+  background-repeat: no-repeat;
+}
+
+.pet-portrait--zen {
+  aspect-ratio: 1;
+  background-size: 400% 400%;
+}
+
+.pet-portrait--dimagent {
+  aspect-ratio: 12 / 13;
+  background-size: 800% 1100%;
+}
+</style>

@@ -60,10 +60,17 @@ export const CapabilitySourceEnum = enumOf({
 });
 
 export interface PetState {
+  id: string;
+  name: string;
   enabled: boolean;
   size: number;
   spriteDataUrl: string | null;
   sourceDataUrl: string | null;
+  spriteLayout: "zen-4x4" | "dimagent-v2";
+}
+
+export interface PetCollectionState {
+  pets: PetState[];
 }
 
 export interface PetGenerateInput {

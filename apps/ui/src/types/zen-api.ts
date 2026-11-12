@@ -67,8 +67,8 @@ import type {
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
+  PetCollectionState,
   PetGenerateInput,
-  PetState,
   PetStatus,
   PromptPreset,
   ProviderInput,
@@ -241,12 +241,14 @@ export interface ZenApi {
     onGlobalCommand(handler: (command: string) => void): () => void;
   };
   pet: {
-    get(): Promise<PetState>;
-    generate(input: PetGenerateInput): Promise<PetState>;
-    setVisible(visible: boolean): Promise<PetState>;
-    setSize(size: number): Promise<PetState>;
+    get(): Promise<PetCollectionState>;
+    generate(input: PetGenerateInput): Promise<PetCollectionState>;
+    /** 主进程选择目录；取消返回 null。 */
+    importDirectory(): Promise<PetCollectionState | null>;
+    setVisible(id: string, visible: boolean): Promise<PetCollectionState>;
+    setSize(id: string, size: number): Promise<PetCollectionState>;
     setStatus(status: PetStatus): Promise<void>;
-    onChanged(handler: (state: PetState) => void): () => void;
+    onChanged(handler: (state: PetCollectionState) => void): () => void;
   };
   updates: {
     check(): Promise<{ ok: boolean; error?: string }>;
