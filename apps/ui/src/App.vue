@@ -25,6 +25,7 @@ import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
 import { useSchedulerStore } from "@/stores/scheduler";
+import { useSessionStatusStore } from "@/stores/session-status";
 import { useSessionWorktreeStore } from "@/stores/session-worktree";
 import { useSettingsStore } from "@/stores/settings";
 import { useTerminalStore } from "@/stores/terminal";
@@ -34,6 +35,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 const schedulerStore = useSchedulerStore();
+const sessionStatusStore = useSessionStatusStore();
 const worktreeStore = useSessionWorktreeStore();
 const terminalStore = useTerminalStore();
 
@@ -75,6 +77,7 @@ let disposeUser: (() => void) | undefined;
 let disposeSettings: (() => void) | undefined;
 let disposeModels: (() => void) | undefined;
 let disposeAgent: (() => void) | undefined;
+let disposePetStatus: (() => void) | undefined;
 
 // 全局弹层 → 压制内嵌浏览器原生视图：WebContentsView 层级高于一切 HTML，
 // 只在部分弹层组件上挂守卫会漏（居中弹窗不与面板相交时视图会压住弹窗遮罩）
@@ -130,6 +133,18 @@ onMounted(() => {
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
   disposeAgent = useAgentStore().bootstrap();
+  disposePetStatus = watch(() => {
+    const statuses = sessionStatusStore.snapshot;
+    const unseen = Object.entries(statuses)
+      .filter(([id]) => sessionStatusStore.hasUnseenResult(id))
+      .map(([, status]) => status);
+    if (unseen.includes("error")) return "error";
+    if (unseen.includes("done")) return "done";
+    if (Object.values(statuses).some((status) => status === "running" || status === "needs_action")) return "working";
+    return "idle";
+  }, (status) => {
+    void window.zen?.pet.setStatus(status).catch(() => undefined);
+  }, { immediate: true });
   // 系统全局快捷键：主进程拉起窗口后回推命令，与应用内键监听共用同一分发
   window.zen?.settings.onGlobalCommand((command) => {
     void runWorkbenchCommand(command);
@@ -157,6 +172,7 @@ onUnmounted(() => {
   disposeSettings?.();
   disposeModels?.();
   disposeAgent?.();
+  disposePetStatus?.();
   schedulerStore.dispose();
 });
 

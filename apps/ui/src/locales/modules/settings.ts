@@ -278,7 +278,7 @@ export default {
       outLimit: "{value} 输出",
     },
     pet: {
-      source: "原图", choose: "选择图片", imageHint: "支持 PNG、JPEG、WebP；建议主体清晰、背景简单。", invalidImage: "请选择小于 10 MB 的 PNG、JPEG 或 WebP 图片。", style: "生成风格", stylePlaceholder: "例如：像素风，保留角色特征", model: "图片模型", noModel: "暂无可用图片编辑模型，请先在模型供应中配置。", generate: "生成宠物", generating: "正在生成…", generated: "宠物已生成", preview: "宠物预览", empty: "生成后在这里预览桌面宠物。", visible: "显示桌面宠物", size: "显示大小", failed: "操作失败，请重试。", regenerateHint: "重新生成会替换当前宠物图片。" },
+      source: "原图", choose: "选择图片", imageHint: "支持 PNG、JPEG、WebP；建议主体清晰、背景简单。", invalidImage: "请选择小于 10 MB 的 PNG、JPEG 或 WebP 图片。", style: "你希望宠物是什么风格？", styleOriginal: "保留原图风格", stylePixel: "像素风", styleHandDrawn: "柔和手绘风", stylePlaceholder: "选择风格或自行描述，保留原图主体特征", model: "图片模型", noModel: "暂无可用图片编辑模型。请在模型供应中为支持 /images/edits 的模型开启「图片编辑/生成」，并配置 API Key。", uploadNotice: "创建时会将原图发送给所选模型供应商；不支持 Anthropic 和 ChatGPT 账号授权。", generate: "生成宠物", generating: "正在生成…", generated: "宠物已生成", preview: "宠物预览", empty: "生成后在这里预览桌面宠物。", visible: "显示桌面宠物", size: "显示大小", failed: "操作失败，请重试。", regenerateHint: "重新生成会替换当前宠物图片。" },
     shortcut: {
       action: "功能",
       command: "命令",
@@ -861,7 +861,7 @@ export default {
       outLimit: "{value} out",
     },
     pet: {
-      source: "Source image", choose: "Choose image", imageHint: "PNG, JPEG or WebP; a clear subject and simple background work best.", invalidImage: "Choose a PNG, JPEG or WebP image under 10 MB.", style: "Style", stylePlaceholder: "e.g. Pixel art, preserve the character's features", model: "Image model", noModel: "No image editing model available. Configure one in Model Providers first.", generate: "Generate pet", generating: "Generating…", generated: "Pet generated", preview: "Pet preview", empty: "Your pet will appear here after generation.", visible: "Show desktop pet", size: "Display size", failed: "Operation failed. Try again.", regenerateHint: "Generating again replaces the current pet image." },
+      source: "Source image", choose: "Choose image", imageHint: "PNG, JPEG or WebP; a clear subject and simple background work best.", invalidImage: "Choose a PNG, JPEG or WebP image under 10 MB.", style: "What style should your pet have?", styleOriginal: "Keep original style", stylePixel: "Pixel art", styleHandDrawn: "Soft hand-drawn", stylePlaceholder: "Choose a style or describe your own while preserving the subject", model: "Image model", noModel: "No image editing model available. Enable Image edit/generation for a model that supports /images/edits and configure its API key.", uploadNotice: "Your source image will be sent to the selected provider. Anthropic and ChatGPT account login are not supported.", generate: "Generate pet", generating: "Generating…", generated: "Pet generated", preview: "Pet preview", empty: "Your pet will appear here after generation.", visible: "Show desktop pet", size: "Display size", failed: "Operation failed. Try again.", regenerateHint: "Generating again replaces the current pet image." },
     shortcut: {
       action: "Action",
       command: "Command",

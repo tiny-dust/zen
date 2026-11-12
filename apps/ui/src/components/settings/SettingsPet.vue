@@ -26,11 +26,13 @@ const selection = ref("");
 const busy = ref(false);
 const error = ref("");
 const success = ref(false);
-const size = ref(128);
+const size = ref(160);
 let unsubscribe: (() => void) | undefined;
 
 const models = computed(() => providers.value.flatMap((provider) =>
-  provider.enabled ? provider.models.filter((model) => model.enabled && model.capabilities?.imageEdit)
+  provider.enabled && provider.hasApiKey && (!provider.authMode || provider.authMode === "api-key")
+  && (provider.protocol === "openai-chat" || provider.protocol === "openai-responses")
+    ? provider.models.filter((model) => model.enabled && model.capabilities?.imageEdit)
     .map((model) => ({ value: JSON.stringify([provider.id, model.id]), label: `${provider.name} · ${model.name}` })) : [],
 ));
 
@@ -110,8 +112,8 @@ async function saveSize() {
               <img v-if="source" :src="source" :alt="t('settings.pet.source')" class="max-h-full max-w-full object-contain">
             </div>
             <div class="flex flex-col items-start gap-2">
-              <label for="pet-image" class="text-xs font-medium">{{ t("settings.pet.choose") }}</label>
-              <FileInput id="pet-image" accept="image/png,image/jpeg,image/webp" :disabled="busy" :aria-label="t('settings.pet.choose')" @change="onFileChange" />
+              <FileInput id="pet-image" ref="fileInput" class="hidden" accept="image/png,image/jpeg,image/webp" :disabled="busy" :aria-label="t('settings.pet.choose')" @change="onFileChange" />
+              <Button variant="outline" :disabled="busy" @click="fileInput?.open()">{{ t("settings.pet.choose") }}</Button>
               <p class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.imageHint") }}</p>
             </div>
           </div>
@@ -125,14 +127,18 @@ async function saveSize() {
           </div>
           <div class="flex flex-col gap-1.5">
             <label for="pet-style" class="text-xs font-medium">{{ t("settings.pet.style") }}</label>
-            <Input id="pet-style" v-model="style" :placeholder="t('settings.pet.stylePlaceholder')" :disabled="busy" />
+            <div class="flex flex-wrap gap-2">
+              <Button v-for="preset in stylePresets" :key="preset" variant="outline" size="sm" :disabled="busy" @click="style = preset">{{ preset }}</Button>
+            </div>
+            <Input id="pet-style" v-model="style" :maxlength="500" :placeholder="t('settings.pet.stylePlaceholder')" :disabled="busy" />
+            <p class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.uploadNotice") }}</p>
           </div>
           <p v-if="pet?.spriteDataUrl" class="m-0 text-xs text-[var(--color-mut)]">{{ t("settings.pet.regenerateHint") }}</p>
           <div class="flex items-center gap-3">
-            <Button :disabled="busy || !source || !selection" @click="generate">{{ t(busy ? "settings.pet.generating" : "settings.pet.generate") }}</Button>
-            <span v-if="success" class="text-xs text-[var(--color-success)]">{{ t("settings.pet.generated") }}</span>
+            <Button :disabled="busy || !source || !selection || !style.trim()" @click="generate">{{ t(busy ? "settings.pet.generating" : "settings.pet.generate") }}</Button>
+            <span v-if="success" class="text-xs text-[var(--color-ok)]">{{ t("settings.pet.generated") }}</span>
           </div>
-          <p v-if="error" role="alert" class="m-0 text-xs text-[var(--color-danger)]">{{ error }}</p>
+          <p v-if="error" role="alert" class="m-0 text-xs text-[var(--color-err)]">{{ error }}</p>
         </CardContent>
       </Card>
     </section>
@@ -144,7 +150,7 @@ async function saveSize() {
           <p v-else class="text-xs text-[var(--color-mut)]">{{ t("settings.pet.empty") }}</p>
         </div>
         <div class="flex items-center justify-between text-sm"><label for="pet-visible">{{ t("settings.pet.visible") }}</label><Switch id="pet-visible" :model-value="pet?.enabled ?? false" :disabled="!pet?.spriteDataUrl || busy" @update:model-value="setVisible" /></div>
-        <div class="flex items-center gap-4 text-sm"><label for="pet-size" class="shrink-0">{{ t("settings.pet.size") }}</label><SliderRange id="pet-size" v-model="size" :min="64" :max="256" :step="8" :disabled="!pet?.spriteDataUrl" :aria-label="t('settings.pet.size')" @change="saveSize" /><span class="w-12 text-right tabular-nums">{{ size }}px</span></div>
+        <div class="flex items-center gap-4 text-sm"><label for="pet-size" class="shrink-0">{{ t("settings.pet.size") }}</label><SliderRange id="pet-size" v-model="size" :min="100" :max="300" :step="10" :disabled="!pet?.spriteDataUrl" :aria-label="t('settings.pet.size')" @change="saveSize" /><span class="w-12 text-right tabular-nums">{{ size }}px</span></div>
       </CardContent></Card>
     </section>
   </div>
