@@ -1,5 +1,5 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, lstat, mkdir, mkdtemp, open, rename, rm, stat, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import type { SandboxMode } from "@zen/shared";
 import { zenSandboxRoot } from "./zen-dir";
@@ -41,10 +41,20 @@ async function copyProject(source: string, target: string): Promise<void> {
   });
 }
 
+async function assertTargetAbsent(target: string): Promise<void> {
+  try {
+    await lstat(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error("隔离区路径已存在，拒绝覆盖");
+}
+
 /**
  * 解析会话实际工作目录：
  * - direct 模式：原目录
- * - isolated 模式：首次复制项目到隔离区并复用；源目录缺失时回退原目录
+ * - isolated 模式：首次复制项目到隔离区并复用；初始化失败时拒绝使用源目录
  */
 export async function resolveWorkspaceDir(
   projectPath: string,
@@ -59,15 +69,32 @@ export async function resolveWorkspaceDir(
     if (info.isDirectory()) {
       return { dir: target, isolated: true, reused: true };
     }
-  } catch {
-    // 不存在则复制
+    throw new Error("隔离区路径已存在且不是目录");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      throw error;
+    }
   }
   try {
-    await copyProject(projectPath, target);
+    await mkdir(dirname(target), { recursive: true });
+    const lockPath = `${target}.lock`;
+    const lock = await open(lockPath, "wx");
+    try {
+      await assertTargetAbsent(target);
+      const staging = await mkdtemp(`${target}.staging-`);
+      await copyProject(projectPath, staging);
+      await assertTargetAbsent(target);
+      await rename(staging, target);
+    } finally {
+      try {
+        await lock.close();
+      } finally {
+        await unlink(lockPath);
+      }
+    }
     return { dir: target, isolated: true, reused: false };
-  } catch {
-    // 复制失败（权限等）回退直接模式，不阻塞会话
-    return { dir: projectPath, isolated: false, reused: false };
+  } catch (error) {
+    throw new Error("复制项目到隔离区失败", { cause: error });
   }
 }
 
