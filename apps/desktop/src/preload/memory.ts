@@ -28,8 +28,8 @@ export const memoryApi = {
       return ipcRenderer.invoke("memory:collect");
     },
     /** 整固预览：调模型算 diff，不落盘；失败返回 {ok:false, error} */
-    consolidatePreview(scope: MemoryScope): Promise<MemoryConsolidationResult> {
-      return ipcRenderer.invoke("memory:consolidate-preview", scope);
+    consolidatePreview(scope: MemoryScope, providerId: string, modelId: string): Promise<MemoryConsolidationResult> {
+      return ipcRenderer.invoke("memory:consolidate-preview", scope, providerId, modelId);
     },
     /** 应用整固：把预览确认过的 notes 原子写回 */
     applyConsolidation(

@@ -25,6 +25,7 @@ import type {
   MemoryNote,
   MemoryScope,
   MemoryView,
+  ProviderSummary,
 } from "@zen/shared";
 
 /**
@@ -52,6 +53,21 @@ const deleteBusy = ref(false);
 
 // 整固：预览（模型算 diff）→ Dialog 审阅 → 确认后原子写入；失败/取消不动原始数据
 const consolidateScope = ref<MemoryScope | null>(null);
+const providers = ref<ProviderSummary[]>([]);
+const modelsLoading = ref(false);
+const modelsError = ref("");
+const selectedModelKey = ref("");
+let modelsRequestId = 0;
+const availableModels = computed(() => providers.value.flatMap((provider) =>
+  provider.enabled && (provider.hasApiKey || provider.authMode === "chatgpt-oauth")
+    ? provider.models.filter((model) => model.enabled).map((model) => ({
+        key: JSON.stringify([provider.id, model.id]),
+        providerId: provider.id,
+        modelId: model.id,
+        label: `${provider.name} · ${model.name}`,
+      }))
+    : [],
+));
 const previewResult = ref<MemoryConsolidationResult | null>(null);
 const previewError = ref("");
 const previewBusy = ref(false);
@@ -177,15 +193,40 @@ async function recollect() {
 
 async function startConsolidate(scope: MemoryScope) {
   const zen = window.zen;
-  if (!zen?.memory || previewBusy.value) {
+  if (!zen?.memory || !zen.models || consolidateScope.value) {
     return;
   }
   consolidateScope.value = scope;
+  selectedModelKey.value = "";
+  providers.value = [];
+  modelsError.value = "";
   previewResult.value = null;
+  previewError.value = "";
+  const requestId = ++modelsRequestId;
+  modelsLoading.value = true;
+  try {
+    const list = await zen.models.list();
+    if (requestId === modelsRequestId) providers.value = list;
+  } catch (error) {
+    if (requestId === modelsRequestId) {
+      modelsError.value = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    if (requestId === modelsRequestId) modelsLoading.value = false;
+  }
+}
+
+async function generatePreview() {
+  const zen = window.zen;
+  const scope = consolidateScope.value;
+  const model = availableModels.value.find((item) => item.key === selectedModelKey.value);
+  if (!zen?.memory || !scope || !model || previewBusy.value) {
+    return;
+  }
   previewError.value = "";
   previewBusy.value = true;
   try {
-    const result = await zen.memory.consolidatePreview(scope);
+    const result = await zen.memory.consolidatePreview(scope, model.providerId, model.modelId);
     if (result.ok) {
       previewResult.value = result;
     } else {
@@ -232,7 +273,12 @@ function closeConsolidate() {
   if (previewBusy.value || applyBusy.value) {
     return;
   }
+  ++modelsRequestId;
   consolidateScope.value = null;
+  selectedModelKey.value = "";
+  providers.value = [];
+  modelsLoading.value = false;
+  modelsError.value = "";
   previewResult.value = null;
   previewError.value = "";
 }
@@ -494,6 +540,35 @@ function formatTime(ms: number): string {
           {{ t("settings.agent.consolidateDesc", { scope: consolidateScopeLabel }) }}
         </DialogDescription>
 
+        <div v-if="!previewBusy && !previewResult" class="flex flex-col gap-2">
+          <p v-if="modelsLoading" role="status" class="m-0 text-[12px] text-[var(--color-dim)]">
+            {{ t("settings.agent.consolidateModelsLoading") }}
+          </p>
+          <p v-else-if="modelsError" role="alert" class="m-0 text-[12px] text-[var(--color-err)]">
+            {{ t("settings.agent.consolidateModelsFailed", { error: modelsError }) }}
+          </p>
+          <template v-else>
+            <label v-if="availableModels.length" for="consolidate-model" class="text-[12px] text-[var(--color-txt)]">
+              {{ t("settings.agent.consolidateModel") }}
+            </label>
+            <Select v-if="availableModels.length" v-model="selectedModelKey">
+              <SelectTrigger id="consolidate-model" class="w-full">
+                <SelectValue :placeholder="t('settings.agent.consolidateModelPlaceholder')" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem v-for="model in availableModels" :key="model.key" :value="model.key">
+                    {{ model.label }}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">
+              {{ t("settings.agent.consolidateNoModels") }}
+            </p>
+          </template>
+        </div>
+
         <!-- 失败：提示错误，可关闭重试；原始数据未动 -->
         <p v-if="previewError" class="m-0 text-[12px] leading-normal text-[var(--color-err)]">
           {{ t("settings.agent.consolidateFailed", { error: previewError }) }}
@@ -542,6 +617,16 @@ function formatTime(ms: number): string {
 
         <div class="flex justify-end gap-1.5">
           <Button
+            v-if="!previewResult"
+            variant="default"
+            size="sm"
+            :disabled="modelsLoading || !!modelsError || previewBusy || !selectedModelKey"
+            @click="generatePreview"
+          >
+            {{ t("settings.agent.consolidatePreview") }}
+          </Button>
+          <Button
+            v-else
             variant="default"
             size="sm"
             :disabled="applyBusy || !previewResult || !previewResult.changedCount"

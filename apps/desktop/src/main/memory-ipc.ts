@@ -101,7 +101,7 @@ export function registerMemoryIpc(): void {
   // 整固预览：调模型算 diff，不落盘；失败也返回 {ok:false}（不 reject，便于 UI 内联提示）
   ipcMain.handle(
     "memory:consolidate-preview",
-    async (_event, scope: unknown): Promise<MemoryConsolidationResult> => {
+    async (_event, scope: unknown, providerId: unknown, modelId: unknown): Promise<MemoryConsolidationResult> => {
       const validScope = asScope(scope);
       if (!validScope) {
         return {
@@ -113,7 +113,10 @@ export function registerMemoryIpc(): void {
           changedCount: 0,
         };
       }
-      return consolidateMemory(validScope);
+      if (typeof providerId !== "string" || !providerId.trim() || typeof modelId !== "string" || !modelId.trim()) {
+        return { ok: false, error: "invalid providerId or modelId", scope: validScope, before: [], after: [], changedCount: 0 };
+      }
+      return consolidateMemory(validScope, providerId, modelId);
     },
   );
 

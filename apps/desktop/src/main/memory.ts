@@ -19,6 +19,7 @@ import type {
 
 import { zenMemoryDir } from "./zen-dir";
 import { completeOnce } from "./model-api";
+import { listProviders } from "./model-db";
 
 /**
  * 记忆域（~/.zen/memory）：设备环境快照（启动自动采集）+ 备注（Agent updateMemory / 用户设置页）。
@@ -493,11 +494,11 @@ function sliceBalancedJson(text: string, start: number): string | null {
   return null;
 }
 
-/** 截断/不可解析的统一提示：给出收到的字符数与开头，便于判断换模型 */
+/** 截断/不可解析的统一提示：不回显可能含敏感备注的模型输出 */
 function truncatedPayloadError(payload: string): Error {
   return new Error(
-    `模型输出不是完整 JSON（收到 ${payload.length} 字符，开头为「${payload.slice(0, 50)}…」，疑似被输出预算截断）。` +
-      "可重试一次；若仍失败，请到设置中换用非推理/轻量模型作为默认模型",
+    `模型输出不是完整 JSON（收到 ${payload.length} 字符，疑似被输出预算截断）。` +
+      "可重试一次；若仍失败，请换用非推理/轻量模型",
   );
 }
 
@@ -587,11 +588,18 @@ function countChangedNotes(before: MemoryNote[], after: MemoryNote[]): number {
 }
 
 /**
- * 整固预览：调用当前选中模型把该域 notes 合并/去重/改写，返回 before/after 供审阅。
+ * 整固预览：调用显式指定的已启用模型把该域 notes 合并/去重/改写，返回 before/after 供审阅。
  * 只算不写——落盘必须走 applyMemoryConsolidation（用户确认 diff 之后）。
  * 模型失败 / JSON 解析失败 / 模型清空了全部条目 → {ok:false, error}，原样保留数据。
  */
-export async function consolidateMemory(scope: MemoryScope): Promise<MemoryConsolidationResult> {
+export async function consolidateMemory(scope: MemoryScope, providerId: string, modelId: string): Promise<MemoryConsolidationResult> {
+  const invalid: MemoryConsolidationResult = {
+    ok: false, scope, before: [], after: [], changedCount: 0,
+    error: "请选择已启用的整固模型",
+  };
+  if (typeof providerId !== "string" || !providerId.trim() || typeof modelId !== "string" || !modelId.trim()) return invalid;
+  const provider = (await listProviders()).find((item) => item.id === providerId && item.enabled);
+  if (!provider?.models.some((model) => model.enabled && model.id === modelId)) return invalid;
   const before =
     scope === "user"
       ? (await readUserMemory()).notes
@@ -621,6 +629,8 @@ export async function consolidateMemory(scope: MemoryScope): Promise<MemoryConso
           reasoningEffort: "lowest",
           timeoutMs: 180_000,
           system: CONSOLIDATE_SYSTEM_PROMPT,
+          providerId,
+          modelId,
         },
       );
       const part = parseModelJson(raw);

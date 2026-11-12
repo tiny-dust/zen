@@ -23,6 +23,7 @@ import { inspectModelCapabilities } from "./model-capabilities";
 import { chatGptUsageAccountKey, recordProviderUsage } from "./model-usage";
 import { getSelection, listProviders, loadProviderApiKey, isChatGptAuthProvider } from "./model-db";
 import { resolvePromptText } from "./prompt-presets";
+import { recordPetRunEvent, registerPetRun } from "./pet-service";
 import { resolveWorkspaceDir } from "./sandbox";
 import { resolveSessionWorktreeRoot } from "./session-worktree";
 import {
@@ -174,6 +175,8 @@ export async function runAgentRequest(
   let usageProviderId: string | null = null;
   let usageModelId: string | null = null;
   let usageAccountKey: string | null = null;
+  const petRunId = randomUUID();
+  let petSession: AgentSession | null = null;
   const persistRun = () => {
     if (persisted) {
       return;
@@ -204,6 +207,9 @@ export async function runAgentRequest(
     }
     // 飞书桥接：ask_user / ask_resolved / done 事件喂给网关（推送与待答清理）
     notifyLarkEvent(streamEvent);
+    if (petSession && !(streamEvent.type === "done" && streamEvent.phase === "insert")) {
+      recordPetRunEvent(streamEvent, petSession, petRunId);
+    }
     if (streamEvent.sessionId !== request.sessionId) {
       send?.(streamEvent);
       return;
@@ -484,6 +490,8 @@ export async function runAgentRequest(
       emit: emitTo,
     });
     sessions.set(request.sessionId, session);
+    petSession = session;
+    registerPetRun(request.sessionId, session, petRunId, request.display?.content ?? request.userMessage);
     await session.start(runUserMessage, request.history, sessionImages, modelHistory ?? undefined);
     // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
     return { ok: true };

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   dir: "",
   completeOnce: vi.fn(),
+  listProviders: vi.fn(),
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
 }));
 
@@ -29,6 +30,10 @@ vi.mock("./zen-dir", () => ({
 
 vi.mock("./model-api", () => ({
   completeOnce: state.completeOnce,
+}));
+
+vi.mock("./model-db", () => ({
+  listProviders: state.listProviders,
 }));
 
 import { applyMemoryConsolidation, consolidateMemory } from "./memory";
@@ -58,6 +63,11 @@ const MERGED: Note[] = [
 beforeEach(() => {
   state.dir = mkdtempSync(join(tmpdir(), "zen-memory-test-"));
   state.completeOnce.mockReset();
+  state.listProviders.mockReset();
+  state.listProviders.mockResolvedValue([{
+    id: "provider-1", enabled: true,
+    models: [{ id: "model-1", enabled: true }],
+  }]);
   state.handlers.clear();
 });
 
@@ -66,12 +76,41 @@ afterEach(() => {
 });
 
 describe("consolidateMemory 预览与失败安全", () => {
+  it("未指定或禁用的模型不调用补全，也不修改记忆", async () => {
+    writeUserNotes(NOTES);
+    expect((await consolidateMemory("user", "", "model-1")).ok).toBe(false);
+    expect((await consolidateMemory("user", "provider-1", "disabled")).ok).toBe(false);
+    state.listProviders.mockResolvedValue([{
+      id: "provider-1", enabled: false,
+      models: [{ id: "model-1", enabled: true }],
+    }]);
+    expect((await consolidateMemory("user", "provider-1", "model-1")).ok).toBe(false);
+    expect(state.completeOnce).not.toHaveBeenCalled();
+    expect(readUserNotes()).toEqual(NOTES);
+  });
+
+  it("相同模型 ID 可由不同供应商分别选中，且错误供应商不会调用模型", async () => {
+    writeUserNotes(NOTES);
+    state.listProviders.mockResolvedValue([
+      { id: "provider-1", enabled: true, models: [{ id: "model-1", enabled: true }] },
+      { id: "provider-2", enabled: true, models: [{ id: "model-1", enabled: true }] },
+    ]);
+    expect((await consolidateMemory("user", "missing", "model-1")).ok).toBe(false);
+    expect(state.completeOnce).not.toHaveBeenCalled();
+    state.completeOnce.mockResolvedValue(JSON.stringify(MERGED));
+    expect((await consolidateMemory("user", "provider-2", "model-1")).ok).toBe(true);
+    expect(state.completeOnce).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      providerId: "provider-2", modelId: "model-1",
+    }));
+    expect(readUserNotes()).toEqual(NOTES);
+  });
+
   it("模型返回合并结果：返回 before/after/changedCount，且不落盘", async () => {
     writeUserNotes(NOTES);
     // 模型输出带 Markdown 围栏也应可解析
     state.completeOnce.mockResolvedValue(`\`\`\`json\n${JSON.stringify(MERGED)}\n\`\`\``);
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(true);
     expect(result.scope).toBe("user");
@@ -92,6 +131,8 @@ describe("consolidateMemory 预览与失败安全", () => {
         maxTokens: 8192,
         reasoningEffort: "lowest",
         timeoutMs: 180_000,
+        providerId: "provider-1",
+        modelId: "model-1",
       }),
     );
   });
@@ -100,7 +141,7 @@ describe("consolidateMemory 预览与失败安全", () => {
     writeUserNotes(NOTES);
     state.completeOnce.mockRejectedValue(new Error("模型未返回文本内容"));
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("模型未返回文本内容");
@@ -111,7 +152,7 @@ describe("consolidateMemory 预览与失败安全", () => {
     writeUserNotes(NOTES);
     state.completeOnce.mockResolvedValue("这不是 JSON");
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeTruthy();
@@ -125,7 +166,7 @@ describe("consolidateMemory 预览与失败安全", () => {
       '[{"id":"n1","text":"全局依赖用 pnpm","createdAt":1000},{"id":"n3","text":"默认 sh',
     );
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(false);
     // 不再透传裸的 "Unexpected end of JSON input"，而是可读的截断提示
@@ -139,7 +180,7 @@ describe("consolidateMemory 预览与失败安全", () => {
     writeUserNotes(NOTES);
     state.completeOnce.mockResolvedValue("[]");
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(false);
     expect(readUserNotes()).toHaveLength(3);
@@ -153,7 +194,7 @@ describe("consolidateMemory 预览与失败安全", () => {
         '[{"id":"n1","text":"全局依赖用 pnpm"},{"id":"n3","text":"默认 shell 是 /bin/zsh"}]\n```',
     );
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(true);
     expect(result.after.map((note) => note.text)).toEqual([
@@ -171,7 +212,7 @@ describe("consolidateMemory 预览与失败安全", () => {
       '每条记录形如 {id, text}（示意），整理结果如下：\n[{"id":"n1","text":"全局依赖用 pnpm"}]',
     );
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(true);
     expect(result.after.map((note) => note.text)).toEqual(["全局依赖用 pnpm"]);
@@ -194,7 +235,7 @@ describe("consolidateMemory 预览与失败安全", () => {
       return JSON.stringify(payload);
     });
 
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(true);
     expect(state.completeOnce.mock.calls.length).toBeGreaterThan(1);
@@ -205,7 +246,7 @@ describe("consolidateMemory 预览与失败安全", () => {
   });
 
   it("该域无备注：直接返回无变化，不调用模型", async () => {
-    const result = await consolidateMemory("user");
+    const result = await consolidateMemory("user", "provider-1", "model-1");
 
     expect(result.ok).toBe(true);
     expect(result.changedCount).toBe(0);
@@ -292,7 +333,7 @@ describe("记忆整固 IPC 边界", () => {
     state.completeOnce.mockResolvedValue(JSON.stringify(MERGED));
     registerMemoryIpc();
 
-    const preview = (await state.handlers.get("memory:consolidate-preview")?.(null, "user")) as {
+    const preview = (await state.handlers.get("memory:consolidate-preview")?.(null, "user", "provider-1", "model-1")) as {
       ok: boolean;
       after: Note[];
     };
