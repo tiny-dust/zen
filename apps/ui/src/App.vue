@@ -3,6 +3,8 @@ import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, onMounted, onUnmounted, watch } from "vue";
 
+import type { PetActivity } from "@zen/shared";
+
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
 import ActivityInboxDialog from "@/components/sidebar/ActivityInboxDialog.vue";
@@ -36,6 +38,7 @@ const chatStore = useChatStore();
 const gitStore = useGitStore();
 const schedulerStore = useSchedulerStore();
 const sessionStatusStore = useSessionStatusStore();
+const workspaceStore = useWorkspaceStore();
 const worktreeStore = useSessionWorktreeStore();
 const terminalStore = useTerminalStore();
 
@@ -133,17 +136,25 @@ onMounted(() => {
   disposeSettings = settingsStore.bootstrap();
   disposeModels = modelsStore.bootstrap();
   disposeAgent = useAgentStore().bootstrap();
-  disposePetStatus = watch(() => {
+  disposePetStatus = watch((): PetActivity => {
     const statuses = sessionStatusStore.snapshot;
+    const runningIds = Object.keys(statuses).filter((id) => statuses[id] === "running");
+    const titles = new Map(
+      workspaceStore.groups.flatMap((group) => group.sessions.map((session) => [session.id, session.title] as const)),
+    );
+    const runningSessions = runningIds.slice(0, 20).map((id) =>
+      (titles.get(id)?.replace(/[\x00-\x1f\x7f]/g, " ").trim() || `会话 ${id.slice(0, 8)}`).slice(0, 80),
+    );
     const unseen = Object.entries(statuses)
       .filter(([id]) => sessionStatusStore.hasUnseenResult(id))
       .map(([, status]) => status);
-    if (unseen.includes("error")) return "error";
-    if (unseen.includes("done")) return "done";
-    if (Object.values(statuses).some((status) => status === "running" || status === "needs_action")) return "working";
-    return "idle";
-  }, (status) => {
-    void window.zen?.pet.setStatus(status).catch(() => undefined);
+    const status = runningIds.length > 0 ? "working"
+      : unseen.includes("error") ? "error"
+      : unseen.includes("done") ? "done"
+      : "idle";
+    return { status, runningSessions };
+  }, (activity) => {
+    void window.zen?.pet.setStatus(activity).catch(() => undefined);
   }, { immediate: true });
   // 系统全局快捷键：主进程拉起窗口后回推命令，与应用内键监听共用同一分发
   window.zen?.settings.onGlobalCommand((command) => {
@@ -158,7 +169,7 @@ onMounted(() => {
   if (window.location.hash.startsWith("#settings")) {
     history.replaceState(null, "", window.location.pathname + window.location.search);
   }
-  void userStore.waitForReady().then(() => useWorkspaceStore().refresh());
+  void userStore.waitForReady().then(() => workspaceStore.refresh());
   void schedulerStore.load();
   // 窗口缩放后按新边界回收面板尺寸，防止中央聊天区被挤出视口
   layoutStore.syncViewport();

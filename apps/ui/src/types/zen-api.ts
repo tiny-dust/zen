@@ -67,9 +67,9 @@ import type {
   ModelCapabilities,
   ModelSelection,
   PreviewModelsInput,
+  PetActivity,
   PetCollectionState,
   PetGenerateInput,
-  PetStatus,
   PromptPreset,
   ProviderInput,
   ProviderModel,
@@ -247,7 +247,7 @@ export interface ZenApi {
     importDirectory(): Promise<PetCollectionState | null>;
     setVisible(id: string, visible: boolean): Promise<PetCollectionState>;
     setSize(id: string, size: number): Promise<PetCollectionState>;
-    setStatus(status: PetStatus): Promise<void>;
+    setStatus(activity: PetActivity): Promise<void>;
     onChanged(handler: (state: PetCollectionState) => void): () => void;
   };
   updates: {

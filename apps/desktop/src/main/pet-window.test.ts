@@ -1,16 +1,26 @@
 import { runInNewContext } from "node:vm";
+const { JSDOM } = require("jsdom") as { JSDOM: new (html: string) => { window: { document: Document } } };
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
   BrowserWindow: class {
-    setPosition = vi.fn();
+    private position: [number, number] = [0, 0];
+    private size: [number, number] = [200, 220];
+    setPosition = vi.fn((x: number, y: number) => { this.position = [x, y]; });
+    getPosition = () => this.position;
+    getSize = () => this.size;
+    setContentSize = vi.fn((width: number, height: number) => { this.size = [width, height]; });
+    isDestroyed = () => false;
     setMenuBarVisibility = vi.fn();
     on = vi.fn();
     loadURL = vi.fn(async () => undefined);
     webContents = { setWindowOpenHandler: vi.fn(), on: vi.fn() };
   },
-  screen: { getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 800, height: 600 } }) },
+  screen: {
+    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 800, height: 600 } }),
+    getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 800, height: 600 } }),
+  },
 }));
 
 import { createPetWindow, PET_ANIMATIONS, petFrameSource } from "./pet-window";
@@ -28,18 +38,19 @@ function petPage() {
   const script = markup.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   if (!script) throw new Error("Pet window script not found");
   const drawImage = vi.fn();
+  const dom = new JSDOM(markup);
+  const document = dom.window.document;
+  vi.spyOn(document.getElementById("sprite") as HTMLCanvasElement, "getContext").mockReturnValue({ clearRect: vi.fn(), drawImage } as never);
   let motionChange = () => {};
   const motion = { matches: false, addEventListener: vi.fn((_event: string, callback: () => void) => { motionChange = callback; }) };
   const page = {
-    __zenPetUpdate: (_next: { spriteDataUrl: string; status: string; layout: PetSpriteLayout }) => {},
+    __zenPetUpdate: (_next: { spriteDataUrl: string; status: string; layout: PetSpriteLayout; runningSessions: string[] }) => {},
     matchMedia: () => motion,
     zen: { pet: { hide: vi.fn() } },
   };
   runInNewContext(script, {
     window: page,
-    document: { getElementById: (id: string) => id === "sprite"
-      ? { getContext: () => ({ clearRect: vi.fn(), drawImage }) }
-      : { addEventListener: vi.fn() } },
+    document,
     Image: class {
       onload?: () => void;
       set src(_value: string) { this.onload?.(); }
@@ -47,8 +58,8 @@ function petPage() {
     setTimeout,
     clearTimeout,
   });
-  const update = (status: string, layout: PetSpriteLayout) => page.__zenPetUpdate({ spriteDataUrl: "data:image/png;base64,AA==", status, layout });
-  return { markup, drawImage, motion, motionChange: () => motionChange(), update };
+  const update = (status: string, layout: PetSpriteLayout, runningSessions: string[] = []) => page.__zenPetUpdate({ spriteDataUrl: "data:image/png;base64,AA==", status, layout, runningSessions });
+  return { markup, document, drawImage, motion, motionChange: () => motionChange(), update };
 }
 
 describe("petFrameSource", () => {
@@ -116,7 +127,8 @@ describe("pet window page", () => {
     const markup = petMarkup();
     expect(markup).toMatch(/canvas\{[^}]*width:100%;[^}]*-webkit-app-region:drag\}/);
     expect(markup).toMatch(/#hide\{[^}]*position:absolute;z-index:1;[^}]*-webkit-app-region:no-drag\}/);
-    expect(markup).toContain('<button id="hide"');
+    expect(markup).toContain('<button id="hide" type="button" aria-label="隐藏桌面宠物"');
+    expect(markup).toMatch(/id="hide"[^>]*><svg[^>]*aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"\/><\/svg><\/button>/);
     expect(markup).not.toContain('id="handle"');
   });
 
@@ -160,6 +172,35 @@ describe("pet window page", () => {
     expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(1000);
     expect(page.drawImage).toHaveBeenCalledTimes(calls);
+  });
+
+  it("renders running sessions as text, summarizes overflow and clears stale labels", () => {
+    const page = petPage();
+    const names = ["项目 <img src=x onerror=alert(1)>", "会话二", "会话三", "会话四", "会话五"];
+    page.update("idle", "zen-4x4", names);
+    const list = page.document.getElementById("sessions");
+    expect([...list!.children].map((node) => node.textContent)).toEqual([...names.slice(0, 3), "+2"]);
+    expect(page.document.body.classList.contains("has-sessions")).toBe(true);
+    expect(list!.querySelector("img")).toBeNull();
+    page.update("idle", "zen-4x4", ["新会话"]);
+    expect(list!.textContent).toBe("新会话");
+    page.update("idle", "zen-4x4", []);
+    expect(list!.children).toHaveLength(0);
+    expect(page.document.body.classList.contains("has-sessions")).toBe(false);
+  });
+
+  it("keeps the window anchored and clamps position after content size changes", () => {
+    const pet = createPetWindow({ onHide: vi.fn() });
+    pet.window.setPosition(650, 300);
+    pet.resize(300);
+    expect(pet.window.setContentSize).toHaveBeenLastCalledWith(300, 320);
+    expect(pet.window.setPosition).toHaveBeenLastCalledWith(500, 280);
+    pet.update("data:image/png;base64,AA==", { status: "working", runningSessions: ["会话一"] }, 300, "zen-4x4");
+    expect(pet.window.setContentSize).toHaveBeenLastCalledWith(300, 396);
+    expect(pet.window.setPosition).toHaveBeenLastCalledWith(500, 204);
+    pet.update("data:image/png;base64,AA==", { status: "idle", runningSessions: [] }, 300, "zen-4x4");
+    expect(pet.window.setContentSize).toHaveBeenLastCalledWith(300, 320);
+    expect(pet.window.setPosition).toHaveBeenLastCalledWith(500, 280);
   });
 
   it("respects reduced motion when a status changes", () => {
