@@ -1,16 +1,17 @@
 import { ipcRenderer } from "electron";
 
-import type { PetGenerateInput, PetState, PetStatus } from "@zen/shared";
+import type { PetCollectionState, PetGenerateInput, PetStatus } from "@zen/shared";
 
 export const petApi = {
   pet: {
-    get: (): Promise<PetState> => ipcRenderer.invoke("pet:get"),
-    generate: (input: PetGenerateInput): Promise<PetState> => ipcRenderer.invoke("pet:generate", input),
-    setVisible: (visible: boolean): Promise<PetState> => ipcRenderer.invoke("pet:set-visible", visible),
-    setSize: (size: number): Promise<PetState> => ipcRenderer.invoke("pet:set-size", size),
+    get: (): Promise<PetCollectionState> => ipcRenderer.invoke("pet:get"),
+    generate: (input: PetGenerateInput): Promise<PetCollectionState> => ipcRenderer.invoke("pet:generate", input),
+    importDirectory: (): Promise<PetCollectionState | null> => ipcRenderer.invoke("pet:import-directory"),
+    setVisible: (id: string, visible: boolean): Promise<PetCollectionState> => ipcRenderer.invoke("pet:set-visible", id, visible),
+    setSize: (id: string, size: number): Promise<PetCollectionState> => ipcRenderer.invoke("pet:set-size", id, size),
     setStatus: (status: PetStatus): Promise<void> => ipcRenderer.invoke("pet:set-status", status),
-    onChanged: (handler: (state: PetState) => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, state: PetState) => handler(state);
+    onChanged: (handler: (state: PetCollectionState) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: PetCollectionState) => handler(state);
       ipcRenderer.on("pet:changed", listener);
       return () => ipcRenderer.removeListener("pet:changed", listener);
     },
