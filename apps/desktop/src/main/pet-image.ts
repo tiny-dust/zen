@@ -139,8 +139,9 @@ export async function generatePetSprite(input: PetGenerateInput): Promise<{ sour
   }
   let payload: unknown;
   try {
-    payload = await response.json();
-  } catch {
+    payload = await readLimitedJson(response);
+  } catch (error) {
+    if (error instanceof Error && error.message === "图片编辑供应商响应过大") throw error;
     throw new Error("图片编辑供应商响应格式无效");
   }
   return { source, sprite: decodeSprite(payload) };
