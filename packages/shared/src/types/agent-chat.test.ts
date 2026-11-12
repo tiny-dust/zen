@@ -44,6 +44,19 @@ describe("applyStreamToParts", () => {
     ]);
   });
 
+  it("各轮思考的耗时只写入自己的分段，重复结束事件不覆盖前一轮", () => {
+    const parts: ChatMessagePart[] = [];
+    applyStreamToParts(parts, { type: "reasoning_delta", sessionId: "s", text: "first" });
+    applyStreamToParts(parts, { type: "reasoning_end", sessionId: "s", durationMs: 3000 });
+    applyStreamToParts(parts, { type: "reasoning_end", sessionId: "s", durationMs: 9000 });
+    applyStreamToParts(parts, { type: "reasoning_delta", sessionId: "s", text: "second" });
+    applyStreamToParts(parts, { type: "reasoning_end", sessionId: "s", durationMs: 4000 });
+    expect(parts).toEqual([
+      { type: "reasoning", text: "first", ms: 3000, done: true },
+      { type: "reasoning", text: "second", ms: 4000, done: true },
+    ]);
+  });
+
   it("工具 input-streaming → running → progress → tool_end 合并到同一分段", () => {
     const parts: ChatMessagePart[] = [];
     applyStreamToParts(parts, {

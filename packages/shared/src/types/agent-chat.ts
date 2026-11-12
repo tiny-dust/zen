@@ -72,7 +72,7 @@ export function applyStreamToParts(
   const tail = parts[parts.length - 1];
   if (event.type === "delta" || event.type === "reasoning_delta") {
     const type = event.type === "delta" ? "text" : "reasoning";
-    if (tail?.type === type) {
+    if (tail?.type === type && tail.done !== true) {
       tail.text += event.text;
       tail.done = false;
     } else {
@@ -83,7 +83,7 @@ export function applyStreamToParts(
   if (event.type === "reasoning_end") {
     for (let i = parts.length - 1; i >= 0; i -= 1) {
       const part = parts[i];
-      if (part?.type === "reasoning") {
+      if (part?.type === "reasoning" && part.done !== true) {
         part.ms = event.durationMs;
         part.done = true;
         break;

@@ -81,14 +81,11 @@ function reasoningStreaming(index: number): boolean {
   if (part.done === true) {
     return false;
   }
-  if (part.done === false) {
-    return props.streaming === true;
-  }
   return props.streaming === true && index === parts.value.length - 1;
 }
 
 const reasoningSeconds = (part: Extract<ChatMessagePart, { type: "reasoning" }>) =>
-  part.ms ? Math.ceil(part.ms / 1000) : undefined;
+  part.ms === undefined ? undefined : Math.ceil(part.ms / 1000);
 
 const attachmentParts = computed(() => {
   const meta = props.message.meta as { attachments?: Array<{ name: string; path?: string }> } | undefined;

@@ -80,11 +80,11 @@ export interface PetGenerateInput {
   style: string;
 }
 
-export type PetStatus = "idle" | "working" | "done" | "error";
+export type PetStatus = "idle" | "working" | "waiting" | "done" | "error";
 
 export interface PetActivity {
   status: PetStatus;
-  runningSessions: string[];
+  sessions: Array<{ id: string; name: string; status: "running" | "needs_action" | "done" | "error" }>;
 }
 
 export interface ModelCapabilities {

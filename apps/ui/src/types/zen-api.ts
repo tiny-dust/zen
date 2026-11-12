@@ -415,7 +415,7 @@ export interface ZenApi {
     removeNote(scope: MemoryScope, id: string): Promise<MemoryView>;
     collect(): Promise<MemoryView>;
     /** 整固预览：模型算 diff 不落盘；失败返回 {ok:false, error}，绝不动原始数据 */
-    consolidatePreview(scope: MemoryScope): Promise<MemoryConsolidationResult>;
+    consolidatePreview(scope: MemoryScope, providerId: string, modelId: string): Promise<MemoryConsolidationResult>;
     /** 应用整固：把预览确认过的 notes 原子写回（临时文件 + rename） */
     applyConsolidation(
       scope: MemoryScope,

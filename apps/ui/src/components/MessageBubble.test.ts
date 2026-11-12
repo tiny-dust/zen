@@ -44,6 +44,17 @@ function mountMessage(message: ChatMessage, streaming = false, exportable = fals
 }
 
 describe("MessageBubble 终态与工具语义", () => {
+  it("只有当前思考段处于流式中，之前的思考段各自结束", () => {
+    const wrapper = mountMessage({
+      id: "multi-reasoning", role: "assistant", content: "", createdAt: 1,
+      parts: [
+        { type: "reasoning", text: "first", done: false },
+        { type: "tool", toolCallId: "tool-1", toolName: "readFile", state: "ok" },
+        { type: "reasoning", text: "second", done: false },
+      ],
+    }, true);
+    expect(wrapper.findAllComponents({ name: "Reasoning" }).map((node) => node.props("isStreaming"))).toEqual([false, true]);
+  });
   it("assistant 取消终态显示文字状态", () => {
     const wrapper = mountMessage({
       id: "a1",

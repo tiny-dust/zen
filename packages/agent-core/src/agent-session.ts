@@ -1226,6 +1226,8 @@ export class AgentSession {
       streamError: null,
       hasText: false,
       lastInputTokens: null,
+      reasoningStartedAt: null,
+      reasoningHasContent: false,
     };
 
     try {

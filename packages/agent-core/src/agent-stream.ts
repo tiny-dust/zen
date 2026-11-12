@@ -37,6 +37,9 @@ export interface StreamPartState {
   hasText: boolean;
   /** 最近一次 finish-step 的真实输入 tokens（步间主动压缩的阈值判据；缺失/为 0 时不覆盖） */
   lastInputTokens: number | null;
+  /** 当前思考块的起点；每个 SDK reasoning-start 重新计时。 */
+  reasoningStartedAt: number | null;
+  reasoningHasContent: boolean;
 }
 
 export interface StreamPartContext {
@@ -50,6 +53,15 @@ export interface StreamPartContext {
   setPendingApproval: (pending: PendingApproval) => void;
 }
 
+function finishReasoning(ctx: StreamPartContext): void {
+  const { state } = ctx;
+  if (state.reasoningStartedAt !== null && state.reasoningHasContent) {
+    ctx.emit({ type: "reasoning_end", sessionId: ctx.sessionId, durationMs: Math.max(0, Date.now() - state.reasoningStartedAt) });
+  }
+  state.reasoningStartedAt = null;
+  state.reasoningHasContent = false;
+}
+
 /** AI SDK fullStream 单个 part → 协议事件 */
 export function processStreamPart(part: StreamPart, ctx: StreamPartContext): void {
   const { state, emit, sessionId } = ctx;
@@ -60,9 +72,11 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
       emit({ type: "step_start", sessionId, step: state.step });
       break;
     case "finish":
+      finishReasoning(ctx);
       state.finishReason = (part as { finishReason?: string }).finishReason ?? null;
       break;
     case "finish-step": {
+      finishReasoning(ctx);
       const usage = usageFromPart(part);
       if (usage) {
         // 个别供应商只报输出 token：input 为 0 时不覆盖旧值
@@ -73,16 +87,25 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
       }
       break;
     }
-    case "reasoning-delta":
-      emit({
-        type: "reasoning_delta",
-        sessionId,
-        text: partText(part),
-      });
+    case "reasoning-start":
+      finishReasoning(ctx);
+      state.reasoningStartedAt = Date.now();
+      break;
+    case "reasoning-delta": {
+      const text = partText(part);
+      if (!text) break;
+      state.reasoningStartedAt ??= Date.now();
+      state.reasoningHasContent = true;
+      emit({ type: "reasoning_delta", sessionId, text });
+      break;
+    }
+    case "reasoning-end":
+      finishReasoning(ctx);
       break;
     case "text-delta": {
       const text = partText(part);
       if (text) {
+        finishReasoning(ctx);
         state.hasText = true;
         emit({
           type: "status",
@@ -94,6 +117,7 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
       break;
     }
     case "tool-input-start":
+      finishReasoning(ctx);
       ctx.openTools.set(toolIdFromPart(part), toolNameFromPart(part));
       emit({
         type: "tool_input_start",
@@ -103,6 +127,7 @@ export function processStreamPart(part: StreamPart, ctx: StreamPartContext): voi
       });
       break;
     case "tool-call":
+      finishReasoning(ctx);
       ctx.openTools.set(toolIdFromPart(part), toolNameFromPart(part));
       state.lastStepHadToolCalls = true;
       emit({
