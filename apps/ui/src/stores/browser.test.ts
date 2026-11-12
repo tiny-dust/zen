@@ -1,15 +1,18 @@
 // 浏览器面板按工作区分桶：URL / 新标签页 / 提示 / 历史随工作区恢复，
 // 历史按工作区持久化（localStorage 分 key），旧版全局历史作为迁移种子。
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useBrowserStore } from "@/stores/browser";
+import { useChatStore } from "@/stores/chat";
 import { LEGACY_HISTORY_KEY } from "@/stores/browser-history";
 
 beforeEach(() => {
   localStorage.clear();
   setActivePinia(createPinia());
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("browser bindWorkspaceScope 按工作区分桶", () => {
   it("切走再切回恢复地址栏 / 新标签页 / 提示", () => {
@@ -63,5 +66,43 @@ describe("browser bindWorkspaceScope 按工作区分桶", () => {
     const store = useBrowserStore();
     expect(() => store.bindWorkspaceScope("s1")).not.toThrow();
     expect(() => store.bindWorkspaceScope("s2")).not.toThrow();
+  });
+});
+
+describe("browser takeScreenshot", () => {
+  it.each([
+    ["/cache/screenshots/shot.png", "shot.png"],
+    ["C:\\cache\\screenshots\\shot.png", "shot.png"],
+  ])("将截图 %s 登记为图片附件，而非插入路径文本", async (path, name) => {
+    const screenshot = vi.fn().mockResolvedValue({ ok: true, path });
+    vi.stubGlobal("zen", { browser: { screenshot } });
+    const browser = useBrowserStore();
+    const chat = useChatStore();
+    browser.showHome = false;
+
+    await browser.takeScreenshot();
+
+    expect(chat.attachments).toEqual([expect.objectContaining({ name, path, isImage: true })]);
+    expect(chat.input).toBe("");
+    expect(chat.pendingComposerInsert).toBeNull();
+    expect(browser.lastScreenshotPath).toBe(path);
+    expect(browser.busy).toBe(false);
+  });
+
+  it("截图失败或缺少路径时不增加附件", async () => {
+    const screenshot = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: "capture failed" })
+      .mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("zen", { browser: { screenshot } });
+    const browser = useBrowserStore();
+    browser.showHome = false;
+    const chat = useChatStore();
+
+    await browser.takeScreenshot();
+    expect(browser.panelNote).toBe("capture failed");
+    await browser.takeScreenshot();
+    expect(chat.attachments).toEqual([]);
+    expect(browser.lastScreenshotPath).toBe("");
+    expect(browser.busy).toBe(false);
   });
 });

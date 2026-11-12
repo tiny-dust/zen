@@ -582,7 +582,11 @@ export const useBrowserStore = defineStore("browser", () => {
       }
       lastScreenshotPath.value = result.path;
       const chat = useChatStore();
-      chat.insertAtComposerCaret(`[浏览器截图] ${result.path}`);
+      chat.registerAttachmentRef({
+        name: result.path.split(/[\\/]/).pop() || "screenshot.png",
+        path: result.path,
+        isImage: true,
+      });
       panelNote.value = i18n.global.t("app.browser.screenshotSaved", { path: result.path });
     } finally {
       busy.value = false;

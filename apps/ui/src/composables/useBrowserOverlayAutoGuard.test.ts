@@ -59,6 +59,11 @@ describe("hasOpenOverlayLayer", () => {
     expect(hasOpenOverlayLayer()).toBe(false);
   });
 
+  it("输入框建议列表交由几何守卫判定，不触发全局压制", () => {
+    appendLayer('<div role="listbox" data-browser-overlay-geometry></div>');
+    expect(hasOpenOverlayLayer()).toBe(false);
+  });
+
   it("节点脱离文档后不算", () => {
     const dialog = appendLayer('<div role="dialog"></div>');
     dialog.remove();

@@ -10,6 +10,7 @@ import { useBrowserStore } from "@/stores/browser";
  * 单个弹层组件各挂守卫（useOverlayGeometry / useBrowserOverlayGuard）容易漏（自定义弹层、
  * 新加组件、遮罩期间视图仍然可见）。这里按 DOM 物化结果统一判定：只要页面上有处于打开
  * 状态的弹层节点，就把视图藏起来；全部关闭后恢复。
+ * 标记 data-browser-overlay-geometry 的局部弹层由几何守卫负责，不走全局压制。
  *
  * 判定不区分几何：弹窗遮罩本就把整屏压暗，此时视图继续显示既压住遮罩也压住弹窗边缘，
  * 一律隐藏最符合预期。计数制与组件级守卫共用（browser.beginOverlay/endOverlay），可叠加。
@@ -28,6 +29,10 @@ const OVERLAY_SELECTOR = [
  */
 function isOpenLayer(element: Element): boolean {
   if (!element.isConnected || element.hasAttribute("hidden")) {
+    return false;
+  }
+  // 输入框建议列表等局部弹层由 useOverlayGeometry 按与浏览器的相交情况判定。
+  if (element.closest("[data-browser-overlay-geometry]")) {
     return false;
   }
   return !element.closest('[data-state="closed"]');
