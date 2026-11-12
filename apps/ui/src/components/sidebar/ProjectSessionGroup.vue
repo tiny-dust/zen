@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "@lucide/vue";
+  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, LoaderCircle, Pencil, Pin, PinOff, Plus, SquareTerminal, Trash2 } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, ref } from "vue";
   import { useI18n } from "vue-i18n";
@@ -14,6 +14,7 @@
     ContextMenuSeparator,
     ContextMenuTrigger,
   } from "@/components/ui/context-menu";
+  import { useAgentServicesStore } from "@/stores/agent-services";
   import { useSessionStatusStore } from "@/stores/session-status";
   import { useWorkspaceStore } from "@/stores/workspace";
 
@@ -79,6 +80,16 @@
     props.open
       ? 0
       : props.sessions.filter((item) => statusById.value[item.id] === "running").length,
+  );
+  const { activeSessionCounts } = storeToRefs(useAgentServicesStore());
+  const collapsedServiceCount = computed(() =>
+    props.open ? 0 : props.sessions.reduce((sum, item) => sum + (activeSessionCounts.value[item.id] ?? 0), 0),
+  );
+  /** 预览的第六行只露出一角，隐藏服务在展开入口给出汇总，不挪动会话。 */
+  const hiddenServiceCount = computed(() =>
+    !truncated.value ? 0 : props.sessions.slice(previewCount).reduce(
+      (sum, item) => sum + (activeSessionCounts.value[item.id] ?? 0), 0,
+    ),
   );
 
   // ---------- 批量管理模式（本组内多选 → 置顶 / 归档 / 删除） ----------
@@ -179,6 +190,13 @@
             role="status">
             <LoaderCircle class="size-3 shrink-0 animate-spin" aria-hidden="true" />
             <span v-if="runningCount > 1" class="font-[family-name:var(--font-mono)]">{{ runningCount }}</span>
+          </span>
+          <span v-if="collapsedServiceCount > 0"
+            class="flex flex-none items-center gap-1 rounded-full bg-[var(--color-side-chip)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-accent)]"
+            :title="t('sidebar.collapsedTerminalServices', { n: collapsedServiceCount })"
+            :aria-label="t('sidebar.collapsedTerminalServices', { n: collapsedServiceCount })" role="status">
+            <SquareTerminal class="size-3 shrink-0" aria-hidden="true" />
+            <span v-if="collapsedServiceCount > 1" class="font-[family-name:var(--font-mono)]">{{ collapsedServiceCount }}</span>
           </span>
           <!-- 悬浮快捷操作：图标按钮 hover 只提亮图标不出底色，键盘聚焦时保持可见 -->
           <div
@@ -293,6 +311,12 @@
           class="h-7 px-2 text-[11px] font-normal text-[var(--color-dim)] hover:bg-transparent hover:text-[var(--color-mut)] dark:hover:bg-transparent"
           @click="emit('toggle-expand')">
           {{ expanded ? t("sidebar.collapse") : t("sidebar.showMore") }}
+          <span v-if="hiddenServiceCount > 0" class="ml-1 flex items-center gap-0.5 text-[var(--color-accent)]"
+            :title="t('sidebar.collapsedTerminalServices', { n: hiddenServiceCount })"
+            :aria-label="t('sidebar.collapsedTerminalServices', { n: hiddenServiceCount })" role="status">
+            <SquareTerminal class="size-3" aria-hidden="true" />
+            {{ hiddenServiceCount }}
+          </span>
         </Button>
       </div>
     </div>

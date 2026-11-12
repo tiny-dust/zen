@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import ProjectSessionGroup from "@/components/sidebar/ProjectSessionGroup.vue";
 import SessionRow from "@/components/sidebar/SessionRow.vue";
+import { useAgentServicesStore } from "@/stores/agent-services";
+import { useSessionStatusStore } from "@/stores/session-status";
 
 import type { VueWrapper } from "@vue/test-utils";
-import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
+import type { AgentServiceInfo, SessionRecord, WorkspaceGroup } from "@zen/shared";
 
 let pinia: ReturnType<typeof createPinia>;
 
@@ -20,6 +22,18 @@ function sessionOf(id: string, title: string): SessionRecord {
     archived: false,
     createdAt: 1,
     updatedAt: 2,
+  };
+}
+
+function serviceOf(id: string, sessionId: string): AgentServiceInfo {
+  return {
+    id,
+    sessionId,
+    command: "pnpm dev",
+    cwd: "/tmp/ws1",
+    startedAt: 1,
+    pids: [1],
+    label: "pnpm dev",
   };
 }
 
@@ -42,6 +56,7 @@ function mountGroup(props: {
   sessions?: SessionRecord[];
   open?: boolean;
   expanded?: boolean;
+  realSessionRow?: boolean;
 } = {}): VueWrapper {
   return mount(ProjectSessionGroup, {
     props: {
@@ -64,7 +79,7 @@ function mountGroup(props: {
           template: "<div class='menu-item' @click=\"$emit('select')\"><slot /></div>",
         },
         ContextMenuSeparator: true,
-        SessionRow: {
+        SessionRow: props.realSessionRow ? false : {
           name: "SessionRow",
           props: ["session", "active"],
           emits: ["open", "pin", "archive", "remove"],
@@ -218,6 +233,66 @@ describe("批量管理交互", () => {
     expect(toolbar.classes()).toContain("flex-wrap");
     expect(toolbar.find("span").classes()).toContain("basis-full");
     expect(toolbar.findAll("button")).toHaveLength(5);
+    wrapper.unmount();
+  });
+});
+
+describe("会话服务活跃指示", () => {
+  const sessions = Array.from({ length: 8 }, (_, i) => sessionOf(`s-${i}`, `会话 ${i}`));
+
+  it("无服务时不会在组头、会话行或预览入口显示指示", () => {
+    const wrapper = mountGroup({ sessions, expanded: false, realSessionRow: true });
+    expect(wrapper.find('[aria-label*="终端命令或服务"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("折叠时汇总同组所有服务，并与运行态 spinner 独立显示", () => {
+    useAgentServicesStore(pinia).items = [serviceOf("a", "s-0"), serviceOf("b", "s-6")];
+    useSessionStatusStore(pinia).set("s-0", "running");
+    const wrapper = mountGroup({ sessions, open: false, realSessionRow: true });
+
+    expect(wrapper.findAll('[role="status"]')).toHaveLength(2);
+    expect(wrapper.find('[aria-label*="终端命令或服务"]').attributes("aria-label")).toContain("2");
+    expect(wrapper.find('[aria-label*="终端命令或服务"]').find("svg").exists()).toBe(true);
+    expect(wrapper.findComponent(SessionRow).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("展开后服务只显示在对应行，运行 spinner 与服务图标可同时出现并动态消失", async () => {
+    const services = useAgentServicesStore(pinia);
+    services.items = [serviceOf("a", "s-0"), serviceOf("b", "s-0")];
+    useSessionStatusStore(pinia).set("s-0", "running");
+    const wrapper = mountGroup({ sessions: sessions.slice(0, 2), realSessionRow: true });
+    const rows = wrapper.findAllComponents(SessionRow);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.find('[aria-label*="终端命令或服务"]').attributes("aria-label")).toContain("2");
+    expect(rows[0]!.findAll('[role="status"]')).toHaveLength(2);
+    expect(rows[1]!.find('[aria-label*="终端命令或服务"]').exists()).toBe(false);
+    expect(wrapper.find('.group\\/row [aria-label*="终端命令或服务"]').exists()).toBe(false);
+
+    services.items = [];
+    await wrapper.vm.$nextTick();
+    expect(rows[0]!.find('[aria-label*="终端命令或服务"]').exists()).toBe(false);
+    expect(rows[0]!.find('[aria-label="进行中"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("预览截断时对不可见服务给出汇总，展开后仅在对应会话行显示", async () => {
+    useAgentServicesStore(pinia).items = [serviceOf("a", "s-6"), serviceOf("b", "s-6")];
+    const wrapper = mountGroup({ sessions, expanded: false, realSessionRow: true });
+    const initialRows = wrapper.findAllComponents(SessionRow);
+
+    expect(initialRows).toHaveLength(6);
+    expect(initialRows.map((row) => row.props("session").id)).toEqual(sessions.slice(0, 6).map((session) => session.id));
+    expect(wrapper.find('[aria-label*="终端命令或服务"]').attributes("aria-label")).toContain("2");
+    expect(wrapper.find('.group\\/row [aria-label*="终端命令或服务"]').exists()).toBe(false);
+
+    await wrapper.setProps({ expanded: true });
+    const rows = wrapper.findAllComponents(SessionRow);
+    expect(rows).toHaveLength(8);
+    expect(rows[6]!.find('[aria-label*="终端命令或服务"]').exists()).toBe(true);
+    expect(wrapper.findAll('[aria-label*="终端命令或服务"]')).toHaveLength(1);
     wrapper.unmount();
   });
 });

@@ -74,6 +74,20 @@ describe("useAgentProcessesStore 移除记录", () => {
     expect(store.items[0]!.status).toBe("running");
   });
 
+  it("长命令运行态按会话汇总，不受面板切换或记录移除影响，结束后清除", () => {
+    const store = seedTwoItems();
+    expect(store.runningServiceSessions[SESSION]).toBe(2);
+    store.ensureSession("session-2");
+    expect(store.runningServiceSessions[SESSION]).toBe(2);
+    store.ensureSession(SESSION);
+    store.remove("call-1");
+    expect(store.runningServiceSessions[SESSION]).toBe(2);
+    store.noteToolEnd(SESSION, "call-1", "runTerminal", { ok: true, summary: "done" });
+    expect(store.runningServiceSessions[SESSION]).toBe(1);
+    store.clear();
+    expect(store.runningServiceSessions[SESSION]).toBeUndefined();
+  });
+
   it("toggle 反复点击同一 id 收起/展开", () => {
     const store = seedTwoItems();
     store.toggle("call-2");

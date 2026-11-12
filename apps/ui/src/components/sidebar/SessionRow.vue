@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ArchiveRestore, Download, LoaderCircle, Pin, Trash2 } from "@lucide/vue";
+import { Archive, ArchiveRestore, Download, LoaderCircle, Pin, Server, Trash2 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
@@ -8,6 +8,7 @@ import { classes } from "rattail";
 import DangerIconButton from "@/components/base/DangerIconButton.vue";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useAgentServicesStore } from "@/stores/agent-services";
 import { useSessionStatusStore } from "@/stores/session-status";
 
 import type { SessionRuntimeStatus } from "@/stores/session-status";
@@ -33,12 +34,14 @@ const emit = defineEmits<{
 
 const sessionStatus = useSessionStatusStore();
 const { byId } = storeToRefs(sessionStatus);
+const { activeSessionCounts } = storeToRefs(useAgentServicesStore());
 
 const { t } = useI18n();
 
 const runtimeStatus = computed<SessionRuntimeStatus>(() => byId.value[props.session.id] ?? "idle");
 const running = computed(() => runtimeStatus.value === "running");
 const needsAction = computed(() => runtimeStatus.value === "needs_action");
+const activeServiceCount = computed(() => activeSessionCounts.value[props.session.id] ?? 0);
 
 /** 结果未读圆点：会话完成/失败且尚未重新打开；停留在当前会话时不展示 */
 const showResultDot = computed(
@@ -146,6 +149,17 @@ const ghostActionCls = classes(
       role="status"
     >
       <span class="size-1.5 shrink-0 rounded-full" :class="resultDotCls" aria-hidden="true" />
+    </span>
+
+    <span
+      v-if="activeServiceCount > 0"
+      :class="slotCls"
+      class="text-[var(--color-accent)]"
+      :title="t('sidebar.activeTerminalServices', { n: activeServiceCount })"
+      :aria-label="t('sidebar.activeTerminalServices', { n: activeServiceCount })"
+      role="status"
+    >
+      <Server class="size-3.5 shrink-0" aria-hidden="true" />
     </span>
 
     <!-- 行尾置顶开关：置顶时常显（accent 斜钉），可直接点击取消；未置顶时 hover 才浮现（批量模式下隐藏） -->

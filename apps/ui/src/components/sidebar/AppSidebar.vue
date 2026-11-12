@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { Bell, Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Sparkles } from "@lucide/vue";
+  import { Bell, Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Server, Sparkles } from "@lucide/vue";
   import { storeToRefs } from "pinia";
   import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
   import { useI18n } from "vue-i18n";
@@ -25,13 +25,18 @@
   import { toast } from "@/components/ui/toast";
   import { useChatStore } from "@/stores/chat";
   import { useActivityInboxStore } from "@/stores/activity-inbox";
+  import { useAgentServicesStore } from "@/stores/agent-services";
   import { useSessionStatusStore } from "@/stores/session-status";
+  import { useTerminalStore } from "@/stores/terminal";
   import { useWorkspaceStore } from "@/stores/workspace";
 
   import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 
   const workspaceStore = useWorkspaceStore();
   const chatStore = useChatStore();
+  const terminalStore = useTerminalStore();
+  const agentServices = useAgentServicesStore();
+  const { activeSessionCounts } = storeToRefs(agentServices);
   const activityInbox = useActivityInboxStore();
   const { pendingCount } = storeToRefs(activityInbox);
   const { sessionId } = storeToRefs(chatStore);
@@ -56,6 +61,8 @@
   const showInFolderLabel = ref(t("sidebar.showInFinder"));
 
   onMounted(async () => {
+    agentServices.bindEvents();
+    terminalStore.bindEvents();
     const info = window.zen ? await window.zen.shell.platformInfo() : null;
     if (info?.showInFolderLabel) {
       showInFolderLabel.value = info.showInFolderLabel;
@@ -299,6 +306,17 @@
     return count;
   });
 
+  const zoneTerminalCount = computed(() => {
+    if (workspacesZoneOpen.value) return 0;
+    return workspaceGroups.value.reduce(
+      (total, group) => total + group.sessions.reduce(
+        (sum, session) => sum + (session.archived ? 0 : activeSessionCounts.value[session.id] ?? 0),
+        0,
+      ),
+      0,
+    );
+  });
+
   function toggleWorkspacesZone() {
     workspaceStore.toggleCollapsed(WORKSPACES_ZONE_KEY);
   }
@@ -404,6 +422,13 @@
               :aria-current="session.id === sessionId ? 'true' : undefined"
               @click="openSession(session)">
               <span class="min-w-0 flex-1 truncate">{{ session.title }}</span>
+              <span v-if="activeSessionCounts[session.id]"
+                :title="t('sidebar.activeTerminalServices', { n: activeSessionCounts[session.id] })"
+                :aria-label="t('sidebar.activeTerminalServices', { n: activeSessionCounts[session.id] })" role="status"
+                class="flex flex-none items-center gap-0.5 text-[var(--color-ok)]">
+                <Server class="size-3" aria-hidden="true" />
+                <span v-if="activeSessionCounts[session.id] > 1" class="text-[10px]">{{ activeSessionCounts[session.id] }}</span>
+              </span>
               <span class="max-w-[45%] min-w-0 flex-none truncate text-[12px] text-[var(--color-dim)]">
                 {{ groupNameOf(session) }}
               </span>
@@ -449,6 +474,13 @@
                 :aria-label="t('sidebar.collapsedRunning', { n: zoneRunningCount })" role="status">
                 <LoaderCircle class="size-3 shrink-0 animate-spin" aria-hidden="true" />
                 <span v-if="zoneRunningCount > 1" class="font-[family-name:var(--font-mono)]">{{ zoneRunningCount }}</span>
+              </span>
+              <span v-if="zoneTerminalCount"
+                class="flex flex-none items-center gap-1 rounded-full bg-[var(--color-side-chip)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-ok)]"
+                :title="t('sidebar.collapsedTerminalServices', { n: zoneTerminalCount })"
+                :aria-label="t('sidebar.collapsedTerminalServices', { n: zoneTerminalCount })" role="status">
+                <Server class="size-3 shrink-0" aria-hidden="true" />
+                <span v-if="zoneTerminalCount > 1" class="font-[family-name:var(--font-mono)]">{{ zoneTerminalCount }}</span>
               </span>
               <!-- 悬浮快捷操作：新建工作区 -->
               <Button variant="ghost" size="icon-sm"

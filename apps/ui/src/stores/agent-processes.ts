@@ -131,6 +131,15 @@ interface ProcessesBucketState {
 export const useAgentProcessesStore = defineStore("agentProcesses", () => {
   const items = ref<AgentProcess[]>([]);
   const expandedId = ref("");
+  /** 各会话正在执行的长命令；与当前展示的会话桶无关。 */
+  const runningCommands = ref<Record<string, string>>({});
+  const runningServiceSessions = computed(() => {
+    const counts: Record<string, number> = {};
+    for (const sessionId of Object.values(runningCommands.value)) {
+      counts[sessionId] = (counts[sessionId] ?? 0) + 1;
+    }
+    return counts;
+  });
 
   const buckets = createSessionBuckets<ProcessesBucketState>({
     initial: () => ({ items: [], expandedId: "" }),
@@ -184,6 +193,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     if (!isPersistentCommand(commandOf(args))) {
       return;
     }
+    runningCommands.value = { ...runningCommands.value, [`${sessionId}:${toolCallId}`]: sessionId };
     applyToSession(sessionId, (state) => {
       const existing = state.items.find((item) => item.id === toolCallId);
       if (existing) {
@@ -217,6 +227,12 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
   ) {
     if (toolName !== "runTerminal") {
       return;
+    }
+    const key = `${sessionId}:${toolCallId}`;
+    if (key in runningCommands.value) {
+      const next = { ...runningCommands.value };
+      delete next[key];
+      runningCommands.value = next;
     }
     applyToSession(sessionId, (state) => {
       const item = state.items.find((entry) => entry.id === toolCallId);
@@ -265,6 +281,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     buckets.reset();
     items.value = [];
     expandedId.value = "";
+    runningCommands.value = {};
   }
 
   /** 流事件入口：chat 事件网关转发 runTerminal 生命周期 */
@@ -292,6 +309,7 @@ export const useAgentProcessesStore = defineStore("agentProcesses", () => {
     items,
     expandedId,
     runningCount,
+    runningServiceSessions,
     ensureSession,
     noteToolStart,
     noteToolEnd,

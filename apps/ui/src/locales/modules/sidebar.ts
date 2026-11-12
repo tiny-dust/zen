@@ -27,6 +27,8 @@ export default {
     // 会话行与分组
     newSession: "新建会话",
     running: "进行中",
+    activeTerminalServices: "正在运行 {n} 个终端命令或服务",
+    collapsedTerminalServices: "目录内有 {n} 个终端命令或服务正在运行",
     awaitingConfirmTitle: "等待确认",
     pendingConfirm: "待确认",
     lastRunFailed: "上次运行失败",
@@ -221,6 +223,8 @@ export default {
     searchNoResults: "No matching sessions",
     newSession: "New session",
     running: "Running",
+    activeTerminalServices: "{n} terminal commands or services running",
+    collapsedTerminalServices: "{n} terminal commands or services running inside",
     awaitingConfirmTitle: "Waiting for confirmation",
     pendingConfirm: "Action needed",
     lastRunFailed: "Last run failed",
