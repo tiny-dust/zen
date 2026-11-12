@@ -7,8 +7,12 @@ import type { PetActivity, PetStatus } from "@zen/shared";
 
 const MIN_SIZE = 100;
 const MAX_SIZE = 300;
-const BASE_HEADER_HEIGHT = 20;
-const SESSIONS_HEADER_HEIGHT = 96;
+const BASE_HEADER_HEIGHT = 0;
+const SUMMARY_HEIGHT = 36;
+
+function petHeaderHeight(sessionCount: number): number {
+  return sessionCount ? SUMMARY_HEIGHT : BASE_HEADER_HEIGHT;
+}
 export type PetSpriteLayout = "zen-4x4" | "dimagent-v2";
 
 interface PetAnimation {
@@ -25,14 +29,16 @@ export const PET_ANIMATIONS: Record<PetSpriteLayout, Record<PetStatus, PetAnimat
   "zen-4x4": {
     idle: zenAnimation(0),
     working: zenAnimation(1),
+    waiting: zenAnimation(0),
     done: { ...zenAnimation(2), loop: false },
     error: { ...zenAnimation(3), loop: false },
   },
   "dimagent-v2": {
     idle: { row: 0, width: 192, height: 208, durations: [280, 110, 110, 140, 140, 320], loop: true },
     working: { row: 7, width: 192, height: 208, durations: [120, 120, 120, 120, 120, 220], loop: true },
-    done: { row: 3, width: 192, height: 208, durations: [140, 140, 140, 280], loop: false },
-    error: { row: 5, width: 192, height: 208, durations: [140, 140, 140, 140, 140, 140, 140, 240], loop: false },
+    waiting: { row: 6, width: 192, height: 208, durations: [150, 150, 150, 150, 150, 260], loop: true },
+    done: { row: 8, width: 192, height: 208, durations: [150, 150, 150, 150, 150, 280], loop: true },
+    error: { row: 5, width: 192, height: 208, durations: [140, 140, 140, 140, 140, 140, 140, 240], loop: true },
   },
 };
 
@@ -53,13 +59,17 @@ function petSize(size: number): number {
 
 const STYLE = `
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
-#sessions{position:absolute;top:28px;left:4px;right:4px;height:68px;display:flex;flex-direction:column;align-items:center;gap:2px;overflow:hidden;-webkit-app-region:drag}
-#sessions:empty{display:none}
-#sessions span{display:block;max-width:100%;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border-radius:5px;background:rgba(24,24,24,.82);color:#fff;font-size:11px;line-height:13px;pointer-events:none}
-canvas{position:absolute;top:${BASE_HEADER_HEIGHT}px;left:0;display:block;width:100%;height:calc(100% - ${BASE_HEADER_HEIGHT}px);-webkit-app-region:drag}
-body.has-sessions canvas{top:${SESSIONS_HEADER_HEIGHT}px;height:calc(100% - ${SESSIONS_HEADER_HEIGHT}px)}
-#hide{position:absolute;z-index:1;top:0;right:0;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:0 0 0 8px;background:rgba(24,24,24,.72);color:#fff;cursor:pointer;-webkit-app-region:no-drag}
-#hide:hover,#hide:focus-visible{background:rgba(24,24,24,.95)}
+body{--header-height:0px}
+body[data-has-sessions="true"]{--header-height:${SUMMARY_HEIGHT}px}
+#sessions{position:absolute;top:4px;left:4px;right:4px;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:9px;background:rgba(25,25,25,.86);color:#f4f4f5;text-align:left;font:inherit;font-size:13px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;-webkit-app-region:no-drag}
+#sessions[hidden]{display:none}
+#sessions:hover,#sessions:focus-visible{background:rgba(40,40,40,.94)}
+#sessions:focus-visible{outline:1px solid #b8b8b8;outline-offset:-2px}
+canvas{position:absolute;top:var(--header-height);left:0;display:block;width:100%;height:calc(100% - var(--header-height));-webkit-app-region:drag}
+#hide{position:absolute;z-index:1;top:calc(var(--header-height) + 4px);right:4px;display:grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:#f4f4f5;opacity:0;pointer-events:none;cursor:pointer;-webkit-app-region:no-drag}
+body:hover #hide,body:focus-within #hide{opacity:1;pointer-events:auto}
+#hide:hover,#hide:focus-visible{color:#ff9b7f;background:rgba(25,25,25,.86)}
+#hide:focus-visible{outline:none}
 `;
 
 const SCRIPT = `
@@ -97,26 +107,27 @@ function advance() {
   schedule();
 }
 function schedule() {
-  if (!image || reducedMotion.matches || status === 'idle') return;
+  if (!image || reducedMotion.matches || (layout === 'zen-4x4' && (status === 'idle' || status === 'waiting'))) return;
   timer = setTimeout(advance, animation().durations[frame]);
 }
-function renderSessions(names) {
-  const list = document.getElementById('sessions');
-  list.replaceChildren();
-  document.body.classList.toggle('has-sessions', names.length > 0);
-  for (const name of names.slice(0, 3)) {
-    const label = document.createElement('span');
-    label.textContent = name;
-    list.appendChild(label);
+function renderSessions(sessions) {
+  const summary = document.getElementById('sessions');
+  summary.hidden = sessions.length === 0;
+  document.body.dataset.hasSessions = String(sessions.length > 0);
+  const states = { running: '运行中', needs_action: '待处理', done: '已完成', error: '异常' };
+  if (sessions.length === 0) {
+    summary.textContent = '';
+  } else if (sessions.length === 1) {
+    summary.textContent = sessions[0].name + ' · ' + states[sessions[0].status];
+  } else {
+    const counts = Object.keys(states).filter((state) => sessions.some((session) => session.status === state))
+      .map((state) => sessions.filter((session) => session.status === state).length + ' ' + states[state]);
+    summary.textContent = sessions.length + ' 个会话 · ' + counts.join(' · ');
   }
-  if (names.length > 3) {
-    const remaining = document.createElement('span');
-    remaining.textContent = '+' + (names.length - 3);
-    list.appendChild(remaining);
-  }
+  summary.title = summary.textContent;
 }
 window.__zenPetUpdate = function (next) {
-  renderSessions(next.runningSessions);
+  renderSessions(next.sessions);
   const nextLayout = Object.hasOwn(animations, next.layout) ? next.layout : 'zen-4x4';
   const nextStatus = Object.hasOwn(animations[nextLayout], next.status) ? next.status : 'idle';
   if (requestedStatus === nextStatus && layout === nextLayout && spriteDataUrl === next.spriteDataUrl) return;
@@ -146,6 +157,12 @@ reducedMotion.addEventListener('change', function () {
   draw();
   schedule();
 });
+document.getElementById('sessions').addEventListener('mouseenter', function () {
+  window.zen.pet.showTray();
+});
+document.getElementById('sessions').addEventListener('click', function () {
+  window.zen.pet.showTray();
+});
 document.getElementById('hide').addEventListener('click', function () {
   window.zen.pet.hide();
 });
@@ -155,7 +172,7 @@ function cspHash(content: string): string {
   return `'sha256-${createHash("sha256").update(content).digest("base64")}'`;
 }
 
-const PET_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${cspHash(SCRIPT)}; style-src ${cspHash(STYLE)}; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>${STYLE}</style></head><body><div id="sessions" aria-label="运行中的会话"></div><canvas id="sprite" width="256" height="256" aria-label="桌面宠物"></canvas><button id="hide" type="button" aria-label="隐藏桌面宠物" title="隐藏桌面宠物"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><script>${SCRIPT}</script></body></html>`;
+const PET_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${cspHash(SCRIPT)}; style-src ${cspHash(STYLE)}; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>${STYLE}</style></head><body><button id="sessions" type="button" aria-label="查看会话状态" hidden></button><canvas id="sprite" width="256" height="256" aria-label="桌面宠物"></canvas><button id="hide" type="button" aria-label="隐藏桌面宠物" title="隐藏桌面宠物"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button><script>${SCRIPT}</script></body></html>`;
 
 const petWindows = new WeakSet<BrowserWindow>();
 
@@ -167,7 +184,7 @@ export function isPetWindow(window: BrowserWindow | null): boolean {
 export class PetWindow {
   readonly window: BrowserWindow;
   private spriteDataUrl: string | null = null;
-  private activity: PetActivity = { status: "idle", runningSessions: [] };
+  private activity: PetActivity = { status: "idle", sessions: [] };
   private headerHeight = BASE_HEADER_HEIGHT;
   private layout: PetSpriteLayout = "zen-4x4";
   private loaded = false;
@@ -179,7 +196,7 @@ export class PetWindow {
       minWidth: MIN_SIZE,
       minHeight: MIN_SIZE + BASE_HEADER_HEIGHT,
       maxWidth: MAX_SIZE,
-      maxHeight: MAX_SIZE + SESSIONS_HEADER_HEIGHT,
+      maxHeight: MAX_SIZE + SUMMARY_HEIGHT,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
@@ -214,8 +231,15 @@ export class PetWindow {
 
   update(spriteDataUrl: string | null, activity: PetActivity, size: number, layout: PetSpriteLayout): void {
     this.spriteDataUrl = spriteDataUrl;
-    this.activity = { status: activity.status, runningSessions: [...activity.runningSessions] };
     this.layout = layout;
+    this.activity = { status: activity.status, sessions: activity.sessions.map((session) => ({ ...session })) };
+    this.resize(size);
+    this.sendUpdate();
+  }
+
+  updateActivity(activity: PetActivity): void {
+    this.activity = { status: activity.status, sessions: activity.sessions.map((session) => ({ ...session })) };
+    const [size = MIN_SIZE] = this.window.getSize();
     this.resize(size);
     this.sendUpdate();
   }
@@ -233,7 +257,7 @@ export class PetWindow {
   resize(size: number): void {
     if (this.window.isDestroyed()) return;
     const position = this.getPosition();
-    const headerHeight = this.activity.runningSessions.length ? SESSIONS_HEADER_HEIGHT : BASE_HEADER_HEIGHT;
+    const headerHeight = petHeaderHeight(this.activity.sessions.length);
     this.window.setContentSize(petSize(size), petSize(size) + headerHeight);
     this.restorePosition(position.x, position.y + this.headerHeight - headerHeight);
     this.headerHeight = headerHeight;

@@ -76,6 +76,7 @@ export default defineConfig({
           // 内嵌浏览器 guest 页的独立 preload（捕获登录表单提交）
           "browser-guest": resolve(dirname, "src/preload/browser-guest.ts"),
           "pet-guest": resolve(dirname, "src/preload/pet-guest.ts"),
+          "pet-tray-guest": resolve(dirname, "src/preload/pet-tray-guest.ts"),
         },
       },
       watch: {},

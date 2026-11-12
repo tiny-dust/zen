@@ -25,6 +25,7 @@ import { initUserState, registerUserIpc } from "./user-ipc";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerPetIpc, restorePetWindow } from "./pet-service";
+import { isPetTrayWindow } from "./pet-tray-window";
 import { isPetWindow } from "./pet-window";
 import { registerSessionIpc } from "./session-ipc";
 import { startGoalReminders, shutdownGoalReminders } from "./goal-reminders";
@@ -424,7 +425,7 @@ function registerIpc(): void {
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed() && !isPetWindow(win)) {
+    if (!win.isDestroyed() && !isPetWindow(win) && !isPetTrayWindow(win)) {
       win.webContents.send(channel, payload);
     }
   }
@@ -494,7 +495,14 @@ app.whenReady().then(() => {
   void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();
   registerModelIpc();
-  registerPetIpc(() => mainWindow);
+  registerPetIpc(() => mainWindow, sessions, (sessionId) => {
+    const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow();
+    window.show();
+    window.focus();
+    const sendOpenRequest = () => window.webContents.send("session:open-request", sessionId);
+    if (window.webContents.isLoading()) window.webContents.once("did-finish-load", sendOpenRequest);
+    else sendOpenRequest();
+  });
   registerSessionIpc((sessionId) => sessions.has(sessionId));
   registerWorkspaceIpc();
   registerGitIpc();

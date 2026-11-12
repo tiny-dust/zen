@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   generate: vi.fn(), create: vi.fn(), isPet: vi.fn(), fromWebContents: vi.fn(), image: vi.fn(), dialog: vi.fn(),
+  trays: [] as Array<{ window: object; sender: object; update: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn>; show: ReturnType<typeof vi.fn> }>, isTray: vi.fn(),
 }));
 vi.mock("electron", () => ({
   app: { getPath: () => globalThis.__petTestDir },
@@ -17,6 +18,15 @@ vi.mock("electron", () => ({
 }));
 vi.mock("./pet-image", () => ({ generatePetSprite: mocks.generate }));
 vi.mock("./pet-window", () => ({ createPetWindow: mocks.create, isPetWindow: mocks.isPet }));
+vi.mock("./pet-tray-window", () => ({
+  PetTrayWindow: class {
+    window = { isDestroyed: () => false, isVisible: () => true, close: vi.fn(), on: vi.fn() };
+    sender = {};
+    update = vi.fn(); hide = vi.fn(); show = vi.fn();
+    constructor() { mocks.trays.push(this); }
+  },
+  isPetTrayWindow: mocks.isTray,
+}));
 
 import { ipcMain } from "electron";
 let service: typeof import("./pet-service");
@@ -35,8 +45,8 @@ function existing<T>(item: T | undefined): T {
 }
 function makeWindow() {
   const listeners = new Map<string, () => void>();
-  const window = { isDestroyed: () => false, on: vi.fn((name: string, handler: () => void) => listeners.set(name, handler)) };
-  return { window, listeners, sender: {}, update: vi.fn(), show: vi.fn(), hide: vi.fn(), restorePosition: vi.fn(), getPosition: () => ({ x: 300, y: 400 }) };
+  const window = { isDestroyed: () => false, isVisible: () => true, getSize: () => [160, 160], on: vi.fn((name: string, handler: () => void) => listeners.set(name, handler)) };
+  return { window, listeners, sender: {}, update: vi.fn(), updateActivity: vi.fn(), show: vi.fn(), hide: vi.fn(), restorePosition: vi.fn(), getPosition: () => ({ x: 300, y: 400 }) };
 }
 function call(name: string, event: object, ...args: unknown[]): Promise<any> {
   const handler = mocks.handlers.get(name);
@@ -48,13 +58,15 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "zen-pet-service-"));
   globalThis.__petTestDir = dir;
   windows.length = 0;
+  mocks.trays.length = 0;
   mocks.generate.mockResolvedValue({ source, sprite: png });
   mocks.image.mockImplementation((bytes: Buffer) => ({ isEmpty: () => false,
     getSize: () => bytes.subarray(0, 4).toString("ascii") === "RIFF" ? { width: 1536, height: 2288 } : { width: 1024, height: 1024 },
     toBitmap: () => Buffer.alloc(1024 * 1024 * 4) }));
   mocks.create.mockImplementation(() => { const pet = makeWindow(); windows.push(pet); return pet; });
-  mocks.fromWebContents.mockImplementation((sender: unknown) => windows.find((pet) => pet.sender === sender)?.window ?? null);
+  mocks.fromWebContents.mockImplementation((sender: unknown) => windows.find((pet) => pet.sender === sender)?.window ?? mocks.trays.find((tray) => tray.sender === sender)?.window ?? null);
   mocks.isPet.mockImplementation((window: unknown) => windows.some((pet) => pet.window === window));
+  mocks.isTray.mockImplementation((window: unknown) => mocks.trays.some((tray) => tray.window === window));
   mocks.dialog.mockResolvedValue({ canceled: true, filePaths: [] });
   vi.resetModules();
   mocks.handlers.clear();
@@ -78,7 +90,7 @@ async function makeImport(root: string, id: string) {
 describe("pet IPC and persistence", () => {
   it("restricts all main actions and lets only a registered guest hide itself", async () => {
     service.registerPetIpc(() => main as never);
-    expect(ipcMain.handle).toHaveBeenCalledTimes(7);
+    expect(ipcMain.handle).toHaveBeenCalledTimes(13);
     for (const channel of ["pet:get", "pet:generate", "pet:import-directory", "pet:set-visible", "pet:set-size", "pet:set-status", "pet:hide"]) {
       await expect(call(channel, strangerEvent)).rejects.toThrow(/未经授权/);
     }
@@ -100,10 +112,13 @@ describe("pet IPC and persistence", () => {
     expect(windows).toHaveLength(2);
     expect(existing(windows[1]).restorePosition).toHaveBeenCalledWith(252, 352);
     expect((await readdir(join(dir, "pets/assets")))).toHaveLength(4);
-    const activity = { status: "working", runningSessions: ["会话 A", "会话 B"] };
+    const activity = { status: "working", sessions: [
+      { id: "a", name: "会话 A", status: "running" }, { id: "b", name: "会话 B", status: "error" },
+    ] };
     await call("pet:set-status", mainEvent, activity);
-    expect(existing(windows[0]).update).toHaveBeenCalledWith(expect.any(String), activity, 160, "zen-4x4");
-    expect(existing(windows[1]).update).toHaveBeenCalledWith(expect.any(String), activity, 160, "zen-4x4");
+    const prioritized = { status: "error", sessions: [activity.sessions[1], activity.sessions[0]] };
+    expect(existing(windows[0]).update).toHaveBeenCalledWith(expect.any(String), prioritized, 160, "zen-4x4");
+    expect(existing(windows[1]).update).toHaveBeenCalledWith(expect.any(String), prioritized, 160, "zen-4x4");
     const hidden = await call("pet:set-visible", mainEvent, first.pets[0].id, false);
     expect(hidden.pets.map((pet: { enabled: boolean }) => pet.enabled)).toEqual([false, true]);
     expect(existing(windows[0]).hide).toHaveBeenCalled();
@@ -206,21 +221,95 @@ describe("pet IPC and persistence", () => {
     expect((await stored())).not.toHaveProperty("status");
   });
 
-  it("rejects malformed activity without replacing the last valid running sessions", async () => {
+  it("rejects malformed activity without replacing the last valid session results", async () => {
     await call("pet:generate", mainEvent, input);
-    const valid = { status: "working", runningSessions: ["会话一"] };
+    const valid = { status: "working", sessions: [
+      { id: "one", name: "会话一", status: "running" }, { id: "two", name: "会话二", status: "done" },
+      { id: "three", name: "会话三", status: "error" },
+    ] };
     await call("pet:set-status", mainEvent, valid);
     for (const value of [
-      "working", null, { status: "working" }, { status: "sleep", runningSessions: [] },
-      { status: "working", runningSessions: "会话" },
-      { status: "working", runningSessions: [""] },
-      { status: "working", runningSessions: ["A".repeat(81)] },
-      { status: "working", runningSessions: Array(21).fill("会话") },
-      { status: "working", runningSessions: ["带\n换行"] },
+      "working", null, { status: "working" }, { status: "sleep", sessions: [] },
+      { status: "working", runningSessions: ["会话"] },
+      { status: "working", sessions: "会话" },
+      { status: "working", sessions: [""] },
+      { status: "working", sessions: [{ name: "", status: "done" }] },
+      { status: "working", sessions: [{ name: "A".repeat(81), status: "error" }] },
+      { status: "working", sessions: Array(21).fill({ name: "会话", status: "running" }) },
+      { status: "working", sessions: [{ name: "带\n换行", status: "running" }] },
+      { status: "working", sessions: [{ name: "会话", status: "idle" }] },
+      { status: "working", sessions: [{ name: "会话" }] },
+      { status: "working", sessions: [{ name: "会话", status: "done", extra: true }] },
       { ...valid, unexpected: "extra" },
     ]) await expect(call("pet:set-status", mainEvent, value)).rejects.toThrow(/无效的宠物活动/);
     await call("pet:set-size", mainEvent, (await call("pet:get", mainEvent)).pets[0].id, 180);
-    expect(existing(windows[0]).update).toHaveBeenLastCalledWith(expect.any(String), valid, 180, "zen-4x4");
+    expect(existing(windows[0]).update).toHaveBeenLastCalledWith(expect.any(String), { status: "error", sessions: [valid.sessions[2], valid.sessions[1], valid.sessions[0]] }, 180, "zen-4x4");
+  });
+
+  it("only lets its tray control a current run and rejects stale or forged actions", async () => {
+    await call("pet:generate", mainEvent, input);
+    const sessions = new Map();
+    const session = { cancel: vi.fn().mockResolvedValue(undefined), approve: vi.fn().mockResolvedValue(undefined), resolveAsk: vi.fn().mockReturnValue(true) };
+    sessions.set("one", session);
+    service.registerPetIpc(() => main as never, sessions);
+    await call("pet:set-status", mainEvent, { status: "waiting", sessions: [{ id: "one", name: "One", status: "needs_action" }] });
+    service.registerPetRun("one", session as never, "run-1", "One");
+    const trayEvent = { sender: existing(mocks.trays[0]).sender };
+    await expect(call("pet:tray-get", mainEvent)).rejects.toThrow(/未经授权/);
+    await expect(call("pet:tray-action", strangerEvent, { type: "stop", sessionId: "one", runId: "run-1" })).rejects.toThrow(/未经授权/);
+    expect(await call("pet:tray-action", trayEvent, { type: "stop", sessionId: "one", runId: "stale" })).toMatchObject({ ok: false });
+    service.recordPetRunEvent({ type: "ask_user", sessionId: "one", question: { askId: "ask-1", question: "Choose", options: ["Yes", "No"], allowFreeText: false } } as never, session as never, "run-1");
+    expect((await call("pet:tray-get", trayEvent))[0].questions).toHaveLength(1);
+    expect(await call("pet:tray-action", trayEvent, { type: "answer", sessionId: "one", runId: "run-1", askId: "ask-1", answer: "wrong" })).toMatchObject({ ok: false });
+    expect(await call("pet:tray-action", trayEvent, { type: "answer", sessionId: "one", runId: "run-1", askId: "ask-1", answer: "Yes" })).toMatchObject({ ok: true });
+    expect(session.resolveAsk).toHaveBeenCalledWith("ask-1", "Yes");
+    expect(await call("pet:tray-action", trayEvent, { type: "stop", sessionId: "one", runId: "run-1" })).toMatchObject({ ok: true });
+    expect(session.cancel).toHaveBeenCalledOnce();
+    expect(await call("pet:tray-action", trayEvent, { type: "stop", sessionId: "one", runId: "run-1" })).toMatchObject({ ok: false });
+  });
+
+  it("shows background runs without renderer status and ignores stale snapshots and old run events", async () => {
+    await call("pet:generate", mainEvent, input);
+    const sessions = new Map();
+    const first = { cancel: vi.fn(), approve: vi.fn(), resolveAsk: vi.fn() };
+    sessions.set("one", first);
+    const open = vi.fn();
+    service.registerPetIpc(() => main as never, sessions, open);
+    service.registerPetRun("one", first as never, "run-1", "后台任务\n标题");
+    const trayEvent = { sender: existing(mocks.trays[0]).sender };
+    expect(await call("pet:tray-get", trayEvent)).toMatchObject([{ id: "one", name: "后台任务 标题", status: "running", runId: "run-1" }]);
+    expect(existing(windows[0]).updateActivity).toHaveBeenLastCalledWith({ status: "working", sessions: [{ id: "one", name: "后台任务 标题", status: "running" }] });
+    await call("pet:tray-open-session", trayEvent, "one");
+    expect(open).toHaveBeenCalledWith("one");
+    await call("pet:set-status", mainEvent, { status: "idle", sessions: [] });
+    expect((await call("pet:tray-get", trayEvent))[0].status).toBe("running");
+    const second = { cancel: vi.fn(), approve: vi.fn(), resolveAsk: vi.fn() };
+    sessions.set("one", second);
+    service.registerPetRun("one", second as never, "run-2", "New run");
+    service.recordPetRunEvent({ type: "done", sessionId: "one", reason: "completed" } as never, first as never, "run-1");
+    expect(await call("pet:tray-get", trayEvent)).toMatchObject([{ status: "running", runId: "run-2", name: "New run" }]);
+    service.recordPetRunEvent({ type: "done", sessionId: "one", reason: "completed" } as never, second as never, "run-2");
+    expect(await call("pet:tray-get", trayEvent)).toMatchObject([{ status: "done", name: "New run" }]);
+    expect((await call("pet:tray-get", trayEvent))[0]).not.toHaveProperty("runId");
+  });
+
+  it("does not let a completed cancel overwrite a replacement run", async () => {
+    await call("pet:generate", mainEvent, input);
+    let finish!: () => void;
+    const first = { cancel: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })), approve: vi.fn(), resolveAsk: vi.fn() };
+    const second = { cancel: vi.fn(), approve: vi.fn(), resolveAsk: vi.fn() };
+    const sessions = new Map<string, typeof first | typeof second>([["one", first]]);
+    service.registerPetIpc(() => main as never, sessions as never);
+    service.registerPetRun("one", first as never, "run-1", "First");
+    const trayEvent = { sender: existing(mocks.trays[0]).sender };
+    const pending = call("pet:tray-action", trayEvent, { type: "stop", sessionId: "one", runId: "run-1" });
+    await vi.waitFor(() => expect(first.cancel).toHaveBeenCalledOnce());
+    sessions.set("one", second);
+    service.registerPetRun("one", second as never, "run-2", "Second");
+    finish();
+    await pending;
+    expect(sessions.get("one")).toBe(second);
+    expect(await call("pet:tray-get", trayEvent)).toMatchObject([{ status: "running", runId: "run-2" }]);
   });
 
   it("rejects duplicate generation and preserves state on failure", async () => {

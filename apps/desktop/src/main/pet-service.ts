@@ -4,9 +4,11 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage } from "electron";
 
-import type { PetActivity, PetCollectionState, PetGenerateInput, PetState } from "@zen/shared";
+import type { AgentSession } from "@zen/agent-core";
+import type { AgentStreamEvent, PetActivity, PetCollectionState, PetGenerateInput, PetState } from "@zen/shared";
 import { generatePetSprite } from "./pet-image";
 import { createPetWindow, isPetWindow, type PetWindow } from "./pet-window";
+import { isPetTrayWindow, PetTrayWindow, type PetTrayAction, type PetTraySession } from "./pet-tray-window";
 
 interface StoredPet {
   id: string;
@@ -27,12 +29,17 @@ const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 let statePromise: Promise<StoredCollection> | null = null;
 let pendingWrite: Promise<unknown> = Promise.resolve();
 const petWindows = new Map<string, PetWindow>();
+const trayWindows = new Map<string, PetTrayWindow>();
+interface RunControl { session: AgentSession; runId: string; name: string; status: PetActivity["sessions"][number]["status"]; approval?: PetTraySession["approval"]; questions: NonNullable<PetTraySession["questions"]>; busy: Set<string>; finished: boolean }
+const runControls = new Map<string, RunControl>();
+let agentSessions: Map<string, AgentSession> | null = null;
 const positionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const hidingByService = new Set<string>();
-let activity: PetActivity = { status: "idle", runningSessions: [] };
+let activity: PetActivity = { status: "idle", sessions: [] };
 let generating = false;
 let registered = false;
 let mainWindowGetter: (() => BrowserWindow | null) | null = null;
+let openSession: ((sessionId: string) => void) | null = null;
 
 function petDir(): string { return join(app.getPath("userData"), "pets"); }
 function assetPath(name: unknown): string | null {
@@ -48,14 +55,145 @@ function validActivity(value: unknown): value is PetActivity {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype) return false;
   const keys = Object.keys(value);
-  if (keys.length !== 2 || !keys.includes("status") || !keys.includes("runningSessions")
+  if (keys.length !== 2 || !keys.includes("status") || !keys.includes("sessions")
     || Reflect.ownKeys(value).length !== 2) return false;
-  const { status, runningSessions } = value as Record<string, unknown>;
-  return (status === "idle" || status === "working" || status === "done" || status === "error")
-    && Array.isArray(runningSessions) && Object.getPrototypeOf(runningSessions) === Array.prototype
-    && runningSessions.length <= 20 && Reflect.ownKeys(runningSessions).length === runningSessions.length + 1
-    && runningSessions.every((name: unknown) => typeof name === "string" && name.trim().length > 0
-      && name.length <= 80 && !/[\x00-\x1f\x7f]/.test(name));
+  const { status, sessions } = value as Record<string, unknown>;
+  return (status === "idle" || status === "working" || status === "waiting" || status === "done" || status === "error")
+    && Array.isArray(sessions) && Object.getPrototypeOf(sessions) === Array.prototype
+    && sessions.length <= 20 && Reflect.ownKeys(sessions).length === sessions.length + 1
+    && sessions.every((item: unknown) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)
+        || Object.getPrototypeOf(item) !== Object.prototype) return false;
+      const keys = Object.keys(item);
+      if (keys.length !== 3 || !keys.includes("id") || !keys.includes("name") || !keys.includes("status")
+        || Reflect.ownKeys(item).length !== 3) return false;
+      const { id, name, status } = item as Record<string, unknown>;
+      return typeof id === "string" && id.trim().length > 0 && id.length <= 200
+        && typeof name === "string" && name.trim().length > 0 && name.length <= 80
+        && !/[\x00-\x1f\x7f]/.test(name)
+        && (status === "running" || status === "needs_action" || status === "done" || status === "error");
+    });
+}
+const statusPriority = { needs_action: 0, error: 1, done: 2, running: 3 } as const;
+function traySessions(): PetTraySession[] {
+  const sessions = new Map<string, PetTraySession>(activity.sessions.map((item) => [item.id, { ...item }]));
+  for (const [id, control] of runControls) {
+    if (agentSessions?.get(id) !== control.session) continue;
+    const status = !control.finished && (control.approval || control.questions.length) ? "needs_action" : control.status;
+    sessions.set(id, {
+      id, name: control.name, status,
+      ...(!control.finished ? { runId: control.runId, approval: control.approval, questions: control.questions } : {}),
+    });
+  }
+  return [...sessions.values()].sort((a, b) => statusPriority[a.status] - statusPriority[b.status]).slice(0, 20);
+}
+function currentActivity(): PetActivity {
+  const sessions = traySessions();
+  const status = sessions[0]?.status;
+  return { status: status === "needs_action" ? "waiting" : status === "running" ? "working" : status ?? "idle",
+    sessions: sessions.map(({ id, name, status }) => ({ id, name, status })) };
+}
+function updateTrays(): void {
+  const sessions = traySessions();
+  for (const tray of trayWindows.values()) tray.update(sessions);
+  const snapshot = currentActivity();
+  for (const pet of petWindows.values()) pet.updateActivity(snapshot);
+}
+export function registerPetRun(sessionId: string, session: AgentSession, runId: string, title: string): void {
+  const name = title.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, " ").trim().slice(0, 80).trim() || "会话";
+  runControls.set(sessionId, { session, runId, name, status: "running", questions: [], busy: new Set(), finished: false });
+  updateTrays();
+}
+export function recordPetRunEvent(event: AgentStreamEvent, session: AgentSession, runId: string): void {
+  const control = runControls.get(event.sessionId);
+  if (!control || control.finished || control.session !== session || control.runId !== runId || agentSessions?.get(event.sessionId) !== session) return;
+  if (event.type === "approval_request") {
+    control.approval = { approvalId: event.request.approvalId, toolName: event.request.toolName,
+      prompt: event.request.reason ?? event.request.toolName, input: event.request.input };
+  } else if (event.type === "ask_user") {
+    const { askId, question, options, multiSelect, allowFreeText, agentName } = event.question;
+    control.questions = [...control.questions.filter((item) => item.askId !== askId),
+      { askId, question, options: options.map((option) => typeof option === "string" ? option :
+        option.priority ? { label: option.label, priority: option.priority } : option.label),
+        multiSelect, allowFreeText, agentName }];
+  } else if (event.type === "approval_resolved" && control.approval?.approvalId === event.approvalId) {
+    control.approval = undefined;
+  } else if (event.type === "ask_resolved") {
+    control.questions = control.questions.filter((item) => item.askId !== event.askId);
+  } else if (event.type === "error") {
+    control.status = "error";
+  } else if (event.type === "done") {
+    control.finished = true;
+    control.status = event.reason === "error" || control.status === "error" ? "error" : "done";
+    control.approval = undefined;
+    control.questions = [];
+  } else return;
+  updateTrays();
+}
+function senderTray(event: Electron.IpcMainInvokeEvent): PetTrayWindow {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (isPetTrayWindow(window)) {
+    for (const [id, tray] of trayWindows) {
+      if (tray.window === window && !window?.isDestroyed() && petWindows.get(id)?.window.isVisible()) return tray;
+    }
+  }
+  throw new Error("未经授权的宠物 IPC 请求");
+}
+function anchorOf(pet: PetWindow): { x: number; y: number; width: number; height: number } {
+  const { x, y } = pet.getPosition();
+  const [width, height] = pet.window.getSize();
+  return { x, y, width: width ?? 0, height: height ?? 0 };
+}
+function isTrayAction(value: unknown): value is PetTrayAction {
+  const data = record(value);
+  if (!data || typeof data.sessionId !== "string" || !data.sessionId || typeof data.runId !== "string" || !data.runId) return false;
+  if (data.type === "stop") return Object.keys(data).length === 3;
+  if (data.type === "approval") return Object.keys(data).every((key) => ["type", "sessionId", "runId", "approvalId", "approved", "always"].includes(key))
+    && typeof data.approvalId === "string" && !!data.approvalId && typeof data.approved === "boolean"
+    && (data.always === undefined || typeof data.always === "boolean");
+  if (data.type === "answer") return Object.keys(data).length === 5 && typeof data.askId === "string" && !!data.askId
+    && typeof data.answer === "string" && !!data.answer.trim() && data.answer.length <= 10_000;
+  return false;
+}
+async function performTrayAction(action: PetTrayAction): Promise<{ ok: boolean; error?: string }> {
+  const control = runControls.get(action.sessionId);
+  if (!control || control.runId !== action.runId || control.finished || agentSessions?.get(action.sessionId) !== control.session)
+    return { ok: false, error: "操作已过期" };
+  const id = action.type === "stop" ? "stop" : action.type === "approval" ? `approval:${action.approvalId}` : `ask:${action.askId}`;
+  if (control.busy.has(id)) return { ok: false, error: "操作正在处理" };
+  if (action.type === "approval" && control.approval?.approvalId !== action.approvalId
+    || action.type === "answer" && !control.questions.some((item) => item.askId === action.askId))
+    return { ok: false, error: "操作已过期" };
+  if (action.type === "answer") {
+    const question = control.questions.find((item) => item.askId === action.askId);
+    if (!question) return { ok: false, error: "操作已过期" };
+    const answer = action.answer.trim();
+    const labels = question.options.map((option) => typeof option === "string" ? option : option.label);
+    const choices = question.multiSelect ? answer.split("、") : [answer];
+    if (!question.allowFreeText && (!choices.length || choices.some((choice) => !labels.includes(choice))))
+      return { ok: false, error: "答案不在可选项中" };
+  }
+  control.busy.add(id);
+  try {
+    if (action.type === "stop") {
+      await control.session.cancel();
+      if (agentSessions?.get(action.sessionId) === control.session) agentSessions.delete(action.sessionId);
+      control.finished = true;
+      control.status = "done";
+      control.approval = undefined;
+      control.questions = [];
+      updateTrays();
+    } else if (action.type === "approval") {
+      await control.session.approve({ approvalId: action.approvalId, approved: action.approved, always: action.always });
+    } else if (!control.session.resolveAsk(action.askId, action.answer.trim())) {
+      return { ok: false, error: "操作已过期" };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "操作失败" };
+  } finally {
+    control.busy.delete(id);
+  }
 }
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === "ENOENT";
@@ -159,6 +297,7 @@ async function syncWindows(state: StoredCollection, view: PetCollectionState): P
     const publicPet = view.pets[index];
     let window = petWindows.get(pet.id);
     if (!publicPet?.enabled || !publicPet.spriteDataUrl) {
+      trayWindows.get(pet.id)?.hide();
       if (window && !window.window.isDestroyed()) {
         hidingByService.add(pet.id);
         try { window.hide(); } finally { hidingByService.delete(pet.id); }
@@ -172,8 +311,17 @@ async function syncWindows(state: StoredCollection, view: PetCollectionState): P
           .catch((error: unknown) => console.warn("[zen] 保存宠物可见状态失败:", error));
       } });
       petWindows.set(pet.id, window);
+      const tray = new PetTrayWindow();
+      trayWindows.set(pet.id, tray);
+      tray.update(traySessions());
+      tray.window.on("closed", () => { if (trayWindows.get(pet.id) === tray) trayWindows.delete(pet.id); });
       const owned = window;
+      const repositionTray = () => {
+        if (tray.window.isVisible() && !owned.window.isDestroyed()) tray.show(anchorOf(owned));
+      };
+      owned.window.on("resized", repositionTray);
       owned.window.on("moved", () => {
+        repositionTray();
         const timer = positionTimers.get(pet.id);
         if (timer) clearTimeout(timer);
         positionTimers.set(pet.id, setTimeout(() => {
@@ -187,6 +335,8 @@ async function syncWindows(state: StoredCollection, view: PetCollectionState): P
       owned.window.on("closed", () => {
         if (petWindows.get(pet.id) !== owned) return;
         petWindows.delete(pet.id);
+        if (!tray.window.isDestroyed()) tray.window.close();
+        trayWindows.delete(pet.id);
         const timer = positionTimers.get(pet.id);
         if (timer) clearTimeout(timer);
         positionTimers.delete(pet.id);
@@ -197,7 +347,7 @@ async function syncWindows(state: StoredCollection, view: PetCollectionState): P
         owned.restorePosition(initial.x - index * 48, initial.y - index * 48);
       }
     }
-    window.update(publicPet.spriteDataUrl, activity, pet.size, pet.spriteLayout);
+    window.update(publicPet.spriteDataUrl, currentActivity(), pet.size, pet.spriteLayout);
     window.show();
   }
 }
@@ -285,10 +435,39 @@ async function findCandidates(directory: string): Promise<ImportCandidate[]> {
 }
 
 /** IPC 仅注册一次；activate 重建主窗时更新 getter 即可。 */
-export function registerPetIpc(getMainWindow: () => BrowserWindow | null): void {
+export function registerPetIpc(getMainWindow: () => BrowserWindow | null, sessions?: Map<string, AgentSession>, onOpenSession?: (id: string) => void): void {
   mainWindowGetter = getMainWindow;
+  if (sessions) agentSessions = sessions;
+  if (onOpenSession) openSession = onOpenSession;
   if (registered) return;
   registered = true;
+  function showTray(event: Electron.IpcMainInvokeEvent): void {
+    const id = senderPetId(event);
+    const pet = petWindows.get(id);
+    const tray = trayWindows.get(id);
+    if (!pet || !tray || !pet.window.isVisible()) throw new Error("宠物窗口不可用");
+    tray.update(traySessions());
+    tray.show(anchorOf(pet));
+  }
+  ipcMain.handle("pet:tray-show", async (event) => { showTray(event); });
+  ipcMain.handle("pet:tray-toggle", async (event) => {
+    const id = senderPetId(event);
+    const tray = trayWindows.get(id);
+    if (tray?.window.isVisible()) tray.hide();
+    else showTray(event);
+  });
+  ipcMain.handle("pet:tray-close", async (event) => { senderTray(event).hide(); });
+  ipcMain.handle("pet:tray-open-session", async (event, id: unknown) => {
+    senderTray(event);
+    if (typeof id !== "string" || !traySessions().some((item) => item.id === id)) throw new Error("会话不存在");
+    openSession?.(id);
+  });
+  ipcMain.handle("pet:tray-get", async (event) => { senderTray(event); return traySessions(); });
+  ipcMain.handle("pet:tray-action", async (event, value: unknown) => {
+    senderTray(event);
+    if (!isTrayAction(value)) throw new Error("无效的宠物操作");
+    return performTrayAction(value);
+  });
   ipcMain.handle("pet:get", async (event) => {
     checkSender(event);
     return publicState(await currentState());
@@ -355,10 +534,11 @@ export function registerPetIpc(getMainWindow: () => BrowserWindow | null): void 
   ipcMain.handle("pet:set-status", async (event, value: unknown): Promise<void> => {
     checkSender(event);
     if (!validActivity(value)) throw new Error("无效的宠物活动");
-    activity = { status: value.status, runningSessions: [...value.runningSessions] };
+    activity = { status: value.status, sessions: value.sessions.map((session) => ({ id: session.id, name: session.name, status: session.status })) };
+    updateTrays();
     const state = await currentState();
     const view = await publicState(state);
-    for (const pet of view.pets) if (pet.enabled && pet.spriteDataUrl) petWindows.get(pet.id)?.update(pet.spriteDataUrl, activity, pet.size, pet.spriteLayout);
+    for (const pet of view.pets) if (pet.enabled && pet.spriteDataUrl) petWindows.get(pet.id)?.update(pet.spriteDataUrl, currentActivity(), pet.size, pet.spriteLayout);
   });
 }
 

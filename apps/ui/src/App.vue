@@ -138,21 +138,30 @@ onMounted(() => {
   disposeAgent = useAgentStore().bootstrap();
   disposePetStatus = watch((): PetActivity => {
     const statuses = sessionStatusStore.snapshot;
-    const runningIds = Object.keys(statuses).filter((id) => statuses[id] === "running");
     const titles = new Map(
       workspaceStore.groups.flatMap((group) => group.sessions.map((session) => [session.id, session.title] as const)),
     );
-    const runningSessions = runningIds.slice(0, 20).map((id) =>
-      (titles.get(id)?.replace(/[\x00-\x1f\x7f]/g, " ").trim() || `会话 ${id.slice(0, 8)}`).slice(0, 80),
-    );
-    const unseen = Object.entries(statuses)
-      .filter(([id]) => sessionStatusStore.hasUnseenResult(id))
-      .map(([, status]) => status);
-    const status = runningIds.length > 0 ? "working"
-      : unseen.includes("error") ? "error"
-      : unseen.includes("done") ? "done"
+    const entries = Object.entries(statuses).flatMap(([id, value]) => {
+      const sessionStatus: PetActivity["sessions"][number]["status"] | null =
+        value === "running" || value === "needs_action" ? value
+        : (value === "error" || value === "done") && sessionStatusStore.hasUnseenResult(id) ? value
+        : null;
+      if (!sessionStatus) return [];
+      const name = (titles.get(id) ?? "")
+        .replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, " ")
+        .trim().slice(0, 80).trim() || "会话";
+      return [{ id, name, status: sessionStatus }];
+    });
+    const status = entries.some((session) => session.status === "needs_action") ? "waiting"
+      : entries.some((session) => session.status === "error") ? "error"
+      : entries.some((session) => session.status === "done") ? "done"
+      : entries.some((session) => session.status === "running") ? "working"
       : "idle";
-    return { status, runningSessions };
+    const priority: Record<PetActivity["sessions"][number]["status"], number> = {
+      needs_action: 0, error: 1, done: 2, running: 3,
+    };
+    const sessions = entries.sort((a, b) => priority[a.status] - priority[b.status]).slice(0, 20);
+    return { status, sessions };
   }, (activity) => {
     void window.zen?.pet.setStatus(activity).catch(() => undefined);
   }, { immediate: true });
