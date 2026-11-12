@@ -309,39 +309,18 @@ describe("AgentSession 状态链路", () => {
     expect(doneReasons(events)).toEqual(["stop"]);
   });
 
-  it("run 满 60 步暂停询问，确认后续跑，拒绝则保留已完成步骤", async () => {
+  it("run 超过 60 步仍持续执行，不触发续跑问询；用户可以取消", async () => {
     const events: AgentStreamEvent[] = [];
     writeFileSync(join(workspaceRoot, "loop.txt"), "loop");
     const session = createSession(events, "life-loop", "tool-loop");
     const started = session.start("keep calling the tool");
     const stepCount = () => events.filter((event) => event.type === "step_start").length;
-    const asks = () => events.filter((event): event is Extract<AgentStreamEvent, { type: "ask_user" }> => event.type === "ask_user");
-    for (let i = 0; i < 1000 && asks().length === 0; i += 1) {
+    for (let i = 0; i < 1000 && stepCount() < 65; i += 1) {
       await delay(20);
     }
-    expect(stepCount()).toBe(60);
-    expect(asks()).toHaveLength(1);
+    expect(stepCount()).toBeGreaterThanOrEqual(65);
+    expect(events.some((event) => event.type === "ask_user")).toBe(false);
     expect(doneReasons(events)).toEqual([]);
-    expect(session.resolveAsk(asks()[0]!.question.askId, "继续执行")).toBe(true);
-    for (let i = 0; i < 1000 && asks().length < 2; i += 1) {
-      await delay(20);
-    }
-    expect(stepCount()).toBe(120);
-    expect(asks()).toHaveLength(2);
-    expect(session.resolveAsk(asks()[1]!.question.askId, "停止任务")).toBe(true);
-    await started;
-    expect(doneReasons(events)).toEqual(["max_steps"]);
-  }, 40_000);
-
-  it("预算问询期间取消仅发一次 cancelled", async () => {
-    const events: AgentStreamEvent[] = [];
-    const session = createSession(events, "life-budget-cancel", "tool-loop");
-    const started = session.start("keep calling the tool");
-    const asks = () => events.filter((event): event is Extract<AgentStreamEvent, { type: "ask_user" }> => event.type === "ask_user");
-    for (let i = 0; i < 1000 && asks().length === 0; i += 1) {
-      await delay(20);
-    }
-    expect(asks()).toHaveLength(1);
     await session.cancel();
     await started;
     expect(doneReasons(events)).toEqual(["cancelled"]);

@@ -19,10 +19,10 @@ import {
 } from "./agent-model";
 import { buildToolSet } from "./agent-tools";
 import type { ToolHooks } from "./agent-tools";
-import { evaluateApproval, riskForTool } from "./agent-approval";
+import { evaluateApproval, requiresManualFileWriteApproval, riskForTool } from "./agent-approval";
 import { buildInstructions } from "./agent-config";
 import type { AgentSessionConfig } from "./agent-config";
-import { errorMessage, uuidLike } from "./agent-parts";
+import { errorMessage } from "./agent-parts";
 import type { PendingApproval, PendingAsk } from "./agent-parts";
 import {
   AUTO_COMPACT_RATIO,
@@ -121,9 +121,6 @@ const CANCEL_SETTLE_GRACE_MS = 500;
 /** 压缩回灌：单文件内容上限与总预算（字符） */
 const REINJECT_FILE_MAX_CHARS = 3000;
 const REINJECT_TOTAL_MAX_CHARS = 15_000;
-/** 每次用户确认延长的完整 run 步数（包含插入阶段，不随单次 SDK stream 重置） */
-const RUN_STEP_GRANT = 60;
-
 /** SDK 并发参数只能按整次请求设置，不能按工具选择；在审批的生成顺序处登记执行屏障。 */
 class StepToolOrder {
   private lastMutation: Promise<void> = Promise.resolve();
@@ -260,7 +257,6 @@ export class AgentSession {
    */
   private pausedAcked = false;
   private step = 0;
-  private nextStepLimit = RUN_STEP_GRANT;
   /** 本 run 是否已做过溢出恢复重试（每次 run/插入阶段重置；每 run 只重试一次） */
   private overflowRetried = false;
   /** 连续「缺 finish_reason」重放次数：上限内视为上游抖动，超限按真实错误终态 */
@@ -460,12 +456,21 @@ export class AgentSession {
           typeof args === "object" && args !== null && "command" in args
             ? String((args as { command: unknown }).command)
             : undefined;
+        const path =
+          typeof args === "object" && args !== null && "path" in args && typeof args.path === "string"
+            ? args.path
+            : undefined;
         const verdict = evaluateApproval(toolName, config.permissionMode, {
           remembered: this.rememberedTools.has(toolName),
           command,
+          workspaceRoot: config.workspaceRoot,
+          path,
         });
         if (verdict === "allow") {
           return undefined;
+        }
+        if (config.permissionMode === "smart" && requiresManualFileWriteApproval(toolName, config.workspaceRoot, path)) {
+          return "user-approval";
         }
         // 自动审批闸（命令前缀规则 / 助手模型核准）：放行则本步直接执行，
         // 不产生 approval_request（UI 审批卡不出现）；异常/未放行回落人工
@@ -773,7 +778,6 @@ export class AgentSession {
     this.persistAppend();
     this.paused = false;
     this.step = 0;
-    this.nextStepLimit = RUN_STEP_GRANT;
     this.overflowRetried = false;
     this.missingFinishReplays = 0;
     this.lastInputTokens = null;
@@ -1089,47 +1093,6 @@ export class AgentSession {
   }
 
   private async continueLoop(): Promise<void> {
-    if (!this.runActive || this.paused) {
-      return;
-    }
-    if (this.step >= this.nextStepLimit) {
-      const askId = uuidLike();
-      const toolCallId = `run-budget-${askId}`;
-      const answer = new Promise<string>((resolve, reject) => {
-        this.pendingAsks.set(askId, { askId, resolve, reject });
-      });
-      this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
-      this.config.emit({
-        type: "ask_user",
-        sessionId: this.sessionId,
-        question: {
-          askId,
-          toolCallId,
-          question: `本次任务已执行 ${this.step} 步。是否再执行最多 ${RUN_STEP_GRANT} 步？`,
-          options: [
-            { label: "继续执行", priority: "recommended" },
-            { label: "停止任务", priority: "neutral" },
-          ],
-          allowFreeText: false,
-        },
-      });
-      let choice: string;
-      try {
-        choice = await answer;
-      } catch {
-        // cancel() 已发送 done(cancelled)，不再发第二个终态。
-        return;
-      }
-      this.config.emit({ type: "ask_resolved", sessionId: this.sessionId, askId, toolCallId, answer: choice });
-      if (!this.runActive) {
-        return;
-      }
-      if (choice !== "继续执行") {
-        this.finishRun("max_steps");
-        return;
-      }
-      this.nextStepLimit += RUN_STEP_GRANT;
-    }
     if (!this.runActive || this.paused) {
       return;
     }

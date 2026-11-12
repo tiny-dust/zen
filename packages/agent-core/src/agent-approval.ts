@@ -1,4 +1,8 @@
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+
 import { isMcpToolName } from "@zen/shared";
+import { resolveWorkspacePath } from "@zen/tools-fs";
 
 import type { PermissionMode, ToolRisk } from "@zen/shared";
 
@@ -66,6 +70,49 @@ function isReadonlyCommand(command: string): boolean {
   return segments.length > 0 && segments.every((segment) => READONLY_COMMAND_RE.test(segment));
 }
 
+/** 路径解析与 tools-fs 一致；不存在的新文件按最近的真实父目录判断，无法判定则要求审批。 */
+export function requiresManualFileWriteApproval(
+  toolName: string,
+  workspaceRoot?: string,
+  path?: string,
+): boolean {
+  if (toolName !== "writeFile" && toolName !== "editFile") {
+    return false;
+  }
+  if (!workspaceRoot || typeof path !== "string" || !path.trim()) {
+    return true;
+  }
+  try {
+    const root = realpathSync(workspaceRoot);
+    const target = resolveWorkspacePath(workspaceRoot, path);
+    let ancestor = target;
+    for (;;) {
+      try {
+        lstatSync(ancestor);
+        break;
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException).code !== "ENOENT" &&
+          (error as NodeJS.ErrnoException).code !== "ENOTDIR"
+        ) {
+          throw error;
+        }
+        const parent = dirname(ancestor);
+        if (parent === ancestor) {
+          return true;
+        }
+        ancestor = parent;
+      }
+    }
+    // realpathSync 会跟随已存在的符号链接；悬空链接解析失败时保守确认。
+    const canonicalTarget = resolve(realpathSync(ancestor), relative(ancestor, target));
+    const withinRoot = relative(root, canonicalTarget);
+    return withinRoot === ".." || withinRoot.startsWith(`..${sep}`) || isAbsolute(withinRoot);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * 单工具审批裁决（ADR-004 权限矩阵）。
  * 会话级「全部允许」与网络类确认记忆由 AgentSession 维护，命中后直接放行。
@@ -73,7 +120,7 @@ function isReadonlyCommand(command: string): boolean {
 export function evaluateApproval(
   toolName: string,
   mode: PermissionMode,
-  options: { remembered: boolean; command?: string },
+  options: { remembered: boolean; command?: string; workspaceRoot?: string; path?: string },
 ): ApprovalVerdict {
   if (mode === "full") {
     return "allow";
@@ -82,13 +129,16 @@ export function evaluateApproval(
   if (risk === "read") {
     return "allow";
   }
+  if (mode === "smart" && requiresManualFileWriteApproval(toolName, options.workspaceRoot, options.path)) {
+    return "confirm";
+  }
   // 本会话内用户已放行过的工具（「全部允许」/ 网络类确认过）不再逐次确认
   if (options.remembered) {
     return "allow";
   }
   if (mode === "smart") {
     if (risk === "write") {
-      // writeFile/editFile 的 path 都被 tools-fs 约束在工作区内
+      // 工作区内写操作仍按原 smart 权限放行
       return "allow";
     }
     if (risk === "exec" && options.command && isReadonlyCommand(options.command)) {

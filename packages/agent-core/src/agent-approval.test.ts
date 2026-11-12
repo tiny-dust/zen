@@ -1,12 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { evaluateApproval, riskForTool } from "./agent-approval";
+import { evaluateApproval, requiresManualFileWriteApproval, riskForTool } from "./agent-approval";
+
+const fixtures: string[] = [];
+afterEach(async () => {
+  await Promise.all(fixtures.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+async function workspaceFixture() {
+  const base = await mkdtemp(join(tmpdir(), "zen-approval-"));
+  fixtures.push(base);
+  const root = join(base, "workspace");
+  const outside = join(base, "workspace-neighbor");
+  await mkdir(root);
+  await mkdir(outside);
+  return { base, root, outside };
+}
 
 /**
  * ADR-004 权限矩阵：
  * - riskForTool 覆盖 read/write/exec/network 与 mcp.* 前缀、未知工具兜底
- * - evaluateApproval：full 直接放行；read 放行；remembered 放行；
- *   smart 下写放行、只读命令放行、其余确认；default 除 read 外全确认
+ * - evaluateApproval：full 直接放行；read 放行；smart 工作区外写必须审批，
+ *   工作区内写和只读命令放行；default 除 read 外全确认
  */
 
 describe("riskForTool", () => {
@@ -70,11 +88,74 @@ describe("evaluateApproval", () => {
     expect(evaluateApproval("runTerminal", "default", { remembered: true })).toBe("allow");
   });
 
-  it("smart 模式写工具放行，网络类确认", () => {
-    expect(evaluateApproval("writeFile", "smart", { remembered: false })).toBe("allow");
-    expect(evaluateApproval("editFile", "smart", { remembered: false })).toBe("allow");
+  it("smart 模式工作区内写工具放行，网络类确认", async () => {
+    const { root } = await workspaceFixture();
+    expect(evaluateApproval("writeFile", "smart", { remembered: false, workspaceRoot: root, path: "new.txt" })).toBe("allow");
+    expect(evaluateApproval("editFile", "smart", { remembered: false, workspaceRoot: root, path: "new.txt" })).toBe("allow");
     expect(evaluateApproval("browserOpen", "smart", { remembered: false })).toBe("confirm");
     expect(evaluateApproval("mcp__lark__send", "smart", { remembered: false })).toBe("confirm");
+  });
+
+  it("绝对路径、相对 ..、~ 与目录边界均按实际目标审批", async () => {
+    const { base, root, outside } = await workspaceFixture();
+    const cases: Array<[string, "allow" | "confirm"]> = [
+      ["file.txt", "allow"],
+      ["nested/new/file.txt", "allow"],
+      [join(root, "new.txt"), "allow"],
+      ["nested/../file.txt", "allow"],
+      [join(outside, "existing.txt"), "confirm"],
+      [join(outside, "missing/deep/file.txt"), "confirm"],
+      ["../workspace-neighbor/existing.txt", "confirm"],
+      ["nested/../../workspace-neighbor/file.txt", "confirm"],
+      [join(base, "workspace-neighborly/file.txt"), "confirm"],
+      ["~/zen-approval-outside.txt", "confirm"],
+      ["~", "confirm"],
+      [' "../workspace-neighbor/existing.txt" ', "confirm"],
+      ["..\\workspace-neighbor\\existing.txt", "confirm"],
+    ];
+    for (const toolName of ["writeFile", "editFile"]) {
+      for (const [path, expected] of cases) {
+        expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: root, path }), `${toolName} ${path}`).toBe(expected);
+      }
+      expect(evaluateApproval(toolName, "smart", { remembered: true, workspaceRoot: root, path: join(outside, "existing.txt") })).toBe("confirm");
+      expect(evaluateApproval(toolName, "full", { remembered: false, workspaceRoot: root, path: join(outside, "existing.txt") })).toBe("allow");
+      expect(evaluateApproval(toolName, "default", { remembered: false, workspaceRoot: root, path: "file.txt" })).toBe("confirm");
+    }
+    expect(evaluateApproval("writeFile", "smart", { remembered: false, workspaceRoot: root, path: join(homedir(), "zen-approval-outside.txt") })).toBe("confirm");
+  });
+
+  it("现有文件、父目录与工作区根符号链接按真实位置判定", async () => {
+    const { base, root, outside } = await workspaceFixture();
+    await writeFile(join(outside, "existing.txt"), "outside");
+    await writeFile(join(root, "internal.txt"), "inside");
+    await symlink(join(outside, "existing.txt"), join(root, "external-file.txt"));
+    await symlink(outside, join(root, "external-dir"), "dir");
+    await symlink(join(root, "internal.txt"), join(root, "internal-link.txt"));
+    await mkdir(join(root, "internal-dir"));
+    await symlink(join(root, "internal-dir"), join(root, "internal-dir-link"), "dir");
+    await symlink(join(root, "missing-inside.txt"), join(root, "dangling-link.txt"));
+    await symlink(root, join(base, "workspace-link"), "dir");
+    for (const toolName of ["writeFile", "editFile"]) {
+      for (const path of ["external-file.txt", "external-dir/existing.txt", "external-dir/new/deep.txt", "dangling-link.txt"]) {
+        expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: root, path }), path).toBe("confirm");
+      }
+      expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: root, path: "internal-link.txt" })).toBe("allow");
+      expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: root, path: "internal-dir-link/new.txt" })).toBe("allow");
+      expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: join(base, "workspace-link"), path: "internal.txt" })).toBe("allow");
+      expect(evaluateApproval(toolName, "smart", { remembered: false, workspaceRoot: root, path: join(base, "workspace-link", "internal.txt") })).toBe("allow");
+    }
+  });
+
+  it("空路径、缺失上下文或无法解析路径保守审批；非文件工具不受影响", async () => {
+    const { root } = await workspaceFixture();
+    for (const path of ["", "   ", "C:/Windows/file.txt"]) {
+      expect(evaluateApproval("writeFile", "smart", { remembered: false, workspaceRoot: root, path })).toBe("confirm");
+    }
+    expect(evaluateApproval("editFile", "smart", { remembered: false, workspaceRoot: root })).toBe("confirm");
+    expect(evaluateApproval("writeFile", "smart", { remembered: false, path: "file.txt" })).toBe("confirm");
+    expect(requiresManualFileWriteApproval("runTerminal", root, "../outside.txt")).toBe(false);
+    expect(evaluateApproval("runTerminal", "smart", { remembered: false, command: "ls" })).toBe("allow");
+    expect(evaluateApproval("readFile", "smart", { remembered: false, path: "../outside.txt" })).toBe("allow");
   });
 
   it("smart 模式只读终端命令放行，危险命令确认", () => {
