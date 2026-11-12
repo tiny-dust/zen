@@ -15,7 +15,7 @@ interface TrackedService {
   label: string;
   cwd: string;
   startedAt: number;
-  /** 启动 shell 的 pid（detached，即进程组 id）；settle 后 shell 已死，仅作组 id 使用 */
+  /** 启动 shell 的 pid（POSIX 上也是进程组 id；Windows 上用于后代链查询） */
   pgid: number;
   /** settle 检出的存活进程；list 时刷新，空数组表示尚未 settle */
   pids: number[];
@@ -56,6 +56,45 @@ export function parseGroupPids(stdout: string, pgid: number): number[] {
     }
   }
   return pids;
+}
+
+/** Windows CIM 快照：从启动 shell 和已知存活后代沿 ParentProcessId 追踪。 */
+export function parseWindowsDescendantPids(
+  stdout: string,
+  shellPid: number,
+  knownPids: number[] = [],
+): number[] {
+  const value: unknown = JSON.parse(stdout.replace(/^\uFEFF/, ""));
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid CIM process list");
+  }
+  const children = new Map<number, number[]>();
+  const livePids = new Set<number>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || !("ProcessId" in item) || !("ParentProcessId" in item)
+      || !Number.isSafeInteger(item.ProcessId) || item.ProcessId <= 0
+      || !Number.isSafeInteger(item.ParentProcessId) || item.ParentProcessId < 0) {
+      throw new Error("Invalid CIM process entry");
+    }
+    const siblings = children.get(item.ParentProcessId) ?? [];
+    siblings.push(item.ProcessId);
+    children.set(item.ParentProcessId, siblings);
+    livePids.add(item.ProcessId);
+  }
+  const queue = [shellPid, ...knownPids.filter((pid) => livePids.has(pid) && pid !== shellPid)];
+  const visited = new Set(queue);
+  for (let i = 0; i < queue.length; i++) {
+    const parent = queue[i]!;
+    for (const child of children.get(parent) ?? []) {
+      if (visited.has(child)) {
+        continue;
+      }
+      visited.add(child);
+      queue.push(child);
+    }
+  }
+  // 已知子进程的父进程可能已退出，CIM 仍保留其 ParentProcessId；保留这些子进程。
+  return [...new Set(queue.slice(1))].filter((pid) => livePids.has(pid));
 }
 
 /**
@@ -148,26 +187,24 @@ export class AgentServicesRegistry {
     return this.infos();
   }
 
-  /** 关闭服务：先 SIGTERM 整个进程组，1.5s 后对残留进程 SIGKILL */
+  /** 关闭服务：POSIX 终止进程组；Windows 终止已跟踪的后代进程树。 */
   async kill(id: string): Promise<{ ok: boolean; error?: string }> {
     const entry = Array.from(this.entries.values()).find((item) => item.id === id);
     if (!entry) {
       return { ok: false, error: "service not found" };
     }
-    await this.killGroup(entry.pgid);
+    await this.killGroup(entry);
     this.entries.delete(entry.pgid);
     this.emit();
     return { ok: true };
   }
 
-  /** 应用退出：清掉所有登记的进程组，避免 Zen 退出后服务继续挂着（退出不走宽限期，直接 SIGKILL） */
+  /** 应用退出：清掉所有登记的服务，避免 Zen 退出后继续运行。 */
   async shutdown(): Promise<void> {
     this.stopSweep();
     for (const entry of this.entries.values()) {
       if (process.platform === "win32") {
-        await execFileAsync("taskkill", ["/PID", String(entry.pgid), "/T", "/F"]).catch(
-          () => undefined,
-        );
+        await this.killWindowsDescendants(entry);
         continue;
       }
       try {
@@ -179,12 +216,14 @@ export class AgentServicesRegistry {
     this.entries.clear();
   }
 
-  private async detectGroupPids(pgid: number): Promise<number[]> {
+  private async detectGroupPids(pgid: number, knownPids: number[] = []): Promise<number[]> {
     if (process.platform === "win32") {
-      // Windows 无进程组语义：只能探测启动 shell 本身是否存活（孙进程无法枚举，尽力而为）
       try {
-        process.kill(pgid, 0);
-        return [pgid];
+        // Windows 不保留 POSIX 进程组；CIM 的 ParentProcessId 在父进程退出后仍可追溯。
+        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+          "ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId) -Compress"],
+        { timeout: 5000, maxBuffer: 8 * 1024 * 1024, windowsHide: true });
+        return parseWindowsDescendantPids(stdout, pgid, knownPids);
       } catch {
         return [];
       }
@@ -197,11 +236,19 @@ export class AgentServicesRegistry {
     }
   }
 
-  private async killGroup(pgid: number): Promise<void> {
+  private async killWindowsDescendants(entry: TrackedService): Promise<void> {
+    const pids = await this.detectGroupPids(entry.pgid, entry.pids);
+    for (const pid of pids) {
+      await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"]).catch(() => undefined);
+    }
+  }
+
+  private async killGroup(entry: TrackedService): Promise<void> {
     if (process.platform === "win32") {
-      await execFileAsync("taskkill", ["/PID", String(pgid), "/T", "/F"]).catch(() => undefined);
+      await this.killWindowsDescendants(entry);
       return;
     }
+    const pgid = entry.pgid;
     try {
       process.kill(-pgid, "SIGTERM");
     } catch {
@@ -230,9 +277,9 @@ export class AgentServicesRegistry {
       if (!entry.pids.length) {
         continue;
       }
-      const pids = (await this.detectGroupPids(pgid)).filter((item) => item !== pgid);
+      const pids = (await this.detectGroupPids(pgid, entry.pids)).filter((item) => item !== pgid);
       if (pids.length) {
-        if (pids.length !== entry.pids.length) {
+        if (pids.length !== entry.pids.length || pids.some((pid, index) => pid !== entry.pids[index])) {
           entry.pids = pids;
           changed = true;
         }

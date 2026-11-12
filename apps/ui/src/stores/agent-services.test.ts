@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentServiceInfo } from "@zen/shared";
 
+import { useAgentProcessesStore } from "./agent-processes";
 import { useAgentServicesStore } from "./agent-services";
+import { useTerminalStore } from "./terminal";
 
 function service(id: string): AgentServiceInfo {
   return {
@@ -64,5 +66,22 @@ describe("useAgentServicesStore 详情展开", () => {
     expect(result.ok).toBe(false);
     expect(store.items.map((item) => item.id)).toEqual(["a"]);
     expect(store.expandedId).toBe("a");
+  });
+
+  it("按父会话汇总运行中的 Agent 命令、后台服务和活动 PTY", () => {
+    const store = useAgentServicesStore();
+    const processes = useAgentProcessesStore();
+    const terminal = useTerminalStore();
+    processes.noteToolStart("session-1::worker", "tool-1", "runTerminal", { command: "pnpm dev" });
+    store.items = [service("service-1")];
+    terminal.activeActivities = [
+      { terminalId: "pty-1", ownerSessionId: "session-1", active: true },
+      { terminalId: "pty-2", ownerSessionId: "session-2", active: true },
+    ];
+    expect(store.activeSessionCounts).toEqual({ "session-1": 3, "session-2": 1 });
+    processes.noteToolEnd("session-1::worker", "tool-1", "runTerminal", { ok: true, summary: "done" });
+    store.items = [];
+    terminal.activeActivities = [];
+    expect(store.activeSessionCounts).toEqual({});
   });
 });

@@ -4,6 +4,8 @@ import { computed, ref } from "vue";
 import type { AgentServiceInfo } from "@zen/shared";
 
 import { i18n } from "@/locales";
+import { useAgentProcessesStore } from "@/stores/agent-processes";
+import { useTerminalStore } from "@/stores/terminal";
 
 /**
  * 右栏「服务」：主进程收集的 runTerminal 长驻进程（dev server / watch 等）。
@@ -21,6 +23,22 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
   let unbind: (() => void) | null = null;
 
   const count = computed(() => items.value.length);
+  /** Agent 执行中、后台服务与手动终端活动统一按父会话归属；只用于侧栏提示。 */
+  const terminalStore = useTerminalStore();
+  const agentProcesses = useAgentProcessesStore();
+  const activeSessionCounts = computed(() => {
+    const counts: Record<string, number> = {};
+    const add = (sessionId: string, amount = 1) => {
+      const id = sessionId.split("::")[0];
+      if (id) counts[id] = (counts[id] ?? 0) + amount;
+    };
+    for (const [id, count] of Object.entries(agentProcesses.runningServiceSessions)) add(id, count);
+    for (const item of items.value) add(item.sessionId);
+    for (const item of terminalStore.activeActivities) {
+      if (item.ownerSessionId) add(item.ownerSessionId);
+    }
+    return counts;
+  });
 
   function startTicker() {
     if (ticker == null) {
@@ -125,6 +143,7 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     expandedId,
     now,
     count,
+    activeSessionCounts,
     bindEvents,
     refresh,
     kill,

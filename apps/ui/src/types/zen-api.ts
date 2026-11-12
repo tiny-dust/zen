@@ -74,6 +74,7 @@ import type {
   ProviderUsageSnapshot,
   PtyDataEvent,
   PtyExitEvent,
+  TerminalActivity,
   ReadFileResult,
   ScheduledTask,
   ScheduledTaskInput,
@@ -567,18 +568,21 @@ export interface ZenApi {
     /** 系统终端字体（含 Nerd Font 回退栈） */
     font(): Promise<import("@zen/shared").TerminalFontSettings>;
     list(): Promise<TerminalSessionInfo[]>;
+    listActivities(): Promise<TerminalActivity[]>;
     create(options?: {
       cwd?: string;
       cols?: number;
       rows?: number;
       shell?: string;
+      ownerSessionId?: string;
     }): Promise<TerminalCreateResult>;
-    write(sessionId: string, data: string): Promise<{ ok: boolean }>;
+    write(sessionId: string, data: string, ownerSessionId?: string): Promise<{ ok: boolean }>;
     resize(sessionId: string, cols: number, rows: number): Promise<{ ok: boolean }>;
     kill(sessionId: string): Promise<{ ok: boolean }>;
     openExternal(cwd?: string): Promise<{ ok: boolean; opener?: string; error?: string }>;
     onData(handler: (event: PtyDataEvent) => void): () => void;
     onExit(handler: (event: PtyExitEvent) => void): () => void;
+    onActivity(handler: (event: TerminalActivity) => void): () => void;
   };
   /** 长驻服务（runTerminal 起的 dev server 等）：主进程进程组跟踪，可关闭 */
   services: {
