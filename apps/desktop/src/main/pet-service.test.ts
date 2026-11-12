@@ -100,9 +100,10 @@ describe("pet IPC and persistence", () => {
     expect(windows).toHaveLength(2);
     expect(existing(windows[1]).restorePosition).toHaveBeenCalledWith(252, 352);
     expect((await readdir(join(dir, "pets/assets")))).toHaveLength(4);
-    await call("pet:set-status", mainEvent, "working");
-    expect(existing(windows[0]).update).toHaveBeenCalledWith(expect.any(String), "working", 160, "zen-4x4");
-    expect(existing(windows[1]).update).toHaveBeenCalledWith(expect.any(String), "working", 160, "zen-4x4");
+    const activity = { status: "working", runningSessions: ["会话 A", "会话 B"] };
+    await call("pet:set-status", mainEvent, activity);
+    expect(existing(windows[0]).update).toHaveBeenCalledWith(expect.any(String), activity, 160, "zen-4x4");
+    expect(existing(windows[1]).update).toHaveBeenCalledWith(expect.any(String), activity, 160, "zen-4x4");
     const hidden = await call("pet:set-visible", mainEvent, first.pets[0].id, false);
     expect(hidden.pets.map((pet: { enabled: boolean }) => pet.enabled)).toEqual([false, true]);
     expect(existing(windows[0]).hide).toHaveBeenCalled();
@@ -203,6 +204,23 @@ describe("pet IPC and persistence", () => {
     for (const value of ["sleep", null, 1]) await expect(call("pet:set-status", mainEvent, value)).rejects.toThrow();
     expect((await stored()).pets).toHaveLength(1);
     expect((await stored())).not.toHaveProperty("status");
+  });
+
+  it("rejects malformed activity without replacing the last valid running sessions", async () => {
+    await call("pet:generate", mainEvent, input);
+    const valid = { status: "working", runningSessions: ["会话一"] };
+    await call("pet:set-status", mainEvent, valid);
+    for (const value of [
+      "working", null, { status: "working" }, { status: "sleep", runningSessions: [] },
+      { status: "working", runningSessions: "会话" },
+      { status: "working", runningSessions: [""] },
+      { status: "working", runningSessions: ["A".repeat(81)] },
+      { status: "working", runningSessions: Array(21).fill("会话") },
+      { status: "working", runningSessions: ["带\n换行"] },
+      { ...valid, unexpected: "extra" },
+    ]) await expect(call("pet:set-status", mainEvent, value)).rejects.toThrow(/无效的宠物活动/);
+    await call("pet:set-size", mainEvent, (await call("pet:get", mainEvent)).pets[0].id, 180);
+    expect(existing(windows[0]).update).toHaveBeenLastCalledWith(expect.any(String), valid, 180, "zen-4x4");
   });
 
   it("rejects duplicate generation and preserves state on failure", async () => {

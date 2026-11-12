@@ -82,6 +82,11 @@ export interface PetGenerateInput {
 
 export type PetStatus = "idle" | "working" | "done" | "error";
 
+export interface PetActivity {
+  status: PetStatus;
+  runningSessions: string[];
+}
+
 export interface ModelCapabilities {
   reasoning?: boolean;
   vision?: boolean;

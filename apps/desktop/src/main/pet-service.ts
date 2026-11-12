@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage } from "electron";
 
-import type { PetCollectionState, PetGenerateInput, PetState, PetStatus } from "@zen/shared";
+import type { PetActivity, PetCollectionState, PetGenerateInput, PetState } from "@zen/shared";
 import { generatePetSprite } from "./pet-image";
 import { createPetWindow, isPetWindow, type PetWindow } from "./pet-window";
 
@@ -29,7 +29,7 @@ let pendingWrite: Promise<unknown> = Promise.resolve();
 const petWindows = new Map<string, PetWindow>();
 const positionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const hidingByService = new Set<string>();
-let status: PetStatus = "idle";
+let activity: PetActivity = { status: "idle", runningSessions: [] };
 let generating = false;
 let registered = false;
 let mainWindowGetter: (() => BrowserWindow | null) | null = null;
@@ -44,8 +44,18 @@ function assetPath(name: unknown): string | null {
 function validSize(size: unknown): size is number {
   return typeof size === "number" && Number.isInteger(size) && size >= 100 && size <= 300;
 }
-function validStatus(value: unknown): value is PetStatus {
-  return value === "idle" || value === "working" || value === "done" || value === "error";
+function validActivity(value: unknown): value is PetActivity {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes("status") || !keys.includes("runningSessions")
+    || Reflect.ownKeys(value).length !== 2) return false;
+  const { status, runningSessions } = value as Record<string, unknown>;
+  return (status === "idle" || status === "working" || status === "done" || status === "error")
+    && Array.isArray(runningSessions) && Object.getPrototypeOf(runningSessions) === Array.prototype
+    && runningSessions.length <= 20 && Reflect.ownKeys(runningSessions).length === runningSessions.length + 1
+    && runningSessions.every((name: unknown) => typeof name === "string" && name.trim().length > 0
+      && name.length <= 80 && !/[\x00-\x1f\x7f]/.test(name));
 }
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === "ENOENT";
@@ -187,7 +197,7 @@ async function syncWindows(state: StoredCollection, view: PetCollectionState): P
         owned.restorePosition(initial.x - index * 48, initial.y - index * 48);
       }
     }
-    window.update(publicPet.spriteDataUrl, status, pet.size, pet.spriteLayout);
+    window.update(publicPet.spriteDataUrl, activity, pet.size, pet.spriteLayout);
     window.show();
   }
 }
@@ -344,11 +354,11 @@ export function registerPetIpc(getMainWindow: () => BrowserWindow | null): void 
   });
   ipcMain.handle("pet:set-status", async (event, value: unknown): Promise<void> => {
     checkSender(event);
-    if (!validStatus(value)) throw new Error("无效的宠物状态");
-    status = value;
+    if (!validActivity(value)) throw new Error("无效的宠物活动");
+    activity = { status: value.status, runningSessions: [...value.runningSessions] };
     const state = await currentState();
     const view = await publicState(state);
-    for (const pet of view.pets) if (pet.enabled && pet.spriteDataUrl) petWindows.get(pet.id)?.update(pet.spriteDataUrl, status, pet.size, pet.spriteLayout);
+    for (const pet of view.pets) if (pet.enabled && pet.spriteDataUrl) petWindows.get(pet.id)?.update(pet.spriteDataUrl, activity, pet.size, pet.spriteLayout);
   });
 }
 
