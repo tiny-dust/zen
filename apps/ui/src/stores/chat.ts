@@ -48,6 +48,31 @@ import { i18n } from "@/locales";
 
 /** 后台会话消息缓冲：非响应式普通对象，切走的运行中会话事件持续归约进缓冲 */
 const backgroundTranscripts = new BackgroundTranscripts();
+const LAST_SESSION_MODEL_KEY = "zen.chat.lastSessionModel";
+
+type SessionModel = { providerId: string; modelId: string };
+
+function readLastSessionModel(): SessionModel | null {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(LAST_SESSION_MODEL_KEY) ?? "null");
+    if (value && typeof value === "object" && "providerId" in value && "modelId" in value &&
+      typeof value.providerId === "string" && value.providerId &&
+      typeof value.modelId === "string" && value.modelId) {
+      return { providerId: value.providerId, modelId: value.modelId };
+    }
+  } catch {
+    // 本地存储不可用时仍可沿用当前进程中的模型选择
+  }
+  return null;
+}
+
+function rememberSessionModel(model: SessionModel) {
+  try {
+    window.localStorage.setItem(LAST_SESSION_MODEL_KEY, JSON.stringify(model));
+  } catch {
+    // 本地存储不可用时不影响当前会话
+  }
+}
 
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<ChatMessage[]>([]);
@@ -65,8 +90,8 @@ export const useChatStore = defineStore("chat", () => {
   const sessionWorkspaceId = ref<string>(useWorkspaceStore().activeId || "common");
   const appInfo = ref<AppInfo | null>(null);
   const effort = ref<ReasoningEffort>("off");
-  /** 会话级模型覆盖；null = 跟随全局默认模型 */
-  const sessionModel = ref<{ providerId: string; modelId: string } | null>(null);
+  /** 会话级模型覆盖；启动时沿用上次选择，历史会话以自身记录为准 */
+  const sessionModel = ref<SessionModel | null>(readLastSessionModel());
   /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
   const sessionMode = ref<SessionMode>("interactive");
   /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
@@ -346,11 +371,12 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 当前会话生效的模型选择：会话覆盖优先，否则全局默认 */
   const effectiveSelection = computed(() => {
+    const modelsStore = useModelsStore();
     const override = sessionModel.value;
-    if (override?.providerId && override.modelId) {
+    if (override?.providerId && override.modelId &&
+      (!modelsStore.providers.length || modelsStore.findEnabledModel(override.providerId, override.modelId))) {
       return override;
     }
-    const modelsStore = useModelsStore();
     return {
       providerId: modelsStore.selection.providerId ?? "",
       modelId: modelsStore.selection.modelId ?? "",
@@ -1336,6 +1362,7 @@ export const useChatStore = defineStore("chat", () => {
     const workspaceStore = useWorkspaceStore();
     const target = workspaceId || sessionWorkspaceId.value;
     const zen = window.zen;
+    const inheritedModel = sessionModel.value ? { ...sessionModel.value } : null;
     // 正常新建时保留旧会话现场；删除后的重置不再保存已删除会话的草稿。
     if (persist) flushDraft();
     const seq = ++switchSeq;
@@ -1363,6 +1390,19 @@ export const useChatStore = defineStore("chat", () => {
     // 创建期间用户又点了其他会话：丢弃本次新建，避免覆盖新的选中态
     if (seq !== switchSeq) {
       return;
+    }
+    if (record && inheritedModel && zen) {
+      try {
+        await zen.session.setModel(record.id, inheritedModel.providerId, inheritedModel.modelId);
+        record = { ...record, modelProviderId: inheritedModel.providerId, modelId: inheritedModel.modelId };
+      } catch (error) {
+        lastError.value = i18n.global.t("app.chat.createSessionFailed", {
+          error: error instanceof Error ? error.message : i18n.global.t("app.chat.unknownError"),
+        });
+        statusText.value = lastError.value;
+        return;
+      }
+      if (seq !== switchSeq) return;
     }
     // 切换窗口内用户继续输入：保留刚输入的内容，不被新会话的清空覆盖
     const typedDuringSwitch = input.value !== inputAtSwitch;
@@ -1392,7 +1432,7 @@ export const useChatStore = defineStore("chat", () => {
     queue.queuedMessages.value = [];
     resetRunState();
     sessionName.value = i18n.global.t("app.chat.newSession");
-    sessionModel.value = null;
+    sessionModel.value = inheritedModel;
     sessionMode.value = "interactive";
     sessionGoal.value = null;
 
@@ -1489,6 +1529,7 @@ export const useChatStore = defineStore("chat", () => {
       found.session.modelProviderId && found.session.modelId
         ? { providerId: found.session.modelProviderId, modelId: found.session.modelId }
         : null;
+    if (sessionModel.value) rememberSessionModel(sessionModel.value);
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
     // 恢复该会话的目标（Goals 目标模式；未设定为 null）
@@ -1563,12 +1604,13 @@ export const useChatStore = defineStore("chat", () => {
 
   /** 设置当前会话的模型覆盖并持久化；modelId 为空表示清空（回落到全局默认） */
   async function setSessionModel(providerId: string | null, modelId: string | null) {
-    sessionModel.value =
-      providerId && modelId ? { providerId, modelId } : null;
+    const model = providerId && modelId ? { providerId, modelId } : null;
+    sessionModel.value = model;
     const zen = window.zen;
     if (zen && sessionPersisted.value) {
       await zen.session.setModel(sessionId.value, providerId, modelId);
     }
+    if (model) rememberSessionModel(model);
   }
 
   /** 会话模式切换（interactive/plan/autopilot）；未持久化会话先记内存，首发补建时落库 */

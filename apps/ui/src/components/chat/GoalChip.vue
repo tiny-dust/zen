@@ -14,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useChatStore } from "@/stores/chat";
 
@@ -41,7 +40,6 @@ const STATUS_COLOR: Record<SessionGoalStatus, string> = {
 const open = ref(false);
 const draftText = ref("");
 const draftBudget = ref("");
-const draftAutoContinue = ref(false);
 const draftReminderInterval = ref("off");
 
 watch(open, (value) => {
@@ -51,7 +49,6 @@ watch(open, (value) => {
   const goal = sessionGoal.value;
   draftText.value = goal?.text ?? "";
   draftBudget.value = goal?.tokenBudget ? String(goal.tokenBudget) : "";
-  draftAutoContinue.value = goal?.autoContinue === true;
   draftReminderInterval.value = String(goal?.reminderIntervalHours ?? "off");
 });
 
@@ -86,7 +83,7 @@ function save() {
     // 编辑保留原状态；首次设定默认 active
     status: sessionGoal.value?.status ?? "active",
     tokenBudget: parseBudget(),
-    ...(draftAutoContinue.value ? { autoContinue: true } : {}),
+    ...(sessionGoal.value?.autoContinue ? { autoContinue: true } : {}),
     ...(draftReminderInterval.value !== "off"
       ? { reminderIntervalHours: Number(draftReminderInterval.value) }
       : {}),
@@ -198,18 +195,6 @@ const statusDotColor = computed(() =>
         class="mt-1 h-7 px-2 text-[12px] tabular-nums"
         :placeholder="t('goal.budgetPlaceholder')"
       />
-
-      <div class="mt-2.5 flex items-start justify-between gap-3">
-        <div class="flex flex-col gap-0.5">
-          <label class="text-[11px] text-[var(--color-txt)]" for="goal-auto-continue">
-            {{ t("goal.autoContinue") }}
-          </label>
-          <p class="m-0 text-[11px] leading-relaxed text-[var(--color-mut)]">
-            {{ t("goal.autoContinueHint") }}
-          </p>
-        </div>
-        <Switch id="goal-auto-continue" v-model="draftAutoContinue" :aria-label="t('goal.autoContinue')" />
-      </div>
 
       <div class="mt-2.5">
         <label class="block text-[11px] text-[var(--color-txt)]" for="goal-reminder">

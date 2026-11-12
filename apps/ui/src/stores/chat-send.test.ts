@@ -36,6 +36,7 @@ function stubZen() {
       setDraft: vi.fn(),
       rename: vi.fn(),
       setWorkspace: vi.fn(),
+      setModel: vi.fn(),
     },
     workspace: {
       list: vi.fn().mockResolvedValue([
@@ -79,6 +80,51 @@ afterEach(() => {
   disposePinia(pinia);
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+describe("会话模型继承与恢复", () => {
+  it("新会话继承当前会话选中的模型，并写入自身的会话记录", async () => {
+    const chat = useChatStore();
+    await chat.setSessionModel("p2", "m2");
+
+    await chat.newTask();
+
+    expect(chat.effectiveSelection).toMatchObject({ providerId: "p2", modelId: "m2" });
+    expect(requiredZen().session.setModel).toHaveBeenCalledWith(chat.sessionId, "p2", "m2");
+  });
+
+  it("重启后新会话沿用上次选中的模型，而不是全局默认", async () => {
+    const chat = useChatStore();
+    await chat.setSessionModel("p2", "m2");
+    disposePinia(pinia);
+    pinia = createPinia();
+    setActivePinia(pinia);
+    useModelsStore().selection = { providerId: "p1", modelId: "m1" };
+
+    expect(useChatStore().effectiveSelection).toMatchObject({ providerId: "p2", modelId: "m2" });
+  });
+
+  it("打开已有会话时恢复该会话自己的模型，不沿用上一会话", async () => {
+    const chat = useChatStore();
+    await chat.setSessionModel("p2", "m2");
+    const previous: SessionRecord = {
+      id: "older-session",
+      title: "旧会话",
+      workspaceId: null,
+      draft: "",
+      pinned: false,
+      archived: false,
+      modelProviderId: "p3",
+      modelId: "m3",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    vi.mocked(requiredZen().session.open).mockResolvedValueOnce({ session: previous, messages: [] });
+
+    await chat.loadSession(previous);
+
+    expect(chat.effectiveSelection).toMatchObject({ providerId: "p3", modelId: "m3" });
+  });
 });
 
 describe("send 运行启动失败复位", () => {
