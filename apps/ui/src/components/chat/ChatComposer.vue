@@ -42,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { useComposerFiles } from "@/composables/useComposerFiles";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useMediaQuery } from "@/composables/useMediaQuery";
+import { useOverlayGeometry } from "@/composables/useOverlayGeometry";
 import { useVoiceInput } from "@/composables/useSystemAbilities";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -82,6 +83,8 @@ const selectedReasoningEfforts = computed<ReasoningEffort[]>(() => {
 });
 const viewportCompact = useMediaQuery("(max-width: 1024px)");
 const advancedOpen = ref(false);
+const triggerListEl = ref<HTMLElement | null>(null);
+useOverlayGeometry(triggerListEl);
 /** 底栏实际宽度：比视口更准——侧栏/右栏占用后 composer 变窄也要收成 icon */
 const bottomBarEl = ref<HTMLElement | null>(null);
 const bottomBarWidth = ref(0);
@@ -569,8 +572,10 @@ function removeAttachment(id: string) {
 
       <div
         v-if="triggers.open.value"
+        ref="triggerListEl"
         class="absolute inset-x-0 bottom-[calc(100%+6px)] z-20 max-h-[260px] overflow-auto rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] p-1.5 shadow-[var(--shadow-menu)]"
         role="listbox"
+        data-browser-overlay-geometry
         :aria-label="t('chat.triggerSuggestions')"
       >
         <Button

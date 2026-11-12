@@ -44,7 +44,7 @@ export function dedupeFileNames(files: File[]): File[] {
 
 /**
  * Composer 的文件进入通道：文件选择器、粘贴、拖放三条路径共用 addAttachment，
- * 并管理附件图像 objectURL 的生命周期（附件移除或组件卸载时 revoke）。
+ * 并管理附件图像预览（File 使用 objectURL，路径型图片使用 data URL）。
  * 拖放/粘贴/选择处理函数从 ChatComposer 拆出，编辑器交互经 options 注入。
  */
 export function useComposerFiles(options: ComposerFilesOptions) {
@@ -53,23 +53,76 @@ export function useComposerFiles(options: ComposerFilesOptions) {
 
   const dragging = ref(false);
   const fileInputEl = ref<HTMLInputElement | null>(null);
-  /** 附件图像的 objectURL：chip 预览用，随附件移除/组件卸载 revoke */
+  /** chip 预览：File 的 objectURL 或路径型图片的 data URL */
   const imageUrls = ref(new Map<string, string>());
+  const objectUrls = new Map<string, string>();
+  const pathPreviews = new Map<string, string>();
+  const pendingPreviews = new Map<string, { path: string }>();
+  let disposed = false;
 
-  watch(() => attachments.value.map((att) => att.id), (ids) => {
-    for (const [id, url] of imageUrls.value) {
-      if (!ids.includes(id)) {
-        URL.revokeObjectURL(url);
-        imageUrls.value.delete(id);
+  async function loadPathPreview(att: { id: string; path: string }) {
+    const zen = window.zen;
+    if (!zen?.workspace?.previewFile) return;
+    const request = { path: att.path };
+    pendingPreviews.set(att.id, request);
+    try {
+      const preview = await zen.workspace.previewFile(undefined, att.path);
+      const current = attachments.value.find((item) => item.id === att.id);
+      if (
+        preview?.kind !== "image" || disposed || pendingPreviews.get(att.id) !== request ||
+        imageUrls.value.has(att.id) || current?.path !== att.path || !current.isImage
+      ) {
+        return;
       }
+      imageUrls.value.set(att.id, preview.dataUrl);
+      pathPreviews.set(att.id, att.path);
+      current.size = preview.size;
+    } catch {
+      // 文件不可预览时仍保留附件 chip 的文件图标
+    } finally {
+      if (pendingPreviews.get(att.id) === request) pendingPreviews.delete(att.id);
     }
-  });
+  }
+
+  watch(
+    () => attachments.value.map((att) => ({ id: att.id, path: att.path, isImage: att.isImage })),
+    (items) => {
+      const ids = new Set(items.map((item) => item.id));
+      for (const [id, url] of objectUrls) {
+        if (!ids.has(id)) {
+          URL.revokeObjectURL(url);
+          objectUrls.delete(id);
+        }
+      }
+      for (const [id, path] of pathPreviews) {
+        if (!items.some((item) => item.id === id && item.path === path && item.isImage)) {
+          pathPreviews.delete(id);
+          imageUrls.value.delete(id);
+        }
+      }
+      for (const id of imageUrls.value.keys()) {
+        if (!ids.has(id)) imageUrls.value.delete(id);
+      }
+      for (const item of items) {
+        if (
+          item.isImage && item.path && !imageUrls.value.has(item.id) &&
+          pendingPreviews.get(item.id)?.path !== item.path
+        ) {
+          void loadPathPreview(item);
+        }
+      }
+    },
+    { immediate: true },
+  );
 
   onBeforeUnmount(() => {
+    disposed = true;
     endFileDialog();
-    for (const url of imageUrls.value.values()) {
+    for (const url of objectUrls.values()) {
       URL.revokeObjectURL(url);
     }
+    objectUrls.clear();
+    imageUrls.value.clear();
   });
 
   /** 文件弹窗期间的浏览器视图恢复函数（选完或取消后恢复显示） */
@@ -104,7 +157,9 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     chatStore.addAttachment(file, path);
     const attachment = attachments.value.at(-1);
     if (attachment?.isImage) {
-      imageUrls.value.set(attachment.id, URL.createObjectURL(file));
+      const url = URL.createObjectURL(file);
+      objectUrls.set(attachment.id, url);
+      imageUrls.value.set(attachment.id, url);
     }
   }
 

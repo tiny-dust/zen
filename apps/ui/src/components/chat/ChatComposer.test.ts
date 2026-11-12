@@ -7,6 +7,9 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
+import { hasOpenOverlayLayer } from "@/composables/useBrowserOverlayAutoGuard";
+import { useBrowserStore } from "@/stores/browser";
+import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 
 import type { ProviderSummary } from "@zen/shared";
@@ -37,6 +40,7 @@ function stubZen() {
       setWorkspace: vi.fn(),
     },
     workspace: {
+      previewFile: vi.fn().mockResolvedValue({ kind: "image", dataUrl: "data:image/png;base64,AA==", size: 512 }),
       list: vi.fn().mockResolvedValue([
         {
           id: "common",
@@ -54,6 +58,10 @@ function stubZen() {
       status: vi.fn().mockResolvedValue(null),
     },
     voice: { probe: vi.fn().mockResolvedValue({ supported: false }) },
+    browser: {
+      screenshot: vi.fn().mockResolvedValue({ ok: true, path: "/cache/browser-shot.png" }),
+      setBounds: vi.fn().mockResolvedValue(undefined),
+    },
   });
 }
 
@@ -184,6 +192,27 @@ describe("ChatComposer 发送交互", () => {
     expect(agentRun.mock.calls[0][0]).toMatchObject({ userMessage: "你好" });
   });
 
+  it("浏览器截图在输入区显示图片缩略图，并作为图片附件发送", async () => {
+    const wrapper = composer();
+    const browser = useBrowserStore();
+    const chat = useChatStore();
+    browser.showHome = false;
+
+    await browser.takeScreenshot();
+    await vi.waitFor(() => {
+      expect(wrapper.get('img[alt="browser-shot.png"]').attributes("src")).toBe("data:image/png;base64,AA==");
+    });
+    expect(wrapper.get(".composer-editor").text()).not.toContain("/cache/browser-shot.png");
+    expect(chat.attachments).toEqual([
+      expect.objectContaining({ name: "browser-shot.png", path: "/cache/browser-shot.png", isImage: true }),
+    ]);
+
+    await chat.send();
+    expect(agentRun).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [{ name: "browser-shot.png", path: "/cache/browser-shot.png" }],
+    }));
+  });
+
   it("空输入时发送按钮禁用，Enter 不发消息", async () => {
     const wrapper = composer();
     await wrapper.vm.$nextTick();
@@ -196,5 +225,31 @@ describe("ChatComposer 发送交互", () => {
 
     await wrapper.get(".composer-editor").trigger("keydown", { key: "Enter" });
     expect(agentRun).not.toHaveBeenCalled();
+  });
+
+  it.each(["/", "#"])("输入 %s 唤起建议列表时，仅与浏览器相交才隐藏视图", async (trigger) => {
+    const wrapper = composer();
+    const browser = useBrowserStore();
+    browser.viewRect = { x: 800, y: 48, width: 400, height: 600 };
+
+    type(wrapper, trigger);
+    await wrapper.vm.$nextTick();
+    const list = wrapper.get('[role="listbox"][data-browser-overlay-geometry]');
+    expect(hasOpenOverlayLayer()).toBe(false);
+    list.element.getBoundingClientRect = () => ({
+      left: 300, right: 700, top: 300, bottom: 420, width: 400, height: 120,
+    }) as DOMRect;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    expect(browser.overlayDepth).toBe(0);
+
+    list.element.getBoundingClientRect = () => ({
+      left: 700, right: 900, top: 300, bottom: 420, width: 200, height: 120,
+    }) as DOMRect;
+    window.dispatchEvent(new Event("resize"));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    expect(browser.overlayDepth).toBe(1);
+
+    await wrapper.get(".composer-editor").trigger("keydown", { key: "Escape" });
+    expect(browser.overlayDepth).toBe(0);
   });
 });
