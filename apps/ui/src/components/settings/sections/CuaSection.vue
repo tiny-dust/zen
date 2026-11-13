@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MonitorSmartphone, TriangleAlert } from "@lucide/vue";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 
@@ -14,16 +14,23 @@ const agentStore = useAgentStore();
 const { settings } = storeToRefs(agentStore);
 
 const isMac = computed(() => navigator.userAgent.includes("Mac"));
+const openError = ref("");
 
 function toggle() {
   void agentStore.updateSettings({ cuaEnabled: !settings.value.cuaEnabled });
 }
 
 /** macOS 辅助功能授权面板深链（TCC Privacy_Accessibility） */
-function openAccessibilitySettings() {
-  void window.zen?.app.openExternal(
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-  );
+async function openAccessibilitySettings() {
+  openError.value = "";
+  try {
+    const result = await window.zen?.app.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    );
+    if (!result?.ok) openError.value = result?.error || t("settings.agent.cuaOpenFailed");
+  } catch {
+    openError.value = t("settings.agent.cuaOpenFailed");
+  }
 }
 </script>
 
@@ -66,5 +73,6 @@ function openAccessibilitySettings() {
     >
       {{ t("settings.agent.cuaOpenAccessibility") }}
     </Button>
+    <p v-if="openError" role="alert" class="m-0 text-[11px] text-[var(--color-warn)]">{{ openError }}</p>
   </section>
 </template>
