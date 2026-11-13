@@ -366,6 +366,17 @@ export function registerUserIpc(): void {
       const result = await service.open(target);
       return { ok: result.ok, error: result.error };
     }
+    if (
+      process.platform === "darwin" &&
+      target === "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    ) {
+      try {
+        await shell.openExternal(target);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
     if (/^(mailto:|tel:)/i.test(target)) {
       await shell.openExternal(target);
       return { ok: true };

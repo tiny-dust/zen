@@ -425,6 +425,14 @@ export interface ZenApi {
   sync: {
     upload(): Promise<SyncResult>;
     download(): Promise<SyncResult>;
+    exportFile(password: string): Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+    previewImport(password: string): Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      error?: string;
+      preview?: { sections: Array<{ id: string; label: string; count: number }> };
+    }>;
+    applyImport(sectionIds: string[]): Promise<{ ok: boolean; error?: string }>;
   };
   workspace: {
     listFiles(cwd?: string): Promise<WorkspaceFile[]>;

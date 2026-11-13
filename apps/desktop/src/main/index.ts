@@ -516,7 +516,7 @@ app.whenReady().then(() => {
   registerSkillsMarketIpc();
   // 异常中心：主/渲染层异常统一收集 + errors:* IPC（渲染层上报与异常中心面板）
   registerErrorReportsIpc(broadcast);
-  registerSyncIpc();
+  registerSyncIpc(() => mainWindow);
   registerUpdaterIpc();
   registerBrowserIpc(broadcast);
   registerTerminalIpc(broadcast);

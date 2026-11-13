@@ -7,10 +7,13 @@ import { useI18n } from "vue-i18n";
 import zenAvatar from "@/assets/agent-logos/zen.png";
 import FeishuLogo from "@/components/brand/FeishuLogo.vue";
 import GithubMark from "@/components/brand/GithubMark.vue";
+import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import type { ZenApi } from "@/types/zen-api";
 import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
@@ -44,6 +47,87 @@ const larkIdentity = computed(() => {
 
 /** 左下角展示身份偏好（auto = GitHub 优先） */
 const displayPref = computed(() => settingsStore.settings.displayAccount ?? "auto");
+
+type ImportSections = NonNullable<Awaited<ReturnType<ZenApi["sync"]["previewImport"]>>["preview"]>;
+const filePassword = ref("");
+const fileBusy = ref(false);
+const fileError = ref("");
+const fileNotice = ref("");
+const importSections = ref<ImportSections["sections"] | null>(null);
+const selectedSections = ref<string[]>([]);
+const importConfirmOpen = ref(false);
+
+function clearImportPreview() {
+  importSections.value = null;
+  selectedSections.value = [];
+  importConfirmOpen.value = false;
+}
+
+async function exportLocalFile() {
+  if (!filePassword.value || fileBusy.value) return;
+  fileBusy.value = true;
+  fileError.value = "";
+  fileNotice.value = "";
+  try {
+    const result = await window.zen?.sync?.exportFile(filePassword.value);
+    if (!result) fileError.value = t("settings.profile.fileUnavailable");
+    else if (result.ok) fileNotice.value = t("settings.profile.exportDone");
+    else if (!result.canceled) fileError.value = result.error || t("settings.profile.exportFailed");
+  } catch (error) {
+    fileError.value = error instanceof Error ? error.message : t("settings.profile.exportFailed");
+  } finally {
+    filePassword.value = "";
+    fileBusy.value = false;
+  }
+}
+
+async function previewLocalFile() {
+  if (!filePassword.value || fileBusy.value) return;
+  clearImportPreview();
+  fileBusy.value = true;
+  fileError.value = "";
+  fileNotice.value = "";
+  try {
+    const result = await window.zen?.sync?.previewImport(filePassword.value);
+    if (!result) fileError.value = t("settings.profile.fileUnavailable");
+    else if (result.ok && result.preview) {
+      importSections.value = result.preview.sections;
+    } else if (!result.canceled) {
+      fileError.value = result.error || t("settings.profile.previewFailed");
+    }
+  } catch (error) {
+    fileError.value = error instanceof Error ? error.message : t("settings.profile.previewFailed");
+  } finally {
+    filePassword.value = "";
+    fileBusy.value = false;
+  }
+}
+
+function toggleImportSection(id: string, checked: boolean | "indeterminate") {
+  selectedSections.value = checked === true
+    ? [...selectedSections.value, id]
+    : selectedSections.value.filter((selected) => selected !== id);
+}
+
+async function applyLocalFile() {
+  if (fileBusy.value || !importSections.value || !selectedSections.value.length) return;
+  fileBusy.value = true;
+  fileError.value = "";
+  fileNotice.value = "";
+  try {
+    // 跨 contextBridge 仅传普通字符串数组，不传 Vue 响应式 Proxy。
+    const result = await window.zen?.sync?.applyImport([...selectedSections.value]);
+    if (!result) fileError.value = t("settings.profile.fileUnavailable");
+    else if (result.ok) {
+      clearImportPreview();
+      fileNotice.value = t("settings.profile.importDone");
+    } else fileError.value = result.error || t("settings.profile.importFailed");
+  } catch (error) {
+    fileError.value = error instanceof Error ? error.message : t("settings.profile.importFailed");
+  } finally {
+    fileBusy.value = false;
+  }
+}
 
 let disposeLarkLogin: (() => void) | null = null;
 onMounted(() => {
@@ -458,5 +542,47 @@ function resetLark() {
         </div>
       </CardContent>
     </Card>
+
+    <Card size="sm" class="settings-card mt-3">
+      <CardContent class="flex flex-col gap-2.5 p-4">
+        <div class="text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.profile.fileTitle") }}</div>
+        <p class="m-0 text-[11px] leading-snug text-[var(--color-mut)]">{{ t("settings.profile.fileDesc") }}</p>
+        <label class="flex flex-wrap items-center gap-2 text-[12px] text-[var(--color-txt)]">
+          {{ t("settings.profile.filePassword") }}
+          <Input v-model="filePassword" type="password" autocomplete="new-password" class="h-8 min-w-44 flex-1" :disabled="fileBusy" :placeholder="t('settings.profile.filePasswordHint')" />
+        </label>
+        <div class="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" :disabled="fileBusy || !filePassword" @click="exportLocalFile">
+            {{ t("settings.profile.exportFile") }}
+          </Button>
+          <Button variant="outline" size="sm" :disabled="fileBusy || !filePassword" @click="previewLocalFile">
+            {{ t("settings.profile.previewImport") }}
+          </Button>
+        </div>
+        <p v-if="fileBusy" role="status" class="m-0 text-[11px] text-[var(--color-mut)]">{{ t("settings.profile.fileWorking") }}</p>
+        <p v-if="fileError" role="alert" class="m-0 text-[11px] text-[var(--color-danger-fg)]">{{ fileError }}</p>
+        <p v-if="fileNotice" role="status" class="m-0 text-[11px] text-[var(--color-ok)]">{{ fileNotice }}</p>
+        <div v-if="importSections" class="flex flex-col gap-2 border-t border-[var(--color-line-soft)] pt-2">
+          <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t("settings.profile.importSelectionHint") }}</p>
+          <p v-if="!importSections.length" class="m-0 text-[11px] text-[var(--color-mut)]">{{ t("settings.profile.importEmpty") }}</p>
+          <label v-for="section in importSections" :key="section.id" class="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--color-txt)]">
+            <Checkbox :model-value="selectedSections.includes(section.id)" :disabled="fileBusy" :aria-label="section.label" @update:model-value="toggleImportSection(section.id, $event)" />
+            <span>{{ section.label }}</span>
+            <span class="text-[11px] text-[var(--color-mut)]">{{ t("settings.profile.sectionCount", { count: section.count }) }}</span>
+          </label>
+          <Button variant="destructive" size="sm" class="w-fit" :disabled="fileBusy || !selectedSections.length" @click="importConfirmOpen = true">
+            {{ t("settings.profile.applyImport") }}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+    <ConfirmDialog
+      v-model:open="importConfirmOpen"
+      :title="t('settings.profile.importConfirmTitle')"
+      :description="t('settings.profile.importConfirmDesc', { count: selectedSections.length })"
+      :confirm-label="t('settings.profile.applyImport')"
+      :pending="fileBusy"
+      @confirm="applyLocalFile"
+    />
   </section>
 </template>

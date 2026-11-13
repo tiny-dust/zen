@@ -1,5 +1,8 @@
 import { BrowserWindow, ipcMain } from "electron";
 
+import { exportConfigFile, importConfigFile, previewConfigFile, type PortabilityGroup } from "./config-portability";
+import { showOpenDialogSafe, showSaveDialogSafe } from "./dialog-safe";
+
 import {
   addModel,
   addProvider,
@@ -225,7 +228,70 @@ async function withToken(repoName: string): Promise<{ token: string; repo: strin
   return { token, repo };
 }
 
-export function registerSyncIpc(): void {
+let pendingImport: { path: string; password: string; expiresAt: number } | null = null;
+const PORTABILITY_GROUPS: PortabilityGroup[] = ["models", "agent", "browser", "mcp", "ui"];
+
+export function registerSyncIpc(getMainWindow: () => BrowserWindow | null): void {
+  const parentFor = (event: Electron.IpcMainInvokeEvent): BrowserWindow => {
+    const parent = getMainWindow();
+    if (!parent || parent.isDestroyed() || event.sender !== parent.webContents) {
+      throw new Error("未经授权的配置请求");
+    }
+    return parent;
+  };
+  const failure = (error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) });
+
+  ipcMain.handle("sync:export-file", async (event, password: unknown) => {
+    try {
+      const parent = parentFor(event);
+      if (typeof password !== "string" || password.length < 12) throw new Error("导出密码至少 12 个字符");
+      const selected = await showSaveDialogSafe(parent, {
+        title: "导出配置", defaultPath: "zen-config.zenbackup",
+        filters: [{ name: "Zen 配置备份", extensions: ["zenbackup"] }],
+      });
+      if (selected.canceled || !selected.filePath) return { ok: false, canceled: true };
+      await exportConfigFile(selected.filePath, password);
+      return { ok: true };
+    } catch (error) { return failure(error); }
+  });
+
+  ipcMain.handle("sync:preview-import", async (event, password: unknown) => {
+    pendingImport = null;
+    try {
+      const parent = parentFor(event);
+      if (typeof password !== "string" || !password) throw new Error("请输入导入密码");
+      const selected = await showOpenDialogSafe(parent, {
+        title: "导入配置", properties: ["openFile"],
+        filters: [{ name: "Zen 配置备份", extensions: ["zenbackup"] }],
+      });
+      if (selected.canceled || !selected.filePaths[0]) return { ok: false, canceled: true };
+      const path = selected.filePaths[0];
+      const preview = await previewConfigFile(path, password);
+      pendingImport = { path, password, expiresAt: Date.now() + 10 * 60_000 };
+      return {
+        ok: true,
+        preview: { sections: PORTABILITY_GROUPS.map((id) => ({ id, label: ({
+          models: "模型", agent: "Agent 设置", browser: "浏览器设置", mcp: "MCP 服务", ui: "界面设置",
+        })[id], count: preview.groups[id].incoming, existing: preview.groups[id].existing })) },
+      };
+    } catch (error) { return failure(error); }
+  });
+
+  ipcMain.handle("sync:apply-import", async (event, sectionIds: unknown) => {
+    try {
+      parentFor(event);
+      if (!pendingImport || pendingImport.expiresAt < Date.now()) throw new Error("导入预览已过期，请重新选择文件");
+      if (!Array.isArray(sectionIds) || !sectionIds.length || sectionIds.some((id) => !PORTABILITY_GROUPS.includes(id))) {
+        throw new Error("请选择有效的导入分类");
+      }
+      const { path, password } = pendingImport;
+      await importConfigFile(path, password, { groups: sectionIds, overwrite: true });
+      pendingImport = null;
+      broadcastAgentSettings(await loadAgentSettings());
+      return { ok: true };
+    } catch (error) { return failure(error); }
+  });
+
   ipcMain.handle("sync:upload", async (): Promise<SyncResult> => {
     try {
       const settings = await loadAgentSettings();
