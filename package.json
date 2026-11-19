@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Zen — 极致精简，专注编程的 AI Agent 桌面端",
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@12.21.0",
   "engines": {
     "node": ">=22.12"
   },
