@@ -92,6 +92,8 @@ export const useChatStore = defineStore("chat", () => {
   const effort = ref<ReasoningEffort>("off");
   /** 会话级模型覆盖；启动时沿用上次选择，历史会话以自身记录为准 */
   const sessionModel = ref<SessionModel | null>(readLastSessionModel());
+  const planModel = ref<SessionModel | null>(null);
+  const actModel = ref<SessionModel | null>(null);
   /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
   const sessionMode = ref<SessionMode>("interactive");
   /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
@@ -383,9 +385,15 @@ export const useChatStore = defineStore("chat", () => {
     };
   });
 
+  const activeModelSelection = computed(() => {
+    const override = sessionMode.value === "plan" ? planModel.value : actModel.value;
+    return override && useModelsStore().findEnabledModel(override.providerId, override.modelId)
+      ? override : effectiveSelection.value;
+  });
+
   /** 当前会话生效的模型对象（含能力），供上下文窗口 / 推理档位读取 */
   const effectiveModel = computed(() => {
-    const sel = effectiveSelection.value;
+    const sel = activeModelSelection.value;
     return useModelsStore().findEnabledModel(sel.providerId, sel.modelId) ?? null;
   });
 
@@ -1183,8 +1191,8 @@ export const useChatStore = defineStore("chat", () => {
         userMessage: agentText,
         workspaceRoot: workspaceRoot.value,
         workspaceId: sessionWorkspaceId.value,
-        providerId: effectiveSelection.value.providerId || undefined,
-        model: effectiveSelection.value.modelId || undefined,
+        providerId: activeModelSelection.value.providerId || undefined,
+        model: activeModelSelection.value.modelId || undefined,
         reasoningEffort: effort.value,
         attachments: attachmentRefs.length ? attachmentRefs : undefined,
         history: compression.turns,
@@ -1322,6 +1330,8 @@ export const useChatStore = defineStore("chat", () => {
           model.modelId,
         );
       }
+      if (planModel.value) await zen.session.setPhaseModel(id, "plan", planModel.value.providerId, planModel.value.modelId);
+      if (actModel.value) await zen.session.setPhaseModel(id, "act", actModel.value.providerId, actModel.value.modelId);
       // 未持久化阶段切过的会话模式同样补落库（interactive 是缺省，无需写）
       if (mode !== "interactive") {
         await zen.session.setMode(id, mode);
@@ -1433,6 +1443,8 @@ export const useChatStore = defineStore("chat", () => {
     resetRunState();
     sessionName.value = i18n.global.t("app.chat.newSession");
     sessionModel.value = inheritedModel;
+    planModel.value = null;
+    actModel.value = null;
     sessionMode.value = "interactive";
     sessionGoal.value = null;
 
@@ -1530,6 +1542,10 @@ export const useChatStore = defineStore("chat", () => {
         ? { providerId: found.session.modelProviderId, modelId: found.session.modelId }
         : null;
     if (sessionModel.value) rememberSessionModel(sessionModel.value);
+    planModel.value = found.session.planModelProviderId && found.session.planModelId
+      ? { providerId: found.session.planModelProviderId, modelId: found.session.planModelId } : null;
+    actModel.value = found.session.actModelProviderId && found.session.actModelId
+      ? { providerId: found.session.actModelProviderId, modelId: found.session.actModelId } : null;
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
     // 恢复该会话的目标（Goals 目标模式；未设定为 null）
@@ -1611,6 +1627,15 @@ export const useChatStore = defineStore("chat", () => {
       await zen.session.setModel(sessionId.value, providerId, modelId);
     }
     if (model) rememberSessionModel(model);
+  }
+
+  async function setPhaseModel(phase: "plan" | "act", providerId: string | null, modelId: string | null) {
+    const model = providerId && modelId ? { providerId, modelId } : null;
+    if (window.zen && sessionPersisted.value) {
+      await window.zen.session.setPhaseModel(sessionId.value, phase, providerId, modelId);
+    }
+    if (phase === "plan") planModel.value = model;
+    else actModel.value = model;
   }
 
   /** 会话模式切换（interactive/plan/autopilot）；未持久化会话先记内存，首发补建时落库 */
@@ -1714,12 +1739,16 @@ export const useChatStore = defineStore("chat", () => {
     appInfo,
     effort,
     sessionModel,
+    planModel,
+    actModel,
+    activeModelSelection,
     sessionMode,
     sessionGoal,
     goalBudgetLabel,
     effectiveSelection,
     effectiveModel,
     setSessionModel,
+    setPhaseModel,
     setSessionMode,
     setSessionGoal,
     updateGoalStatus,

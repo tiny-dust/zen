@@ -177,7 +177,62 @@ function migrate(conn: Database.Database) {
       instructions TEXT,
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS workflow_definitions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      current_version INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      owner_session_id TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS workflow_versions (
+      workflow_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (workflow_id, version),
+      FOREIGN KEY (workflow_id) REFERENCES workflow_definitions(id)
+    );
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (workflow_id, version) REFERENCES workflow_versions(workflow_id, version),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
+    );
+    CREATE TABLE IF NOT EXISTS workflow_journal (
+      run_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      step INTEGER NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('before', 'after', 'transition')),
+      key TEXT,
+      event_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (run_id, seq),
+      UNIQUE (run_id, step, type),
+      UNIQUE (key, type),
+      FOREIGN KEY (run_id) REFERENCES workflow_runs(id)
+    );
+    CREATE TABLE IF NOT EXISTS workflow_outputs (
+      key TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      output TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES workflow_runs(id)
+    );
   `);
+
+  const workflowCols = conn.prepare(`PRAGMA table_info(workflow_definitions)`).all() as Array<{ name: string }>;
+  if (!workflowCols.some((col) => col.name === "owner_session_id")) {
+    // Legacy definitions have no proven owner: leave them inaccessible rather than exposing them to another user.
+    conn.exec(`ALTER TABLE workflow_definitions ADD COLUMN owner_session_id TEXT NOT NULL DEFAULT ''`);
+  }
 
   // 早期本机用量只有供应商维度；旧数据留在空账号键，OAuth 账号不会误读它。
   const usageCols = conn.prepare(`PRAGMA table_info(provider_model_usage)`).all() as Array<{ name: string }>;
@@ -288,6 +343,12 @@ function migrate(conn: Database.Database) {
     }
     if (!sessionCols.some((col) => col.name === "model_id")) {
       conn.exec(`ALTER TABLE chat_sessions ADD COLUMN model_id TEXT`);
+    }
+    // Plan / Act 独立模型；旧会话留空即沿用现有自动路由/默认模型
+    for (const column of ["plan_model_provider_id", "plan_model_id", "act_model_provider_id", "act_model_id"]) {
+      if (!sessionCols.some((col) => col.name === column)) {
+        conn.exec(`ALTER TABLE chat_sessions ADD COLUMN ${column} TEXT`);
+      }
     }
     // 会话模式（interactive/plan/autopilot）：缺省 interactive，旧数据向后兼容
     if (!sessionCols.some((col) => col.name === "mode")) {

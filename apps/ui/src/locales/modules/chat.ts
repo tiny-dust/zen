@@ -179,6 +179,8 @@ export default {
     /* 模型选择 */
     model: {
       noModel: "未配置模型",
+      inherit: "跟随会话模型",
+      inheritHint: "不单独指定此阶段的模型",
       label: "模型：{name}",
       select: "选择模型",
       tabModel: "模型",
@@ -492,6 +494,8 @@ export default {
     /* Model picker */
     model: {
       noModel: "No model configured",
+      inherit: "Use session model",
+      inheritHint: "No separate model for this phase",
       label: "Model: {name}",
       select: "Select model",
       tabModel: "Models",

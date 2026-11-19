@@ -14,6 +14,8 @@ import { useModelsStore } from "@/stores/models";
 const props = defineProps<{
   /** 小屏底栏：只显示厂商 icon，完整名称进 title */
   compact?: boolean;
+  /** 不传时选择会话模型；阶段选择只覆盖当前会话的对应阶段。 */
+  phase?: "plan" | "act";
 }>();
 
 const { t } = useI18n();
@@ -21,7 +23,12 @@ const chatStore = useChatStore();
 const modelsStore = useModelsStore();
 const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
 // 会话级模型覆盖优先：切换模型只影响当前会话
-const { effectiveSelection, effectiveModel } = storeToRefs(chatStore);
+const { effectiveSelection, planModel, actModel } = storeToRefs(chatStore);
+const phaseOverride = computed(() => props.phase === "plan" ? planModel.value : actModel.value);
+const displayedSelection = computed(() => props.phase ? phaseOverride.value ?? effectiveSelection.value : effectiveSelection.value);
+const displayedModel = computed(() =>
+  modelsStore.findEnabledModel(displayedSelection.value.providerId, displayedSelection.value.modelId),
+);
 
 const open = ref(false);
 const query = ref("");
@@ -77,10 +84,8 @@ const filtered = computed(() => {
 });
 
 const selectedKey = computed(() => {
-  if (!effectiveSelection.value.providerId || !effectiveSelection.value.modelId) {
-    return "";
-  }
-  return `${effectiveSelection.value.providerId}:${effectiveSelection.value.modelId}`;
+  const selected = displayedSelection.value;
+  return selected.providerId && selected.modelId ? `${selected.providerId}:${selected.modelId}` : "";
 });
 
 function itemKey(providerId: string, modelId: string) {
@@ -89,9 +94,7 @@ function itemKey(providerId: string, modelId: string) {
 
 function isSelected(providerId: string, modelId: string) {
   // 自动路由模式下唯一选中态挂在「自动」项上（zen-001：同屏不出现两个勾）
-  if (autoRoute.value) {
-    return false;
-  }
+  if (props.phase ? !phaseOverride.value : autoRoute.value) return false;
   return selectedKey.value === itemKey(providerId, modelId);
 }
 
@@ -109,11 +112,9 @@ const routingReason = computed(() => {
 
 /** 触发按钮 title：自动模式下展示「自动模式 + 当前生效模型 + 上次理由」 */
 const triggerTitle = computed(() => {
-  const modelName =
-    effectiveModel.value?.model.name || effectiveModel.value?.provider.name || t("chat.model.noModel");
-  if (!autoRoute.value) {
-    return modelName;
-  }
+  const modelName = displayedModel.value?.model.name || displayedModel.value?.provider.name || t("chat.model.noModel");
+  if (props.phase) return `${props.phase === "plan" ? "Plan" : "Act"}: ${modelName}`;
+  if (!autoRoute.value) return modelName;
   return t("model-routing.modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("model-routing.modelRouting.autoSubtitle") });
 });
 
@@ -125,10 +126,12 @@ function railClass(id: string | "recent") {
 }
 
 async function pick(providerId: string, modelId: string) {
-  // 手动选具体模型即退出自动路由
-  modelsStore.setAutoRoute(false);
-  // 会话级覆盖：只改当前会话，不影响其它会话的模型选择
-  await chatStore.setSessionModel(providerId, modelId);
+  if (props.phase) {
+    await chatStore.setPhaseModel(props.phase, providerId, modelId);
+  } else {
+    modelsStore.setAutoRoute(false);
+    await chatStore.setSessionModel(providerId, modelId);
+  }
   const key = itemKey(providerId, modelId);
   recentKeys.value = [key, ...recentKeys.value.filter((k) => k !== key)].slice(0, 8);
   open.value = false;
@@ -136,8 +139,12 @@ async function pick(providerId: string, modelId: string) {
 
 /** 选中「自动（推荐）」：清掉会话级覆盖，每次发送前由 chat store 按请求特征路由 */
 async function pickAuto() {
-  modelsStore.setAutoRoute(true);
-  await chatStore.setSessionModel(null, null);
+  if (props.phase) {
+    await chatStore.setPhaseModel(props.phase, null, null);
+  } else {
+    modelsStore.setAutoRoute(true);
+    await chatStore.setSessionModel(null, null);
+  }
   open.value = false;
 }
 
@@ -150,8 +157,8 @@ function toggleOpen() {
   open.value = !open.value;
   if (open.value) {
     void modelsStore.refresh();
-    if (!activeProviderId.value && effectiveSelection.value.providerId) {
-      activeProviderId.value = effectiveSelection.value.providerId;
+    if (!activeProviderId.value && displayedSelection.value.providerId) {
+      activeProviderId.value = displayedSelection.value.providerId;
     }
     void nextTick(() => searchEl.value?.focus());
   }
@@ -195,17 +202,17 @@ watch(providers, () => {
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
       :title="triggerTitle"
-      :aria-label="t('chat.model.label', { name: effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') })"
+      :aria-label="phase ? triggerTitle : t('chat.model.label', { name: displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') })"
       @click="toggleOpen"
     >
       <VendorLogo
-        :vendor="effectiveModel?.provider.name || effectiveModel?.model.id"
+        :vendor="displayedModel?.provider.name || displayedModel?.model.id"
         :size="compact ? 16 : 16"
       />
-      <span v-if="!compact && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
+      <span v-if="!compact && !phase && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
         <Sparkles class="size-3" aria-hidden="true" />
       </span>
-      <span v-if="!compact" class="truncate font-medium">{{ effectiveModel?.model.name || effectiveModel?.provider.name || t('chat.model.noModel') }}</span>
+      <span v-if="!compact" class="truncate font-medium">{{ phase ? (phase === 'plan' ? 'Plan · ' : 'Act · ') : '' }}{{ displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') }}</span>
       <svg
         v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"
@@ -286,33 +293,33 @@ watch(providers, () => {
                 variant="ghost"
                 class="flex min-h-[40px] w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
                 :class="
-                  autoRoute
+                  (phase ? !phaseOverride : autoRoute)
                     ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
                     : 'text-[var(--color-txt)]'
                 "
-                :aria-label="t('model-routing.modelRouting.autoAria')"
-                :title="t('model-routing.modelRouting.autoHint')"
+                :aria-label="phase ? t('chat.model.inherit') : t('model-routing.modelRouting.autoAria')"
+                :title="phase ? t('chat.model.inheritHint') : t('model-routing.modelRouting.autoHint')"
                 @click="pickAuto"
               >
                 <Check
                   class="size-3.5 shrink-0 text-[var(--color-accent)]"
-                  :class="autoRoute ? '' : 'invisible'"
+                  :class="(phase ? !phaseOverride : autoRoute) ? '' : 'invisible'"
                   aria-hidden="true"
                 />
                 <Sparkles class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
                 <span class="flex min-w-0 flex-col">
-                  <span class="truncate">{{ t("model-routing.modelRouting.auto") }}</span>
+                  <span class="truncate">{{ phase ? t('chat.model.inherit') : t("model-routing.modelRouting.auto") }}</span>
                   <span class="text-[11px] font-normal leading-4 text-[var(--color-mut)]">
-                    {{ t("model-routing.modelRouting.autoSubtitle") }}
+                    {{ phase ? t('chat.model.inheritHint') : t("model-routing.modelRouting.autoSubtitle") }}
                   </span>
-                  <span v-if="autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                  <span v-if="!phase && autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
                     {{ t("model-routing.modelRouting.routedTo", { model: lastRouting.modelName }) }}
                   </span>
                 </span>
               </Button>
               <!-- 上次路由理由（简短）：仅自动模式下有记录时展示 -->
               <p
-                v-if="autoRoute && routingReason"
+                v-if="!phase && autoRoute && routingReason"
                 class="m-0 px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[var(--color-mut)]"
                 :title="routingReason"
               >

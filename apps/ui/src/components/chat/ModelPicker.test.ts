@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ModelPicker from "@/components/chat/ModelPicker.vue";
 import { i18n } from "@/locales";
+import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 
 import type { AppLocale, ProviderSummary } from "@zen/shared";
@@ -70,5 +71,31 @@ describe("ModelPicker 自动选择文案", () => {
     await model!.trigger("click");
     expect(models.autoRoute).toBe(false);
     wrapper.unmount();
+  });
+
+  it("Plan 和 Act 的阶段模型互不覆盖，清除阶段选择后跟随会话", async () => {
+    const models = useModelsStore();
+    const chat = useChatStore();
+    const providers = [{ ...provider, models: [
+      ...provider.models,
+      { id: "m2", name: "Executor", enabled: true },
+    ] }];
+    models.providers = providers;
+    vi.mocked(window.zen!.models.list).mockResolvedValue(providers);
+    const plan = mount(ModelPicker, { props: { phase: "plan" } });
+    const act = mount(ModelPicker, { props: { phase: "act" } });
+    await plan.get("button").trigger("click");
+    await plan.findAll('[role="listbox"] button').find((button) => button.text().trim() === "Reasoner")!.trigger("click");
+    await act.get("button").trigger("click");
+    await act.findAll('[role="listbox"] button').find((button) => button.text().trim() === "Executor")!.trigger("click");
+    expect(chat.planModel?.modelId).toBe("m1");
+    expect(chat.actModel?.modelId).toBe("m2");
+    expect(models.autoRoute).toBe(false);
+    await plan.get("button").trigger("click");
+    await plan.get('button[aria-label="跟随会话模型"]').trigger("click");
+    expect(chat.planModel).toBeNull();
+    expect(chat.actModel?.modelId).toBe("m2");
+    plan.unmount();
+    act.unmount();
   });
 });
