@@ -519,7 +519,59 @@ export class AgentSession {
 
   /** 手动重试失败/取消的子 Agent（UI 面板「重试」按钮）；无可重试目标时返回 false */
   retrySubAgent(agentId: string): boolean {
-    return this.orchestrator?.retry(agentId) ?? false;
+    if (!this.orchestrator) {
+      return false;
+    }
+    const restarting = !this.runActive;
+    const previousController = this.controller;
+    if (restarting) {
+      this.controller = new AbortController();
+    }
+    if (!this.orchestrator.retry(agentId)) {
+      if (restarting) {
+        this.controller = previousController;
+      }
+      return false;
+    }
+    if (restarting) {
+      const controller = this.controller as AbortController;
+      this.runActive = true;
+      this.paused = false;
+      this.step = 0;
+      this.overflowRetried = false;
+      this.missingFinishReplays = 0;
+      this.lastInputTokens = null;
+      this.lastUsageStep = -1;
+      this.lastCompactStep = -1;
+      this.config.emit({ type: "sub_agent_retry_started", sessionId: this.sessionId });
+      this.config.emit({ type: "status", sessionId: this.sessionId, status: "thinking" });
+      void this.resumeAfterSubAgentRetry(agentId, controller);
+    }
+    return true;
+  }
+
+  private async resumeAfterSubAgentRetry(agentId: string, controller: AbortController): Promise<void> {
+    try {
+      const [node] = await this.orchestrator!.waitForAgents([agentId]);
+      if (!this.runActive || this.controller !== controller || controller.signal.aborted) {
+        return;
+      }
+      const outcome = node?.status === "done"
+        ? `结果：${node.result ?? "无输出"}`
+        : `状态：${node?.status ?? "未知"}；错误：${node?.error ?? "无详细信息"}`;
+      this.messages.push({
+        role: "user",
+        content: `[子 Agent 手动重试完成] ${node?.name ?? agentId} (${agentId})\n${outcome}\n请根据此结果继续原任务并给出最终回复。`,
+      });
+      this.persistAppend();
+      await this.continueLoop();
+    } catch (error) {
+      if (!this.runActive || this.controller !== controller) {
+        return;
+      }
+      this.config.emit({ type: "error", sessionId: this.sessionId, message: errorMessage(error) });
+      this.finishRun("error");
+    }
   }
 
   /** 只读运行状态快照（外部集成如飞书桥接展示会话状态用，不改变任何行为） */

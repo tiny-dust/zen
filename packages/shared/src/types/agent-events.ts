@@ -209,5 +209,7 @@ export type AgentStreamEvent =
    * 不应被当作整个会话结束。
    */
   | { type: "insert_started"; sessionId: string; text: string; steer?: boolean }
+  /** 已结束的主会话手动重试子 Agent：后续输出属于新的助手回复 */
+  | { type: "sub_agent_retry_started"; sessionId: string }
   /** 插入 run 结束后原 run 从 checkpoint 恢复：渲染层回到正常 running 语义 */
   | { type: "original_resumed"; sessionId: string };

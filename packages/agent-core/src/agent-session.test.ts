@@ -173,6 +173,7 @@ type Behavior =
   | "spawn-tasks"
   | "spawn-ask"
   | "spawn-error"
+  | "spawn-retry"
   | "overflow-retry"
   | "auto-compact"
   | "compact-reinject"
@@ -493,6 +494,11 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
     }
     return textBlocks("完成");
   }
+  if (behavior === "spawn-retry") {
+    return isChild ? textBlocks("子任务修复成功") : seq === 1
+      ? toolCall("spawnAgent", { name: "helper", task: "重试任务" }, "call_spawn_retry")
+      : seq === 2 ? textBlocks("父会话先结束") : textBlocks("父会话根据结果继续完成");
+  }
   // spawn-error
   if (isChild) {
     return [];
@@ -529,7 +535,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   const seq = (counters.get(path) ?? 0) + 1;
   counters.set(path, seq);
 
-  if (behavior === "spawn-error" && isChild) {
+  if ((behavior === "spawn-error" || behavior === "spawn-retry" && seq === 1) && isChild) {
     res.writeHead(400, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: { message: "child boom", type: "invalid_request_error" } }));
     return;
@@ -827,6 +833,40 @@ describe("AgentSession 子 Agent 派生", () => {
     });
     expect(session.agentTree?.agents[0]?.result).toContain("子任务已回答");
     expect(session.resolveAsk("unknown-ask", "x")).toBe(false);
+  });
+
+  it("主会话结束后手动重试子 Agent：结果唤醒主会话并再次正常收尾", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    const session = createSession(events, "sess-manual-retry", "spawn-retry");
+    await session.start("完成任务");
+    await pollUntil(() => session.agentTree?.agents[0]?.status === "error");
+    const agentId = session.agentTree?.agents[0]?.id;
+    expect(agentId).toBeTruthy();
+    expect(session.getRunState().runActive).toBe(false);
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+
+    expect(session.retrySubAgent(agentId!)).toBe(true);
+    expect(session.getRunState().runActive).toBe(true);
+    await pollUntil(() => events.filter((event) => event.type === "done").length === 2);
+
+    expect(session.agentTree?.agents[0]?.result).toContain("子任务修复成功");
+    expect(requestBodies.at(-1)).toContain("子任务修复成功");
+    expect(events.some((event) => event.type === "delta" && event.text.includes("父会话根据结果继续完成"))).toBe(true);
+    expect(events.filter((event) => event.type === "done").at(-1)).toMatchObject({ reason: "stop" });
+    expect(session.getRunState().runActive).toBe(false);
+  });
+
+  it("子 Agent 手动重试仍失败时，主会话也收到失败结果并收尾", async () => {
+    const events: AgentStreamEvent[] = [];
+    const session = createSession(events, "sess-manual-retry-fails", "spawn-error");
+    await session.start("完成任务");
+    await pollUntil(() => session.agentTree?.agents[0]?.status === "error");
+    const agentId = session.agentTree?.agents[0]?.id;
+    expect(session.retrySubAgent(agentId!)).toBe(true);
+    await pollUntil(() => events.filter((event) => event.type === "done").length === 2);
+    expect(events.filter((event) => event.type === "done").at(-1)).toMatchObject({ reason: "stop" });
+    expect(session.getRunState().runActive).toBe(false);
   });
 
   it("子 Agent 服务端错误收尾为 error 节点", async () => {
