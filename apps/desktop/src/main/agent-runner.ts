@@ -245,9 +245,10 @@ export async function runAgentRequest(
       saveTaskList(request.sessionId, streamEvent.version, streamEvent.items);
     } else if (
       streamEvent.type === "insert_started" ||
-      streamEvent.type === "original_resumed"
+      streamEvent.type === "original_resumed" ||
+      streamEvent.type === "sub_agent_retry_started"
     ) {
-      // 插入执行边界：上一段助手输出落库，此后事件归入新的一段
+      // 续跑边界：已完成的上一段只落库一次，此后事件归入新回复
       rotateAcc();
     } else if (streamEvent.type !== "reference_found") {
       applyStreamToMessage(accMessage, streamEvent);
