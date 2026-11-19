@@ -1,21 +1,24 @@
 <script setup lang="ts">
+import { CircleHelp, RefreshCw } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunSummary, WorkflowSnapshot } from "@/types/zen-api";
 import WorkflowEditor from "./WorkflowEditor.vue";
 import { toRuntimeWorkflow } from "./graph";
 import type { WorkflowGraph, WorkflowNode } from "./graph";
+import { buildTemplateGraph, WORKFLOW_TEMPLATE_IDS } from "./templates";
+import type { WorkflowTemplateId } from "./templates";
 
 const { t, te } = useI18n();
 const { active } = defineProps<{ active: boolean }>();
-const guideOpen = shallowRef(true);
 const chat = useChatStore();
 const models = useModelsStore();
 const graph = shallowRef<WorkflowGraph>({ nodes: [], edges: [], budgets: { maxSteps: 100, maxEffects: 10 } });
@@ -30,7 +33,13 @@ const runId = shallowRef("");
 const error = shallowRef("");
 const notice = shallowRef("");
 const busy = shallowRef(false);
+/** 面板分区：编辑器独占画布高度，运行相关的其它功能收进「运行记录」 */
+const panelTab = shallowRef<"editor" | "runs">("editor");
+/** 会话已落库？草稿会话（还没发过消息）没有工作流记录，主进程会以「Session not found」拒绝查询 */
+const sessionExists = shallowRef(false);
 const pendingDecision = shallowRef<"skip" | "retry" | null>(null);
+/** 待确认的模板选择：编辑器已有内容时先确认再替换草稿 */
+const pendingTemplate = shallowRef<WorkflowTemplateId | null>(null);
 const running = computed(() => run.value?.status === "running" || run.value?.detail === "Retrying model effect; cancellation is available.");
 const uncertainModel = computed(() => {
   const last = run.value?.journal.at(-1);
@@ -93,13 +102,15 @@ async function refreshList() {
   await action(async () => {
     const sessionId = chat.sessionId;
     const exists = sessionId ? await window.zen!.session.snapshot(sessionId) : null;
-    items.value = exists && sessionId ? await api().list(sessionId) : [];
-    recentRuns.value = exists && sessionId ? await api().listRuns(sessionId) : [];
+    sessionExists.value = Boolean(exists && sessionId);
+    items.value = sessionExists.value && sessionId ? await api().list(sessionId) : [];
+    recentRuns.value = sessionExists.value && sessionId ? await api().listRuns(sessionId) : [];
   });
 }
 let polling = false;
 async function pollRun() {
-  if (polling || !active || !chat.sessionId) return;
+  // 草稿会话未落库时主进程会拒绝查询，这里直接跳过（避免每秒弹一次 Session not found）
+  if (polling || !active || !chat.sessionId || !sessionExists.value) return;
   const sessionId = chat.sessionId;
   const id = run.value?.id;
   polling = true;
@@ -121,6 +132,36 @@ function newGraph() {
   dirty.value = false;
   error.value = "";
 }
+/** 选择默认配置：编辑器已有内容时先确认，避免静默覆盖草稿 */
+function chooseTemplate(value: unknown) {
+  const template = WORKFLOW_TEMPLATE_IDS.find((id) => id === value);
+  if (!template) return;
+  if (graph.value.nodes.length || dirty.value) {
+    pendingTemplate.value = template;
+    return;
+  }
+  applyTemplate(template);
+}
+function applyTemplate(template: WorkflowTemplateId) {
+  const model = modelOptions.value[0];
+  graph.value = buildTemplateGraph(template, {
+    translate: t,
+    ...(model ? { model: { providerId: model.providerId, modelId: model.modelId } } : {}),
+  });
+  name.value = t(`workflow.templateName.${template}`);
+  id.value = null;
+  version.value = null;
+  wallMs.value = "120000";
+  dirty.value = true;
+  error.value = "";
+  notice.value = t("workflow.templateLoaded", { name: t(`workflow.templateName.${template}`) });
+}
+function confirmTemplate() {
+  const template = pendingTemplate.value;
+  pendingTemplate.value = null;
+  if (template) applyTemplate(template);
+}
+
 function convert(): WorkflowSnapshot {
   const runtime = toRuntimeWorkflow(graph.value);
   for (const node of graph.value.nodes) {
@@ -140,7 +181,12 @@ function convert(): WorkflowSnapshot {
     } else if (node.type === "condition") nodeSettings[node.id] = { left: settings.left, right: settings.right, operator: settings.operator };
     else nodeSettings[node.id] = {};
   }
-  return { graph: runtime.graph, nodeSettings, budgets: { ...runtime.budgets, maxWallMs } };
+  // 画布位置随版本保存：重新打开时节点还在原来的位置
+  const layout: NonNullable<WorkflowSnapshot["layout"]> = {};
+  for (const node of graph.value.nodes) {
+    layout[node.id] = { x: node.x, y: node.y };
+  }
+  return { graph: runtime.graph, nodeSettings, layout, budgets: { ...runtime.budgets, maxWallMs } };
 }
 async function load(itemId: string) {
   await action(async () => {
@@ -148,6 +194,7 @@ async function load(itemId: string) {
     const found = await api().open(itemId, chat.sessionId);
     if (!found) throw new Error(t("workflow.errNotFound"));
     applyDefinition(found);
+    panelTab.value = "editor";
   });
 }
 function applyDefinition(found: WorkflowDefinition) {
@@ -155,7 +202,9 @@ function applyDefinition(found: WorkflowDefinition) {
   const settings: Record<string, { prompt?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }> = snapshot.nodeSettings;
   graph.value = {
     nodes: snapshot.graph.nodes.map((node, index) => ({
-      id: node.id, type: node.type, label: node.type, x: 48 + (index % 3) * 260, y: 56 + Math.floor(index / 3) * 150,
+      id: node.id, type: node.type, label: node.type,
+      x: snapshot.layout?.[node.id]?.x ?? 40 + (index % 3) * 260,
+      y: snapshot.layout?.[node.id]?.y ?? 60 + Math.floor(index / 3) * 140,
       settings: { ...(node.type === "model" ? { instructions: settings[node.id]?.prompt, providerId: settings[node.id]?.providerId, modelId: settings[node.id]?.modelId } : {}),
         ...(node.type === "condition" ? { left: settings[node.id]?.left, right: settings[node.id]?.right, operator: settings[node.id]?.operator } : {}),
         ...(node.type === "loop" ? { maxIterations: node.maxIterations } : {}) },
@@ -179,10 +228,11 @@ async function save() {
     const sessionId = chat.sessionId;
     if (!await window.zen!.session.snapshot(sessionId)) await window.zen!.session.create(chat.sessionWorkspaceId, sessionId);
     const saved = await api().save(name.value.trim(), JSON.parse(JSON.stringify(snapshot)) as WorkflowSnapshot, sessionId, id.value ?? undefined);
+    sessionExists.value = true;
     id.value = saved.id;
     version.value = saved.version;
     dirty.value = false;
-    items.value = await api().list(chat.sessionId);
+    items.value = await api().list(sessionId);
     notice.value = t("workflow.savedVersion", { version: saved.version });
   });
 }
@@ -194,7 +244,9 @@ async function start() {
     if (!existing) await window.zen!.session.create(chat.sessionWorkspaceId === "common" ? null : chat.sessionWorkspaceId, chat.sessionId);
     run.value = await api().start(id.value, chat.sessionId);
     if (!run.value) throw new Error(t("workflow.errRunStart"));
+    sessionExists.value = true;
     runId.value = run.value.id;
+    panelTab.value = "runs";
     await pollRun();
   });
 }
@@ -247,77 +299,155 @@ async function resolveUncertain() {
 
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-[var(--color-txt)]">
-    <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 pb-2">
-      <header class="space-y-1 pt-2">
-        <h2 class="text-sm font-semibold">{{ t('workflow.title') }}</h2>
-        <p class="text-xs text-[var(--color-mut)]">{{ t('workflow.description') }}</p>
-      </header>
-      <Collapsible v-model:open="guideOpen" class="rounded-md border border-[var(--color-line)] bg-[var(--color-chip-bg)] p-2">
-        <CollapsibleTrigger as-child>
-          <Button variant="ghost" size="sm" class="w-full justify-start px-1">{{ t('workflow.guideTitle') }} {{ guideOpen ? '−' : '+' }}</Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent class="space-y-2 pt-2 text-xs text-[var(--color-mut)]">
-          <p>{{ t('workflow.guideIntro') }}</p>
-          <ol class="list-decimal space-y-1 pl-5">
+    <!-- 头行：标题 + 说明（悬浮查看）+ 分区 tab；说明不再常驻占高度 -->
+    <header class="flex flex-none items-center gap-0.5 pb-2 pt-1">
+      <h2 class="m-0 text-sm font-semibold">{{ t('workflow.title') }}</h2>
+      <HoverCard :open-delay="120" :close-delay="80">
+        <HoverCardTrigger as-child>
+          <Button variant="ghost" size="icon-xs" class="rounded-full text-[var(--color-mut)]" :aria-label="t('workflow.guideTitle')" :title="t('workflow.guideTitle')">
+            <CircleHelp class="size-3.5" aria-hidden="true" />
+          </Button>
+        </HoverCardTrigger>
+        <HoverCardContent side="bottom" align="start" class="w-[320px] text-[12px] leading-5">
+          <p class="m-0">{{ t('workflow.description') }}</p>
+          <ol class="mb-0 mt-2 list-decimal space-y-1 pl-4 text-[var(--color-mut)]">
             <li>{{ t('workflow.guideStep1') }}</li>
             <li>{{ t('workflow.guideStep2') }}</li>
             <li>{{ t('workflow.guideStep3') }}</li>
             <li>{{ t('workflow.guideStep4') }}</li>
           </ol>
-          <p>{{ t('workflow.guideSafety') }}</p>
-        </CollapsibleContent>
-      </Collapsible>
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-wrap items-end gap-2">
-          <div class="flex min-w-48 flex-col gap-1"><Label for="workflow-name">{{ t('workflow.name') }}</Label><Input id="workflow-name" v-model="name" :disabled="running" maxlength="120" @update:model-value="dirty = true" /></div>
-          <div class="flex w-44 flex-col gap-1"><Label for="workflow-wall">{{ t('workflow.wallTime') }}</Label><Input id="workflow-wall" v-model="wallMs" :disabled="running" type="number" min="1000" max="86400000" step="1000" @update:model-value="dirty = true" /></div>
-          <Button variant="outline" :disabled="busy || running" @click="newGraph">{{ t('workflow.newDraft') }}</Button>
-          <Button variant="outline" :disabled="busy || running" @click="refreshList">{{ t('workflow.refresh') }}</Button>
-          <Button :disabled="busy || running || unsupported.length > 0" @click="save">{{ t('workflow.save') }}</Button>
-          <Button :disabled="busy || running || !id || dirty" @click="start">{{ t('workflow.start') }}</Button>
-          <span v-if="version" class="text-xs text-[var(--color-mut)]">{{ t('workflow.version', { version }) }}{{ dirty ? t('workflow.unsaved') : '' }}</span>
-        </div>
-        <p class="text-xs text-[var(--color-mut)]">{{ t('workflow.guidance') }}</p>
-        <p v-if="unsupported.length" role="alert" class="text-sm text-[var(--color-danger-fg)]">{{ t('workflow.unsupportedSave', { nodes: unsupported.join(', ') }) }}</p>
-        <p v-if="error" role="alert" class="text-sm text-[var(--color-danger-fg)]">{{ error }}</p>
-        <p v-if="notice" role="status" class="text-sm text-[var(--color-accent)]">{{ notice }}</p>
-        <section class="flex flex-wrap items-center gap-2" :aria-label="t('workflow.savedWorkflows')">
-          <span class="text-xs font-medium">{{ t('workflow.savedWorkflows') }}</span>
-          <span v-if="!items.length" class="text-xs text-[var(--color-mut)]">{{ t('workflow.noSaved') }}</span>
-          <Button v-for="item in items" :key="item.id" variant="outline" size="sm" :disabled="busy || running" @click="load(item.id)">{{ t('workflow.openWorkflow', { name: item.name, version: item.current_version }) }}{{ dirty ? t('workflow.replaceDraft') : '' }}</Button>
-        </section>
-        <WorkflowEditor :model-value="graph" :models="modelOptions" @update:model-value="updateGraph" />
-        <section class="flex flex-wrap items-center gap-2 border-t border-[var(--color-line)] pt-3" :aria-label="t('workflow.recentRuns')">
-          <span class="text-xs font-medium">{{ t('workflow.recentRuns') }}</span>
-          <span v-if="!recentRuns.length" class="text-xs text-[var(--color-mut)]">{{ t('workflow.noRuns') }}</span>
-          <Button v-for="recent in recentRuns" :key="recent.id" variant="outline" size="sm" :disabled="busy" @click="getRun(recent.id)">
-            {{ recent.id.slice(0, 8) }} · v{{ recent.version }} · {{ localizedStatus(recent.status) }}
-          </Button>
-        </section>
-        <section class="flex flex-col gap-2 border-t border-[var(--color-line)] pt-3" :aria-label="t('workflow.journal')">
-          <div class="flex flex-wrap items-end gap-2">
-            <div class="flex min-w-64 flex-col gap-1"><Label for="workflow-run-id">{{ t('workflow.runId') }}</Label><Input id="workflow-run-id" v-model="runId" :placeholder="t('workflow.runIdPlaceholder')" /></div>
-            <Button variant="outline" :disabled="busy || running" @click="getRun()">{{ t('workflow.getRun') }}</Button>
-            <Button variant="outline" :disabled="busy || running || !canResume" @click="resume">{{ t('workflow.resume') }}</Button>
-            <Button variant="destructive" :disabled="busy || !run || !['running', 'interrupted', 'pending-review'].includes(run.status)" @click="cancel">{{ t('workflow.cancel') }}</Button>
-            <Button variant="outline" :disabled="busy || running || !isApproval" @click="review(true)">{{ t('workflow.approve') }}</Button>
-            <Button variant="outline" :disabled="busy || running || !isApproval" @click="review(false)">{{ t('workflow.deny') }}</Button>
-            <Button variant="outline" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'skip'">{{ t('workflow.skipModel') }}</Button>
-            <Button variant="outline" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'retry'">{{ t('workflow.retryModel') }}</Button>
-          </div>
-          <p v-if="running" role="status">{{ t('workflow.active') }}</p>
-          <template v-if="run">
-            <p role="status">{{ t('workflow.runSummary', { id: run.id, version: run.version, status: localizedStatus(run.status), progress }) }}{{ run.detail ? t('workflow.runDetail', { detail: localizedDetail(run.detail) }) : '' }}</p>
-            <p v-if="uncertainModel" role="alert">{{ t('workflow.uncertain') }}</p>
-            <ol class="max-h-40 overflow-auto rounded border border-[var(--color-line)] p-2 text-xs" :aria-label="t('workflow.journal')">
-              <li v-for="(event, index) in run.journal" :key="index">{{ event.step }} · {{ event.nodeId }} · {{ event.type }}{{ event.outcome ? ` · ${event.outcome}` : '' }}{{ event.nextId ? ` → ${event.nextId}` : '' }}</li>
-              <li v-if="!run.journal.length">{{ t('workflow.noJournal') }}</li>
-            </ol>
-            <div v-for="output in run.outputs" :key="output.key" class="break-words text-xs">{{ output.node_id }}: {{ output.output }}</div>
-          </template>
-        </section>
+          <p class="mb-0 mt-2 text-[var(--color-mut)]">{{ t('workflow.guideSafety') }}</p>
+          <p class="mb-0 mt-1 text-[var(--color-mut)]">{{ t('workflow.guideCapabilities') }}</p>
+          <p class="mb-0 mt-1 text-[var(--color-mut)]">{{ t('workflow.guideRecovery') }}</p>
+        </HoverCardContent>
+      </HoverCard>
+      <div class="ml-auto flex flex-none items-center gap-0.5 rounded-lg bg-[var(--color-sunken)] p-0.5" role="tablist" :aria-label="t('workflow.title')">
+        <Button
+          v-for="tab in [{ id: 'editor', label: 'workflow.editorTab' }, { id: 'runs', label: 'workflow.runsTab' }]"
+          :key="tab.id"
+          variant="ghost"
+          role="tab"
+          class="h-6 rounded-md px-2 text-[11px] font-normal"
+          :class="panelTab === tab.id ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : 'text-[var(--color-mut)]'"
+          :aria-selected="panelTab === tab.id"
+          @click="panelTab = tab.id as 'editor' | 'runs'"
+        >
+          {{ t(tab.label) }}
+        </Button>
       </div>
+    </header>
+
+    <p v-if="error" role="alert" class="m-0 flex-none pb-2 text-xs text-[var(--color-danger-fg)]">{{ error }}</p>
+    <p v-if="notice" role="status" class="m-0 flex-none pb-2 text-xs text-[var(--color-accent)]">{{ notice }}</p>
+
+    <!-- 编辑器：工具栏压成两行，其余高度全部留给画布 -->
+    <div v-if="panelTab === 'editor'" class="flex min-h-0 flex-1 flex-col gap-2">
+      <div class="flex flex-none items-end gap-1.5">
+        <div class="flex min-w-0 flex-[3] flex-col gap-1">
+          <Label for="workflow-template" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.templateLabel') }}</Label>
+          <!-- 模板选择是一次性动作而非受控状态：选中后立刻生成草稿，触发器保持占位提示 -->
+          <Select :model-value="undefined" :disabled="busy || running" @update:model-value="chooseTemplate">
+            <SelectTrigger id="workflow-template" class="w-full"><SelectValue :placeholder="t('workflow.templatePlaceholder')" /></SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem v-for="template in WORKFLOW_TEMPLATE_IDS" :key="template" :value="template">
+                  <span class="flex min-w-0 flex-col items-start">
+                    <span>{{ t(`workflow.templateName.${template}`) }}</span>
+                    <span class="text-[11px] text-[var(--color-mut)]">{{ t(`workflow.templateDesc.${template}`) }}</span>
+                  </span>
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="flex min-w-0 flex-[3] flex-col gap-1"><Label for="workflow-name" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.name') }}</Label><Input id="workflow-name" v-model="name" :disabled="running" maxlength="120" @update:model-value="dirty = true" /></div>
+        <div class="flex w-24 flex-none flex-col gap-1"><Label for="workflow-wall" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.wallTime') }}</Label><Input id="workflow-wall" v-model="wallMs" :disabled="running" type="number" min="1000" max="86400000" step="1000" @update:model-value="dirty = true" /></div>
+      </div>
+      <div class="flex flex-none flex-wrap items-center gap-1.5">
+        <div class="flex min-w-[160px] flex-1 flex-col">
+          <!-- 已保存的工作流：一次点击就把选中版本载入编辑器，不再用一排按钮占宽 -->
+          <Select :model-value="undefined" :disabled="busy || running || !items.length" @update:model-value="(value) => load(String(value))">
+            <SelectTrigger class="w-full" :aria-label="t('workflow.savedWorkflows')">
+              <SelectValue :placeholder="items.length ? t('workflow.savedWorkflows') : t('workflow.noSaved')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem v-for="item in items" :key="item.id" :value="item.id">{{ t('workflow.openWorkflow', { name: item.name, version: item.current_version }) }}{{ dirty ? t('workflow.replaceDraft') : '' }}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" :disabled="busy || running" @click="newGraph">{{ t('workflow.newDraft') }}</Button>
+        <Button size="sm" :disabled="busy || running || unsupported.length > 0" @click="save">{{ t('workflow.save') }}</Button>
+        <Button size="sm" :disabled="busy || running || !id || dirty" :title="t('workflow.start')" @click="start">{{ t('workflow.startShort') }}</Button>
+      </div>
+      <p v-if="unsupported.length" role="alert" class="m-0 flex-none text-xs text-[var(--color-danger-fg)]">{{ t('workflow.unsupportedSave', { nodes: unsupported.join(', ') }) }}</p>
+      <span v-if="version" class="flex-none text-[11px] text-[var(--color-mut)]">{{ t('workflow.version', { version }) }}{{ dirty ? t('workflow.unsaved') : '' }}</span>
+      <WorkflowEditor class="min-h-0 flex-1" :model-value="graph" :models="modelOptions" @update:model-value="updateGraph" />
     </div>
-    <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryModel' : 'workflow.skipModel')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (!value) pendingDecision = null; }" @confirm="resolveUncertain" />
+
+    <!-- 运行记录：最近运行 / 运行控制 / 日志与输出 -->
+    <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
+      <section class="flex flex-col gap-1" :aria-label="t('workflow.recentRuns')">
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs font-medium">{{ t('workflow.recentRuns') }}</span>
+          <Button variant="ghost" size="icon-xs" class="ml-auto text-[var(--color-mut)]" :aria-label="t('workflow.refresh')" :title="t('workflow.refresh')" :disabled="busy || running" @click="refreshList">
+            <RefreshCw class="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+        <span v-if="!recentRuns.length" class="text-xs text-[var(--color-mut)]">{{ t('workflow.noRuns') }}</span>
+        <ul v-else class="m-0 flex list-none flex-col gap-0.5 p-0">
+          <li v-for="recent in recentRuns" :key="recent.id">
+            <Button
+              variant="ghost"
+              class="h-7 w-full justify-start gap-2 rounded-md px-1.5 text-[11px] font-normal hover:bg-[var(--color-menu-hover)]"
+              :class="recent.id === run?.id ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]' : 'text-[var(--color-txt)]'"
+              :disabled="busy"
+              @click="getRun(recent.id)"
+            >
+              <span class="font-mono">{{ recent.id.slice(0, 8) }}</span>
+              <span class="text-[var(--color-mut)]">v{{ recent.version }}</span>
+              <span class="ml-auto">{{ localizedStatus(recent.status) }}</span>
+            </Button>
+          </li>
+        </ul>
+      </section>
+
+      <section class="flex flex-col gap-1.5 border-t border-[var(--color-line)] pt-2" :aria-label="t('workflow.journal')">
+        <div class="flex items-end gap-1.5">
+          <div class="flex min-w-0 flex-1 flex-col gap-1"><Label for="workflow-run-id" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.runId') }}</Label><Input id="workflow-run-id" v-model="runId" class="h-8" :placeholder="t('workflow.runIdPlaceholder')" /></div>
+          <Button variant="outline" size="sm" :disabled="busy || running" @click="getRun()">{{ t('workflow.getRun') }}</Button>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <Button variant="outline" size="sm" :disabled="busy || running || !canResume" @click="resume">{{ t('workflow.resume') }}</Button>
+          <Button variant="destructive" size="sm" :disabled="busy || !run || !['running', 'interrupted', 'pending-review'].includes(run.status)" @click="cancel">{{ t('workflow.cancel') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !isApproval" @click="review(true)">{{ t('workflow.approve') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !isApproval" @click="review(false)">{{ t('workflow.deny') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'skip'">{{ t('workflow.skipModel') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'retry'">{{ t('workflow.retryModel') }}</Button>
+        </div>
+        <p v-if="running" role="status" class="m-0 text-xs">{{ t('workflow.active') }}</p>
+        <template v-if="run">
+          <p role="status" class="m-0 text-xs">{{ t('workflow.runSummary', { id: run.id, version: run.version, status: localizedStatus(run.status), progress }) }}{{ run.detail ? t('workflow.runDetail', { detail: localizedDetail(run.detail) }) : '' }}</p>
+          <p v-if="uncertainModel" role="alert" class="m-0 text-xs text-[var(--color-danger-fg)]">{{ t('workflow.uncertain') }}</p>
+          <ol class="m-0 max-h-56 overflow-auto rounded border border-[var(--color-line)] p-2 text-[11px] text-[var(--color-mut)]" :aria-label="t('workflow.journal')">
+            <li v-for="(event, index) in run.journal" :key="index">{{ event.step }} · {{ event.nodeId }} · {{ event.type }}{{ event.outcome ? ` · ${event.outcome}` : '' }}{{ event.nextId ? ` → ${event.nextId}` : '' }}</li>
+            <li v-if="!run.journal.length">{{ t('workflow.noJournal') }}</li>
+          </ol>
+          <div v-for="output in run.outputs" :key="output.key" class="break-words text-[11px]">{{ output.node_id }}: {{ output.output }}</div>
+        </template>
+      </section>
+    </div>
+
+    <ConfirmDialog
+      :open="pendingTemplate !== null"
+      :title="t('workflow.templateConfirmTitle')"
+      :description="t('workflow.templateConfirmDesc')"
+      :confirm-label="t('workflow.templateConfirm')"
+      :pending="busy"
+      @update:open="(value) => { if (!value) pendingTemplate = null; }"
+      @confirm="confirmTemplate"
+    />
+    <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryModel' : 'workflow.skipModel')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (value === false) pendingDecision = null; }" @confirm="resolveUncertain" />
   </div>
 </template>

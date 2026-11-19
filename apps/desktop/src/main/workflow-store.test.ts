@@ -125,6 +125,20 @@ describe("workflow persistence", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("stores optional canvas layout and rejects coordinates for unknown nodes", () => {
+    const model = {
+      graph: { nodes: [{ id: "start", type: "start" }, { id: "generate", type: "model", idempotent: false }, { id: "end", type: "end" }],
+        edges: [{ from: "start", to: "generate", label: "next" }, { from: "generate", to: "end", label: "next" }] },
+      nodeSettings: { generate: { prompt: "answer", providerId: "provider-a", modelId: "model-a" } },
+      budgets: { maxSteps: 5, maxEffects: 1, maxWallMs: 60_000 },
+    };
+    // 坐标取整后原样回读；旧快照没有 layout 时保持 undefined
+    expect(parseSnapshot({ ...model, layout: { generate: { x: 12.4, y: 8 } } }).layout).toEqual({ generate: { x: 12, y: 8 } });
+    expect(parseSnapshot(model).layout).toBeUndefined();
+    expect(() => parseSnapshot({ ...model, layout: { ghost: { x: 0, y: 0 } } })).toThrow(/layout/);
+    expect(() => parseSnapshot({ ...model, layout: { generate: { x: "1", y: 0 } } })).toThrow(/layout/);
+  });
+
   it("does not replay unknown model effects without a review decision", () => {
     const model = { graph: { nodes: [{ id: "start", type: "start" }, { id: "generate", type: "model", idempotent: false }, { id: "end", type: "end" }],
       edges: [{ from: "start", to: "generate", label: "next" }, { from: "generate", to: "end", label: "next" }] },

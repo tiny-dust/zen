@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canConnect, edgeTypesFor, moveNode, removeNode, toRuntimeWorkflow } from "./graph";
+import { canConnect, edgeTypesFor, removeNode, toRuntimeWorkflow } from "./graph";
 import type { WorkflowGraph, WorkflowNodeType } from "./graph";
 
 const node = (id: string, type: WorkflowNodeType, settings: WorkflowGraph["nodes"][number]["settings"] = {}) =>
@@ -76,9 +76,8 @@ describe("workflow graph operations", () => {
     expect(() => toRuntimeWorkflow({ ...graph, nodes: graph.nodes.map((item) => item.type === "condition" ? node(item.id, item.type, { left: "", right: "", operator: "equals" }) : item) })).not.toThrow();
   });
 
-  it("removes attached connections and reorders without mutating input", () => {
+  it("removes attached connections without mutating input", () => {
     expect(removeNode(graph, "condition")).toEqual({ budgets: graph.budgets, nodes: [graph.nodes[0], graph.nodes[2]], edges: [] });
-    expect(moveNode(graph, "condition", -1).nodes.map((item) => item.id)).toEqual(["condition", "start", "end"]);
-    expect(moveNode(graph, "start", -1)).toBe(graph);
+    expect(graph.nodes).toHaveLength(3);
   });
 });

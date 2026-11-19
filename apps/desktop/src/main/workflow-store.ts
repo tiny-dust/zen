@@ -9,6 +9,8 @@ export type WorkflowSnapshot = {
   graph: WorkflowGraph;
   nodeSettings: Record<string, { prompt?: string; providerId?: string; modelId?: string; instructions?: string; expression?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }>;
   budgets: { maxSteps: number; maxEffects: number; maxWallMs: number };
+  /** 画布位置（可选；旧版本快照没有该字段，回读时由渲染层自动排版） */
+  layout?: Record<string, { x: number; y: number }>;
 };
 export type WorkflowRun = {
   id: string; workflow_id: string; version: number; session_id: string;
@@ -73,7 +75,22 @@ export function parseSnapshot(input: unknown): WorkflowSnapshot {
     !Number.isSafeInteger(budgets.maxWallMs) || budgets.maxWallMs < 1000 || budgets.maxWallMs > 86_400_000) {
     throw new Error("Invalid workflow budgets");
   }
-  const serialized = JSON.stringify({ graph, nodeSettings, budgets });
+  const rawLayout = (input as Record<string, unknown>).layout as unknown;
+  let layout: Record<string, { x: number; y: number }> | undefined;
+  if (rawLayout !== undefined) {
+    if (!rawLayout || typeof rawLayout !== "object" || Array.isArray(rawLayout)) throw new Error("Invalid workflow layout");
+    layout = {};
+    for (const [id, value] of Object.entries(rawLayout as Record<string, unknown>)) {
+      const point = value as { x?: unknown; y?: unknown } | null;
+      if (!nodeIds.has(id) || !point || typeof point !== "object" ||
+        typeof point.x !== "number" || typeof point.y !== "number" ||
+        !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        throw new Error("Invalid workflow layout");
+      }
+      layout[id] = { x: Math.round(point.x), y: Math.round(point.y) };
+    }
+  }
+  const serialized = JSON.stringify({ graph, nodeSettings, budgets: { ...budgets }, ...(layout ? { layout } : {}) });
   if (serialized.length > 1_000_000) throw new Error("Workflow snapshot too large");
   return JSON.parse(serialized) as WorkflowSnapshot;
 }

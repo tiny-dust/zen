@@ -139,12 +139,3 @@ export function removeNode(graph: WorkflowGraph, id: string): WorkflowGraph {
     edges: graph.edges.filter((edge) => edge.source !== id && edge.target !== id),
   };
 }
-
-export function moveNode(graph: WorkflowGraph, id: string, direction: -1 | 1): WorkflowGraph {
-  const nodes = [...graph.nodes];
-  const index = nodes.findIndex((node) => node.id === id);
-  const next = index + direction;
-  if (index < 0 || next < 0 || next >= nodes.length) return graph;
-  [nodes[index], nodes[next]] = [nodes[next]!, nodes[index]!];
-  return { ...graph, nodes };
-}
