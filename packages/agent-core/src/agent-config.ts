@@ -74,6 +74,8 @@ export interface AgentSessionConfig {
   chatgptPlan?: boolean;
   /** 权限模式（ADR-004）：default / smart / full */
   permissionMode: PermissionMode;
+  /** Plan 阶段：工具授权层拒绝所有非白名单工具，不能被 full 权限或自动审批绕过。 */
+  planReadOnly?: boolean;
   /** 系统提示词全文（设置页选择的预设或自定义） */
   systemPrompt?: string;
   /**

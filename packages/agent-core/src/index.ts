@@ -31,3 +31,14 @@ export * from "./multi-agent";
 export * from "./resource-lock";
 export * from "./multi-agent-instructions";
 export { SubAgentTranscript } from "./sub-agent-transcript";
+export { runWorkflow, validateWorkflow, workflowEffectKey } from "./workflow";
+export type {
+  WorkflowAdapters,
+  WorkflowBudgets,
+  WorkflowEdge,
+  WorkflowEvent,
+  WorkflowGraph,
+  WorkflowJournal,
+  WorkflowNode,
+  WorkflowResult,
+} from "./workflow";

@@ -32,6 +32,7 @@ import {
   beginTurnCheckpoint,
 } from "./session-checkpoints";
 import { getWebSearchApiKeys } from "./websearch-auth-store";
+import { isWorkflowSessionActive } from "./workflow-ipc";
 import { loadAgentSettings, sessionCacheDir } from "./zen-dir";
 import {
   appendSessionModelHistory,
@@ -48,7 +49,7 @@ import {
   saveTaskList,
   setSessionMode,
 } from "./workspace-db";
-import { appendGoalDirective, appendSessionModeDirective, resolveRunSessionMode } from "./session-mode";
+import { appendGoalDirective, appendSessionModeDirective, resolvePhaseModel, resolveRunSessionMode } from "./session-mode";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
 import { expandElementTokens } from "@zen/tools-browser";
@@ -60,6 +61,7 @@ import type {
   ChatTurn,
   SessionGoal,
   SessionMode,
+  SessionRecord,
   TaskItem,
 } from "@zen/shared";
 import { applyStreamToMessage, getMessageRun, shouldPersistAssistantMessage } from "@zen/shared";
@@ -111,10 +113,14 @@ export async function runAgentRequest(
   if (!request?.sessionId || !request.userMessage) {
     return { ok: false, error: "invalid agent run request" };
   }
+  if (isWorkflowSessionActive(request.sessionId)) {
+    return { ok: false, error: "Session already running a workflow" };
+  }
   // 前置（查会话/落库/清旧 run）失败同样只走 {ok:false}：
   // 这里抛出会让 agent:run IPC reject，渲染层 send() 无兜底，运行态卡死
   // 会话模式：前置块解析（plan 批准消息先落库切回 interactive），后续 AgentSession 组装要用
   let runMode: SessionMode = "interactive";
+  let phaseSession: SessionRecord | null = null;
   // 会话目标（Goals 目标模式）：active 时追加进系统提示词（同会话模式指令的注入点）
   let runGoal: SessionGoal | null = null;
   // 任务清单跨轮次续用：版本号接着会话已落库的最大版本，清单以最新版初始化
@@ -130,6 +136,7 @@ export async function runAgentRequest(
       request,
       (mode) => setSessionMode(request.sessionId, mode),
     );
+    phaseSession = record.session;
     runGoal = record.session.goal ?? null;
     const latestTaskList = record.taskLists.at(-1);
     if (latestTaskList && latestTaskList.items.length) {
@@ -254,8 +261,12 @@ export async function runAgentRequest(
 
   try {
     const selection = await getSelection();
-    const providerId = request.providerId || selection.providerId;
-    const modelId = request.model || selection.modelId;
+    const routed = resolvePhaseModel(phaseSession!, runMode, {
+      providerId: request.providerId || selection.providerId,
+      modelId: request.model || selection.modelId,
+    });
+    const providerId = routed.providerId;
+    const modelId = routed.modelId;
     const provider = (await listProviders()).find((item) => item.id === providerId);
 
     if (!provider || !modelId) {
@@ -389,6 +400,7 @@ export async function runAgentRequest(
       reasoning: capabilities.reasoning === true,
       authHeaders,
       permissionMode: agentSettings.permissionMode,
+      planReadOnly: runMode === "plan",
       // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）；
       // 目标指令再追加在其后（仅 active 目标注入，预算不进提示词）
       systemPrompt: appendGoalDirective(
@@ -416,7 +428,7 @@ export async function runAgentRequest(
           return notes.map((note) => ({ text: note.text, category: note.category }));
         },
       },
-      multiAgent: true,
+      multiAgent: runMode !== "plan",
       skills,
       skillExtraPaths: agentSettings.skillExtraPaths,
       mcpTools,

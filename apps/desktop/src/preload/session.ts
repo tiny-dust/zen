@@ -40,6 +40,10 @@ export const sessionApi = {
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void> {
       return ipcRenderer.invoke("session:set-model", id, providerId, modelId);
     },
+    /** 按阶段覆盖模型；null 表示该阶段跟随会话模型。 */
+    setPhaseModel(id: string, phase: "plan" | "act", providerId: string | null, modelId: string | null): Promise<void> {
+      return ipcRenderer.invoke("session:set-phase-model", id, phase, providerId, modelId);
+    },
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void> {
       return ipcRenderer.invoke("session:set-mode", id, mode);

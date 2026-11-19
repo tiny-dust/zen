@@ -1,4 +1,4 @@
-import type { AgentRunRequest, PermissionMode, SessionGoal, SessionMode } from "@zen/shared";
+import type { AgentRunRequest, PermissionMode, SessionGoal, SessionMode, SessionRecord } from "@zen/shared";
 import {
   normalizeSessionMode,
   PERMISSION_MODE_LABELS,
@@ -40,6 +40,17 @@ export function resolveRunSessionMode(
     return "interactive";
   }
   return normalized;
+}
+
+/** 明确配置的阶段模型优先；缺省回落调用方现有自动路由/默认选择。 */
+export function resolvePhaseModel(
+  session: SessionRecord,
+  mode: SessionMode,
+  fallback: { providerId: string | null | undefined; modelId: string | null | undefined },
+): { providerId: string | null | undefined; modelId: string | null | undefined } {
+  const providerId = mode === "plan" ? session.planModelProviderId : session.actModelProviderId;
+  const modelId = mode === "plan" ? session.planModelId : session.actModelId;
+  return providerId && modelId ? { providerId, modelId } : fallback;
 }
 
 /** 各模式的系统提示词追加指令（interactive 返回空串） */

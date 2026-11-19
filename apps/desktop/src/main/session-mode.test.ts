@@ -7,6 +7,7 @@ import {
   appendSessionModeDirective,
   isPlanApproval,
   resolveRunSessionMode,
+  resolvePhaseModel,
   sessionModeDirective,
 } from "./session-mode";
 
@@ -60,6 +61,23 @@ describe("resolveRunSessionMode", () => {
       DEFAULT_SESSION_MODE,
     );
     expect(resolveRunSessionMode("bogus", request("你好"), persist)).toBe(DEFAULT_SESSION_MODE);
+  });
+});
+
+describe("resolvePhaseModel", () => {
+  const session = {
+    planModelProviderId: "p-plan", planModelId: "m-plan",
+    actModelProviderId: "p-act", actModelId: "m-act",
+  } as Parameters<typeof resolvePhaseModel>[0];
+  const fallback = { providerId: "default", modelId: "default-model" };
+
+  it("Plan 使用规划模型，批准后 interactive 使用执行模型", () => {
+    expect(resolvePhaseModel(session, "plan", fallback)).toEqual({ providerId: "p-plan", modelId: "m-plan" });
+    expect(resolvePhaseModel(session, "interactive", fallback)).toEqual({ providerId: "p-act", modelId: "m-act" });
+  });
+
+  it("阶段未配置时保持原有模型选择", () => {
+    expect(resolvePhaseModel({ ...session, actModelId: null }, "autopilot", fallback)).toEqual(fallback);
   });
 });
 

@@ -114,6 +114,12 @@ export function rewriteSubAgentPanelEvent(
   return null;
 }
 
+/** Plan 阶段只暴露可确认无副作用的本地探查工具；未知、MCP、shell、浏览器交互与子 Agent 均不暴露。 */
+const PLAN_READ_TOOLS = new Set([
+  "readFile", "listDir", "searchFiles", "loadSkill", "readMemory", "askUser",
+  "browserStatus", "browserSnapshot", "browserExtract", "browserConsole", "browserPerformance",
+]);
+
 /** 卡死的流（不感知 abort 的工具/锁等待）给出 paused 反馈前的宽限 */
 const PAUSE_ACK_GRACE_MS = 2500;
 /** cancel 后等待 runStep 自行补 done 的宽限，超时强制补终态 */
@@ -365,7 +371,7 @@ export class AgentSession {
     };
 
     this.orchestrator =
-      config.multiAgent === false
+      config.multiAgent === false || config.planReadOnly
         ? null
         : new MultiAgentOrchestrator({
             parentSessionId: config.sessionId,
@@ -396,11 +402,11 @@ export class AgentSession {
         ? undefined
         : buildToolCallRepair(model, providerOptions),
       tools: withToolCacheBreakpoint(
-        buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
+        Object.fromEntries(Object.entries(buildToolSet(config.workspaceRoot, emit, config.sessionId, config, hooks, {
           resourceLock: this.resourceLock,
           ownerLabel: config.ownerLabel ?? config.sessionId,
           multiAgentTools,
-        }),
+        })).filter(([name]) => !config.planReadOnly || PLAN_READ_TOOLS.has(name))),
         sessionConfig.protocol === "anthropic-messages",
       ),
       instructions: buildInstructions(config),
@@ -451,6 +457,10 @@ export class AgentSession {
       },
       toolApproval: async ({ toolCall }) => {
         const toolName = toolCall.toolName ?? "";
+        // Plan 的硬限制先于 full 权限、记忆审批和自动审批闸；未知/MCP 工具默认拒绝。
+        if (config.planReadOnly && !PLAN_READ_TOOLS.has(toolName)) {
+          return { type: "denied" as const, reason: "计划模式仅允许只读探查；请先批准执行" };
+        }
         const args = (toolCall as { input?: unknown; args?: unknown }).input;
         const command =
           typeof args === "object" && args !== null && "command" in args

@@ -26,6 +26,7 @@ import {
   setSessionArchived,
   setSessionDraft,
   setSessionModel,
+  setSessionPhaseModel,
   setSessionPinned,
   setSessionWorkspace,
   setWorkspaceArchived,
@@ -205,6 +206,17 @@ export function registerSessionIpc(
       }
     },
   );
+
+  ipcMain.handle("session:set-phase-model", (_event, id: unknown, phase: unknown, providerId: unknown, modelId: unknown) => {
+    if (typeof id !== "string" || !id.trim() || !getSession(id) || (phase !== "plan" && phase !== "act")) {
+      throw new Error("invalid phase model request");
+    }
+    if (!((providerId === null && modelId === null) ||
+      (typeof providerId === "string" && providerId.trim() && typeof modelId === "string" && modelId.trim()))) {
+      throw new Error("invalid phase model selection");
+    }
+    setSessionPhaseModel(id, phase, providerId as string | null, modelId as string | null);
+  });
 
   // 会话模式切换（interactive/plan/autopilot）；非法值忽略，保持原模式
   ipcMain.handle("session:set-mode", (_event, id: string, mode: string) => {
