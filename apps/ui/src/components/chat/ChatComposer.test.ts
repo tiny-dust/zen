@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import { hasOpenOverlayLayer } from "@/composables/useBrowserOverlayAutoGuard";
+import { setAppLocale } from "@/locales";
 import { useBrowserStore } from "@/stores/browser";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
@@ -108,6 +109,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+  setAppLocale("zh-CN");
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -125,6 +127,21 @@ describe("ChatComposer 发送交互", () => {
     await more.trigger("click");
     expect(more.attributes("aria-expanded")).toBe("true");
     expect(wrapper.find("session-mode-picker-stub").exists()).toBe(true);
+  });
+
+  it("工作流入口位于高级底栏右侧，并随语言切换", async () => {
+    const wrapper = composer();
+    expect(wrapper.find('button[aria-label="工作流"]').exists()).toBe(false);
+
+    await wrapper.get('button[aria-controls="composer-advanced-options"]').trigger("click");
+    const button = wrapper.get('button[aria-label="工作流"]');
+    expect(button.element.nextElementSibling?.tagName.toLowerCase()).toBe("permission-picker-stub");
+    await button.trigger("click");
+    expect(wrapper.emitted("openWorkflow")).toHaveLength(1);
+
+    setAppLocale("en-US");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('button[aria-label="Workflows"]').attributes("title")).toBe("Workflows");
   });
 
   it("推理模型的思考强度常驻模型左侧，非推理模型不显示且高级区不重复", async () => {

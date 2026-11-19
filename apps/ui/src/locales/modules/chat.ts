@@ -30,6 +30,7 @@ export default {
     addFile: "添加文件",
     addFileTitle: "添加文件（也可直接粘贴文件/图像）",
     moreOptions: "更多选项",
+    workflows: "工作流",
     contextUsage: "上下文用量",
     /* 上下文用量弹层（输入框底栏 ContextUsagePicker） */
     context: {
@@ -345,6 +346,7 @@ export default {
     addFile: "Add file",
     addFileTitle: "Add file (you can also paste files or images)",
     moreOptions: "More options",
+    workflows: "Workflows",
     contextUsage: "Context usage",
     /* Context usage panel (ContextUsagePicker in the composer bottom bar) */
     context: {

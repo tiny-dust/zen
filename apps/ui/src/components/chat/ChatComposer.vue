@@ -11,6 +11,7 @@ import {
   Square,
   TriangleAlert,
   Wrench,
+  Workflow,
   X,
 } from "@lucide/vue";
 import { storeToRefs } from "pinia";
@@ -51,6 +52,7 @@ import type { AttachmentData } from "@/components/ai-elements/attachments";
 import type { ReasoningEffort } from "@zen/shared";
 
 const { t } = useI18n();
+const emit = defineEmits<{ openWorkflow: [] }>();
 const chatStore = useChatStore();
 const {
   input,
@@ -563,6 +565,17 @@ function removeAttachment(id: string) {
               <GoalChip />
             </div>
             <div class="flex flex-none items-center gap-1">
+              <Button
+                variant="ghost"
+                class="items-center rounded-lg text-[var(--color-mut)] transition-colors hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]"
+                :class="isCompactBar ? 'size-7 justify-center' : 'h-7 gap-1 px-2'"
+                :aria-label="t('chat.workflows')"
+                :title="t('chat.workflows')"
+                @click="emit('openWorkflow')"
+              >
+                <Workflow class="size-4" aria-hidden="true" />
+                <span v-if="!isCompactBar" class="text-[11px] font-normal">{{ t('chat.workflows') }}</span>
+              </Button>
               <PermissionPicker :compact="isCompactBar" />
               <ContextUsagePicker :compact="isCompactBar" />
             </div>
