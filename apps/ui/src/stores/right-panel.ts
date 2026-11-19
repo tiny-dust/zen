@@ -13,6 +13,7 @@ export type RightPanelKind =
   | "terminals"
   | "services"
   | "skill"
+  | "workflow"
   | "errors";
 
 export interface RightPanelTab {
@@ -46,6 +47,9 @@ export const PANEL_TITLES: Record<RightPanelKind, string> = {
   },
   get errors() {
     return i18n.global.t("app.panel.errors");
+  },
+  get workflow() {
+    return i18n.global.t("app.panel.workflow");
   },
 };
 

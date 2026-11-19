@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Bug, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, Server, Sparkles, SquareTerminal, X } from "@lucide/vue";
+import { Bot, Bug, Check, FolderOpen, GitBranch, Globe, PanelRight, Plus, RefreshCw, Server, Sparkles, SquareTerminal, Workflow, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -13,6 +13,7 @@ import GitPanel from "@/components/right/GitPanel.vue";
 import RightTerminalsPanel from "@/components/right/RightTerminalsPanel.vue";
 import ServicesPanel from "@/components/right/ServicesPanel.vue";
 import SkillPanel from "@/components/right/SkillPanel.vue";
+import WorkflowPanel from "@/components/workflow/WorkflowDialog.vue";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -76,6 +77,7 @@ const PANEL_ITEMS: { kind: RightPanelKind; icon: Component }[] = [
   { kind: "terminals", icon: SquareTerminal },
   { kind: "services", icon: Server },
   { kind: "skill", icon: Sparkles },
+  { kind: "workflow", icon: Workflow },
   { kind: "errors", icon: Bug },
 ];
 
@@ -223,6 +225,7 @@ function closeTab(id: string) {
       <ServicesPanel v-else-if="activeTab?.kind === 'services'" />
       <SkillPanel v-else-if="activeTab?.kind === 'skill'" />
       <ErrorsPanel v-else-if="activeTab?.kind === 'errors'" />
+      <WorkflowPanel v-show="activeTab?.kind === 'workflow'" :active="activeTab?.kind === 'workflow'" />
     </div>
   </aside>
 </template>

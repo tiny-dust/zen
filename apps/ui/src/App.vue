@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
-import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 
 import type { PetActivity } from "@zen/shared";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
-import WorkflowDialog from "@/components/workflow/WorkflowDialog.vue";
 import ActivityInboxDialog from "@/components/sidebar/ActivityInboxDialog.vue";
 import TerminalPanel from "@/components/bottom/TerminalPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
@@ -28,6 +27,7 @@ import { useChatStore } from "@/stores/chat";
 import { useGitStore } from "@/stores/git";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
+import { useRightPanelStore } from "@/stores/right-panel";
 import { useSchedulerStore } from "@/stores/scheduler";
 import { useSessionStatusStore } from "@/stores/session-status";
 import { useSessionWorktreeStore } from "@/stores/session-worktree";
@@ -36,7 +36,7 @@ import { useTerminalStore } from "@/stores/terminal";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-const workflowOpen = shallowRef(false);
+const rightPanelStore = useRightPanelStore();
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 const schedulerStore = useSchedulerStore();
@@ -213,7 +213,7 @@ const sideRail =
           <div :class="centerClass">
             <div class="flex h-full min-h-0 min-w-0 flex-col">
               <ChatTimeline />
-              <ChatComposer @open-workflow="workflowOpen = true" />
+              <ChatComposer @open-workflow="rightPanelStore.ensureTab('workflow')" />
             </div>
             <SessionInfoPanel v-if="showSessionColumn" />
           </div>
@@ -241,7 +241,6 @@ const sideRail =
 
     <InfoPopup />
     <ActivityInboxDialog />
-    <WorkflowDialog v-model:open="workflowOpen" />
     <SettingsPage />
     <Toaster />
   </div>
