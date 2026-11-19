@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ModelMessage } from "ai";
 
@@ -6,8 +6,55 @@ import {
   compactMessagesForOverflow,
   isContextOverflowError,
   recentTouchedFilePaths,
+  summarizeWithModel,
   tailWindowForCompact,
 } from "./context-overflow";
+import type { AgentSessionConfig } from "./agent-config";
+
+const summaryConfig: AgentSessionConfig = {
+  sessionId: "summary-cancel",
+  workspaceRoot: ".",
+  protocol: "openai-chat",
+  baseUrl: "http://127.0.0.1:1",
+  apiKey: "test-key",
+  model: "test-model",
+  permissionMode: "default",
+  emit: () => {},
+};
+
+describe("summarizeWithModel", () => {
+  it("取消信号传到默认摘要模型请求", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | null | undefined;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () => reject(new Error("summary cancelled")), { once: true });
+      });
+    });
+    const request = summarizeWithModel(summaryConfig, [user("摘要历史")], null, controller.signal);
+    const rejected = expect(request).rejects.toBeDefined();
+    try {
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      controller.abort();
+      expect(requestSignal?.aborted).toBe(true);
+      await rejected;
+    } finally {
+      controller.abort();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("ChatGPT 方案不调用非流式模型，保留裁剪回退", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("不应请求模型"));
+    try {
+      expect(await summarizeWithModel({ ...summaryConfig, chatgptPlan: true }, [user("历史")])).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
 
 function user(text: string): ModelMessage {
   return { role: "user", content: text };

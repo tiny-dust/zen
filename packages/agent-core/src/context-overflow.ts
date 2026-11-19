@@ -49,6 +49,7 @@ export async function summarizeWithModel(
   config: AgentSessionConfig,
   messages: ModelMessage[],
   previousInstructions?: string | null,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   // ChatGPT 方案只允许 stream=true；此处 generateText 为非流式，交由调用方确定性裁剪。
   if (config.chatgptPlan) return null;
@@ -59,6 +60,7 @@ export async function summarizeWithModel(
     model: createLanguageModel(config),
     system: system || undefined,
     messages,
+    abortSignal: signal,
   });
   return result.text.trim() || null;
 }
