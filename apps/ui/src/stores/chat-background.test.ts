@@ -158,6 +158,55 @@ describe("BackgroundTranscripts", () => {
     expect(restored?.[0]?.content).toBe("第一句第二句");
   });
 
+  it("切回仍在运行的会话：旧轮次落库 id 不同也只显示一次，新轮次流式内容保留", () => {
+    const oldUser = userMessage("第一轮");
+    const nextUser = userMessage("第二轮");
+    const oldLocal: ChatMessage = {
+      id: "old-local",
+      role: "assistant",
+      content: "已完成",
+      createdAt: 1001,
+    };
+    const oldPersisted: ChatMessage = { ...oldLocal, id: "old-persisted", createdAt: 2001 };
+    const transcripts = new BackgroundTranscripts();
+    transcripts.stash(SID, [oldUser, oldLocal, nextUser]);
+    transcripts.apply(SID, delta("正在处理第二轮"));
+
+    const merged = mergeBackgroundTranscript(
+      [oldUser, oldPersisted, nextUser],
+      transcripts.take(SID) ?? [],
+    );
+    expect(merged.map((message) => message.id)).toEqual([
+      oldUser.id,
+      oldPersisted.id,
+      nextUser.id,
+      expect.any(String),
+    ]);
+    expect(merged.map((message) => message.content)).toEqual([
+      "第一轮", "已完成", "第二轮", "正在处理第二轮",
+    ]);
+  });
+
+  it("同文的不同轮次助手消息不能误去重", () => {
+    const oldUser = userMessage("第一轮");
+    const nextUser = userMessage("第二轮");
+    const oldPersisted: ChatMessage = {
+      id: "old-persisted",
+      role: "assistant",
+      content: "好的",
+      createdAt: 2001,
+    };
+    const oldLocal = { ...oldPersisted, id: "old-local", createdAt: 1001 };
+    const nextLocal = { ...oldLocal, id: "next-local", createdAt: 3001 };
+    const merged = mergeBackgroundTranscript(
+      [oldUser, oldPersisted, nextUser],
+      [oldUser, oldLocal, nextUser, nextLocal],
+    );
+    expect(merged.map((message) => message.id)).toEqual([
+      oldUser.id, oldPersisted.id, nextUser.id, nextLocal.id,
+    ]);
+  });
+
   it("mergeBackgroundTranscript：数据库前缀 + 缓冲增量按 id 去重", () => {
     const user = userMessage("跑一下");
     const partial: ChatMessage = {

@@ -120,13 +120,31 @@ export class BackgroundTranscripts {
 
 /**
  * 打开运行中的后台会话时合并恢复消息：数据库前缀（用户消息/已完成轮次——
- * 流式内容 run 结束前不落库）+ 后台缓冲增量（切走快照或懒建缓冲），按消息 id
- * 去重：快照里已含的落库消息不重复，懒建缓冲缺失的已落库前缀由数据库补上。
+ * 流式内容 run 结束前不落库）+ 后台缓冲增量（切走快照或懒建缓冲）。
+ * 切走快照与数据库的同位置前缀按 id 对齐；已完成助手消息两端独立生成 id，
+ * 在已对齐前缀中按角色/内容/思考匹配。懒建缓冲无共同前缀，不按同文去重。
  */
 export function mergeBackgroundTranscript(
   persisted: ChatMessage[],
   buffered: ChatMessage[],
 ): ChatMessage[] {
+  let prefix = 0;
+  while (prefix < persisted.length && prefix < buffered.length) {
+    const saved = persisted[prefix];
+    const local = buffered[prefix];
+    if (saved.id === local.id) {
+      prefix += 1;
+      continue;
+    }
+    if (
+      prefix > 0 && saved.role === "assistant" && local.role === "assistant" &&
+      saved.content === local.content && (saved.reasoning ?? "") === (local.reasoning ?? "")
+    ) {
+      prefix += 1;
+      continue;
+    }
+    break;
+  }
   const seen = new Set(persisted.map((item) => item.id));
-  return [...persisted, ...buffered.filter((item) => !seen.has(item.id))];
+  return [...persisted, ...buffered.slice(prefix).filter((item) => !seen.has(item.id))];
 }

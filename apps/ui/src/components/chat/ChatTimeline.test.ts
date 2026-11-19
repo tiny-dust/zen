@@ -145,7 +145,7 @@ describe("ChatTimeline 长会话切换", () => {
     const duration = performance.now() - started;
     const rendered = wrapper.findAll(".chat-item").length;
     console.info(`[switch-benchmark] history=${count} firstPaint=${duration.toFixed(1)}ms rows=${rendered}`);
-    expect(rendered).toBeLessThanOrEqual(80);
+    expect(rendered).toBeLessThanOrEqual(20);
     expect(wrapper.find('.chat-item[data-mid="a-1599"]').exists()).toBe(true);
     expect(wrapper.find('.chat-item[data-mid="u-0"]').exists()).toBe(false);
     await wrapper.find('[data-testid="load-earlier-messages"]').trigger("click");
@@ -154,7 +154,7 @@ describe("ChatTimeline 长会话切换", () => {
     chatState.sessionId = "another-session";
     chatState.messages.value = history.map((message) => ({ ...message, id: `next-${message.id}` }));
     await wrapper.vm.$nextTick();
-    expect(wrapper.findAll(".chat-item").length).toBe(80);
+    expect(wrapper.findAll(".chat-item").length).toBe(20);
     expect(wrapper.find('.chat-item[data-mid="next-a-1599"]').exists()).toBe(true);
     wrapper.unmount();
   });
@@ -185,7 +185,7 @@ describe("ChatTimeline 长会话流式刻度", () => {
     try {
       await wrapper.vm.$nextTick();
       frames.splice(0).forEach((frame) => frame(0));
-      expect(rect.mock.calls.length).toBeGreaterThan(80);
+      expect(rect.mock.calls.length).toBeGreaterThan(20);
       rect.mockClear();
       chatState.messages.value.at(-1)!.content += "流式增量";
       await wrapper.vm.$nextTick();

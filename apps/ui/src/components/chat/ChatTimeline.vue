@@ -20,8 +20,9 @@ const { t } = useI18n();
 const chatStore = useChatStore();
 const { messages, lastError } = storeToRefs(chatStore);
 // content-visibility 仅跳过浏览器布局，不阻止 Vue 首次挂载所有历史气泡。
+const INITIAL_HISTORY_SIZE = 20;
 const HISTORY_PAGE_SIZE = 80;
-const visibleMessageCount = ref(HISTORY_PAGE_SIZE);
+const visibleMessageCount = ref(INITIAL_HISTORY_SIZE);
 const hiddenMessageCount = computed(() => Math.max(0, messages.value.length - visibleMessageCount.value));
 const timelineItems = computed(() => groupTimelineMessages(messages.value.slice(hiddenMessageCount.value)));
 
@@ -50,7 +51,7 @@ const completedTurnIds = computed(() => {
 });
 
 watch(() => chatStore.sessionId, () => {
-  visibleMessageCount.value = HISTORY_PAGE_SIZE;
+  visibleMessageCount.value = INITIAL_HISTORY_SIZE;
   ticks.value = [];
   exportOpen.value = false;
   exportTurnId.value = "";
