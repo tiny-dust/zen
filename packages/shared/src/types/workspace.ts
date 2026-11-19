@@ -27,6 +27,11 @@ export interface SessionRecord {
   /** 会话级模型覆盖；null/空表示跟随全局默认模型 */
   modelProviderId?: string | null;
   modelId?: string | null;
+  /** Plan / Act 的显式模型；null 表示沿用自动路由或会话默认模型 */
+  planModelProviderId?: string | null;
+  planModelId?: string | null;
+  actModelProviderId?: string | null;
+  actModelId?: string | null;
   /** 会话模式（interactive/plan/autopilot）；旧数据缺省按 interactive 处理 */
   mode?: SessionMode;
   /** 会话目标（Goals 目标模式）；null/缺省 = 未设定目标 */

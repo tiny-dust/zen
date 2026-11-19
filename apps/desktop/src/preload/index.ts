@@ -23,6 +23,7 @@ import { systemAbilitiesApi } from "./system-abilities";
 import { terminalApi } from "./terminal";
 import { updatesApi } from "./updates";
 import { workspaceApi } from "./workspace";
+import { workflowApi } from "./workflow";
 
 export type { AppInfo } from "./app";
 
@@ -46,6 +47,7 @@ const zen = {
   ...larkApi,
   ...workspaceApi,
   ...sessionApi,
+  ...workflowApi,
   pathForFile(file: File): string {
     return webUtils.getPathForFile(file);
   },

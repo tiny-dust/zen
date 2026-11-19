@@ -28,6 +28,7 @@ import { registerPetIpc, restorePetWindow } from "./pet-service";
 import { isPetTrayWindow } from "./pet-tray-window";
 import { isPetWindow } from "./pet-window";
 import { registerSessionIpc } from "./session-ipc";
+import { registerWorkflowIpc } from "./workflow-ipc";
 import { startGoalReminders, shutdownGoalReminders } from "./goal-reminders";
 import { resolveWorkspaceDir } from "./sandbox";
 import { resolveSessionWorktreeRoot } from "./session-worktree";
@@ -504,6 +505,7 @@ app.whenReady().then(() => {
     else sendOpenRequest();
   });
   registerSessionIpc((sessionId) => sessions.has(sessionId));
+  registerWorkflowIpc((sessionId) => sessions.has(sessionId));
   registerWorkspaceIpc();
   registerGitIpc();
   registerShellIpc();
