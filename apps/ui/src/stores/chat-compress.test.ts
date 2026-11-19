@@ -6,7 +6,7 @@ import type { ChatMessage } from "@zen/shared";
 
 import { COMPRESS_THRESHOLD, createCompressionDomain } from "@/stores/chat-compress";
 
-const appendMessage = vi.fn(async () => undefined);
+const appendMessage = vi.fn(async (_sessionId: string, _message: ChatMessage) => undefined);
 
 vi.mock("@/stores/session-info", () => ({
   useSessionInfoStore: () => ({
@@ -141,6 +141,26 @@ describe("createCompressionDomain.prepareCompression", () => {
     expect((cards()[0]?.meta as { output?: string }).output).not.toBe(original);
     // 更新旧卡时同步落库
     expect(appendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("更新已有摘要卡时传给 IPC 的是可克隆的纯对象（否则发送卡在思考中）", () => {
+    // 模拟 contextBridge：参数不可结构化克隆时同步抛错
+    appendMessage.mockImplementationOnce((_sessionId, message) => {
+      structuredClone(message);
+      return Promise.resolve(undefined);
+    });
+    const list = conversation();
+    list.splice(list.length - 1, 0, {
+      id: "card",
+      role: "tool",
+      content: "",
+      createdAt: 99,
+      meta: { toolName: "contextCompact", output: "旧摘要" },
+    } as ChatMessage);
+    const { domain } = domainOf(list);
+    expect(() => domain.prepareCompression()).not.toThrow();
+    expect(appendMessage).toHaveBeenCalledTimes(1);
+    expect(appendMessage.mock.calls[0]?.[1].id).toBe("card");
   });
 
   it("window.zen 缺失时只改本地状态，不落库", () => {

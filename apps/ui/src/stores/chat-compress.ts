@@ -3,6 +3,7 @@ import type { Ref } from "vue";
 
 import type { ChatMessage, ChatTurn } from "@zen/shared";
 
+import { toPlain } from "@/lib/utils";
 import { buildHistory, collectTouchedFiles, collectUploads, compressHistory } from "@/stores/chat-types";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { i18n } from "@/locales";
@@ -67,7 +68,8 @@ export function createCompressionDomain(options: CompressionDomainOptions) {
         output: summary,
       };
       if (zen) {
-        void zen.session.appendMessage(sessionId.value, lastCard);
+        // lastCard 是响应式 Proxy，直接过桥会同步抛克隆错误并中断发送
+        void zen.session.appendMessage(sessionId.value, toPlain(lastCard));
       }
       return;
     }
