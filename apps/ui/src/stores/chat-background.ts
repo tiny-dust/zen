@@ -6,7 +6,7 @@ import { applyStreamToMessage } from "@zen/shared";
 /** 单个后台会话的消息缓冲：切走运行中会话时的快照 + 持续归约进来的流式事件 */
 interface BackgroundTranscript {
   messages: ChatMessage[];
-  /** 插入 run 结束 / 原 run 恢复后另起新助手气泡（对齐 chat-events 的 breakAssistantBubble） */
+  /** 插入、原 run 恢复或子 Agent 重试后另起新助手气泡（对齐 chat-events） */
   breakBubble: boolean;
 }
 
@@ -53,6 +53,8 @@ export class BackgroundTranscripts {
         // 插入 run 开始：其输出另起新气泡，不并进原 run 的回复
       case "original_resumed":
         // 原 run 恢复：续跑输出另起新气泡
+      case "sub_agent_retry_started":
+        // 已结束的主会话重试子 Agent：旧回复保留，新输出另起气泡
         transcript.breakBubble = true;
         return;
       case "delta":

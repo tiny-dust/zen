@@ -272,6 +272,10 @@ export function createChatEventGateway(ctx: ChatEventContext) {
     // 切回运行中会话时优先用缓冲恢复，运行中未落库的流式内容不丢
     ctx.backgroundTranscripts.apply(id, event);
     switch (event.type) {
+      case "sub_agent_retry_started":
+        backgroundDispatchable.delete(id);
+        sessionStatusStore.set(id, "running");
+        break;
       case "insert_started":
         // 后台会话进入插入 run：其 done（phase=insert）不能当会话结束
         backgroundInserts.add(id);
@@ -618,6 +622,19 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         ctx.isPaused.value = false;
         ctx.status.value = "thinking";
         ctx.statusText.value = i18n.global.t("app.chat.originalResumed");
+        break;
+      case "sub_agent_retry_started":
+        // 上一次 done 已结束（也可能是 error）：新回复与旧气泡及 run summary 隔离
+        breakAssistantBubble = true;
+        ctx.runSummary.value = null;
+        ctx.lastDoneReason.value = null;
+        ctx.lastError.value = "";
+        ctx.currentStep.value = null;
+        ctx.statusText.value = "";
+        ctx.isPaused.value = false;
+        ctx.status.value = "thinking";
+        ctx.phase.value = "thinking";
+        sessionStatusStore.set(ctx.sessionId.value, "running");
         break;
       case "done": {
         // 插入 run 的终态：不是会话结束——不置 idle、不播音、不触发队列续发，
