@@ -168,7 +168,7 @@ function edgeLabel(edge: WorkflowEdge) {
       <span class="text-xs text-[var(--color-mut)]">{{ t('workflow.editorHint') }}</span>
     </div>
 
-    <div class="grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div class="grid min-h-0 min-w-0 gap-3">
       <div class="min-h-[400px] overflow-auto rounded-[var(--radius)] border border-[var(--color-line)] bg-[var(--color-sunken)]" :aria-label="t('workflow.graph')">
         <div class="relative" :style="{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }">
           <svg class="pointer-events-none absolute inset-0 size-full" :viewBox="`0 0 ${canvasWidth} ${canvasHeight}`" aria-hidden="true">

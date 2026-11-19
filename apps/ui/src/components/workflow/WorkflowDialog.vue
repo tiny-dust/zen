@@ -3,7 +3,7 @@ import { computed, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useChatStore } from "@/stores/chat";
@@ -14,7 +14,8 @@ import { toRuntimeWorkflow } from "./graph";
 import type { WorkflowGraph, WorkflowNode } from "./graph";
 
 const { t, te } = useI18n();
-const open = defineModel<boolean>("open", { required: true });
+const { active } = defineProps<{ active: boolean }>();
+const guideOpen = shallowRef(true);
 const chat = useChatStore();
 const models = useModelsStore();
 const graph = shallowRef<WorkflowGraph>({ nodes: [], edges: [], budgets: { maxSteps: 100, maxEffects: 10 } });
@@ -59,17 +60,20 @@ const canResume = computed(() => {
 });
 const dirty = shallowRef(false);
 
-watch([open, () => chat.sessionId], ([visible, sessionId], previous, onCleanup) => {
-  if (previous && previous[1] !== sessionId) newGraph();
+watch(() => chat.sessionId, () => {
+  newGraph();
   run.value = null;
   runId.value = "";
   recentRuns.value = [];
   pendingDecision.value = null;
+});
+
+watch([() => active, () => chat.sessionId], ([visible], _, onCleanup) => {
   if (!visible) return;
   void refreshList();
   const timer = setInterval(() => { void pollRun(); }, 1000);
   onCleanup(() => clearInterval(timer));
-});
+}, { immediate: true });
 
 function api() {
   if (!window.zen?.workflow) throw new Error(t("workflow.errApi"));
@@ -95,13 +99,13 @@ async function refreshList() {
 }
 let polling = false;
 async function pollRun() {
-  if (polling || !open.value || !chat.sessionId) return;
+  if (polling || !active || !chat.sessionId) return;
   const sessionId = chat.sessionId;
   const id = run.value?.id;
   polling = true;
   try {
     const [runs, latest] = await Promise.all([api().listRuns(sessionId), id ? api().get(id, sessionId) : Promise.resolve(null)]);
-    if (open.value && chat.sessionId === sessionId) {
+    if (active && chat.sessionId === sessionId) {
       recentRuns.value = runs;
       if (id && run.value?.id === id && latest) run.value = latest;
     }
@@ -239,17 +243,31 @@ async function resolveUncertain() {
     notice.value = t(decision === "retry" ? "workflow.retryNotice" : "workflow.skipNotice");
   });
 }
-function onOpenChange(value: boolean) { open.value = value; }
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="onOpenChange">
-    <DialogContent data-large-panel="true" class="flex h-[min(90vh,900px)] w-[min(1400px,96vw)] max-w-none flex-col overflow-hidden bg-[var(--color-panel)] text-[var(--color-txt)]">
-      <DialogHeader>
-        <DialogTitle>{{ t('workflow.title') }}</DialogTitle>
-        <DialogDescription>{{ t('workflow.description') }}</DialogDescription>
-      </DialogHeader>
-      <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-[var(--color-txt)]">
+    <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-1 pb-2">
+      <header class="space-y-1 pt-2">
+        <h2 class="text-sm font-semibold">{{ t('workflow.title') }}</h2>
+        <p class="text-xs text-[var(--color-mut)]">{{ t('workflow.description') }}</p>
+      </header>
+      <Collapsible v-model:open="guideOpen" class="rounded-md border border-[var(--color-line)] bg-[var(--color-chip-bg)] p-2">
+        <CollapsibleTrigger as-child>
+          <Button variant="ghost" size="sm" class="w-full justify-start px-1">{{ t('workflow.guideTitle') }} {{ guideOpen ? '−' : '+' }}</Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent class="space-y-2 pt-2 text-xs text-[var(--color-mut)]">
+          <p>{{ t('workflow.guideIntro') }}</p>
+          <ol class="list-decimal space-y-1 pl-5">
+            <li>{{ t('workflow.guideStep1') }}</li>
+            <li>{{ t('workflow.guideStep2') }}</li>
+            <li>{{ t('workflow.guideStep3') }}</li>
+            <li>{{ t('workflow.guideStep4') }}</li>
+          </ol>
+          <p>{{ t('workflow.guideSafety') }}</p>
+        </CollapsibleContent>
+      </Collapsible>
+      <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-end gap-2">
           <div class="flex min-w-48 flex-col gap-1"><Label for="workflow-name">{{ t('workflow.name') }}</Label><Input id="workflow-name" v-model="name" :disabled="running" maxlength="120" @update:model-value="dirty = true" /></div>
           <div class="flex w-44 flex-col gap-1"><Label for="workflow-wall">{{ t('workflow.wallTime') }}</Label><Input id="workflow-wall" v-model="wallMs" :disabled="running" type="number" min="1000" max="86400000" step="1000" @update:model-value="dirty = true" /></div>
@@ -299,7 +317,7 @@ function onOpenChange(value: boolean) { open.value = value; }
           </template>
         </section>
       </div>
-    </DialogContent>
-  </Dialog>
-  <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryModel' : 'workflow.skipModel')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (!value) pendingDecision = null; }" @confirm="resolveUncertain" />
+    </div>
+    <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryModel' : 'workflow.skipModel')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (!value) pendingDecision = null; }" @confirm="resolveUncertain" />
+  </div>
 </template>
