@@ -1,6 +1,6 @@
 import { ipcRenderer } from "electron";
 
-import type { WorkflowGraph } from "@zen/agent-core/src/workflow";
+import type { WorkflowGraph } from "@zen/agent-core";
 
 type WorkflowSnapshot = {
   graph: WorkflowGraph;

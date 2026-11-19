@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { runWorkflow, workflowEffectKey } from "@zen/agent-core/src/workflow";
+import { runWorkflow, workflowEffectKey } from "@zen/agent-core";
 
 const db = new Database(":memory:");
 vi.mock("./model-db-connection", () => ({ getDb: () => db }));

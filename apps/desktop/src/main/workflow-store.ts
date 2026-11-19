@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { validateWorkflow, workflowEffectKey } from "@zen/agent-core/src/workflow";
-import type { WorkflowEvent, WorkflowGraph, WorkflowJournal } from "@zen/agent-core/src/workflow";
+import { validateWorkflow, workflowEffectKey } from "@zen/agent-core";
+import type { WorkflowEvent, WorkflowGraph, WorkflowJournal } from "@zen/agent-core";
 
 import { getDb } from "./model-db-connection";
 

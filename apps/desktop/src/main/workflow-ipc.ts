@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 
-import { runWorkflow } from "@zen/agent-core/src/workflow";
+import { runWorkflow } from "@zen/agent-core";
 
 import { completeOnce } from "./model-api";
 import { listProviders } from "./model-db";
