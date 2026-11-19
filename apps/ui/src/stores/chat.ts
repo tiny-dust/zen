@@ -39,6 +39,7 @@ import type { UploadedFileRef } from "@/composables/useComposerTriggers";
 import { useSessionInfoStore } from "@/stores/session-info";
 import { useSessionStatusStore } from "@/stores/session-status";
 import { useSessionWorktreeStore } from "@/stores/session-worktree";
+import { useSettingsStore } from "@/stores/settings";
 import { useSkillUsageStore } from "@/stores/skill-usage";
 import { useTerminalStore } from "@/stores/terminal";
 import { useBrowserStore } from "@/stores/browser";
@@ -385,10 +386,25 @@ export const useChatStore = defineStore("chat", () => {
     };
   });
 
+  /**
+   * 当前生效模型：会话阶段覆盖 → 设置页阶段全局默认（仍需模型启用）→ 会话模型。
+   * plan 模式取 plan 阶段，interactive/autopilot 取 act 阶段（与主进程 resolvePhaseModel 一致）。
+   */
   const activeModelSelection = computed(() => {
+    const modelsStore = useModelsStore();
     const override = sessionMode.value === "plan" ? planModel.value : actModel.value;
-    return override && useModelsStore().findEnabledModel(override.providerId, override.modelId)
-      ? override : effectiveSelection.value;
+    if (override && modelsStore.findEnabledModel(override.providerId, override.modelId)) {
+      return override;
+    }
+    const settings = useSettingsStore().settings;
+    const phaseDefault = sessionMode.value === "plan" ? settings.planModel : settings.actModel;
+    if (
+      phaseDefault?.providerId && phaseDefault.modelId &&
+      modelsStore.findEnabledModel(phaseDefault.providerId, phaseDefault.modelId)
+    ) {
+      return phaseDefault;
+    }
+    return effectiveSelection.value;
   });
 
   /** 当前会话生效的模型对象（含能力），供上下文窗口 / 推理档位读取 */
@@ -1022,6 +1038,15 @@ export const useChatStore = defineStore("chat", () => {
       }
       statusText.value = i18n.global.t("chat.queued.hint");
       return;
+    }
+    // 计划批准：主进程识别「批准执行」后会把会话切回 interactive。UI 同步切换，
+    // 使本次请求以及上下文窗口按 Act 阶段模型解析——否则批准后仍按 Plan 模型
+    // 的窗口算上下文额度（两个模型窗口不同时百分比会明显失真）。
+    if (
+      sessionMode.value === "plan" &&
+      (options?.approvePlan === true || text.startsWith(PLAN_APPROVAL_MESSAGE))
+    ) {
+      sessionMode.value = "interactive";
     }
     // 编辑插入（分叉）：先从被编辑消息起截断旧分支（内存 + 落库），再走正常发送；
     // 「继续」不走分叉（要保留全部历史），仅放弃未发送的编辑锚点

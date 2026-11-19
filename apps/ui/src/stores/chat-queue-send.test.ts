@@ -39,6 +39,7 @@ function stubZen() {
       rename: vi.fn(),
       setWorkspace: vi.fn(),
       setMode: vi.fn(),
+      setPhaseModel: vi.fn(),
       autoTitle: vi.fn().mockResolvedValue(""),
     },
     workspace: {
@@ -270,6 +271,42 @@ describe("计划模式批准编排", () => {
     // 本地落一条普通用户消息
     const approval = chat.messages.find((message) => message.content === "批准执行");
     expect(approval?.role).toBe("user");
+  });
+
+  it("批准执行后切回 interactive：请求与上下文窗口按 Act 阶段模型计算", async () => {
+    const chat = useChatStore();
+    const models = useModelsStore();
+    models.providers = [
+      {
+        id: "p1",
+        name: "Test",
+        protocol: "openai-chat",
+        baseUrl: "",
+        enabled: true,
+        hasApiKey: false,
+        apiKeyMask: "",
+        createdAt: 1,
+        updatedAt: 1,
+        models: [
+          { id: "m1", name: "Act", enabled: true, capabilities: { contextWindow: 1_000_000 } },
+          { id: "m-plan", name: "Plan", enabled: true, capabilities: { contextWindow: 128_000 } },
+        ],
+      },
+    ];
+    await chat.setPhaseModel("plan", "p1", "m-plan");
+    await chat.setPhaseModel("act", "p1", "m1");
+    await chat.setSessionMode("plan");
+    // Plan 模式：上下文额度按 Plan 模型窗口
+    expect(chat.contextWindowTokens).toBe(128_000);
+
+    agentRun.mockResolvedValueOnce({ ok: true });
+    await chat.approvePlan();
+
+    // 批准即切回交互模式：请求与窗口都改用 Act 阶段模型
+    expect(chat.sessionMode).toBe("interactive");
+    expect(chat.contextWindowTokens).toBe(1_000_000);
+    const request = agentRun.mock.calls[0]?.[0] as { model?: string };
+    expect(request.model).toBe("m1");
   });
 
   it("非 plan 模式下 approvePlan 不发送", async () => {
