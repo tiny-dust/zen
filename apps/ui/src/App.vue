@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
 
 import type { PetActivity } from "@zen/shared";
 
 import ChatComposer from "@/components/chat/ChatComposer.vue";
 import ChatTimeline from "@/components/chat/ChatTimeline.vue";
+import WorkflowDialog from "@/components/workflow/WorkflowDialog.vue";
+import { Button } from "@/components/ui/button";
 import ActivityInboxDialog from "@/components/sidebar/ActivityInboxDialog.vue";
 import TerminalPanel from "@/components/bottom/TerminalPanel.vue";
 import InfoPopup from "@/components/layout/InfoPopup.vue";
@@ -35,6 +37,7 @@ import { useTerminalStore } from "@/stores/terminal";
 import { useUserStore } from "@/stores/user";
 import { useWorkspaceStore } from "@/stores/workspace";
 
+const workflowOpen = shallowRef(false);
 const chatStore = useChatStore();
 const gitStore = useGitStore();
 const schedulerStore = useSchedulerStore();
@@ -210,6 +213,7 @@ const sideRail =
 
           <div :class="centerClass">
             <div class="flex h-full min-h-0 min-w-0 flex-col">
+              <div class="flex justify-end px-3 py-1"><Button variant="ghost" size="sm" @click="workflowOpen = true">Workflows</Button></div>
               <ChatTimeline />
               <ChatComposer />
             </div>
@@ -239,6 +243,7 @@ const sideRail =
 
     <InfoPopup />
     <ActivityInboxDialog />
+    <WorkflowDialog v-model:open="workflowOpen" />
     <SettingsPage />
     <Toaster />
   </div>

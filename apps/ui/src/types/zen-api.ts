@@ -128,6 +128,37 @@ export type ModelSelectionState = ModelSelection & {
   model?: ProviderModel;
 };
 
+export type WorkflowSnapshot = {
+  graph: {
+    nodes: Array<
+      | { id: string; type: "start" | "end" | "condition" }
+      | { id: string; type: "loop"; maxIterations?: number }
+      | { id: string; type: "model" | "tool" | "script" | "http" | "approval"; idempotent: boolean }
+    >;
+    edges: Array<{ from: string; to: string; label: "next" | "true" | "false" | "body" | "exit" | "approved" | "denied" }>;
+  };
+  nodeSettings: Record<string, { prompt?: string; instructions?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }>;
+  budgets: { maxSteps: number; maxEffects: number; maxWallMs: number };
+};
+
+export type WorkflowDefinition = {
+  id: string; name: string; current_version: number; version: number; created_at: number; snapshot: WorkflowSnapshot;
+};
+
+export type WorkflowRunSummary = {
+  id: string; workflow_id: string; version: number; session_id: string;
+  status: string; detail: string | null; created_at: number; updated_at: number;
+};
+
+export type WorkflowRun = WorkflowRunSummary & {
+  snapshot: WorkflowSnapshot;
+  journal: Array<{
+    type: "before" | "after" | "transition"; runId: string; step: number; nodeId: string;
+    key?: string; outcome?: string; nextId?: string;
+  }>;
+  outputs: Array<{ key: string; node_id: string; output: string }>;
+};
+
 export interface DesktopOpener {
   id: string;
   label: string;
@@ -475,6 +506,8 @@ export interface ZenApi {
     setWorkspace(id: string, workspaceId: string | null): Promise<void>;
     /** 会话级模型覆盖；null 表示跟随全局默认模型 */
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void>;
+    /** Plan/Act 阶段模型覆盖；null 表示沿用会话模型。 */
+    setPhaseModel(id: string, phase: "plan" | "act", providerId: string | null, modelId: string | null): Promise<void>;
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void>;
     /** 会话目标（Goals 目标模式）；null 表示清除目标 */
@@ -526,6 +559,17 @@ export interface ZenApi {
     ): Promise<{ ok: boolean; sessionId?: string; messageCount?: number; error?: string }>;
     /** CLI `zen-cli open <sessionId>`：主进程广播请求，渲染层切到目标会话 */
     onOpenRequest(handler: (sessionId: string) => void): () => void;
+  };
+  workflow: {
+    list(sessionId: string): Promise<Array<{ id: string; name: string; current_version: number; created_at: number }>>;
+    listRuns(sessionId: string): Promise<WorkflowRunSummary[]>;
+    open(id: string, sessionId: string, version?: number): Promise<WorkflowDefinition | null>;
+    save(name: string, snapshot: WorkflowSnapshot, sessionId: string, id?: string): Promise<{ id: string; version: number }>;
+    start(workflowId: string, sessionId: string): Promise<WorkflowRun | null>;
+    get(id: string, sessionId: string): Promise<WorkflowRun | null>;
+    resume(id: string, sessionId: string): Promise<WorkflowRun | null>;
+    cancel(id: string, sessionId: string): Promise<{ ok: boolean; status: string }>;
+    review(id: string, decision: boolean | "skip" | "retry", sessionId: string, confirmation?: string): Promise<WorkflowRun | null>;
   };
   pathForFile(file: File): string;
   browser: {
