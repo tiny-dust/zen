@@ -6,7 +6,7 @@ import type { WorkflowGraph } from "./graph";
 describe("WorkflowEditor", () => {
   it("edits run budgets as controlled graph data and shows validation feedback", async () => {
     const wrapper = mount(WorkflowEditor, { props: { modelValue: { nodes: [], edges: [] } } });
-    expect(wrapper.find('[role="alert"]').text()).toContain("Invalid run budgets");
+    expect(wrapper.find('[role="alert"]').text()).toContain("运行预算无效");
     await wrapper.find('#workflow-steps').setValue('25');
     const next = wrapper.emitted('update:modelValue')?.[0]?.[0] as WorkflowGraph;
     expect(next.budgets).toEqual({ maxSteps: 25, maxEffects: 10 });
@@ -24,8 +24,8 @@ describe("WorkflowEditor", () => {
       edges: [],
     };
     const wrapper = mount(WorkflowEditor, { props: { modelValue: graph } });
-    expect(wrapper.text()).toContain("Unsupported");
-    await wrapper.find('button[aria-label="Inspect condition, condition node"]').trigger("click");
+    expect(wrapper.text()).toContain("不支持");
+    await wrapper.find('button[aria-label="查看「条件」（条件节点）"]').trigger("click");
     expect(wrapper.find("#workflow-left").exists()).toBe(true);
     expect(wrapper.find("#workflow-right").exists()).toBe(true);
     expect(wrapper.find("#workflow-operator").exists()).toBe(true);
@@ -35,7 +35,7 @@ describe("WorkflowEditor", () => {
   it("emits a new JSON graph and selection when adding a node", async () => {
     const graph: WorkflowGraph = { nodes: [], edges: [] };
     const wrapper = mount(WorkflowEditor, { props: { modelValue: graph } });
-    const addButton = wrapper.findAll("button").find((button) => button.text().includes("Add node"));
+    const addButton = wrapper.findAll("button").find((button) => button.text().includes("添加节点"));
     expect(addButton).toBeDefined();
     await addButton!.trigger("click");
     const next = wrapper.emitted("update:modelValue")?.[0]?.[0] as WorkflowGraph;
