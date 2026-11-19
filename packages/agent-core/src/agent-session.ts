@@ -1367,7 +1367,20 @@ export class AgentSession {
     // 时停；长任务靠步间自动压缩上下文 + 用户手动停止兜底。
     if (state.finishReason === "tool-calls" || state.lastStepHadToolCalls) {
       if (this.shouldAutoCompact()) {
-        await this.compactContext();
+        await this.compactContext(controller);
+        if (this.controller !== controller || !this.runActive) {
+          return;
+        }
+        if (signal.aborted) {
+          if (this.paused) {
+            this.pausedAcked = true;
+            this.config.emit({ type: "status", sessionId: this.sessionId, status: "paused" });
+            this.resolvePauseWaiters();
+          } else {
+            this.finishRun("cancelled");
+          }
+          return;
+        }
       }
       await this.continueLoop();
       return;
@@ -1392,7 +1405,12 @@ export class AgentSession {
    * 步间主动压缩：LLM 结构化摘要替换早期历史（尾部窗口整体保留），摘要失败回退
    * 确定性裁剪。压缩一次压到位；失败不阻塞 run（继续循环，溢出兜底仍会接管）。
    */
-  private async compactContext(): Promise<boolean> {
+  private async compactContext(controller: AbortController): Promise<boolean> {
+    const signal = controller.signal;
+    const isCurrent = () => this.controller === controller && this.runActive && !signal.aborted;
+    if (!isCurrent()) {
+      return false;
+    }
     const messages = this.messages;
     const tail = tailWindowForCompact(messages);
     const head = messages.slice(0, messages.length - tail.length);
@@ -1400,17 +1418,32 @@ export class AgentSession {
       return false;
     }
     let summary: string | null = null;
+    let onAbort = () => {};
+    const cancelled = new Promise<null>((resolve) => {
+      onAbort = () => resolve(null);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
     try {
-      summary = this.config.summarizeHistory
-        ? await this.config.summarizeHistory(head, this.historyInstructions)
-        : await summarizeWithModel(this.config, head, this.historyInstructions);
+      // 自定义摘要器可能忽略 signal；中止时解除等待，迟到结果不再参与写回。
+      const request = this.config.summarizeHistory
+        ? this.config.summarizeHistory(head, this.historyInstructions, signal)
+        : summarizeWithModel(this.config, head, this.historyInstructions, signal);
+      summary = await Promise.race([request, cancelled]);
     } catch {
       summary = null;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+    if (!isCurrent()) {
+      return false;
     }
     if (summary?.trim()) {
       // 新摘要已并入旧 instructions 的要点：整体替换，避免反复压缩堆叠增长；
       // 再回灌压缩前最近触及文件的当前内容，保持续跑时对代码现状的感知
       const reinjected = await this.renderReinjectedFiles(head);
+      if (!isCurrent()) {
+        return false;
+      }
       this.historyInstructions = [formatCompactSummary(summary), reinjected]
         .filter((part): part is string => !!part)
         .join("\n\n");

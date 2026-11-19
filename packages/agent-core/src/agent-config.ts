@@ -120,6 +120,7 @@ export interface AgentSessionConfig {
   summarizeHistory?: (
     messages: ModelMessage[],
     previousInstructions?: string | null,
+    signal?: AbortSignal,
   ) => Promise<string | null>;
   /** 是否启用多 Agent 协作工具（spawnAgent 等）；子 Agent 应为 false */
   multiAgent?: boolean;

@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as childProcess from "node:child_process";
+
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AgentStreamEvent, ChatTurn } from "@zen/shared";
 
@@ -14,6 +16,11 @@ import {
   rewriteSubAgentPanelEvent,
 } from "./agent-session";
 import type { AgentImageAttachment } from "./agent-session";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return { ...original, spawn: vi.fn(() => { throw new Error("测试禁止启动进程"); }) };
+});
 
 /**
  * AgentSession 缺口补测：
@@ -160,6 +167,7 @@ type Behavior =
   | "text"
   | "tasks"
   | "approve-write"
+  | "approve-terminal"
   | "write-then-read"
   | "ask"
   | "spawn-tasks"
@@ -295,6 +303,11 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
     return seq === 1
       ? toolCall("writeFile", { path: "approve.txt", content: "x" }, "call_write_1")
       : textBlocks("written");
+  }
+  if (behavior === "approve-terminal") {
+    return seq === 1
+      ? toolCall("runTerminal", { command: "echo probe > approval-probe.txt" }, "call_terminal_probe")
+      : textBlocks("rejected");
   }
   if (behavior === "write-then-read") {
     return seq === 1
@@ -653,6 +666,33 @@ describe("AgentSession 消息组装", () => {
 });
 
 describe("AgentSession 工具事件与审批", () => {
+  it.each([false, true])("smart 可疑命令等待人工审批，不启动进程（自动闸=%s）", async (withGate) => {
+    const events: AgentStreamEvent[] = [];
+    const gate = vi.fn(async () => ({ approved: false }));
+    const spawn = vi.spyOn(childProcess, "spawn").mockImplementation(() => { throw new Error("测试禁止启动进程"); });
+    const session = createSession(events, `terminal-confirm-${withGate}`, "approve-terminal", {
+      permissionMode: "smart",
+      approvalGate: withGate ? gate : undefined,
+    });
+    try {
+      await session.start("审批探针");
+      const request = events.find((event) => event.type === "approval_request");
+      expect(request).toBeDefined();
+      expect(session.getRunState().waitingApproval).toBe(true);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(gate).toHaveBeenCalledTimes(withGate ? 1 : 0);
+      if (request?.type !== "approval_request") {
+        throw new Error("未产生人工审批请求");
+      }
+      await session.reject({ approvalId: request.request.approvalId, approved: false });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(events.some((event) => event.type === "tool_end" && event.state === "denied")).toBe(true);
+    } finally {
+      await session.cancel();
+      spawn.mockRestore();
+    }
+  });
+
   it("同一步的写入先完成，再读取新文件", async () => {
     const events: AgentStreamEvent[] = [];
     const session = createSession(events, "sess-ordered-tools", "write-then-read", {
@@ -913,6 +953,68 @@ describe("AgentSession 步间主动压缩", () => {
     expect(retryBody).toContain("t1 清单");
     expect(retryBody).not.toContain("旧问题0");
     expect(retryBody).toContain("当前任务");
+  });
+
+  it.each(["pause", "cancel"] as const)("摘要挂起时 %s 立即收尾，迟到结果不改历史", async (action) => {
+    const events: AgentStreamEvent[] = [];
+    const rewrites: string[] = [];
+    let summarySignal: AbortSignal | undefined;
+    let finishSummary: (value: string) => void = () => { throw new Error("摘要器尚未启动"); };
+    const summary = new Promise<string>((resolve) => { finishSummary = resolve; });
+    const session = createSession(events, `compact-${action}`, "auto-compact", {
+      contextWindow: 1000,
+      summarizeHistory: (_messages, _instructions, signal) => {
+        summarySignal = signal;
+        return summary;
+      },
+      modelHistoryStore: {
+        append: () => {},
+        rewrite: (history) => { rewrites.push(JSON.stringify(history)); },
+      },
+    });
+    let settled = false;
+    const run = session.start("当前任务", bigHistory()).then(() => { settled = true; });
+    await pollUntil(() => summarySignal !== undefined);
+    const rewriteCount = rewrites.length;
+    await session[action]();
+    await pollUntil(() => settled, 1000);
+    await run;
+    expect(summarySignal?.aborted).toBe(true);
+    expect(events.some((event) => event.type === "context_compacted" || event.type === "error")).toBe(false);
+    if (action === "pause") {
+      expect(events.some((event) => event.type === "status" && event.status === "paused")).toBe(true);
+      expect(events.some((event) => event.type === "done")).toBe(false);
+      // 不等旧摘要完成就恢复；旧结果不能覆盖恢复后的历史。
+      await session.resume();
+      expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+    } else {
+      expect(events.filter((event) => event.type === "done")).toEqual([
+        { type: "done", sessionId: session.sessionId, reason: "cancelled" },
+      ]);
+    }
+    finishSummary("不应写回的迟到摘要");
+    await delay(20);
+    expect(rewrites.length).toBe(rewriteCount);
+    expect(events.some((event) => event.type === "context_compacted" || event.type === "error")).toBe(false);
+  });
+
+  it("摘要取消后的迟到拒绝被消费，不触发裁剪或错误终态", async () => {
+    const events: AgentStreamEvent[] = [];
+    let started = false;
+    let rejectSummary: (error: Error) => void = () => { throw new Error("摘要器尚未启动"); };
+    const summary = new Promise<string>((_resolve, reject) => { rejectSummary = reject; });
+    const session = createSession(events, "compact-late-reject", "auto-compact", {
+      contextWindow: 1000,
+      summarizeHistory: () => { started = true; return summary; },
+    });
+    const run = session.start("当前任务", bigHistory());
+    await pollUntil(() => started);
+    await session.cancel();
+    rejectSummary(new Error("迟到的上游错误"));
+    await run;
+    await delay(20);
+    expect(events.some((event) => event.type === "error" || event.type === "context_compacted")).toBe(false);
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
   });
 
   it("未知 contextWindow 不主动压缩：全量直发且摘要器未被调用", async () => {
