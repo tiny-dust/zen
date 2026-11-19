@@ -65,8 +65,6 @@ const {
   elementMarks,
   sessionWorkspaceId,
   sessionMode,
-  planModel,
-  actModel,
   queuedMessages,
   editAnchorId,
 } = storeToRefs(chatStore);
@@ -555,10 +553,6 @@ function removeAttachment(id: string) {
             <div class="flex min-w-0 flex-wrap items-center gap-1">
               <PromptPicker :compact="isCompactBar" />
               <SessionModePicker :compact="isCompactBar" />
-              <template v-if="sessionMode === 'plan' || planModel || actModel">
-                <ModelPicker phase="plan" />
-                <ModelPicker phase="act" />
-              </template>
               <WorkspacePicker :compact="isCompactBar" />
               <ComposerBranchPicker :compact="isCompactBar" />
               <!-- 会话目标（Goals 目标模式）：无目标=设定入口，有目标=摘要 chip -->

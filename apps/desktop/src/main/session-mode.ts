@@ -1,4 +1,11 @@
-import type { AgentRunRequest, PermissionMode, SessionGoal, SessionMode, SessionRecord } from "@zen/shared";
+import type {
+  AgentRunRequest,
+  PermissionMode,
+  PhaseModelRef,
+  SessionGoal,
+  SessionMode,
+  SessionRecord,
+} from "@zen/shared";
 import {
   normalizeSessionMode,
   PERMISSION_MODE_LABELS,
@@ -42,15 +49,32 @@ export function resolveRunSessionMode(
   return normalized;
 }
 
-/** 明确配置的阶段模型优先；缺省回落调用方现有自动路由/默认选择。 */
+/** 阶段模型默认值（设置页「阶段模型」卡片的全局配置） */
+export interface PhaseModelDefaults {
+  planModel?: PhaseModelRef | null;
+  actModel?: PhaseModelRef | null;
+}
+
+/**
+ * 阶段模型解析，优先级：会话阶段覆盖 → 全局阶段默认 → 调用方 fallback（自动路由/默认选择）。
+ * plan 模式取 planModel，其余模式（interactive/autopilot）取 actModel。
+ */
 export function resolvePhaseModel(
   session: SessionRecord,
   mode: SessionMode,
   fallback: { providerId: string | null | undefined; modelId: string | null | undefined },
+  defaults?: PhaseModelDefaults,
 ): { providerId: string | null | undefined; modelId: string | null | undefined } {
   const providerId = mode === "plan" ? session.planModelProviderId : session.actModelProviderId;
   const modelId = mode === "plan" ? session.planModelId : session.actModelId;
-  return providerId && modelId ? { providerId, modelId } : fallback;
+  if (providerId && modelId) {
+    return { providerId, modelId };
+  }
+  const globalDefault = mode === "plan" ? defaults?.planModel : defaults?.actModel;
+  if (globalDefault?.providerId && globalDefault.modelId) {
+    return { providerId: globalDefault.providerId, modelId: globalDefault.modelId };
+  }
+  return fallback;
 }
 
 /** 各模式的系统提示词追加指令（interactive 返回空串） */

@@ -6,6 +6,7 @@ import ModelPicker from "@/components/chat/ModelPicker.vue";
 import { i18n } from "@/locales";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
+import { useSettingsStore } from "@/stores/settings";
 
 import type { AppLocale, ProviderSummary } from "@zen/shared";
 
@@ -34,6 +35,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
+
+/** 弹层里的按钮按可见文本定位（tab / 模型项 / 顶部首项） */
+function buttonByText(wrapper: ReturnType<typeof mount>, text: string) {
+  const found = wrapper
+    .findAll('[role="listbox"] button')
+    .find((button) => button.text().trim() === text);
+  if (!found) {
+    throw new Error(`button not found: ${text}`);
+  }
+  return found;
+}
 
 describe("ModelPicker 自动选择文案", () => {
   it.each([
@@ -72,30 +84,61 @@ describe("ModelPicker 自动选择文案", () => {
     expect(models.autoRoute).toBe(false);
     wrapper.unmount();
   });
+});
 
-  it("Plan 和 Act 的阶段模型互不覆盖，清除阶段选择后跟随会话", async () => {
+describe("ModelPicker 阶段模型 tab", () => {
+  it("Plan 与 Act 的会话覆盖互不影响，清除后回落全局默认/会话模型", async () => {
     const models = useModelsStore();
     const chat = useChatStore();
+    const settings = useSettingsStore();
     const providers = [{ ...provider, models: [
       ...provider.models,
       { id: "m2", name: "Executor", enabled: true },
     ] }];
     models.providers = providers;
     vi.mocked(window.zen!.models.list).mockResolvedValue(providers);
-    const plan = mount(ModelPicker, { props: { phase: "plan" } });
-    const act = mount(ModelPicker, { props: { phase: "act" } });
-    await plan.get("button").trigger("click");
-    await plan.findAll('[role="listbox"] button').find((button) => button.text().trim() === "Reasoner")!.trigger("click");
-    await act.get("button").trigger("click");
-    await act.findAll('[role="listbox"] button').find((button) => button.text().trim() === "Executor")!.trigger("click");
-    expect(chat.planModel?.modelId).toBe("m1");
-    expect(chat.actModel?.modelId).toBe("m2");
-    expect(models.autoRoute).toBe(false);
-    await plan.get("button").trigger("click");
-    await plan.get('button[aria-label="跟随会话模型"]').trigger("click");
+    // 设置页配置：Plan 全局默认为 Executor
+    settings.settings = {
+      ...settings.settings,
+      planModel: { providerId: "p1", modelId: "m2" },
+    };
+
+    const wrapper = mount(ModelPicker);
+
+    // 执行 tab：选中 Reasoner，只写会话 Act 覆盖
+    await wrapper.get("button").trigger("click");
+    await buttonByText(wrapper, "执行 (Act)").trigger("click");
+    await buttonByText(wrapper, "Reasoner").trigger("click");
+    expect(chat.actModel?.modelId).toBe("m1");
     expect(chat.planModel).toBeNull();
-    expect(chat.actModel?.modelId).toBe("m2");
-    plan.unmount();
-    act.unmount();
+
+    // 计划 tab：会话未覆盖时顶部展示全局默认
+    await wrapper.get("button").trigger("click");
+    await buttonByText(wrapper, "计划 (Plan)").trigger("click");
+    expect(wrapper.get('[role="listbox"]').text()).toContain("全局默认：Test / Executor");
+    await buttonByText(wrapper, "Reasoner").trigger("click");
+    expect(chat.planModel?.modelId).toBe("m1");
+    // 两个阶段互不覆盖
+    expect(chat.actModel?.modelId).toBe("m1");
+
+    // 计划阶段覆盖生效时，plan 模式使用会话覆盖
+    await chat.setSessionMode("plan");
+    expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m1" });
+
+    // 清除计划覆盖：回落 Plan 全局默认（Executor）
+    await wrapper.get("button").trigger("click");
+    const followGlobal = wrapper
+      .findAll('[role="listbox"] button')
+      .find((button) => button.text().includes("跟随全局默认"));
+    expect(followGlobal).toBeTruthy();
+    await followGlobal!.trigger("click");
+    expect(chat.planModel).toBeNull();
+    expect(chat.actModel?.modelId).toBe("m1");
+    expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m2" });
+
+    // 没有全局默认时回落会话模型
+    settings.settings = { ...settings.settings, planModel: null };
+    expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m1" });
+    wrapper.unmount();
   });
 });

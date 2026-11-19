@@ -139,6 +139,8 @@ export type WorkflowSnapshot = {
   };
   nodeSettings: Record<string, { prompt?: string; instructions?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }>;
   budgets: { maxSteps: number; maxEffects: number; maxWallMs: number };
+  /** 画布位置（仅渲染层用；旧版本快照没有该字段时按顺序自动排版） */
+  layout?: Record<string, { x: number; y: number }>;
 };
 
 export type WorkflowDefinition = {

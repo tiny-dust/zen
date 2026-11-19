@@ -126,6 +126,15 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     titleKey: "settings.nav.models",
     keywords: ["model provider api key base url 模型 供应商 添加模型 上下文 推理"],
   },
+  {
+    tab: "models",
+    sectionId: "set-models-phase",
+    titleKey: "settings.models.phaseTitle",
+    descKey: "settings.models.phaseDesc",
+    keywords: [
+      "phase plan act model default 阶段 计划 执行 模型 默认 规划 交互",
+    ],
+  },
 ];
 
 /** 匹配：标题/描述/关键词中包含查询串（大小写不敏感）即命中 */

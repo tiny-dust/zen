@@ -10,33 +10,86 @@ import { Input } from "@/components/ui/input";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import { useChatStore } from "@/stores/chat";
 import { useModelsStore } from "@/stores/models";
+import { useSettingsStore } from "@/stores/settings";
 
-const props = defineProps<{
+defineProps<{
   /** 小屏底栏：只显示厂商 icon，完整名称进 title */
   compact?: boolean;
-  /** 不传时选择会话模型；阶段选择只覆盖当前会话的对应阶段。 */
-  phase?: "plan" | "act";
 }>();
 
 const { t } = useI18n();
 const chatStore = useChatStore();
 const modelsStore = useModelsStore();
+const settingsStore = useSettingsStore();
 const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
-// 会话级模型覆盖优先：切换模型只影响当前会话
-const { effectiveSelection, planModel, actModel } = storeToRefs(chatStore);
-const phaseOverride = computed(() => props.phase === "plan" ? planModel.value : actModel.value);
-const displayedSelection = computed(() => props.phase ? phaseOverride.value ?? effectiveSelection.value : effectiveSelection.value);
-const displayedModel = computed(() =>
-  modelsStore.findEnabledModel(displayedSelection.value.providerId, displayedSelection.value.modelId),
-);
+// 会话级模型覆盖与阶段覆盖都在 chat store：切换只影响当前会话
+const { effectiveSelection, activeModelSelection, planModel, actModel } = storeToRefs(chatStore);
 
 const open = ref(false);
 const query = ref("");
-const activeTab = ref<"model" | "sub" | "external">("model");
+/** 模型 / 计划阶段 / 执行阶段 / 子代理 / 外部 agent 共用同一个弹层 */
+const activeTab = ref<"model" | "plan" | "act" | "sub" | "external">("model");
 const activeProviderId = ref<string | "recent" | null>(null);
 const recentKeys = ref<string[]>([]);
 const rootEl = ref<HTMLElement | null>(null);
 const searchEl = ref<InstanceType<typeof Input> | null>(null);
+/** 弹层向上展开：按触发器到窗口顶部的距离限制高度，短窗口下也不溢出画面 */
+const maxHeight = ref(0);
+
+const tabs = computed(() => [
+  { id: "model" as const, label: t("chat.model.tabModel") },
+  { id: "plan" as const, label: t("chat.model.tabPlan") },
+  { id: "act" as const, label: t("chat.model.tabAct") },
+  { id: "sub" as const, label: t("chat.model.tabSub") },
+  { id: "external" as const, label: t("chat.model.tabExternal") },
+]);
+
+/** 当前 tab 对应的阶段；null = 选择会话模型（模型/子代理/外部 tab） */
+const activePhase = computed<"plan" | "act" | null>(() =>
+  activeTab.value === "plan" || activeTab.value === "act" ? activeTab.value : null,
+);
+
+/** 会话阶段覆盖（只表示本会话的显式选择） */
+const phaseOverride = computed(() =>
+  activePhase.value === "plan"
+    ? planModel.value
+    : activePhase.value === "act"
+      ? actModel.value
+      : null,
+);
+
+/** 设置页「阶段模型」里的全局默认 */
+const globalPhaseDefault = computed(() =>
+  activePhase.value === "plan"
+    ? settingsStore.settings.planModel ?? null
+    : activePhase.value === "act"
+      ? settingsStore.settings.actModel ?? null
+      : null,
+);
+const globalPhaseDefaultModel = computed(() => {
+  const ref = globalPhaseDefault.value;
+  return ref ? modelsStore.findEnabledModel(ref.providerId, ref.modelId) : null;
+});
+const globalPhaseDefaultLabel = computed(() => {
+  const found = globalPhaseDefaultModel.value;
+  return found
+    ? t("chat.model.providerModel", { provider: found.provider.name, model: found.model.name })
+    : t("chat.model.providerModel", {
+        provider: globalPhaseDefault.value?.providerId ?? "",
+        model: globalPhaseDefault.value?.modelId ?? "",
+      });
+});
+
+/** 触发器展示的模型：阶段 tab 显示「覆盖 → 全局默认 → 会话模型」，其余显示当前生效模型 */
+const displayedSelection = computed(() => {
+  if (!activePhase.value) {
+    return activeModelSelection.value;
+  }
+  return phaseOverride.value ?? globalPhaseDefault.value ?? effectiveSelection.value;
+});
+const displayedModel = computed(() =>
+  modelsStore.findEnabledModel(displayedSelection.value.providerId, displayedSelection.value.modelId),
+);
 
 const enabledGroups = computed(() =>
   providers.value
@@ -94,9 +147,23 @@ function itemKey(providerId: string, modelId: string) {
 
 function isSelected(providerId: string, modelId: string) {
   // 自动路由模式下唯一选中态挂在「自动」项上（zen-001：同屏不出现两个勾）
-  if (props.phase ? !phaseOverride.value : autoRoute.value) return false;
+  if (activePhase.value) {
+    return phaseOverride.value ? selectedKey.value === itemKey(providerId, modelId) : false;
+  }
+  if (autoRoute.value) return false;
   return selectedKey.value === itemKey(providerId, modelId);
 }
+
+/** 该项是否是当前阶段的全局默认（用于「全局默认」来源标注） */
+function isPhaseGlobalDefault(providerId: string, modelId: string) {
+  const ref = globalPhaseDefault.value;
+  return Boolean(ref && ref.providerId === providerId && ref.modelId === modelId);
+}
+
+/** 顶部首项：「自动（推荐）」或「跟随全局默认」的选中态 */
+const topChoiceSelected = computed(() =>
+  activePhase.value ? !phaseOverride.value : autoRoute.value,
+);
 
 /** 上次路由理由：规则 id → i18n 文本，多规则以「；」拼接 */
 const routingReason = computed(() => {
@@ -113,7 +180,6 @@ const routingReason = computed(() => {
 /** 触发按钮 title：自动模式下展示「自动模式 + 当前生效模型 + 上次理由」 */
 const triggerTitle = computed(() => {
   const modelName = displayedModel.value?.model.name || displayedModel.value?.provider.name || t("chat.model.noModel");
-  if (props.phase) return `${props.phase === "plan" ? "Plan" : "Act"}: ${modelName}`;
   if (!autoRoute.value) return modelName;
   return t("model-routing.modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("model-routing.modelRouting.autoSubtitle") });
 });
@@ -126,8 +192,8 @@ function railClass(id: string | "recent") {
 }
 
 async function pick(providerId: string, modelId: string) {
-  if (props.phase) {
-    await chatStore.setPhaseModel(props.phase, providerId, modelId);
+  if (activePhase.value) {
+    await chatStore.setPhaseModel(activePhase.value, providerId, modelId);
   } else {
     modelsStore.setAutoRoute(false);
     await chatStore.setSessionModel(providerId, modelId);
@@ -137,10 +203,13 @@ async function pick(providerId: string, modelId: string) {
   open.value = false;
 }
 
-/** 选中「自动（推荐）」：清掉会话级覆盖，每次发送前由 chat store 按请求特征路由 */
-async function pickAuto() {
-  if (props.phase) {
-    await chatStore.setPhaseModel(props.phase, null, null);
+/**
+ * 顶部首项：模型 tab 选中「自动（推荐）」清掉会话级覆盖，每次发送前路由；
+ * 阶段 tab 选中「跟随全局默认」清掉本会话的阶段覆盖（回落全局默认 / 会话模型）。
+ */
+async function pickTopChoice() {
+  if (activePhase.value) {
+    await chatStore.setPhaseModel(activePhase.value, null, null);
   } else {
     modelsStore.setAutoRoute(true);
     await chatStore.setSessionModel(null, null);
@@ -153,9 +222,16 @@ function selectProvider(id: string | "recent" | null) {
   query.value = "";
 }
 
+/** 可用高度 = 触发器顶边到窗口顶边的距离（弹层与其保留 8px 间距），上限 440px */
+function syncMaxHeight() {
+  const top = rootEl.value?.getBoundingClientRect().top ?? 0;
+  maxHeight.value = Math.max(180, Math.min(440, Math.round(top - 16)));
+}
+
 function toggleOpen() {
   open.value = !open.value;
   if (open.value) {
+    syncMaxHeight();
     void modelsStore.refresh();
     if (!activeProviderId.value && displayedSelection.value.providerId) {
       activeProviderId.value = displayedSelection.value.providerId;
@@ -180,16 +256,25 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener("mousedown", onDocClick);
   document.addEventListener("keydown", onKeydown);
+  window.addEventListener("resize", syncMaxHeight);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("mousedown", onDocClick);
   document.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", syncMaxHeight);
 });
 
 watch(providers, () => {
   if (open.value && !activeProviderId.value && enabledGroups.value[0]) {
     activeProviderId.value = enabledGroups.value[0].id;
+  }
+});
+
+watch(activeTab, () => {
+  query.value = "";
+  if (!activeProviderId.value && displayedSelection.value.providerId) {
+    activeProviderId.value = displayedSelection.value.providerId;
   }
 });
 </script>
@@ -202,17 +287,17 @@ watch(providers, () => {
       :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
       :title="triggerTitle"
-      :aria-label="phase ? triggerTitle : t('chat.model.label', { name: displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') })"
+      :aria-label="t('chat.model.label', { name: displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') })"
       @click="toggleOpen"
     >
       <VendorLogo
-        :vendor="displayedModel?.provider.name || displayedModel?.model.id"
+        :vendor="displayedModel?.provider.name || displayedModel?.model.name || t('chat.model.noModel')"
         :size="compact ? 16 : 16"
       />
-      <span v-if="!compact && !phase && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
+      <span v-if="!compact && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
         <Sparkles class="size-3" aria-hidden="true" />
       </span>
-      <span v-if="!compact" class="truncate font-medium">{{ phase ? (phase === 'plan' ? 'Plan · ' : 'Act · ') : '' }}{{ displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') }}</span>
+      <span v-if="!compact" class="truncate font-medium">{{ displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') }}</span>
       <svg
         v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"
@@ -226,17 +311,14 @@ watch(providers, () => {
 
     <div
       v-if="open"
-      class="absolute bottom-[calc(100%+8px)] left-0 z-[var(--z-popup)] w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] shadow-[var(--shadow-menu)]"
+      class="absolute bottom-[calc(100%+8px)] left-0 z-[var(--z-popup)] flex w-[min(520px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-[var(--color-line-strong)] bg-[var(--color-popover)] shadow-[var(--shadow-menu)]"
+      :style="maxHeight ? { maxHeight: `${maxHeight}px` } : undefined"
       role="listbox"
       :aria-label="t('chat.model.select')"
     >
-      <div class="flex gap-3.5 border-b border-[var(--color-line)] px-3.5 pt-2.5">
+      <div class="flex flex-none gap-3.5 border-b border-[var(--color-line)] px-3.5 pt-2.5">
         <Button
-          v-for="tab in [
-            { id: 'model', label: t('chat.model.tabModel') },
-            { id: 'sub', label: t('chat.model.tabSub') },
-            { id: 'external', label: t('chat.model.tabExternal') },
-          ]"
+          v-for="tab in tabs"
           :key="tab.id"
           variant="ghost"
           class="relative h-auto rounded-none px-0 pb-2 text-[12px] font-normal hover:bg-transparent"
@@ -245,14 +327,14 @@ watch(providers, () => {
               ? 'font-semibold text-[var(--color-txt-strong)] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t after:bg-[var(--color-accent)] after:content-\'\']'
               : 'text-[var(--color-mut)]'
           "
-          @click="activeTab = tab.id as typeof activeTab"
+          @click="activeTab = tab.id"
         >
           {{ tab.label }}
         </Button>
       </div>
 
-      <template v-if="activeTab === 'model'">
-        <div class="flex items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
+      <template v-if="activeTab === 'model' || activePhase">
+        <div class="flex flex-none items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
           <Search class="size-3.5 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
           <Input
             ref="searchEl"
@@ -264,9 +346,15 @@ watch(providers, () => {
           />
         </div>
 
-        <div class="grid min-h-[220px] max-h-[320px]" :class="compact ? 'grid-cols-1' : 'grid-cols-[168px_minmax(0,1fr)]'">
+        <!-- 列各占一行/一列且可收缩（minmax(0,1fr)）：列表超长时在自身容器内滚动，不再溢出弹层 -->
+        <div
+          class="grid min-h-0 flex-1"
+          :class="compact
+            ? 'grid-cols-1 grid-rows-[auto_minmax(0,1fr)]'
+            : 'grid-cols-[168px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]'"
+        >
           <nav
-            class="flex gap-0.5 overflow-auto bg-[var(--color-sunken)] p-1.5"
+            class="flex min-h-0 gap-0.5 overflow-auto bg-[var(--color-sunken)] p-1.5"
             :class="compact ? 'flex-row border-b border-[var(--color-line)]' : 'flex-col border-r border-[var(--color-line)]'"
             :aria-label="t('chat.model.providers')"
           >
@@ -286,40 +374,47 @@ watch(providers, () => {
             </Button>
           </nav>
 
-          <div class="overflow-auto p-1.5">
-            <!-- 自动（推荐）：置顶常驻（搜索时隐藏，避免混入过滤结果） -->
+          <div class="min-h-0 overflow-auto p-1.5">
+            <!-- 顶部常驻项：模型 tab = 自动（推荐）；阶段 tab = 跟随全局默认（清除会话覆盖） -->
             <div v-if="!query.trim()" class="mb-1 border-b border-[var(--color-line-soft)] pb-1">
               <Button
                 variant="ghost"
                 class="flex min-h-[40px] w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
                 :class="
-                  (phase ? !phaseOverride : autoRoute)
+                  topChoiceSelected
                     ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
                     : 'text-[var(--color-txt)]'
                 "
-                :aria-label="phase ? t('chat.model.inherit') : t('model-routing.modelRouting.autoAria')"
-                :title="phase ? t('chat.model.inheritHint') : t('model-routing.modelRouting.autoHint')"
-                @click="pickAuto"
+                :aria-label="activePhase ? t('chat.model.followGlobal') : t('model-routing.modelRouting.autoAria')"
+                :title="activePhase ? t('chat.model.followGlobalHint') : t('model-routing.modelRouting.autoHint')"
+                @click="pickTopChoice"
               >
                 <Check
                   class="size-3.5 shrink-0 text-[var(--color-accent)]"
-                  :class="(phase ? !phaseOverride : autoRoute) ? '' : 'invisible'"
+                  :class="topChoiceSelected ? '' : 'invisible'"
                   aria-hidden="true"
                 />
                 <Sparkles class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
                 <span class="flex min-w-0 flex-col">
-                  <span class="truncate">{{ phase ? t('chat.model.inherit') : t("model-routing.modelRouting.auto") }}</span>
+                  <span class="truncate">{{ activePhase ? t('chat.model.followGlobal') : t("model-routing.modelRouting.auto") }}</span>
                   <span class="text-[11px] font-normal leading-4 text-[var(--color-mut)]">
-                    {{ phase ? t('chat.model.inheritHint') : t("model-routing.modelRouting.autoSubtitle") }}
+                    {{ activePhase ? t('chat.model.followGlobalHint') : t("model-routing.modelRouting.autoSubtitle") }}
                   </span>
-                  <span v-if="!phase && autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                  <!-- 阶段 tab：会话未覆盖时展示全局默认及其来源 -->
+                  <span v-if="activePhase && globalPhaseDefault" class="truncate text-[11px] font-normal leading-4 text-[var(--color-accent)]">
+                    {{ t("chat.model.followGlobalCurrent", { model: globalPhaseDefaultLabel }) }}
+                  </span>
+                  <span v-else-if="activePhase" class="truncate text-[11px] font-normal leading-4 text-[var(--color-dim)]">
+                    {{ t("chat.model.followGlobalUnset") }}
+                  </span>
+                  <span v-if="!activePhase && autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
                     {{ t("model-routing.modelRouting.routedTo", { model: lastRouting.modelName }) }}
                   </span>
                 </span>
               </Button>
               <!-- 上次路由理由（简短）：仅自动模式下有记录时展示 -->
               <p
-                v-if="!phase && autoRoute && routingReason"
+                v-if="!activePhase && autoRoute && routingReason"
                 class="m-0 px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[var(--color-mut)]"
                 :title="routingReason"
               >
@@ -343,7 +438,16 @@ watch(providers, () => {
                 :class="isSelected(item.providerId, item.model.id) ? '' : 'invisible'"
                 aria-hidden="true"
               />
-              <span class="truncate">{{ item.model.name }}</span>
+              <span class="min-w-0 flex-1 truncate">
+                <span>{{ item.model.name }}</span>
+                <!-- 阶段 tab：标出全局默认来源（会话未覆盖时即生效模型） -->
+                <span
+                  v-if="isPhaseGlobalDefault(item.providerId, item.model.id)"
+                  class="ml-1.5 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] font-normal text-[var(--color-mut)]"
+                >
+                  {{ t("chat.model.globalDefault") }}
+                </span>
+              </span>
               <span
                 v-if="item.model.custom"
                 class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] font-normal text-[var(--color-mut)]"

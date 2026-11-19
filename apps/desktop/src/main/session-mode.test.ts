@@ -79,6 +79,46 @@ describe("resolvePhaseModel", () => {
   it("阶段未配置时保持原有模型选择", () => {
     expect(resolvePhaseModel({ ...session, actModelId: null }, "autopilot", fallback)).toEqual(fallback);
   });
+
+  const defaults = {
+    planModel: { providerId: "g-plan", modelId: "gm-plan" },
+    actModel: { providerId: "g-act", modelId: "gm-act" },
+  };
+
+  it("会话阶段覆盖优先于全局阶段默认", () => {
+    expect(resolvePhaseModel(session, "plan", fallback, defaults)).toEqual({
+      providerId: "p-plan",
+      modelId: "m-plan",
+    });
+    expect(resolvePhaseModel(session, "interactive", fallback, defaults)).toEqual({
+      providerId: "p-act",
+      modelId: "m-act",
+    });
+  });
+
+  it("会话未覆盖时走全局阶段默认（plan 取 planModel，其余取 actModel）", () => {
+    const bare = { ...session, planModelId: null, actModelId: null };
+    expect(resolvePhaseModel(bare, "plan", fallback, defaults)).toEqual({
+      providerId: "g-plan",
+      modelId: "gm-plan",
+    });
+    expect(resolvePhaseModel(bare, "interactive", fallback, defaults)).toEqual({
+      providerId: "g-act",
+      modelId: "gm-act",
+    });
+    expect(resolvePhaseModel(bare, "autopilot", fallback, defaults)).toEqual({
+      providerId: "g-act",
+      modelId: "gm-act",
+    });
+  });
+
+  it("会话与全局默认都没有时回落 fallback", () => {
+    const bare = { ...session, planModelId: null, actModelId: null };
+    expect(resolvePhaseModel(bare, "plan", fallback, { planModel: null, actModel: null })).toEqual(fallback);
+    expect(resolvePhaseModel(bare, "interactive", fallback, {})).toEqual(fallback);
+    // 只配了 Act 默认时，Plan 仍回落 fallback
+    expect(resolvePhaseModel(bare, "plan", fallback, { actModel: defaults.actModel })).toEqual(fallback);
+  });
 });
 
 describe("sessionModeDirective / appendSessionModeDirective", () => {

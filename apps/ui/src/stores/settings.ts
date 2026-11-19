@@ -5,7 +5,15 @@ import { setCodeThemeId } from "@/components/ai-elements/response/extensions";
 import { useAppTheme } from "@/composables/useAppTheme";
 import { setAppLocale } from "@/locales";
 
-import type { AccentColor, AppLocale, AppSettings, DisplayAccount, ShortcutBinding, ThemeMode } from "@zen/shared";
+import type {
+  AccentColor,
+  AppLocale,
+  AppSettings,
+  DisplayAccount,
+  PhaseModelRef,
+  ShortcutBinding,
+  ThemeMode,
+} from "@zen/shared";
 import {
   DEFAULT_ACCENT_COLOR,
   DEFAULT_CODE_THEME,
@@ -25,6 +33,9 @@ const fallbackSettings: AppSettings = {
   accentColor: DEFAULT_ACCENT_COLOR,
   locale: DEFAULT_LOCALE,
   displayAccount: "auto",
+  // 阶段模型缺省 = 不指定，沿用会话模型（与主进程 defaultSettings 对齐）
+  planModel: null,
+  actModel: null,
 };
 
 export type SettingsTab =
@@ -95,6 +106,8 @@ export const useSettingsStore = defineStore("settings", () => {
       accentColor: normalizeAccentColor(value.accentColor),
       locale,
       codeTheme: value.codeTheme || DEFAULT_CODE_THEME,
+      planModel: value.planModel ?? null,
+      actModel: value.actModel ?? null,
       shortcuts: [
         ...value.shortcuts.map((item) => ({
           ...item,
@@ -252,6 +265,27 @@ export const useSettingsStore = defineStore("settings", () => {
     settings.value = await zen.settings.set({ displayAccount: value });
   }
 
+  /** 阶段模型全局默认：phase 对应 plan/act；model 为 null = 不指定（跟随会话模型） */
+  async function setPhaseModelDefault(phase: "plan" | "act", model: PhaseModelRef | null) {
+    const next =
+      model && model.providerId && model.modelId
+        ? { providerId: model.providerId, modelId: model.modelId }
+        : null;
+    const zen = window.zen;
+    if (!zen) {
+      settings.value = {
+        ...settings.value,
+        ...(phase === "plan" ? { planModel: next } : { actModel: next }),
+      };
+      return;
+    }
+    const saved =
+      phase === "plan"
+        ? await zen.settings.set({ planModel: next })
+        : await zen.settings.set({ actModel: next });
+    settings.value = normalizeSettings(saved);
+  }
+
   return {
     settings,
     settingsOpen,
@@ -268,5 +302,6 @@ export const useSettingsStore = defineStore("settings", () => {
     updateShortcut,
     setShortcutGlobal,
     setDisplayAccount,
+    setPhaseModelDefault,
   };
 });

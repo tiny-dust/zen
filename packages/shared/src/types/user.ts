@@ -41,6 +41,12 @@ export interface ShortcutBinding {
   global?: boolean;
 }
 
+/** 阶段模型引用（供应商 + 模型）；用于全局 Plan/Act 默认与设置页展示 */
+export interface PhaseModelRef {
+  providerId: string;
+  modelId: string;
+}
+
 export interface AppSettings {
   shortcuts: ShortcutBinding[];
   /** 在线更新源地址（generic provider，局域网/本机静态目录即可）；清空表示不启用 */
@@ -55,6 +61,10 @@ export interface AppSettings {
   locale: AppLocale;
   /** 左下角/资料页展示哪个账户的身份 */
   displayAccount: DisplayAccount;
+  /** 计划模式全局默认模型；缺省 = 不指定，沿用会话模型 */
+  planModel?: PhaseModelRef | null;
+  /** 执行/交互模式全局默认模型 */
+  actModel?: PhaseModelRef | null;
 }
 
 /** 默认代码主题：GitHub 深浅成对 */

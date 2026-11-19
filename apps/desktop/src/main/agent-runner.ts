@@ -26,6 +26,7 @@ import { resolvePromptText } from "./prompt-presets";
 import { recordPetRunEvent, registerPetRun } from "./pet-service";
 import { resolveWorkspaceDir } from "./sandbox";
 import { resolveSessionWorktreeRoot } from "./session-worktree";
+import { loadAppSettings } from "./user-ipc";
 import {
   backupAfterWrite,
   backupWorkspaceFile,
@@ -59,6 +60,7 @@ import type {
   BrowserElementRef,
   ChatMessage,
   ChatTurn,
+  PhaseModelRef,
   SessionGoal,
   SessionMode,
   SessionRecord,
@@ -262,10 +264,24 @@ export async function runAgentRequest(
 
   try {
     const selection = await getSelection();
-    const routed = resolvePhaseModel(phaseSession!, runMode, {
-      providerId: request.providerId || selection.providerId,
-      modelId: request.model || selection.modelId,
-    });
+    // 阶段模型优先级：会话阶段覆盖 → 设置页全局阶段默认 → 会话/请求模型（含自动路由结果）。
+    // 设置读取失败（磁盘异常等）不阻塞 run：回落到会话模型，保持既有行为。
+    let phaseDefaults: { planModel?: PhaseModelRef | null; actModel?: PhaseModelRef | null } | undefined;
+    try {
+      const appSettings = await loadAppSettings();
+      phaseDefaults = { planModel: appSettings.planModel, actModel: appSettings.actModel };
+    } catch (error) {
+      console.warn("[zen] 阶段模型默认读取失败，回落会话模型", error);
+    }
+    const routed = resolvePhaseModel(
+      phaseSession!,
+      runMode,
+      {
+        providerId: request.providerId || selection.providerId,
+        modelId: request.model || selection.modelId,
+      },
+      phaseDefaults,
+    );
     const providerId = routed.providerId;
     const modelId = routed.modelId;
     const provider = (await listProviders()).find((item) => item.id === providerId);

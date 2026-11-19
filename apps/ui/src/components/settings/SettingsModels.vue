@@ -7,6 +7,7 @@ import { classes } from "rattail";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import VendorLogo from "@/components/brand/VendorLogo.vue";
+import PhaseModelSection from "@/components/settings/PhaseModelSection.vue";
 import ProviderDetail from "@/components/settings/ProviderDetail.vue";
 import ProviderEditor from "@/components/settings/ProviderEditor.vue";
 import { Button } from "@/components/ui/button";
@@ -278,6 +279,9 @@ async function confirmRemoveModel() {
 </script>
 
 <template>
+  <!-- 阶段模型（Plan / Act）全局默认：置于供应商主从网格之上 -->
+  <PhaseModelSection />
+
   <section class="grid items-start gap-3.5 grid-cols-[208px_minmax(0,1fr)] max-[720px]:grid-cols-[minmax(0,1fr)]">
     <aside class="flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-settings-card)]" :aria-label="t('settings.models.providerListAria')">
       <div class="flex items-center gap-1 border-b border-[var(--color-line)] px-2 py-1.5">

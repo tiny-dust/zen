@@ -180,11 +180,11 @@ export default {
     /* 模型选择 */
     model: {
       noModel: "未配置模型",
-      inherit: "跟随会话模型",
-      inheritHint: "不单独指定此阶段的模型",
       label: "模型：{name}",
       select: "选择模型",
       tabModel: "模型",
+      tabPlan: "计划 (Plan)",
+      tabAct: "执行 (Act)",
       tabSub: "子代理",
       tabExternal: "外部 agent",
       search: "搜索模型...",
@@ -194,6 +194,12 @@ export default {
       noMatch: "无匹配模型",
       noSubAgents: "暂无子代理",
       noExternalAgents: "暂无外部 agent",
+      followGlobal: "跟随全局默认",
+      followGlobalHint: "清除本会话的阶段覆盖，使用设置页的全局默认",
+      followGlobalCurrent: "全局默认：{model}",
+      followGlobalUnset: "未设置全局默认，沿用会话模型",
+      globalDefault: "全局默认",
+      providerModel: "{provider} / {model}",
     },
 
     /* 系统提示词 */
@@ -496,11 +502,11 @@ export default {
     /* Model picker */
     model: {
       noModel: "No model configured",
-      inherit: "Use session model",
-      inheritHint: "No separate model for this phase",
       label: "Model: {name}",
       select: "Select model",
       tabModel: "Models",
+      tabPlan: "Plan",
+      tabAct: "Act",
       tabSub: "Sub-agents",
       tabExternal: "External agents",
       search: "Search models...",
@@ -510,6 +516,12 @@ export default {
       noMatch: "No matching models",
       noSubAgents: "No sub-agents yet",
       noExternalAgents: "No external agents yet",
+      followGlobal: "Use global default",
+      followGlobalHint: "Clear this session's phase override and use the global default from Settings",
+      followGlobalCurrent: "Global default: {model}",
+      followGlobalUnset: "No global default — using the session model",
+      globalDefault: "Global default",
+      providerModel: "{provider} / {model}",
     },
 
     /* System prompt */

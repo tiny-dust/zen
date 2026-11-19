@@ -15,7 +15,7 @@ import { isModernSecret } from "./secret";
 import { currentLocale, mainT } from "./i18n";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
-import type { AppSettings, AuthState, GitHubUser } from "@zen/shared";
+import type { AppSettings, AuthState, GitHubUser, PhaseModelRef } from "@zen/shared";
 import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME, DEFAULT_ACCENT_COLOR, normalizeAccentColor } from "@zen/shared";
 import { setCurrentUserId } from "./workspace-db";
 import { syncGlobalShortcuts } from "./global-shortcuts";
@@ -41,7 +41,26 @@ const defaultSettings: AppSettings = {
   accentColor: DEFAULT_ACCENT_COLOR,
   locale: DEFAULT_LOCALE,
   displayAccount: "auto",
+  planModel: null,
+  actModel: null,
 };
+
+/** 阶段模型形状校验：providerId/modelId 均为非空字符串才保留，否则视为未指定 */
+function normalizePhaseModel(value: unknown): PhaseModelRef | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const { providerId, modelId } = value as Partial<PhaseModelRef>;
+  if (
+    typeof providerId !== "string" ||
+    !providerId.trim() ||
+    typeof modelId !== "string" ||
+    !modelId.trim()
+  ) {
+    return null;
+  }
+  return { providerId, modelId };
+}
 
 interface StoredAuth {
   loggedIn: boolean;
@@ -109,6 +128,9 @@ async function loadSettings(): Promise<AppSettings> {
     shortcuts: stored.shortcuts?.length
       ? stored.shortcuts
       : defaultSettings.shortcuts.map((item) => ({ ...item })),
+    // 手改/旧版配置里的非法阶段模型不进入内存，避免坏值影响解析
+    planModel: normalizePhaseModel(stored.planModel),
+    actModel: normalizePhaseModel(stored.actModel),
   };
   return cachedSettings;
 }
@@ -413,6 +435,13 @@ export function registerUserIpc(): void {
       shortcuts: partial.shortcuts?.length
         ? partial.shortcuts
         : current.shortcuts.map((item) => ({ ...item })),
+      // 阶段模型只接受合法形状：未提交的字段保留原值，非法输入落为 null（不写坏配置）
+      planModel: "planModel" in partial
+        ? normalizePhaseModel(partial.planModel)
+        : normalizePhaseModel(current.planModel),
+      actModel: "actModel" in partial
+        ? normalizePhaseModel(partial.actModel)
+        : normalizePhaseModel(current.actModel),
     };
     cachedSettings = next;
     await writeJson(settingsFile(), next);
