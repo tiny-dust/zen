@@ -45,11 +45,28 @@ export function siteOrigin(url: string): string {
   }
 }
 
-/**
- * 去重键：同一页面的不同写法合并成一条。
- * 规范化内容：去 hash、去尾斜杠、丢跟踪参数、忽略 http/https 与 www 差异、
- * 查询参数排序。路径/其它查询参数保留——不同页面仍然是不同条目。
- */
+/** 从助手正文提取实际出现的网页链接，忽略代码块和行内代码。 */
+export function citedWebUrls(markdown: string): string[] {
+  const prose = markdown.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const match of prose.matchAll(/https?:\/\/[^\s<>"'\]]+/gi)) {
+    const url = match[0].replace(/[),.;!?，。；！？]+$/, "");
+    try {
+      const parsed = new URL(url);
+      const key = siteKey(parsed.href);
+      if (!seen.has(key)) {
+        seen.add(key);
+        urls.push(parsed.href);
+      }
+    } catch {
+      // 文本里的非 URL 片段不作为引用。
+    }
+  }
+  return urls;
+}
+
+/** 同一页面的不同写法合并：去 hash、尾斜杠、跟踪参数，忽略协议与 www 差异。 */
 export function siteKey(url: string): string {
   const raw = (url || "").trim();
   if (!raw) {

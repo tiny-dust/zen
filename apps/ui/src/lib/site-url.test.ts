@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { siteHost, siteInitial, siteKey, siteOrigin } from "@/lib/site-url";
+import { citedWebUrls, siteHost, siteInitial, siteKey, siteOrigin } from "@/lib/site-url";
 
 /**
  * 站点 URL 归一：浏览器历史与网络来源共用。
@@ -44,6 +44,18 @@ describe("site-url", () => {
       siteKey("https://example.com/s?page=2&q=1"),
     );
     expect(siteKey("https://example.com/s?q=1")).not.toBe(siteKey("https://example.com/s?q=2"));
+  });
+
+  it("citedWebUrls：只提取回复正文中的链接并去重，忽略代码", () => {
+    expect(citedWebUrls([
+      "[来源](https://example.com/a?utm_source=search) 和 https://example.com/a。",
+      "另一条：https://other.test/b。",
+      "`https://code.test/inline`",
+      "```ts\nconst url = 'https://code.test/fenced';\n```",
+    ].join("\n"))).toEqual([
+      "https://example.com/a?utm_source=search",
+      "https://other.test/b",
+    ]);
   });
 
   it("siteKey：非 http(s) 按原串小写（文件路径等不做路径归一）", () => {

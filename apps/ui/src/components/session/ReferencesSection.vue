@@ -18,15 +18,36 @@ import { resolveFileRefPath } from "@/components/files/file-ref";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
 import { Button } from "@/components/ui/button";
 import { useSessionRoot } from "@/composables/useSessionRoot";
+import { citedWebUrls, siteHost, siteKey } from "@/lib/site-url";
+import { useChatStore } from "@/stores/chat";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useSessionInfoStore } from "@/stores/session-info";
 
 const { t } = useI18n();
 const sessionInfo = useSessionInfoStore();
+const chat = useChatStore();
 const rightPanel = useRightPanelStore();
 const sessionRoot = useSessionRoot();
 const open = ref(true);
-const refs = computed(() => sessionInfo.references);
+const refs = computed(() => {
+  const files = sessionInfo.references.filter((item) => item.source === "user" || item.source === "project");
+  const searchResults = new Map(
+    sessionInfo.references
+      .filter((item) => (item.source ?? "web") === "web")
+      .map((item) => [siteKey(item.url), item]),
+  );
+  const cited = new Map<string, (typeof sessionInfo.references)[number]>();
+  for (const message of chat.messages) {
+    if (message.role !== "assistant") continue;
+    for (const url of citedWebUrls(message.content)) {
+      const key = siteKey(url);
+      if (!cited.has(key)) {
+        cited.set(key, searchResults.get(key) ?? { id: key, title: siteHost(url), url, source: "web" });
+      }
+    }
+  }
+  return [...files, ...cited.values()];
+});
 
 /** 用户上传文件点击 → 独立文件预览面板（不走右侧文件浏览器） */
 const previewPath = ref("");
