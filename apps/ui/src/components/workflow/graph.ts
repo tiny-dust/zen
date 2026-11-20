@@ -18,15 +18,22 @@ export interface WorkflowNode {
     providerId?: string;
     modelId?: string;
     instructions?: string;
+    /** 工具节点：工具名（内置或 mcp__<server>__<tool>）+ JSON 入参文本 */
     toolName?: string;
+    toolInput?: string;
     expression?: string;
     left?: string;
     right?: string;
     operator?: "equals" | "not-equals";
     maxIterations?: number;
+    /** 脚本节点：脚本文本与运行时（shell = 平台默认 shell，node = Electron 内置 Node） */
     script?: string;
+    runtime?: "shell" | "node";
+    /** HTTP 节点：地址、方法、请求头（每行 K: V）与请求体 */
     url?: string;
     method?: string;
+    headers?: string;
+    body?: string;
   };
 }
 
@@ -41,6 +48,26 @@ export interface WorkflowGraph {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   budgets?: WorkflowBudgets;
+}
+
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
+
+/** 只接受 http/https：避免 file:// 等协议被当成外部请求执行 */
+function isHttpUrl(value: string | undefined): value is string {
+  if (!value || value.length > 2048) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** 工具入参是 JSON 对象文本：空串表示无参数 */
+function parseJsonObject(value: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("JSON object required");
+  return parsed as Record<string, unknown>;
 }
 
 export function edgeTypesFor(source: WorkflowNodeType): WorkflowEdgeType[] {
@@ -82,7 +109,18 @@ export function toRuntimeWorkflow(editor: WorkflowGraph): {
     if (node.type === "loop" && node.settings.maxIterations !== undefined && (!Number.isSafeInteger(node.settings.maxIterations) || node.settings.maxIterations < 0)) {
       throw new Error(`Invalid loop limit: ${node.id}`);
     }
-    if (["tool", "script", "http"].includes(node.type)) throw new Error(`${node.type} nodes cannot be saved or run: execution is disabled`);
+    if (node.type === "tool") {
+      if (!node.settings.toolName?.trim()) throw new Error(`Select a tool: ${node.id}`);
+      if (node.settings.toolInput?.trim()) {
+        try { parseJsonObject(node.settings.toolInput); }
+        catch { throw new Error(`Invalid tool input: ${node.id}`); }
+      }
+    }
+    if (node.type === "script" && !node.settings.script?.trim()) throw new Error(`Missing script: ${node.id}`);
+    if (node.type === "http") {
+      if (!isHttpUrl(node.settings.url)) throw new Error(`Invalid HTTP url: ${node.id}`);
+      if (!(HTTP_METHODS as readonly string[]).includes((node.settings.method ?? "GET").toUpperCase())) throw new Error(`Invalid HTTP method: ${node.id}`);
+    }
     if (node.type === "model") {
       if (!node.settings.providerId?.trim() || !node.settings.modelId?.trim()) throw new Error(`Select a provider and model: ${node.id}`);
       if (!node.settings.instructions?.trim()) throw new Error(`Missing model instructions: ${node.id}`);

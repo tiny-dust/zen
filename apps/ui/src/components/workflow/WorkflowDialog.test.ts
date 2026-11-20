@@ -38,6 +38,7 @@ function stubZen() {
     workflow: {
       list,
       listRuns,
+      listTools: vi.fn().mockResolvedValue([]),
       open: vi.fn().mockResolvedValue(null),
       save: vi.fn(),
       start: vi.fn(),

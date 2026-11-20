@@ -38,13 +38,21 @@ const panelTab = shallowRef<"editor" | "runs">("editor");
 /** 会话已落库？草稿会话（还没发过消息）没有工作流记录，主进程会以「Session not found」拒绝查询 */
 const sessionExists = shallowRef(false);
 const pendingDecision = shallowRef<"skip" | "retry" | null>(null);
+/** 待确认的启动：图里有工具/脚本/HTTP 节点时先一次性说明会执行哪些外部操作 */
+const pendingStart = shallowRef(false);
+/** 工具节点可选项（内置 + 已启用 MCP），进入面板时拉一次 */
+const tools = shallowRef<Array<{ name: string; description: string }>>([]);
 /** 待确认的模板选择：编辑器已有内容时先确认再替换草稿 */
 const pendingTemplate = shallowRef<WorkflowTemplateId | null>(null);
-const running = computed(() => run.value?.status === "running" || run.value?.detail === "Retrying model effect; cancellation is available.");
-const uncertainModel = computed(() => {
+const RETRYING_DETAILS = ["Retrying workflow effect; cancellation is available.", "Retrying model effect; cancellation is available."];
+const running = computed(() => run.value?.status === "running" || RETRYING_DETAILS.includes(run.value?.detail ?? ""));
+/** 待确认的副作用步骤（模型/工具/脚本/HTTP）：结果不确定，既不自动重放也不静默跳过 */
+const EFFECT_NODE_TYPES = ["model", "tool", "script", "http"];
+const uncertainEffect = computed(() => {
   const last = run.value?.journal.at(-1);
+  const node = last ? run.value?.snapshot.graph.nodes.find((item) => item.id === last.nodeId) : undefined;
   return run.value?.status === "pending-review" && last?.type === "before" &&
-    run.value.snapshot.graph.nodes.some((node) => node.id === last.nodeId && node.type === "model") &&
+    EFFECT_NODE_TYPES.includes(node?.type ?? "") &&
     !run.value.outputs.some((output) => output.key === last.key);
 });
 const modelOptions = computed(() => models.enabledModels.map(({ provider, model }) => ({ providerId: provider.id, modelId: model.id, label: `${provider.name} / ${model.name}` })));
@@ -54,10 +62,9 @@ const progress = computed(() => run.value ? t("workflow.progress", {
   effects: run.value.journal.filter((event) => event.type === "before").length,
   maxEffects: run.value.snapshot.budgets.maxEffects,
 }) : "");
-const unsupported = computed(() => graph.value.nodes.filter((node) => ["tool", "script", "http"].includes(node.type)).map(nodeName));
 function nodeName(node: WorkflowNode) { return node.label === node.type ? t(`workflow.nodeType.${node.type}`) : node.label; }
 function localizedStatus(status: string) { return te(`workflow.status.${status}`) ? t(`workflow.status.${status}`) : status; }
-function localizedDetail(detail: string) { return detail === "Retrying model effect; cancellation is available." ? t("workflow.detailRetrying") : detail; }
+function localizedDetail(detail: string) { return RETRYING_DETAILS.includes(detail) ? t("workflow.detailRetrying") : detail; }
 const isApproval = computed(() => {
   const last = run.value?.journal.at(-1);
   return run.value?.status === "pending-review" && last?.type === "before" && run.value.snapshot.graph.nodes.some((node) => node.id === last.nodeId && node.type === "approval");
@@ -105,6 +112,8 @@ async function refreshList() {
     sessionExists.value = Boolean(exists && sessionId);
     items.value = sessionExists.value && sessionId ? await api().list(sessionId) : [];
     recentRuns.value = sessionExists.value && sessionId ? await api().listRuns(sessionId) : [];
+    // 工具清单是全局配置（不依赖会话落库），失败不影响编辑器其它部分（例如 MCP 未就绪）
+    tools.value = sessionId ? await api().listTools(sessionId).catch(() => []) : [];
   });
 }
 let polling = false;
@@ -179,6 +188,9 @@ function convert(): WorkflowSnapshot {
       const modelSettings = { prompt: settings.instructions!.trim(), providerId: settings.providerId, modelId: settings.modelId };
       nodeSettings[node.id] = modelSettings;
     } else if (node.type === "condition") nodeSettings[node.id] = { left: settings.left, right: settings.right, operator: settings.operator };
+    else if (node.type === "tool") nodeSettings[node.id] = { toolName: settings.toolName, toolInput: settings.toolInput };
+    else if (node.type === "script") nodeSettings[node.id] = { script: settings.script, runtime: settings.runtime ?? "shell" };
+    else if (node.type === "http") nodeSettings[node.id] = { url: settings.url, method: (settings.method ?? "GET").toUpperCase(), headers: settings.headers, body: settings.body };
     else nodeSettings[node.id] = {};
   }
   // 画布位置随版本保存：重新打开时节点还在原来的位置
@@ -199,7 +211,7 @@ async function load(itemId: string) {
 }
 function applyDefinition(found: WorkflowDefinition) {
   const { snapshot } = found;
-  const settings: Record<string, { prompt?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }> = snapshot.nodeSettings;
+  const settings = snapshot.nodeSettings;
   graph.value = {
     nodes: snapshot.graph.nodes.map((node, index) => ({
       id: node.id, type: node.type, label: node.type,
@@ -207,6 +219,9 @@ function applyDefinition(found: WorkflowDefinition) {
       y: snapshot.layout?.[node.id]?.y ?? 60 + Math.floor(index / 3) * 140,
       settings: { ...(node.type === "model" ? { instructions: settings[node.id]?.prompt, providerId: settings[node.id]?.providerId, modelId: settings[node.id]?.modelId } : {}),
         ...(node.type === "condition" ? { left: settings[node.id]?.left, right: settings[node.id]?.right, operator: settings[node.id]?.operator } : {}),
+        ...(node.type === "tool" ? { toolName: settings[node.id]?.toolName, toolInput: settings[node.id]?.toolInput } : {}),
+        ...(node.type === "script" ? { script: settings[node.id]?.script, runtime: settings[node.id]?.runtime } : {}),
+        ...(node.type === "http" ? { url: settings[node.id]?.url, method: settings[node.id]?.method, headers: settings[node.id]?.headers, body: settings[node.id]?.body } : {}),
         ...(node.type === "loop" ? { maxIterations: node.maxIterations } : {}) },
     })),
     edges: snapshot.graph.edges.map((edge, index) => ({ id: `edge-${index}`, source: edge.from, target: edge.to, type: edge.label })),
@@ -236,7 +251,32 @@ async function save() {
     notice.value = t("workflow.savedVersion", { version: saved.version });
   });
 }
-async function start() {
+/** 需要人工确认的外部操作（工具/脚本/HTTP）：启动前一次性列出，运行中不再逐个打断 */
+const externalEffects = computed(() =>
+  graph.value.nodes.filter((node) => ["tool", "script", "http"].includes(node.type)),
+);
+
+/** 确认框里的外部操作清单：类型 · 名称 */
+const externalEffectList = computed(() =>
+  externalEffects.value
+    .map((node) => `${t(`workflow.nodeType.${node.type}`)} · ${nodeName(node)}`)
+    .join("，"),
+);
+
+function start() {
+  if (externalEffects.value.length) {
+    pendingStart.value = true;
+    return;
+  }
+  void startRun();
+}
+
+function confirmStart() {
+  pendingStart.value = false;
+  void startRun();
+}
+
+async function startRun() {
   await action(async () => {
     if (!id.value || dirty.value) throw new Error(t("workflow.errSaveFirst"));
     if (!chat.sessionId) throw new Error(t("workflow.errSession"));
@@ -289,7 +329,7 @@ async function resolveUncertain() {
   pendingDecision.value = null;
   if (!decision) return;
   await action(async () => {
-    if (!run.value || !chat.sessionId || !uncertainModel.value) throw new Error(t("workflow.errUncertain"));
+    if (!run.value || !chat.sessionId || !uncertainEffect.value) throw new Error(t("workflow.errUncertain"));
     const id = run.value.id;
     run.value = await api().review(id, decision, chat.sessionId, `${decision}:${id}`);
     notice.value = t(decision === "retry" ? "workflow.retryNotice" : "workflow.skipNotice");
@@ -378,12 +418,11 @@ async function resolveUncertain() {
           </Select>
         </div>
         <Button variant="outline" size="sm" :disabled="busy || running" @click="newGraph">{{ t('workflow.newDraft') }}</Button>
-        <Button size="sm" :disabled="busy || running || unsupported.length > 0" @click="save">{{ t('workflow.save') }}</Button>
+        <Button size="sm" :disabled="busy || running" @click="save">{{ t('workflow.save') }}</Button>
         <Button size="sm" :disabled="busy || running || !id || dirty" :title="t('workflow.start')" @click="start">{{ t('workflow.startShort') }}</Button>
       </div>
-      <p v-if="unsupported.length" role="alert" class="m-0 flex-none text-xs text-[var(--color-danger-fg)]">{{ t('workflow.unsupportedSave', { nodes: unsupported.join(', ') }) }}</p>
       <span v-if="version" class="flex-none text-[11px] text-[var(--color-mut)]">{{ t('workflow.version', { version }) }}{{ dirty ? t('workflow.unsaved') : '' }}</span>
-      <WorkflowEditor class="min-h-0 flex-1" :model-value="graph" :models="modelOptions" @update:model-value="updateGraph" />
+      <WorkflowEditor class="min-h-0 flex-1" :model-value="graph" :models="modelOptions" :tools="tools" @update:model-value="updateGraph" />
     </div>
 
     <!-- 运行记录：最近运行 / 运行控制 / 日志与输出 -->
@@ -423,13 +462,13 @@ async function resolveUncertain() {
           <Button variant="destructive" size="sm" :disabled="busy || !run || !['running', 'interrupted', 'pending-review'].includes(run.status)" @click="cancel">{{ t('workflow.cancel') }}</Button>
           <Button variant="outline" size="sm" :disabled="busy || running || !isApproval" @click="review(true)">{{ t('workflow.approve') }}</Button>
           <Button variant="outline" size="sm" :disabled="busy || running || !isApproval" @click="review(false)">{{ t('workflow.deny') }}</Button>
-          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'skip'">{{ t('workflow.skipModel') }}</Button>
-          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainModel" @click="pendingDecision = 'retry'">{{ t('workflow.retryModel') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainEffect" @click="pendingDecision = 'skip'">{{ t('workflow.skipEffect') }}</Button>
+          <Button variant="outline" size="sm" :disabled="busy || running || !uncertainEffect" @click="pendingDecision = 'retry'">{{ t('workflow.retryEffect') }}</Button>
         </div>
         <p v-if="running" role="status" class="m-0 text-xs">{{ t('workflow.active') }}</p>
         <template v-if="run">
           <p role="status" class="m-0 text-xs">{{ t('workflow.runSummary', { id: run.id, version: run.version, status: localizedStatus(run.status), progress }) }}{{ run.detail ? t('workflow.runDetail', { detail: localizedDetail(run.detail) }) : '' }}</p>
-          <p v-if="uncertainModel" role="alert" class="m-0 text-xs text-[var(--color-danger-fg)]">{{ t('workflow.uncertain') }}</p>
+          <p v-if="uncertainEffect" role="alert" class="m-0 text-xs text-[var(--color-danger-fg)]">{{ t('workflow.uncertain') }}</p>
           <ol class="m-0 max-h-56 overflow-auto rounded border border-[var(--color-line)] p-2 text-[11px] text-[var(--color-mut)]" :aria-label="t('workflow.journal')">
             <li v-for="(event, index) in run.journal" :key="index">{{ event.step }} · {{ event.nodeId }} · {{ event.type }}{{ event.outcome ? ` · ${event.outcome}` : '' }}{{ event.nextId ? ` → ${event.nextId}` : '' }}</li>
             <li v-if="!run.journal.length">{{ t('workflow.noJournal') }}</li>
@@ -448,6 +487,15 @@ async function resolveUncertain() {
       @update:open="(value) => { if (!value) pendingTemplate = null; }"
       @confirm="confirmTemplate"
     />
-    <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryModel' : 'workflow.skipModel')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (value === false) pendingDecision = null; }" @confirm="resolveUncertain" />
+    <ConfirmDialog
+      :open="pendingStart"
+      :title="t('workflow.startConfirmTitle')"
+      :description="t('workflow.startConfirmDesc', { count: externalEffects.length, nodes: externalEffectList })"
+      :confirm-label="t('workflow.startShort')"
+      :pending="busy"
+      @update:open="(value) => { if (value === false) pendingStart = false; }"
+      @confirm="confirmStart"
+    />
+    <ConfirmDialog :open="pendingDecision !== null" :title="t(pendingDecision === 'retry' ? 'workflow.retryEffect' : 'workflow.skipEffect')" :description="t(pendingDecision === 'retry' ? 'workflow.retryWarning' : 'workflow.skipWarning')" :confirm-label="t(pendingDecision === 'retry' ? 'workflow.confirmRetry' : 'workflow.confirmSkip')" :pending="busy" @update:open="(value) => { if (value === false) pendingDecision = null; }" @confirm="resolveUncertain" />
   </div>
 </template>

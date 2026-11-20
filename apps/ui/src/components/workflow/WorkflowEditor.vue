@@ -10,11 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { canConnect, edgeTypesFor, NODE_TYPES, removeNode, toRuntimeWorkflow } from "./graph";
+import { canConnect, edgeTypesFor, HTTP_METHODS, NODE_TYPES, removeNode, toRuntimeWorkflow } from "./graph";
 import type { WorkflowEdge, WorkflowEdgeType, WorkflowGraph, WorkflowNode, WorkflowNodeType } from "./graph";
 
 /** Controlled JSON graph. The parent must apply update:modelValue. */
-const props = defineProps<{ modelValue: WorkflowGraph; models?: { providerId: string; modelId: string; label: string }[] }>();
+const props = defineProps<{
+  modelValue: WorkflowGraph;
+  models?: { providerId: string; modelId: string; label: string }[];
+  /** 工具节点可选项（内置 + 已启用 MCP，来源为主进程工具清单） */
+  tools?: { name: string; description: string }[];
+}>();
 const emit = defineEmits<{ "update:modelValue": [graph: WorkflowGraph]; selectionChange: [id: string | null] }>();
 const { t } = useI18n();
 
@@ -36,9 +41,6 @@ const NODE_META: Record<WorkflowNodeType, { icon: Component; tone: string }> = {
   http: { icon: Globe, tone: "dim" },
 };
 
-/** 工具、脚本、HTTP 节点当前不能保存或运行（后端执行能力未开放） */
-const UNSUPPORTED: WorkflowNodeType[] = ["tool", "script", "http"];
-
 function nodeName(node: WorkflowNode) {
   return node.label === node.type ? t(`workflow.nodeType.${node.type}`) : node.label;
 }
@@ -54,13 +56,13 @@ function graphError(error: unknown): string {
     [/^Invalid or duplicate node id: (.*)$/, "nodeId"], [/^Invalid loop limit: (.*)$/, "loopLimit"],
     [/^Select a provider and model: (.*)$/, "selectModel"], [/^Missing model instructions: (.*)$/, "modelInstructions"],
     [/^Condition needs left, right and operator: (.*)$/, "condition"], [/^Missing or duplicate edge: (.*)$/, "edge"],
+    [/^Select a tool: (.*)$/, "tool"], [/^Missing script: (.*)$/, "script"], [/^Invalid HTTP url: (.*)$/, "httpUrl"],
+    [/^Invalid HTTP method: (.*)$/, "httpMethod"], [/^Invalid tool input: (.*)$/, "toolInput"],
   ];
   for (const [pattern, key] of patterns) {
     const match = error.message.match(pattern);
     if (match) return t(`workflow.graphError.${key}`, { id: match[1] });
   }
-  const disabled = error.message.match(/^(tool|script|http) nodes cannot be saved or run: execution is disabled$/);
-  if (disabled) return t("workflow.graphError.disabledNode", { type: t(`workflow.nodeType.${disabled[1]}`) });
   return error.message;
 }
 
@@ -77,6 +79,9 @@ const selected = computed(() => props.modelValue.nodes.find((node) => node.id ==
 const selectedEdge = computed(() => props.modelValue.edges.find((edge) => edge.id === selectedEdgeId.value));
 const selectedModel = computed(() => props.models?.find((model) => model.providerId === selected.value?.settings.providerId && model.modelId === selected.value?.settings.modelId));
 const selectedModelKey = computed(() => selectedModel.value ? JSON.stringify([selectedModel.value.providerId, selectedModel.value.modelId]) : undefined);
+const toolOptions = computed(() => props.tools ?? []);
+const selectedTool = computed(() => toolOptions.value.find((item) => item.name === selected.value?.settings.toolName));
+const toolUnavailable = computed(() => Boolean(selected.value?.settings.toolName) && !selectedTool.value);
 const arrowId = useId();
 const canvasWidth = computed(() => Math.max(960, ...props.modelValue.nodes.map((node) => node.x + NODE_W + 120)));
 const canvasHeight = computed(() => Math.max(540, ...props.modelValue.nodes.map((node) => node.y + NODE_H + 120)));
@@ -294,7 +299,6 @@ function edgeSummary(edge: WorkflowEdge) {
         >
           <component :is="NODE_META[type].icon" class="size-3.5 flex-none wf-tone-icon" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate text-left">{{ t(`workflow.nodeType.${type}`) }}</span>
-          <span v-if="UNSUPPORTED.includes(type)" class="flex-none text-[10px] text-[var(--color-dim)]">{{ t('workflow.unsupported') }}</span>
         </Button>
       </aside>
 
@@ -362,7 +366,6 @@ function edgeSummary(edge: WorkflowEdge) {
               </span>
               <span class="flex w-full items-center gap-1 pb-1.5 pl-2 pr-[96px] text-[10px] text-[var(--color-mut)]">
                 <span class="truncate">{{ t(`workflow.nodeHint.${node.type}`) }}</span>
-                <span v-if="UNSUPPORTED.includes(node.type)" class="flex-none text-[var(--color-danger-fg)]">{{ t('workflow.unsupported') }}</span>
               </span>
             </Button>
             <div
@@ -447,25 +450,67 @@ function edgeSummary(edge: WorkflowEdge) {
             <template v-else-if="selected.type === 'tool'">
               <div class="flex flex-col gap-1">
                 <Label for="workflow-tool" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.toolName') }}</Label>
-                <Input id="workflow-tool" class="h-8" :model-value="selected.settings.toolName ?? ''" @update:model-value="updateSetting('toolName', String($event))" />
+                <Select :model-value="selected.settings.toolName ?? ''" @update:model-value="(value) => updateSetting('toolName', String(value))">
+                  <SelectTrigger id="workflow-tool" class="w-full"><SelectValue :placeholder="t('workflow.chooseTool')" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem v-if="toolUnavailable && selected.settings.toolName" :value="selected.settings.toolName">
+                        {{ selected.settings.toolName }}{{ t('workflow.toolUnavailable') }}
+                      </SelectItem>
+                      <SelectItem v-for="item in toolOptions" :key="item.name" :value="item.name">{{ item.name }}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <p v-if="selectedTool?.description" class="m-0 line-clamp-2 text-[11px] text-[var(--color-mut)]">{{ selectedTool.description }}</p>
+                <p v-if="toolUnavailable" role="alert" class="m-0 text-[11px] text-[var(--color-danger-fg)]">{{ t('workflow.toolUnavailableHint') }}</p>
+              </div>
+              <div class="flex flex-col gap-1">
+                <Label for="workflow-tool-input" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.toolInput') }}</Label>
+                <Textarea id="workflow-tool-input" class="min-h-24 font-mono text-[12px]" :model-value="selected.settings.toolInput ?? ''" :placeholder="'{ &quot;path&quot;: &quot;README.md&quot; }'" @update:model-value="updateSetting('toolInput', String($event))" />
+                <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t('workflow.toolInputHint') }}</p>
               </div>
             </template>
 
             <template v-else-if="selected.type === 'http'">
               <div class="flex flex-col gap-1">
-                <Label for="workflow-url" class="text-[11px] text-[var(--color-mut)]">URL</Label>
-                <Input id="workflow-url" class="h-8" type="url" :model-value="selected.settings.url ?? ''" @update:model-value="updateSetting('url', String($event))" />
+                <Label for="workflow-url" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.httpUrl') }}</Label>
+                <Input id="workflow-url" class="h-8" type="url" placeholder="https://api.example.com/items" :model-value="selected.settings.url ?? ''" @update:model-value="updateSetting('url', String($event))" />
               </div>
               <div class="flex flex-col gap-1">
                 <Label for="workflow-method" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.method') }}</Label>
-                <Input id="workflow-method" class="h-8" :model-value="selected.settings.method ?? ''" placeholder="GET" @update:model-value="updateSetting('method', String($event))" />
+                <Select :model-value="(selected.settings.method ?? 'GET').toUpperCase()" @update:model-value="(value) => updateSetting('method', String(value))">
+                  <SelectTrigger id="workflow-method" class="w-full"><SelectValue :placeholder="t('workflow.chooseMethod')" /></SelectTrigger>
+                  <SelectContent><SelectGroup><SelectItem v-for="method in HTTP_METHODS" :key="method" :value="method">{{ method }}</SelectItem></SelectGroup></SelectContent>
+                </Select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <Label for="workflow-headers" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.httpHeaders') }}</Label>
+                <Textarea id="workflow-headers" class="min-h-16 font-mono text-[12px]" placeholder="Authorization: Bearer …" :model-value="selected.settings.headers ?? ''" @update:model-value="updateSetting('headers', String($event))" />
+                <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t('workflow.httpHeadersHint') }}</p>
+              </div>
+              <div class="flex flex-col gap-1">
+                <Label for="workflow-body" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.httpBody') }}</Label>
+                <Textarea id="workflow-body" class="min-h-20 font-mono text-[12px]" :model-value="selected.settings.body ?? ''" @update:model-value="updateSetting('body', String($event))" />
               </div>
             </template>
 
             <template v-else-if="selected.type === 'script'">
               <div class="flex flex-col gap-1">
+                <Label for="workflow-runtime" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.runtime') }}</Label>
+                <Select :model-value="selected.settings.runtime ?? 'shell'" @update:model-value="(value) => updateSetting('runtime', value as 'shell' | 'node')">
+                  <SelectTrigger id="workflow-runtime" class="w-full"><SelectValue :placeholder="t('workflow.runtime')" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="shell">{{ t('workflow.runtimeShell') }}</SelectItem>
+                      <SelectItem value="node">{{ t('workflow.runtimeNode') }}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="flex flex-col gap-1">
                 <Label for="workflow-script" class="text-[11px] text-[var(--color-mut)]">{{ t('workflow.script') }}</Label>
-                <Textarea id="workflow-script" class="min-h-20 text-[12px]" :model-value="selected.settings.script ?? ''" @update:model-value="updateSetting('script', String($event))" />
+                <Textarea id="workflow-script" class="min-h-28 font-mono text-[12px]" :model-value="selected.settings.script ?? ''" @update:model-value="updateSetting('script', String($event))" />
+                <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t('workflow.scriptHint') }}</p>
               </div>
             </template>
 

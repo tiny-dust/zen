@@ -39,7 +39,7 @@ describe("workflow graph operations", () => {
     expect(() => toRuntimeWorkflow({ ...graph, budgets: { maxSteps: 0, maxEffects: 5 } })).toThrow("Invalid run budgets");
   });
 
-  it("maps supported effects conservatively and rejects unsupported execution", () => {
+  it("maps supported effects conservatively and validates tool/script/http settings", () => {
     const types = ["model", "approval"] as const;
     for (const type of types) {
       const settings = { providerId: "p", modelId: "m", instructions: "ask" };
@@ -69,9 +69,34 @@ describe("workflow graph operations", () => {
     expect(converted.graph.nodes[1]).toEqual({ id: "loop", type: "loop", maxIterations: 2 });
     expect(converted.graph.edges.map((edge) => edge.label)).toEqual(["next", "body", "exit"]);
     expect(toRuntimeWorkflow({ ...loop, nodes: loop.nodes.map((item) => item.id === "loop" ? node("loop", "loop") : item) }).graph.nodes[1]).toEqual({ id: "loop", type: "loop" });
-    for (const type of ["tool", "script", "http"] as const) {
-      expect(() => toRuntimeWorkflow({ ...loop, nodes: [loop.nodes[0]!, node("loop", type), loop.nodes[2]!] })).toThrow("execution is disabled");
-    }
+    // 工具/脚本/HTTP 现在可保存执行：必填入参缺失时按节点类型报错
+    expect(() => toRuntimeWorkflow({ ...loop, nodes: [loop.nodes[0]!, node("loop", "tool"), loop.nodes[2]!] })).toThrow("Select a tool");
+    expect(() => toRuntimeWorkflow({ ...loop, nodes: [loop.nodes[0]!, node("loop", "script"), loop.nodes[2]!] })).toThrow("Missing script");
+    expect(() => toRuntimeWorkflow({ ...loop, nodes: [loop.nodes[0]!, node("loop", "http"), loop.nodes[2]!] })).toThrow("Invalid HTTP url");
+    expect(() => toRuntimeWorkflow({ ...loop, nodes: [loop.nodes[0]!, node("loop", "tool", { toolName: "readFile", toolInput: "{ bad" }), loop.nodes[2]!] })).toThrow("Invalid tool input");
+    const effects: WorkflowGraph = {
+      budgets: { maxSteps: 10, maxEffects: 3 },
+      nodes: [
+        node("start", "start"),
+        node("tool", "tool", { toolName: "readFile", toolInput: '{ "path": "$plan" }' }),
+        node("script", "script", { script: "echo hi", runtime: "shell" }),
+        node("http", "http", { url: "https://example.com/api", method: "POST" }),
+        node("end", "end"),
+      ],
+      edges: [
+        { id: "1", source: "start", target: "tool", type: "next" },
+        { id: "2", source: "tool", target: "script", type: "next" },
+        { id: "3", source: "script", target: "http", type: "next" },
+        { id: "4", source: "http", target: "end", type: "next" },
+      ],
+    };
+    const runtime = toRuntimeWorkflow(effects);
+    expect(runtime.graph.nodes.filter((item) => item.type !== "start" && item.type !== "end")).toEqual([
+      { id: "tool", type: "tool", idempotent: false },
+      { id: "script", type: "script", idempotent: false },
+      { id: "http", type: "http", idempotent: false },
+    ]);
+    expect(runtime.nodeSettings.http).toMatchObject({ url: "https://example.com/api", method: "POST" });
     expect(() => toRuntimeWorkflow({ ...graph, nodes: graph.nodes.map((item) => item.type === "condition" ? node(item.id, item.type, { expression: "true" }) : item) })).toThrow("Condition needs left, right and operator");
     expect(() => toRuntimeWorkflow({ ...graph, nodes: graph.nodes.map((item) => item.type === "condition" ? node(item.id, item.type, { left: "", right: "", operator: "equals" }) : item) })).not.toThrow();
   });

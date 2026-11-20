@@ -49,7 +49,7 @@ describe("WorkflowEditor", () => {
     expect(wrapper.find("#workflow-left").exists()).toBe(false);
   });
 
-  it("marks nodes that cannot run and shows the outgoing outlets per type", () => {
+  it("shows the outgoing outlets per type for every node kind", () => {
     const wrapper = mount(WorkflowEditor, {
       props: {
         modelValue: {
@@ -59,12 +59,43 @@ describe("WorkflowEditor", () => {
         },
       },
     });
-    expect(wrapper.text()).toContain("不支持");
+    expect(wrapper.text()).not.toContain("不支持");
     expect(wrapper.find('[data-outlet="review:approved"]').exists()).toBe(true);
     expect(wrapper.find('[data-outlet="review:denied"]').exists()).toBe(true);
     expect(wrapper.find('[data-outlet="loop:body"]').exists()).toBe(true);
     expect(wrapper.find('[data-outlet="loop:exit"]').exists()).toBe(true);
     expect(wrapper.find('[data-outlet="tool:next"]').exists()).toBe(true);
+  });
+
+  it("edits tool, script and HTTP node settings", async () => {
+    const graph: WorkflowGraph = {
+      nodes: [node("run", "tool"), node("shell", "script", 200), node("call", "http", 400)],
+      edges: [],
+      budgets: { maxSteps: 10, maxEffects: 3 },
+    };
+    const wrapper = mount(WorkflowEditor, {
+      props: { modelValue: graph, tools: [{ name: "readFile", description: "Read a file" }] },
+    });
+
+    await wrapper.find('[data-node-id="run"]').trigger("click");
+    expect(wrapper.find("#workflow-tool").exists()).toBe(true);
+    expect(wrapper.text()).toContain("工具");
+    await wrapper.find("#workflow-tool-input").setValue('{ "path": "$plan" }');
+    expect(wrapper.emitted("update:modelValue")?.at(-1)?.[0]).toMatchObject({
+      nodes: expect.arrayContaining([expect.objectContaining({ id: "run", settings: { toolInput: '{ "path": "$plan" }' } })]),
+    });
+
+    await wrapper.find('[data-node-id="shell"]').trigger("click");
+    expect(wrapper.find("#workflow-runtime").exists()).toBe(true);
+    await wrapper.find("#workflow-script").setValue("echo hi");
+    expect(wrapper.emitted("update:modelValue")?.at(-1)?.[0]).toMatchObject({
+      nodes: expect.arrayContaining([expect.objectContaining({ id: "shell", settings: { script: "echo hi" } })]),
+    });
+
+    await wrapper.find('[data-node-id="call"]').trigger("click");
+    expect(wrapper.find("#workflow-url").exists()).toBe(true);
+    expect(wrapper.find("#workflow-headers").exists()).toBe(true);
+    expect(wrapper.find("#workflow-body").exists()).toBe(true);
   });
 
   it("lists existing connections and removes the selected one", async () => {
