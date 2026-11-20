@@ -88,7 +88,14 @@ export interface ChatEventContext {
 
 function lastAssistantOf(messages: ChatMessage[]): ChatMessage | undefined {
   const last = messages.at(-1);
-  return last?.role === "assistant" ? last : undefined;
+  if (last?.role !== "assistant") {
+    return undefined;
+  }
+  // 预生成计划是独立消息：执行段的流式内容不能并进计划气泡
+  if ((last.meta as { planDraft?: unknown } | undefined)?.planDraft === true) {
+    return undefined;
+  }
+  return last;
 }
 
 /**
@@ -106,6 +113,8 @@ const RUN_EVIDENCE_EVENTS: ReadonlySet<AgentStreamEvent["type"]> = new Set([
   "tool_end",
   "step_start",
   "usage",
+  "plan_draft",
+  "phase_start",
   "insert_started",
   "original_resumed",
   "agent_tree",
@@ -579,6 +588,26 @@ export function createChatEventGateway(ctx: ChatEventContext) {
       case "step_start":
         ctx.currentStep.value = event.step;
         break;
+      case "phase_start": {
+        // 两阶段管线进入下一段：断开回复气泡，执行段不并进规划段的回复
+        breakAssistantBubble = true;
+        ctx.phase.value = "thinking";
+        break;
+      }
+      case "plan_draft": {
+        // 预生成计划：独立气泡展示（主进程已落库，同 id 去重）
+        if (!ctx.messages.value.some((message) => message.id === event.messageId)) {
+          ctx.messages.value.push({
+            id: event.messageId,
+            role: "assistant",
+            content: event.text,
+            createdAt: Date.now(),
+            meta: { planDraft: true, model: event.modelId },
+          });
+        }
+        ctx.phase.value = "thinking";
+        break;
+      }
       case "usage": {
         // 个别供应商只报输出 token：输入为 0/null 时保留旧值，避免上下文统计被抹成 0%
         // 兼容 camelCase / snake_case 字段名（协议层与 AI SDK 命名不一致时）

@@ -50,11 +50,20 @@ import {
   saveTaskList,
   setSessionMode,
 } from "./workspace-db";
-import { appendGoalDirective, appendSessionModeDirective, resolvePhaseModel, resolveRunSessionMode } from "./session-mode";
+import {
+  appendGoalDirective,
+  appendPlanDirective,
+  appendSessionModeDirective,
+  isPlanApproval,
+  resolvePhaseModel,
+  resolveRunSessionMode,
+  shouldAutoPlan,
+} from "./session-mode";
 
 import type { AgentImageAttachment } from "@zen/agent-core";
 import { expandElementTokens } from "@zen/tools-browser";
 import type {
+  AgentDoneReason,
   AgentRunRequest,
   AgentStreamEvent,
   BrowserElementRef,
@@ -107,10 +116,40 @@ function persistAssistant(sessionId: string, message: ChatMessage): void {
   });
 }
 
+/** 单段 run 的附加选项：编排层（plan → act）用它区分阶段 */
+interface PhaseRunOptions {
+  /** 强制会话模式：计划段固定为 plan（只读） */
+  forcedMode?: SessionMode;
+  /** 计划段：成功 done 只落库、不推给渲染层（run 还没结束） */
+  suppressDoneToUi?: boolean;
+  /** 收集本段正文（计划文本） */
+  collectText?: boolean;
+  /** 执行段：注入上一段产出的计划 */
+  planContext?: string;
+}
+
+interface PhaseRunResult extends AgentRunResult {
+  text?: string;
+  doneReason?: AgentDoneReason;
+}
+
+/**
+ * 统一两阶段管线：有独立计划模型时，先跑 plan 段（只读、plan 模型），
+ * 再跑 act 段（执行模型）带着计划落地；done 只在最后一段推给渲染层。
+ * 手动「计划」模式不在这里串联——它本身就是 plan 段，等用户批准后再执行。
+ */
 export async function runAgentRequest(
   request: AgentRunRequest,
   options: RunAgentOptions,
 ): Promise<AgentRunResult> {
+  return runAgentSinglePhase(request, options);
+}
+
+async function runAgentSinglePhase(
+  request: AgentRunRequest,
+  options: RunAgentOptions,
+  phase: PhaseRunOptions = {},
+): Promise<PhaseRunResult> {
   const { sessions, send } = options;
   if (!request?.sessionId || !request.userMessage) {
     return { ok: false, error: "invalid agent run request" };
@@ -133,11 +172,13 @@ export async function runAgentRequest(
     if (!record) {
       return { ok: false, error: "session not found" };
     }
-    runMode = resolveRunSessionMode(
-      record.session.mode,
-      request,
-      (mode) => setSessionMode(request.sessionId, mode),
-    );
+    runMode =
+      phase.forcedMode ??
+      resolveRunSessionMode(
+        record.session.mode,
+        request,
+        (mode) => setSessionMode(request.sessionId, mode),
+      );
     phaseSession = record.session;
     runGoal = record.session.goal ?? null;
     const latestTaskList = record.taskLists.at(-1);
@@ -145,24 +186,28 @@ export async function runAgentRequest(
       taskListSeed = { version: latestTaskList.version, items: latestTaskList.items };
     }
 
-    // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化
-    ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
-    // 落库优先用展示版（原始正文 + meta.elementMarks 等）：userMessage 是给 Agent 的展开文本，
-    // 直接落库会让切会话/重启后恢复的气泡丢失元素 tag
-    const userMeta: Record<string, unknown> = {
-      ...(request.attachments?.length ? { attachments: request.attachments } : {}),
-      ...(request.display?.meta ?? {}),
-    };
-    // 渲染层自带的乐观气泡 id 优先：落库与本地同 id，切回运行中会话时
-    // 数据库与后台缓冲按 id 去重，同一条发送不会显示两条。非法值回落自生成。
-    const displayId = request.display?.id;
-    appendMessage(request.sessionId, {
-      id: typeof displayId === "string" && displayId.trim() ? displayId : randomUUID(),
-      role: "user",
-      content: request.display?.content ?? request.userMessage,
-      createdAt: Date.now(),
-      meta: Object.keys(userMeta).length ? userMeta : undefined,
-    });
+    // 首条消息把「新会话」改成摘要标题；用户消息与附件先行持久化。
+    // 自动两阶段的内层 run（plan 段 / act 段）复用同一条 request，不能再落一次，
+    // 否则一次发送会存下 2-3 条同样的用户消息。
+    if (!phase.forcedMode && !phase.planContext) {
+      ensureSessionTitle(request.sessionId, request.userMessage.slice(0, 24));
+      // 落库优先用展示版（原始正文 + meta.elementMarks 等）：userMessage 是给 Agent 的展开文本，
+      // 直接落库会让切会话/重启后恢复的气泡丢失元素 tag
+      const userMeta: Record<string, unknown> = {
+        ...(request.attachments?.length ? { attachments: request.attachments } : {}),
+        ...(request.display?.meta ?? {}),
+      };
+      // 渲染层自带的乐观气泡 id 优先：落库与本地同 id，切回运行中会话时
+      // 数据库与后台缓冲按 id 去重，同一条发送不会显示两条。非法值回落自生成。
+      const displayId = request.display?.id;
+      appendMessage(request.sessionId, {
+        id: typeof displayId === "string" && displayId.trim() ? displayId : randomUUID(),
+        role: "user",
+        content: request.display?.content ?? request.userMessage,
+        createdAt: Date.now(),
+        meta: Object.keys(userMeta).length ? userMeta : undefined,
+      });
+    }
 
     await sessions.get(request.sessionId)?.cancel();
     sessions.delete(request.sessionId);
@@ -204,7 +249,15 @@ export async function runAgentRequest(
     };
     persisted = false;
   };
+  let collectedText = "";
+  let phaseDoneReason: AgentDoneReason | undefined;
   const emitTo = (streamEvent: AgentStreamEvent) => {
+    if (phase.collectText && streamEvent.type === "delta") {
+      collectedText += streamEvent.text;
+    }
+    if (streamEvent.type === "done") {
+      phaseDoneReason = streamEvent.reason;
+    }
     // 长驻服务的终端输出尾部：runTerminal 的流式进度同步进服务登记表，
     // 右栏「服务」面板据此展示实时输出（面板点击条目打开）
     if (
@@ -258,6 +311,10 @@ export async function runAgentRequest(
     // 持久化绑定 done：暂停/等审批不是 run 终点，resume 后继续写同一条
     if (streamEvent.type === "done") {
       persistRun();
+      // 计划段成功收尾：run 还没结束（后面还有执行段），只落库不通知渲染层
+      if (phase.suppressDoneToUi && streamEvent.reason === "stop") {
+        return;
+      }
     }
     send?.(streamEvent);
   };
@@ -273,13 +330,15 @@ export async function runAgentRequest(
     } catch (error) {
       console.warn("[zen] 阶段模型默认读取失败，回落会话模型", error);
     }
+    const fallback = {
+      providerId: request.providerId || selection.providerId,
+      modelId: request.model || selection.modelId,
+    };
+
     const routed = resolvePhaseModel(
       phaseSession!,
       runMode,
-      {
-        providerId: request.providerId || selection.providerId,
-        modelId: request.model || selection.modelId,
-      },
+      fallback,
       phaseDefaults,
     );
     const providerId = routed.providerId;
@@ -374,13 +433,18 @@ export async function runAgentRequest(
     ]).finally(() => clearTimeout(mcpTimer));
 
     // 技能与 MCP 惰性汇总（失败不阻塞会话）
-    const [skills, mcpTools] = await Promise.all([
+    // skill-router 正文一并取出：作为系统提示常驻段落，保证新会话也有技能路由（不依赖模型主动 loadSkill）
+    const [skills, skillRouter, mcpTools] = await Promise.all([
       import("@zen/skills")
         .then(({ listSkills }) => listSkills(agentSettings.skillExtraPaths))
         .then((items) =>
           items.map((item) => ({ id: item.id, name: item.name, description: item.description })),
         )
         .catch(() => []),
+      import("@zen/skills")
+        .then(({ readSkillById }) => readSkillById("skill-router", agentSettings.skillExtraPaths))
+        .then((found) => found?.body ?? "")
+        .catch(() => ""),
       boundedMcpTools,
     ]);
 
@@ -403,6 +467,49 @@ export async function runAgentRequest(
       console.warn("[model-history] 载入失败，回落 ChatTurn 历史:", error);
     }
 
+    // 两阶段编排：会话开启 P/A 双模型 + 非 plan 模式 + 配了独立计划模型 →
+    // 先跑只读计划段（plan 模型），再带着计划跑执行段（act 模型）。
+    // 递归进入本函数，phase 参数防止再次编排。
+    if (!phase.forcedMode && !phase.planContext) {
+      const planRef =
+        phaseSession?.planModelProviderId && phaseSession.planModelId
+          ? { providerId: phaseSession.planModelProviderId, modelId: phaseSession.planModelId }
+          : phaseDefaults?.planModel ?? null;
+      const actRef = resolvePhaseModel(phaseSession!, runMode, fallback, phaseDefaults);
+      if (
+        !isPlanApproval(request.userMessage, request.approvePlan) &&
+        shouldAutoPlan({
+          // 只有会话开启 P/A 双模型才编排两阶段；计划模式是另一维度，不决定是否双模型
+          pairMode: phaseSession?.pairMode === true,
+          mode: runMode,
+          planProviderId: planRef?.providerId,
+          planModelId: planRef?.modelId,
+          actProviderId: actRef.providerId,
+          actModelId: actRef.modelId,
+          background: request.background,
+          autoPlan: request.autoPlan,
+        })
+      ) {
+        options.send?.({ type: "phase_start", sessionId: request.sessionId, phase: "plan" });
+        const planRun = await runAgentSinglePhase(request, options, {
+          forcedMode: "plan",
+          suppressDoneToUi: true,
+          collectText: true,
+        });
+        const planText = (planRun.text ?? "").trim();
+        // 计划段失败/取消/暂停/无正文：不再进入执行段
+        if (!planRun.ok || !planText || (planRun.doneReason && planRun.doneReason !== "stop")) {
+          return planRun;
+        }
+        options.send?.({ type: "phase_start", sessionId: request.sessionId, phase: "act" });
+        return runAgentSinglePhase(request, options, { planContext: planText });
+      }
+    }
+
+
+    // 计划文本由编排层注入：计划段是独立的只读 run
+    const planContext = phase.planContext ?? "";
+
     const session = new AgentSession({
       sessionId: request.sessionId,
       workspaceRoot,
@@ -420,13 +527,16 @@ export async function runAgentRequest(
       planReadOnly: runMode === "plan",
       // 会话模式指令追加在基础提示词之后（interactive 不追加，保持现状）；
       // 目标指令再追加在其后（仅 active 目标注入，预算不进提示词）
-      systemPrompt: appendGoalDirective(
-        appendSessionModeDirective(
-          resolvePromptText(agentSettings),
-          runMode,
-          agentSettings.permissionMode,
+      systemPrompt: appendPlanDirective(
+        appendGoalDirective(
+          appendSessionModeDirective(
+            resolvePromptText(agentSettings),
+            runMode,
+            agentSettings.permissionMode,
+          ),
+          runGoal,
         ),
-        runGoal,
+        planContext,
       ),
       // 任务清单：版本号接着会话已落库的最大版本，新一轮 startNew 才真正开新版
       taskListSeed,
@@ -447,6 +557,7 @@ export async function runAgentRequest(
       },
       multiAgent: runMode !== "plan",
       skills,
+      skillRouter,
       skillExtraPaths: agentSettings.skillExtraPaths,
       mcpTools,
       // 后台会话必须使用自己的浏览器 scope，不能借用用户当前正在看的工作区视图。
@@ -523,7 +634,7 @@ export async function runAgentRequest(
     registerPetRun(request.sessionId, session, petRunId, request.display?.content ?? request.userMessage);
     await session.start(runUserMessage, request.history, sessionImages, modelHistory ?? undefined);
     // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
-    return { ok: true };
+    return { ok: true, text: collectedText, doneReason: phaseDoneReason };
   } catch (error) {
     const message = error instanceof Error ? error.message : "agent run failed";
     // 走 emitTo 保证落库与飞书网关（done 清理/完成推送）与渲染层口径一致

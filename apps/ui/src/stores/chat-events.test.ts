@@ -56,6 +56,75 @@ beforeEach(() => {
   setActivePinia(createPinia());
 });
 
+describe("createChatEventGateway plan_draft", () => {
+  it("预生成计划独立成气泡，同 id 不重复插入", () => {
+    const ctx = contextOf();
+    const gateway = createChatEventGateway(ctx);
+    const event = {
+      type: "plan_draft" as const,
+      sessionId: "s1",
+      messageId: "plan-1",
+      text: "1. 读组件\n2. 改样式",
+      modelId: "m-plan",
+    };
+
+    gateway.handleStreamEvent(event);
+    gateway.handleStreamEvent(event);
+
+    expect(ctx.messages.value).toHaveLength(1);
+    expect(ctx.messages.value[0].content).toContain("1. 读组件");
+    expect(ctx.messages.value[0].meta).toMatchObject({ planDraft: true, model: "m-plan" });
+  });
+
+  it("执行段工具事件另起气泡，不并进计划消息", () => {
+    const ctx = contextOf();
+    const gateway = createChatEventGateway(ctx);
+    gateway.handleStreamEvent({
+      type: "plan_draft",
+      sessionId: "s1",
+      messageId: "plan-1",
+      text: "计划正文",
+      modelId: "m-plan",
+    });
+    gateway.handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s1",
+      toolCallId: "t1",
+      toolName: "readFile",
+      args: { path: "a.vue" },
+    });
+
+    expect(ctx.messages.value).toHaveLength(2);
+    expect(ctx.messages.value[1].parts?.[0]).toMatchObject({ type: "tool", toolName: "readFile" });
+  });
+});
+
+describe("createChatEventGateway phase_start", () => {
+  it("进入执行段时断开气泡，工具事件另起消息", () => {
+    const ctx = contextOf();
+    const gateway = createChatEventGateway(ctx);
+    gateway.handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s1",
+      toolCallId: "t1",
+      toolName: "readFile",
+      args: { path: "a.vue" },
+    });
+    gateway.handleStreamEvent({ type: "phase_start", sessionId: "s1", phase: "act" });
+    gateway.handleStreamEvent({
+      type: "tool_start",
+      sessionId: "s1",
+      toolCallId: "t2",
+      toolName: "editFile",
+      args: { path: "a.vue" },
+    });
+
+    expect(ctx.messages.value).toHaveLength(2);
+    expect(ctx.messages.value[0].parts?.[0]).toMatchObject({ toolName: "readFile" });
+    expect(ctx.messages.value[1].parts?.[0]).toMatchObject({ toolName: "editFile" });
+  });
+});
+
 describe("createChatEventGateway context_overflow", () => {
   it("phase=retrying 只更新 statusText，不置 lastError、不改运行态", () => {
     const ctx = contextOf();

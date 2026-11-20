@@ -156,6 +156,26 @@ export type AgentStreamEvent =
       /** 缓存命中的输入 tokens（Anthropic cacheRead / OpenAI cached）：供应商不支持时缺省 */
       cachedInputTokens?: number;
     }
+  /**
+   * 两阶段管线：进入某个阶段（plan 规划 / act 执行）。
+   * 渲染层据此断开回复气泡，让执行段不并进规划段的回复里。
+   */
+  | {
+      type: "phase_start";
+      sessionId: string;
+      phase: "plan" | "act";
+    }
+  /**
+   * 自动两阶段：plan 模型预生成的计划（已落库为一条 assistant 消息）。
+   * 随后的主 run 由 act 模型带着这份计划执行。
+   */
+  | {
+      type: "plan_draft";
+      sessionId: string;
+      messageId: string;
+      text: string;
+      modelId: string;
+    }
   | {
       type: "tasks_updated";
       sessionId: string;

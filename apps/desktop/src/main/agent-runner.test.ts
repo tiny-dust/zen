@@ -5,19 +5,50 @@ import { describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   sessionRecord: { session: { id: "s1" }, messages: [], taskLists: [] } as unknown,
   appendError: null as Error | null,
+  /** 假 AgentSession 跑过的模型，按发生顺序记录（验证两段各用一个模型） */
+  ranModels: [] as string[],
 }));
 
+// 假 AgentSession：构造时拿 emit，start 时直接推一段正文 + done，覆盖两阶段编排
 vi.mock("@zen/agent-core", () => ({
-  AgentSession: class {},
+  AgentSession: class {
+    private readonly options: {
+      sessionId: string;
+      model: string;
+      emit?: (event: unknown) => void;
+    };
+    constructor(options: { sessionId: string; model: string; emit?: (event: unknown) => void }) {
+      this.options = options;
+    }
+    getRunState() {
+      return { runActive: false, waitingApproval: false, waitingAskCount: 0, inserting: false };
+    }
+    async cancel() {}
+    async start() {
+      state.ranModels.push(this.options.model);
+      this.options.emit?.({ type: "delta", sessionId: this.options.sessionId, text: "步骤" });
+      this.options.emit?.({ type: "done", sessionId: this.options.sessionId, reason: "stop" });
+    }
+  },
   runMockAgent: vi.fn(),
 }));
+vi.mock("./session-checkpoints", () => ({
+  backupAfterWrite: vi.fn(),
+  backupWorkspaceFile: vi.fn(),
+  beginTurnCheckpoint: vi.fn(async () => 1),
+}));
+vi.mock("./user-ipc", () => ({ loadAppSettings: vi.fn(async () => ({})) }));
+vi.mock("./websearch-auth-store", () => ({ getWebSearchApiKeys: vi.fn(async () => ({})) }));
 vi.mock("./agent-images", () => ({
   loadImageAttachments: vi.fn(),
   isImagePath: vi.fn(() => false),
   withImageAnalysisText: vi.fn(),
 }));
 vi.mock("./agent-services", () => ({ getAgentServicesRegistry: vi.fn(() => null) }));
-vi.mock("./browser/service", () => ({ getBrowserService: vi.fn(() => null) }));
+vi.mock("./browser/service", () => ({
+  getBrowserService: vi.fn(() => null),
+  getBrowserRegistry: vi.fn(() => ({ forScope: vi.fn(() => ({})) })),
+}));
 vi.mock("./lark/ipc", () => ({ notifyLarkEvent: vi.fn() }));
 vi.mock("./memory", () => ({
   appendMemoryNote: vi.fn(),
@@ -30,11 +61,17 @@ vi.mock("./model-db", () => ({
   getSelection: vi.fn(async () => ({ providerId: null, modelId: null })),
   listProviders: vi.fn(async () => []),
   loadProviderApiKey: vi.fn(async () => ""),
+  isChatGptAuthProvider: vi.fn(() => false),
 }));
 vi.mock("./prompt-presets", () => ({ resolvePromptText: vi.fn(() => "") }));
 vi.mock("./sandbox", () => ({ resolveWorkspaceDir: vi.fn() }));
 vi.mock("./zen-dir", () => ({
-  loadAgentSettings: vi.fn(async () => ({ sandboxMode: "off", permissionMode: "auto" })),
+  loadAgentSettings: vi.fn(async () => ({
+    sandboxMode: "off",
+    permissionMode: "auto",
+    approvalRules: [],
+    skillExtraPaths: [],
+  })),
   sessionCacheDir: vi.fn(() => "/tmp/zen-test-session"),
 }));
 vi.mock("./workspace-db", () => ({
@@ -59,7 +96,26 @@ vi.mock("./workspace-db", () => ({
 
 import { runAgentRequest } from "./agent-runner";
 import { runMockAgent } from "@zen/agent-core";
+import { listProviders } from "./model-db";
 import { appendMessage, recordGoalUsage, setSessionMode } from "./workspace-db";
+
+import type { AgentStreamEvent, ProviderSummary } from "@zen/shared";
+
+/** 测试用供应商：一个供应商一个模型，够 resolvePhaseModel 选模 */
+function providerSummary(providerId: string, modelId: string): ProviderSummary {
+  return {
+    id: providerId,
+    name: providerId,
+    protocol: "openai-chat",
+    baseUrl: "",
+    enabled: true,
+    hasApiKey: true,
+    apiKeyMask: "",
+    models: [{ id: modelId, name: modelId, enabled: true }],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
 
 describe("display 落库优先级", () => {
   it("带 display 的请求：落库 content 用 display.content，meta 合并 display.meta", async () => {
@@ -296,5 +352,51 @@ describe("计划模式批准回落 interactive", () => {
     );
 
     expect(setSessionMode).not.toHaveBeenCalled();
+  });
+});
+
+describe("自动两阶段（P/A 双模型）", () => {
+  it("plan 段 → act 段复用同一条请求：用户消息只落库一次", async () => {
+    state.sessionRecord = {
+      session: {
+        id: "pair-session",
+        mode: "interactive",
+        pairMode: true,
+        planModelProviderId: "p-plan",
+        planModelId: "m-plan",
+      },
+      messages: [],
+      taskLists: [],
+    };
+    vi.mocked(listProviders).mockResolvedValue([
+      providerSummary("p-plan", "m-plan"),
+      providerSummary("p-act", "m-act"),
+    ]);
+    state.ranModels = [];
+    vi.mocked(appendMessage).mockClear();
+    const events: AgentStreamEvent[] = [];
+
+    const result = await runAgentRequest(
+      {
+        sessionId: "pair-session",
+        workspaceId: "common",
+        workspaceRoot: "",
+        userMessage: "做个功能",
+        history: [],
+        providerId: "p-act",
+        model: "m-act",
+      },
+      { sessions: new Map(), send: (event) => events.push(event) },
+    );
+
+    expect(result.ok).toBe(true);
+    // 两段都跑了：计划段 + 执行段各一次 phase_start，且各用自己的模型
+    expect(events.filter((event) => event.type === "phase_start")).toHaveLength(2);
+    expect(state.ranModels).toEqual(["m-plan", "m-act"]);
+    // 内层段不再重复落库，否则一次发送会存下多条同样的用户消息
+    const userSaves = vi
+      .mocked(appendMessage)
+      .mock.calls.filter(([, message]) => message.role === "user");
+    expect(userSaves).toHaveLength(1);
   });
 });
