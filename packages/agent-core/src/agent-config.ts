@@ -90,6 +90,11 @@ export interface AgentSessionConfig {
   memoryBridge?: MemoryAgentBridge;
   /** 技能清单提示（loadSkill 可取全文） */
   skills?: AgentSkillHint[];
+  /**
+   * 内置路由技能正文（desktop 读取 skill-router 的 SKILL.md 注入）。
+   * 直接进系统提示，不依赖模型主动 loadSkill——否则新会话里容易整轮都不调用任何技能。
+   */
+  skillRouter?: string;
   /** loadSkill 校验用：与设置页一致的技能搜索路径 */
   skillExtraPaths?: string[];
   /** 已启用 MCP server 的工具（动态桥接为 mcp__<server>__<tool>） */
@@ -169,12 +174,13 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
     parts.push(
       `可用技能（按需用 loadSkill 工具加载全文后再遵循其流程）：\n${lines}\n不要对任务硬套技能；只有当技能确实匹配时才加载。`,
     );
-    // skill-router 是 zen 自带的路由技能：装了就让模型每个任务先查路由，避免日常对话漏加载
-    if (config.skills.some((skill) => skill.name === "skill-router")) {
-      parts.push(
-        `技能路由：编码、审查、调试、测试、调研、UI 设计、飞书类任务开始时，先 loadSkill skill-router 查「意图 → 技能」表，再加载命中的技能；不要凭印象跳过 coder 这类强制入口。`,
-      );
-    }
+  }
+  // 内置路由技能：正文直接进系统提示（不靠模型自觉 loadSkill），否则新会话常整轮不加载任何技能。
+  // 独立于技能清单：清单为空（扫描失败）时路由规则仍要生效。
+  if (config.skillRouter?.trim()) {
+    parts.push(
+      `技能路由（skill-router，本机技能清单与加载规则，必须遵守）：\n${config.skillRouter.trim().slice(0, 12000)}`,
+    );
   }
   if (config.mcpTools?.length) {
     const lines = config.mcpTools

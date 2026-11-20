@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Check, History, Search, Sparkles } from "@lucide/vue";
+import { ArrowRight, Check, History, Layers, Search, Sparkles } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -22,8 +22,9 @@ const chatStore = useChatStore();
 const modelsStore = useModelsStore();
 const settingsStore = useSettingsStore();
 const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
-// 会话级模型覆盖与阶段覆盖都在 chat store：切换只影响当前会话
-const { effectiveSelection, planModel, actModel } = storeToRefs(chatStore);
+// 会话级模型覆盖与 P/A 阶段配置都在 chat store：切换只影响当前会话
+const { effectiveSelection, planModel, actModel, pairMode, sessionMode, activeModelSelection } =
+  storeToRefs(chatStore);
 
 const open = ref(false);
 const query = ref("");
@@ -99,14 +100,18 @@ function resolvePhase(phase: "plan" | "act"): PhaseSlot {
 
 const planSlot = computed(() => resolvePhase("plan"));
 const actSlot = computed(() => resolvePhase("act"));
-/** 双模型模式：任一阶段有自己的模型（会话覆盖或全局默认），否则就是单模型 */
-const dualMode = computed(
-  () => planSlot.value.source !== "session" || actSlot.value.source !== "session",
-);
+/** 双模型展示只由会话的 P/A 开关决定：关闭时阶段配置保留但不生效 */
+const dualMode = computed(() => pairMode.value);
 
-/** 触发器展示的模型（单模型模式下与运行一致） */
-const displayedModel = computed(() =>
-  modelsStore.findEnabledModel(actSlot.value.selection.providerId, actSlot.value.selection.modelId),
+/** 触发器展示的模型：会话模式对应的阶段（plan 模式看计划模型，其余看执行模型） */
+const displayedModel = computed(() => {
+  const selection = activeModelSelection.value;
+  return modelsStore.findEnabledModel(selection.providerId, selection.modelId);
+});
+
+/** 当前会话模式落在哪个阶段：双模型触发器用它强调真正生效的那一段 */
+const currentPhase = computed<"plan" | "act">(() =>
+  sessionMode.value === "plan" ? "plan" : "act",
 );
 
 /** 当前编辑阶段的会话覆盖与全局默认 */
@@ -136,9 +141,7 @@ const globalPhaseDefaultLabel = computed(() => {
 
 /** 列表当前对比的模型：阶段 tab 用该阶段的生效选择，否则用会话模型 */
 const displayedSelection = computed(() =>
-  activePhase.value
-    ? resolvePhase(activePhase.value).selection
-    : { providerId: actSlot.value.selection.providerId, modelId: actSlot.value.selection.modelId },
+  activePhase.value ? resolvePhase(activePhase.value).selection : effectiveSelection.value,
 );
 
 const enabledGroups = computed(() =>
@@ -196,11 +199,11 @@ function itemKey(providerId: string, modelId: string) {
 }
 
 function isSelected(providerId: string, modelId: string) {
-  // 自动路由模式下唯一选中态挂在「自动」项上（zen-001：同屏不出现两个勾）
+  // 自动路由 / P/A 模式下唯一选中态挂在各自顶部项上（zen-001：同屏不出现两个勾）
   if (activePhase.value) {
     return phaseOverride.value ? selectedKey.value === itemKey(providerId, modelId) : false;
   }
-  if (autoRoute.value) return false;
+  if (autoRoute.value || pairMode.value) return false;
   return selectedKey.value === itemKey(providerId, modelId);
 }
 
@@ -236,10 +239,13 @@ const sourceLabel = computed(() => ({
 /** 触发按钮 title：单模型给自动模式理由；双模型给两段完整说明 */
 const triggerTitle = computed(() => {
   if (dualMode.value) {
-    return t("chat.model.triggerDual", {
-      plan: `${planSlot.value.label}（${sourceLabel.value[planSlot.value.source]}）`,
-      act: `${actSlot.value.label}（${sourceLabel.value[actSlot.value.source]}）`,
-    });
+    return [
+      t("chat.model.triggerDual", {
+        plan: `${planSlot.value.label}（${sourceLabel.value[planSlot.value.source]}）`,
+        act: `${actSlot.value.label}（${sourceLabel.value[actSlot.value.source]}）`,
+      }),
+      t("chat.model.phaseActiveHint", { phase: phaseLabel.value }),
+    ].join("\n");
   }
   const modelName = displayedModel.value?.model.name || displayedModel.value?.provider.name || t("chat.model.noModel");
   if (!autoRoute.value) return modelName;
@@ -263,6 +269,11 @@ function slotOf(phase: "plan" | "act"): PhaseSlot {
   return phase === "plan" ? planSlot.value : actSlot.value;
 }
 
+/** 当前编辑阶段的展示名：搜索行 chip、列表项 title、选中提示共用 */
+const phaseLabel = computed(() =>
+  activePhase.value === "plan" ? t("chat.model.phasePlan") : t("chat.model.phaseAct"),
+);
+
 function railClass(id: string | "recent") {
   return classes(
     "flex min-h-[30px] items-center justify-start gap-2 rounded-lg px-2 text-left text-[12px] text-[var(--color-txt)] hover:bg-[var(--color-menu-hover)]",
@@ -274,12 +285,17 @@ async function pick(providerId: string, modelId: string) {
   if (activePhase.value) {
     await chatStore.setPhaseModel(activePhase.value, providerId, modelId);
   } else {
+    // 直接选单个模型 = 退出 P/A 双模型，本会话回到单模型
     modelsStore.setAutoRoute(false);
+    await chatStore.setPairMode(false);
     await chatStore.setSessionModel(providerId, modelId);
   }
   const key = itemKey(providerId, modelId);
   recentKeys.value = [key, ...recentKeys.value.filter((k) => k !== key)].slice(0, 8);
-  open.value = false;
+  // 阶段选模后保持弹层打开：两个 tab 的状态同步可见，可直接接着配另一段
+  if (!activePhase.value) {
+    open.value = false;
+  }
 }
 
 /**
@@ -290,15 +306,32 @@ async function pickTopChoice() {
   if (activePhase.value) {
     await chatStore.setPhaseModel(activePhase.value, null, null);
   } else {
+    // 自动路由是单模型口径：同样退出 P/A 双模型
     modelsStore.setAutoRoute(true);
+    await chatStore.setPairMode(false);
     await chatStore.setSessionModel(null, null);
   }
   open.value = false;
 }
 
+/** 选中 P/A 项：开启会话双模型并进入配置 tab */
+async function pickPairMode() {
+  modelsStore.setAutoRoute(false);
+  await chatStore.setPairMode(true);
+  activeTab.value = "phases";
+}
+
 function selectProvider(id: string | "recent" | null) {
   activeProviderId.value = id;
   query.value = "";
+}
+
+/** 切 tab：点「P/A」即视为选中双模型（与「计划模式」无关，只影响选模） */
+function pickTab(id: "model" | "phases" | "sub" | "external") {
+  activeTab.value = id;
+  if (id === "phases") {
+    void pickPairMode();
+  }
 }
 
 /** 可用高度 = 触发器顶边到窗口顶边的距离（弹层与其保留 8px 间距），上限 440px */
@@ -394,9 +427,15 @@ watch(activeTab, () => {
       </span>
       <!-- 单模型：一个名字；双模型：计划 → 执行，两个名字都要看得见 -->
       <span v-if="!compact && dualMode" class="flex min-w-0 items-center gap-1 font-medium">
-        <span class="max-w-[112px] truncate">{{ planSlot.label || t("chat.model.noModel") }}</span>
+        <span
+          class="max-w-[112px] truncate"
+          :class="currentPhase === 'plan' ? 'text-[var(--color-accent)]' : ''"
+        >{{ planSlot.label || t("chat.model.noModel") }}</span>
         <ArrowRight class="size-3 shrink-0 text-[var(--color-dim)]" aria-hidden="true" />
-        <span class="max-w-[112px] truncate">{{ actSlot.label || t("chat.model.noModel") }}</span>
+        <span
+          class="max-w-[112px] truncate"
+          :class="currentPhase === 'act' ? 'text-[var(--color-accent)]' : ''"
+        >{{ actSlot.label || t("chat.model.noModel") }}</span>
       </span>
       <span v-else-if="!compact" class="truncate font-medium">{{ displayedModel?.model.name || displayedModel?.provider.name || t("chat.model.noModel") }}</span>
       <svg
@@ -428,42 +467,43 @@ watch(activeTab, () => {
               ? 'font-semibold text-[var(--color-txt-strong)] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t after:bg-[var(--color-accent)] after:content-\'\']'
               : 'text-[var(--color-mut)]'
           "
-          @click="activeTab = tab.id"
+          @click="pickTab(tab.id)"
         >
           {{ tab.label }}
         </Button>
       </div>
 
       <template v-if="activeTab === 'model' || activePhase">
-        <!-- 计划 / 执行同一 tab：上方两个阶段卡，点击切换要改的阶段，两个模型的当前值一眼可见 -->
-        <div
+        <p
           v-if="activePhase"
-          class="flex flex-none items-stretch gap-1.5 border-b border-[var(--color-line)] px-3 py-2"
+          class="mx-3 mt-2 mb-0 flex-none text-[11px] leading-4 text-[var(--color-mut)]"
         >
+          {{ t("chat.model.phaseModeHint") }}
+        </p>
+        <!-- P/A 二级 tab：计划 / 执行各一个，tab 上直接显示该段生效模型与来源 -->
+        <div v-if="activePhase" class="flex flex-none gap-2 border-b border-[var(--color-line)] px-3">
           <Button
             v-for="phase in phaseTabs"
             :key="phase.id"
             variant="ghost"
-            class="flex min-w-0 flex-1 flex-col items-start gap-0 rounded-lg px-2.5 py-1.5 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+            class="relative flex h-auto min-w-0 flex-1 flex-col items-start gap-0 rounded-none px-0 pb-2 pt-1.5 text-left font-normal hover:bg-transparent"
             :class="
               editingPhase === phase.id
-                ? 'border border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[var(--color-menu-active)]'
-                : 'border border-transparent'
+                ? 'text-[var(--color-txt-strong)] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t after:bg-[var(--color-accent)] after:content-\'\''
+                : 'text-[var(--color-mut)]'
             "
             :aria-label="t('chat.model.editPhase', { phase: phase.label })"
+            :aria-pressed="editingPhase === phase.id"
             :title="t('chat.model.editPhaseHint')"
             @click="editingPhase = phase.id"
           >
             <span class="flex w-full items-center gap-1.5 text-[10px] text-[var(--color-dim)]">
               {{ phase.label }}
-              <span
-                v-if="slotOf(phase.id).source !== 'session'"
-                class="rounded-full border border-[var(--color-line-strong)] px-1 text-[10px] font-normal text-[var(--color-mut)]"
-              >
+              <span class="rounded-full border border-[var(--color-line-strong)] px-1 text-[10px] font-normal">
                 {{ sourceLabel[slotOf(phase.id).source] }}
               </span>
             </span>
-            <span class="w-full truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
+            <span class="w-full truncate text-[12px] font-medium">
               {{ slotOf(phase.id).label || t("chat.model.noModel") }}
             </span>
           </Button>
@@ -477,7 +517,7 @@ watch(activeTab, () => {
             variant="ghost"
             class="h-6 min-w-0 flex-1 text-[12px] text-[var(--color-txt-strong)] placeholder:text-[var(--color-dim)]"
             type="search"
-            :placeholder="t('chat.model.search')"
+            :placeholder="activePhase ? t('chat.model.searchForPhase', { phase: phaseLabel }) : t('chat.model.search')"
           />
         </div>
 
@@ -530,19 +570,31 @@ watch(activeTab, () => {
                   aria-hidden="true"
                 />
                 <Sparkles class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
-                <span class="flex min-w-0 flex-col">
+                <span class="flex min-w-0 flex-1 flex-col">
                   <span class="truncate">{{ activePhase ? t('chat.model.followGlobal') : t("model-routing.modelRouting.auto") }}</span>
-                  <span class="text-[11px] font-normal leading-4 text-[var(--color-mut)]">
-                    {{ activePhase ? t('chat.model.followGlobalHint') : t("model-routing.modelRouting.autoSubtitle") }}
+                  <!-- 阶段 tab 的说明交给按钮 title（弹层高度有限）；模型 tab 保留自动模式的副标题 -->
+                  <span
+                    v-if="!activePhase"
+                    class="w-full truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]"
+                  >
+                    {{ t("model-routing.modelRouting.autoSubtitle") }}
                   </span>
-                  <!-- 阶段 tab：会话未覆盖时展示全局默认及其来源 -->
-                  <span v-if="activePhase && globalPhaseDefault" class="truncate text-[11px] font-normal leading-4 text-[var(--color-accent)]">
+                  <span
+                    v-if="activePhase && globalPhaseDefault"
+                    class="w-full truncate text-[11px] font-normal leading-4 text-[var(--color-accent)]"
+                  >
                     {{ t("chat.model.followGlobalCurrent", { model: globalPhaseDefaultLabel }) }}
                   </span>
-                  <span v-else-if="activePhase" class="truncate text-[11px] font-normal leading-4 text-[var(--color-dim)]">
+                  <span
+                    v-else-if="activePhase"
+                    class="w-full truncate text-[11px] font-normal leading-4 text-[var(--color-dim)]"
+                  >
                     {{ t("chat.model.followGlobalUnset") }}
                   </span>
-                  <span v-if="!activePhase && autoRoute && lastRouting" class="truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                  <span
+                    v-if="!activePhase && autoRoute && lastRouting"
+                    class="w-full truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]"
+                  >
                     {{ t("model-routing.modelRouting.routedTo", { model: lastRouting.modelName }) }}
                   </span>
                 </span>
@@ -555,6 +607,33 @@ watch(activeTab, () => {
               >
                 {{ t("model-routing.modelRouting.reasonPrefix") }}{{ routingReason }}
               </p>
+              <!-- P/A 选项：选中即本会话双模型（与「计划模式」无关），可直接在 tab 内配置 Plan / Act -->
+              <Button
+                v-if="!activePhase"
+                variant="ghost"
+                class="flex min-h-[40px] w-full items-center justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-normal hover:bg-[var(--color-menu-hover)]"
+                :class="
+                  pairMode
+                    ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
+                    : 'text-[var(--color-txt)]'
+                "
+                :aria-label="t('chat.model.pairMode')"
+                :title="t('chat.model.pairModeHint')"
+                @click="pickPairMode"
+              >
+                <Check
+                  class="size-3.5 shrink-0 text-[var(--color-accent)]"
+                  :class="pairMode ? '' : 'invisible'"
+                  aria-hidden="true"
+                />
+                <Layers class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+                <span class="flex min-w-0 flex-1 flex-col">
+                  <span class="truncate">{{ t("chat.model.pairMode") }}</span>
+                  <span class="w-full truncate text-[11px] font-normal leading-4 text-[var(--color-mut)]">
+                    {{ t("chat.model.pairModeSubtitle") }}
+                  </span>
+                </span>
+              </Button>
             </div>
             <Button
               v-for="item in filtered"
@@ -566,6 +645,7 @@ watch(activeTab, () => {
                   ? 'bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
                   : 'text-[var(--color-txt)]'
               "
+              :title="activePhase ? t('chat.model.pickForPhase', { phase: phaseLabel }) : undefined"
               @click="pick(item.providerId, item.model.id)"
             >
               <Check

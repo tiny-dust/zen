@@ -76,20 +76,16 @@ describe("buildInstructions", () => {
     expect(text).not.toContain("【多 Agent 协作】");
   });
 
-  it("装了 skill-router 时注入技能路由约定，否则不注入", () => {
+  it("注入 skill-router 正文（不依赖模型主动 loadSkill），未配置时不注入", () => {
     const withRouter =
       buildInstructions(
-        baseConfig({
-          skills: [{ id: "/x/skill-router", name: "skill-router", description: "技能路由" }],
-        }),
+        baseConfig({ skillRouter: "## 一、先加载\n| 写代码 | coder |" }),
       ) ?? "";
-    expect(withRouter).toContain("先 loadSkill skill-router");
+    expect(withRouter).toContain("技能路由（skill-router");
+    expect(withRouter).toContain("| 写代码 | coder |");
 
-    const withoutRouter =
-      buildInstructions(
-        baseConfig({ skills: [{ id: "/x/coder", name: "coder", description: "编码入口" }] }),
-      ) ?? "";
-    expect(withoutRouter).not.toContain("先 loadSkill skill-router");
+    const withoutRouter = buildInstructions(baseConfig()) ?? "";
+    expect(withoutRouter).not.toContain("技能路由（skill-router");
   });
 
   it("memoryContext / memoryBridge / browserBridge 各自附加说明", () => {

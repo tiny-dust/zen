@@ -350,6 +350,10 @@ function migrate(conn: Database.Database) {
         conn.exec(`ALTER TABLE chat_sessions ADD COLUMN ${column} TEXT`);
       }
     }
+    // P/A 双模型开关：缺省 0（单模型），旧会话阶段模型配置保留但不生效
+    if (!sessionCols.some((col) => col.name === "pair_mode")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN pair_mode INTEGER NOT NULL DEFAULT 0`);
+    }
     // 会话模式（interactive/plan/autopilot）：缺省 interactive，旧数据向后兼容
     if (!sessionCols.some((col) => col.name === "mode")) {
       conn.exec(

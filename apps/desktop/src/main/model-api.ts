@@ -362,12 +362,19 @@ async function resolveCompletion(options?: {
 }
 
 /** Responses SSE：必须读到 response.completed，不能把半截输出当成功。 */
+/** 单次补全的 token 用量：与 agent 流事件的 usage 字段同义 */
+export interface CompletionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+}
+
 async function streamResponsesText(
   url: string,
   headers: Record<string, string>,
   body: Record<string, unknown>,
   timeoutMs: number,
-): Promise<string> {
+): Promise<{ text: string; usage?: CompletionUsage }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -384,6 +391,7 @@ async function streamResponsesText(
     let pending = "";
     let output = "";
     let completed = false;
+    let completionUsage: CompletionUsage | undefined;
     while (true) {
       const { value, done } = await reader.read();
       pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
@@ -399,9 +407,32 @@ async function streamResponsesText(
         if (data && data !== "[DONE]") {
           let event: unknown;
           try { event = JSON.parse(data); } catch { event = null; }
-          const item = event as { type?: string; delta?: string; response?: { error?: { message?: string; code?: string } } } | null;
+          const item = event as {
+            type?: string;
+            delta?: string;
+            response?: {
+              error?: { message?: string; code?: string };
+              usage?: {
+                input_tokens?: number;
+                output_tokens?: number;
+                input_tokens_details?: { cached_tokens?: number };
+              };
+            };
+          } | null;
           if (item?.type === "response.output_text.delta" && typeof item.delta === "string") output += item.delta;
-          if (item?.type === "response.completed") completed = true;
+          if (item?.type === "response.completed") {
+            completed = true;
+            const usage = item.response?.usage;
+            if (usage && typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number") {
+              completionUsage = {
+                inputTokens: usage.input_tokens,
+                outputTokens: usage.output_tokens,
+                ...(typeof usage.input_tokens_details?.cached_tokens === "number"
+                  ? { cachedInputTokens: usage.input_tokens_details.cached_tokens }
+                  : {}),
+              };
+            }
+          }
           if (item?.type === "response.failed" || item?.type === "response.incomplete") {
             throw new Error(item.response?.error?.message || item.response?.error?.code || "模型响应未完成");
           }
@@ -412,7 +443,7 @@ async function streamResponsesText(
     }
     if (!completed) throw new Error("模型响应流中断，未收到完成事件");
     if (!output.trim()) throw new Error("模型未返回文本内容");
-    return output.trim();
+    return { text: output.trim(), usage: completionUsage };
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）：模型响应未完成`);
@@ -424,18 +455,28 @@ async function streamResponsesText(
 }
 
 /** 单次补全：commit 信息等小任务用；走当前选中的供应商与模型 */
+export interface CompleteOnceOptions {
+  maxTokens?: number;
+  system?: string;
+  timeoutMs?: number;
+  providerId?: string;
+  modelId?: string;
+  /** 推理档位："lowest" 自动取该模型支持的最低档；其余值按显式档位透传 */
+  reasoningEffort?: string;
+}
+
 export async function completeOnce(
   prompt: string,
-  options?: {
-    maxTokens?: number;
-    system?: string;
-    timeoutMs?: number;
-    providerId?: string;
-    modelId?: string;
-    /** 推理档位："lowest" 自动取该模型支持的最低档；其余值按显式档位透传 */
-    reasoningEffort?: string;
-  },
+  options?: CompleteOnceOptions,
 ): Promise<string> {
+  return (await completeOnceWithUsage(prompt, options)).text;
+}
+
+/** 与 completeOnce 相同，但把供应商上报的 token 用量带出来（预规划等旁路调用记 usage 用） */
+export async function completeOnceWithUsage(
+  prompt: string,
+  options?: CompleteOnceOptions,
+): Promise<{ text: string; usage?: CompletionUsage }> {
   const { provider, modelId, maxTokens, url, headers, effort } = await resolveCompletion(options);
   // 补全（尤其推理模型）远慢于列表类请求，默认放宽到 120s。
   const timeoutMs = options?.timeoutMs ?? 120_000;
@@ -467,6 +508,11 @@ export async function completeOnce(
     );
     const payload = data as {
       content?: Array<{ type?: string; text?: string }>;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
     };
     const text = (payload.content ?? [])
       .filter((block) => block.type === "text" || typeof block?.text === "string")
@@ -476,7 +522,21 @@ export async function completeOnce(
     if (!text) {
       throw new Error("模型未返回文本内容");
     }
-    return text;
+    const usage = payload.usage;
+    return {
+      text,
+      ...(usage && typeof usage.input_tokens === "number" && typeof usage.output_tokens === "number"
+        ? {
+            usage: {
+              inputTokens: usage.input_tokens,
+              outputTokens: usage.output_tokens,
+              ...(typeof usage.cache_read_input_tokens === "number"
+                ? { cachedInputTokens: usage.cache_read_input_tokens }
+                : {}),
+            },
+          }
+        : {}),
+    };
   }
 
   const data = await fetchJson(
@@ -500,6 +560,13 @@ export async function completeOnce(
     timeoutMs,
   );
   const text = extractChatText(data);
+  const chatUsage = (data as {
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
+  })?.usage;
   if (!text) {
     // 推理模型把 max_tokens 全部耗在 reasoning 上时 content 为空（实测 glm/o 系）：
     // 带上模型名与原因，调用方 toast/错误提示能直接定位到模型
@@ -514,7 +581,20 @@ export async function completeOnce(
         : `模型 ${modelId} 未返回文本内容`,
     );
   }
-  return text;
+  return {
+    text,
+    ...(chatUsage && typeof chatUsage.prompt_tokens === "number" && typeof chatUsage.completion_tokens === "number"
+      ? {
+          usage: {
+            inputTokens: chatUsage.prompt_tokens,
+            outputTokens: chatUsage.completion_tokens,
+            ...(typeof chatUsage.prompt_tokens_details?.cached_tokens === "number"
+              ? { cachedInputTokens: chatUsage.prompt_tokens_details.cached_tokens }
+              : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 export { normalizeBaseUrl };
@@ -546,7 +626,7 @@ export async function completeVisionOnce(
   const timeoutMs = options?.timeoutMs ?? 120_000;
 
   if (provider.protocol === "openai-responses") {
-    return streamResponsesText(url, headers, {
+    return (await streamResponsesText(url, headers, {
       model: modelId,
       input: [{
         role: "user",
@@ -559,7 +639,7 @@ export async function completeVisionOnce(
         ],
       }],
       ...(provider.authMode === "chatgpt-oauth" ? {} : { max_output_tokens: maxTokens }),
-    }, timeoutMs);
+    }, timeoutMs)).text;
   }
 
   const content =
