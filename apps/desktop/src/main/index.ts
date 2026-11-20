@@ -9,6 +9,7 @@ import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electro
 import { runAgentRequest, continueLarkChat, startLarkChat } from "./agent-runner";
 import { getAgentServicesRegistry, initAgentServices, shutdownAgentServices } from "./agent-services";
 import { registerAgentServicesIpc } from "./agent-services-ipc";
+import { ensureBuiltinSkills } from "./builtin-skills";
 import { setupApplicationMenu } from "./app-menu";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerGitIpc } from "./git-ipc";
@@ -492,6 +493,8 @@ function applyDockBrand() {
 app.whenReady().then(() => {
   applyDockBrand();
   registerIpc();
+  // 内置技能（skill-router）同步到 ~/.zen/skills：读不到模板就跳过，不阻塞启动
+  void ensureBuiltinSkills();
   // 启动即同步飞书桥接设置（enabled 时拉起事件网关；registerLarkIpc 已就绪）
   void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();

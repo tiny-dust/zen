@@ -43,3 +43,52 @@ export interface SkillUpdateCheckResult {
   items: SkillUpdateInfo[];
   error?: string;
 }
+
+/**
+ * 技能面板清单（技能目录下的 panel.json）：技能自带的看板/统计入口。
+ * 对应 Claude Code 插件的 modules/UI 槽位——zen 不执行技能代码，只按声明渲染：
+ * 有 ui 就走内联 iframe（sandbox 隔离），没有 ui 就用内置指标行。
+ */
+export interface SkillPanelManifest {
+  /** 协议版本，当前只有 1 */
+  version: 1;
+  /** 面板标题（通常就是技能名） */
+  title: string;
+  /** 本会话用到该技能后自动显示；缺省 true */
+  showOnSkillUse?: boolean;
+  /** 面板 HTML 入口（技能目录内相对路径）；缺省走内置指标渲染 */
+  ui?: string;
+  /** 内置指标（无 ui 时渲染成一行指标条） */
+  metrics?: SkillPanelMetric[];
+  /** 命令名 → 内置动作；`/skill:<name> <命令>` 触发 */
+  commands?: Record<string, "toggle">;
+}
+
+/** 内置指标：zen 能从会话里真实拿到的数据，缺数据的指标不显示 */
+export type SkillPanelMetric =
+  | "rounds"
+  | "tools"
+  | "elapsed"
+  | "tests"
+  | "tokens"
+  | "cacheHit";
+
+/** 技能面板读取结果：manifest 原样返回，ui 内容单独给（防越权由 @zen/skills 校验） */
+export interface SkillPanelInfo {
+  /** 技能目录（SkillSummary.id） */
+  dir: string;
+  manifest: SkillPanelManifest;
+  /** ui 入口的 HTML 内容；无 ui 或读取失败时缺省 */
+  html?: string;
+}
+
+/** 推给面板 iframe 的会话指标快照 */
+export interface SkillPanelMetrics {
+  rounds: number;
+  tools: number;
+  elapsedMs: number;
+  tests: "none" | "pass" | "fail";
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheHitRate: number | null;
+}

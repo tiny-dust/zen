@@ -19,6 +19,9 @@ export type { ModelMessage } from "ai";
 export { runMockAgent } from "./mock-agent";
 export { registerMcpRuntime } from "./mcp-runtime";
 export { supportsAdaptiveThinking } from "./agent-model";
+// 工作流副作用节点（工具）复用同一套工具集定义
+export { buildToolSet } from "./agent-tools";
+export type { ToolHooks } from "./agent-tools";
 export type {
   AgentSkillHint,
   McpToolBridge,

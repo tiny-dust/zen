@@ -169,6 +169,12 @@ export function buildInstructions(config: AgentSessionConfig): string | undefine
     parts.push(
       `可用技能（按需用 loadSkill 工具加载全文后再遵循其流程）：\n${lines}\n不要对任务硬套技能；只有当技能确实匹配时才加载。`,
     );
+    // skill-router 是 zen 自带的路由技能：装了就让模型每个任务先查路由，避免日常对话漏加载
+    if (config.skills.some((skill) => skill.name === "skill-router")) {
+      parts.push(
+        `技能路由：编码、审查、调试、测试、调研、UI 设计、飞书类任务开始时，先 loadSkill skill-router 查「意图 → 技能」表，再加载命中的技能；不要凭印象跳过 coder 这类强制入口。`,
+      );
+    }
   }
   if (config.mcpTools?.length) {
     const lines = config.mcpTools

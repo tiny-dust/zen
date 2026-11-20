@@ -76,6 +76,22 @@ describe("buildInstructions", () => {
     expect(text).not.toContain("【多 Agent 协作】");
   });
 
+  it("装了 skill-router 时注入技能路由约定，否则不注入", () => {
+    const withRouter =
+      buildInstructions(
+        baseConfig({
+          skills: [{ id: "/x/skill-router", name: "skill-router", description: "技能路由" }],
+        }),
+      ) ?? "";
+    expect(withRouter).toContain("先 loadSkill skill-router");
+
+    const withoutRouter =
+      buildInstructions(
+        baseConfig({ skills: [{ id: "/x/coder", name: "coder", description: "编码入口" }] }),
+      ) ?? "";
+    expect(withoutRouter).not.toContain("先 loadSkill skill-router");
+  });
+
   it("memoryContext / memoryBridge / browserBridge 各自附加说明", () => {
     const text =
       buildInstructions(

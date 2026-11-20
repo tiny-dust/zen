@@ -4,7 +4,14 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 
 import matter from "gray-matter";
 
-import type { SkillFileContent, SkillFileInfo, SkillSummary } from "@zen/shared";
+import type {
+  SkillFileContent,
+  SkillFileInfo,
+  SkillPanelInfo,
+  SkillPanelManifest,
+  SkillPanelMetric,
+  SkillSummary,
+} from "@zen/shared";
 
 /**
  * 技能加载器（ADR-004）：扫描系统技能目录 + 用户自定义路径，
@@ -261,4 +268,143 @@ export async function readSkillFile(
   const truncated = buf.length > MAX_SKILL_FILE_BYTES;
   const content = (truncated ? buf.subarray(0, MAX_SKILL_FILE_BYTES) : buf).toString("utf8");
   return { ok: true, content, truncated };
+}
+
+/** panel.json 体量上限（字节）：清单只放声明，64KB 已是宽松护栏 */
+const MAX_SKILL_PANEL_BYTES = 64 * 1024;
+
+/** 允许声明的内置指标（顺序即内置指标条的渲染顺序） */
+const SKILL_PANEL_METRICS: readonly SkillPanelMetric[] = [
+  "rounds",
+  "tools",
+  "elapsed",
+  "tests",
+  "tokens",
+  "cacheHit",
+];
+
+/** manifest.ui 必须是技能目录内的 .html 相对路径：禁绝对路径、`..`、空段 */
+function isPanelUiPath(value: string): boolean {
+  const rel = value.trim();
+  if (!rel || isAbsolute(rel) || !rel.toLowerCase().endsWith(".html")) {
+    return false;
+  }
+  return !rel.split(/[\\/]/).some((seg) => seg === "" || seg === "..");
+}
+
+/** 指标：只留允许集合，去重并保持声明顺序；无合法项返回 undefined */
+function normalizePanelMetrics(value: unknown): SkillPanelMetric[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const metrics: SkillPanelMetric[] = [];
+  for (const item of value) {
+    const metric = SKILL_PANEL_METRICS.find((known) => known === item);
+    if (metric && !metrics.includes(metric)) {
+      metrics.push(metric);
+    }
+  }
+  return metrics.length ? metrics : undefined;
+}
+
+/** 命令：只保留值为 "toggle" 的键（键去空白后非空）；无合法项返回 undefined */
+function normalizePanelCommands(value: unknown): Record<string, "toggle"> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const entries: [string, "toggle"][] = [];
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = rawKey.trim();
+    if (key && rawValue === "toggle") {
+      entries.push([key, "toggle"]);
+    }
+  }
+  // fromEntries 走 CreateDataProperty："__proto__" 之类也只会成为普通自有属性
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/** panel.json 反序列化结果 → manifest：version 必须严格为 1，否则 null */
+function toPanelManifest(value: unknown, fallbackTitle: string): SkillPanelManifest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const version = raw.version;
+  if (version !== 1) {
+    return null;
+  }
+  const title = raw.title;
+  const showOnSkillUse = raw.showOnSkillUse;
+  const ui = raw.ui;
+  const manifest: SkillPanelManifest = {
+    version: 1,
+    title: typeof title === "string" && title.trim() ? title.trim() : fallbackTitle,
+    // 缺省即「用到就显示」，显式回填避免渲染层再判空
+    showOnSkillUse: typeof showOnSkillUse === "boolean" ? showOnSkillUse : true,
+  };
+  if (typeof ui === "string" && isPanelUiPath(ui)) {
+    manifest.ui = ui.trim();
+  }
+  const metrics = normalizePanelMetrics(raw.metrics);
+  if (metrics) {
+    manifest.metrics = metrics;
+  }
+  const commands = normalizePanelCommands(raw.commands);
+  if (commands) {
+    manifest.commands = commands;
+  }
+  return manifest;
+}
+
+async function readPanelManifest(root: string): Promise<SkillPanelManifest | null> {
+  const file = join(root, "panel.json");
+  let text: string;
+  try {
+    const info = await stat(file);
+    if (!info.isFile() || info.size > MAX_SKILL_PANEL_BYTES) {
+      return null;
+    }
+    const buf = await readFile(file);
+    if (buf.length > MAX_SKILL_PANEL_BYTES) {
+      return null;
+    }
+    text = buf.toString("utf8");
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return toPanelManifest(parsed, root.split(/[\\/]/).pop() ?? root);
+}
+
+/**
+ * 读取技能面板清单：技能目录下的 panel.json 声明（title/metrics/commands/ui）。
+ * 目录必须落在已知技能根内；清单缺失/超限/非法返回 null；
+ * ui 读取失败只丢 html，manifest 照常返回。
+ */
+export async function readSkillPanel(
+  dir: string,
+  extraPaths: string[],
+): Promise<SkillPanelInfo | null> {
+  const root = normalizeDir(dir);
+  if (!root || !isAllowedSkillDir(root, extraPaths)) {
+    return null;
+  }
+  const manifest = await readPanelManifest(root);
+  if (!manifest) {
+    return null;
+  }
+  const info: SkillPanelInfo = { dir: root, manifest };
+  if (manifest.ui) {
+    // 复用 readSkillFile 的越权/二进制/截断校验：面板 HTML 与技能文件同一套护栏
+    const file = await readSkillFile(root, manifest.ui, extraPaths);
+    if (file.ok && file.content?.trim()) {
+      info.html = file.content;
+    }
+  }
+  return info;
 }

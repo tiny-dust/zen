@@ -1,6 +1,6 @@
 {
   "name": "@zen/desktop",
-  "version": "0.4.29",
+  "version": "0.4.32",
   "private": true,
   "productName": "Zen",
   "desktopName": "zen.desktop",
@@ -21,6 +21,10 @@
       {
         "from": "src/cli/zen-cli.mjs",
         "to": "cli/zen-cli.mjs"
+      },
+      {
+        "from": "../../resources/templates",
+        "to": "templates"
       }
     ],
     "afterSign": "scripts/mac-after-sign.mjs",

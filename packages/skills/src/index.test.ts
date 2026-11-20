@@ -4,7 +4,15 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { builtinSkillDirs, listSkillFiles, listSkills, readSkillById, readSkillFile, scanSkillDir } from "./index";
+import {
+  builtinSkillDirs,
+  listSkillFiles,
+  listSkills,
+  readSkillById,
+  readSkillFile,
+  readSkillPanel,
+  scanSkillDir,
+} from "./index";
 
 /**
  * 技能加载器（hermetic：mock homedir 指向临时 HOME）：
@@ -217,5 +225,139 @@ describe("readSkillFile", () => {
     expect(binary.ok).toBe(false);
     const missing = await readSkillFile(gammaDir(), "no-such-file.md", [extraRoot]);
     expect(missing.ok).toBe(false);
+  });
+});
+
+describe("readSkillPanel", () => {
+  let panelRoot = "";
+
+  beforeAll(() => {
+    panelRoot = mkdtempSync(join(tmpdir(), "zen-skills-panel-"));
+  });
+
+  afterAll(() => {
+    rmSync(panelRoot, { recursive: true, force: true });
+  });
+
+  /** 建一个面板 fixture 目录：panel 传字符串时原样落盘（造坏 JSON 用） */
+  function writePanelDir(name: string, panel: unknown): string {
+    const dir = join(panelRoot, name);
+    mkdirSync(join(dir, "ui"), { recursive: true });
+    writeFileSync(join(dir, "panel.json"), typeof panel === "string" ? panel : JSON.stringify(panel));
+    return dir;
+  }
+
+  it("正常清单 + ui 文件：manifest 字段齐全，html 有内容", async () => {
+    const dir = writePanelDir("full", {
+      version: 1,
+      title: "  指标看板  ",
+      showOnSkillUse: false,
+      ui: "ui/board.html",
+      metrics: ["rounds", "bogus", "rounds", "tools", 42],
+      commands: { toggle: "toggle", "  hide  ": "toggle", "do-thing": "run", "": "toggle" },
+    });
+    writeFileSync(join(dir, "ui", "board.html"), "<h1>指标看板</h1>");
+
+    const info = await readSkillPanel(dir, [panelRoot]);
+    expect(info?.dir).toBe(dir);
+    expect(info?.manifest).toEqual({
+      version: 1,
+      title: "指标看板",
+      showOnSkillUse: false,
+      ui: "ui/board.html",
+      metrics: ["rounds", "tools"],
+      commands: { toggle: "toggle", hide: "toggle" },
+    });
+    expect(info?.html).toContain("指标看板");
+  });
+
+  it("缺省字段：title 用目录名，showOnSkillUse 显式为 true，无 ui/metrics/commands", async () => {
+    const dir = join(panelRoot, "minimal-skill");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "panel.json"), JSON.stringify({ version: 1 }));
+    await expect(readSkillPanel(dir, [panelRoot])).resolves.toEqual({
+      dir,
+      manifest: { version: 1, title: "minimal-skill", showOnSkillUse: true },
+    });
+  });
+
+  it("无 panel.json 返回 null", async () => {
+    const dir = join(panelRoot, "no-panel");
+    mkdirSync(dir, { recursive: true });
+    await expect(readSkillPanel(dir, [panelRoot])).resolves.toBeNull();
+  });
+
+  it("坏 JSON 或非对象返回 null", async () => {
+    const broken = writePanelDir("bad-json", '{ "version": 1, ');
+    await expect(readSkillPanel(broken, [panelRoot])).resolves.toBeNull();
+    const arrayJson = writePanelDir("array-json", [1, 2, 3]);
+    await expect(readSkillPanel(arrayJson, [panelRoot])).resolves.toBeNull();
+  });
+
+  it("version 不是 1 返回 null", async () => {
+    const v2 = writePanelDir("v2", { version: 2, title: "x" });
+    await expect(readSkillPanel(v2, [panelRoot])).resolves.toBeNull();
+    const strVersion = writePanelDir("v-str", { version: "1", title: "x" });
+    await expect(readSkillPanel(strVersion, [panelRoot])).resolves.toBeNull();
+  });
+
+  it("panel.json 超过 64KB 返回 null", async () => {
+    const dir = writePanelDir("too-large", { version: 1, title: "x", pad: "y".repeat(70 * 1024) });
+    await expect(readSkillPanel(dir, [panelRoot])).resolves.toBeNull();
+  });
+
+  it("metrics 非法值丢弃、去重、顺序按声明；全非法时省略字段", async () => {
+    const dir = writePanelDir("metrics", {
+      version: 1,
+      metrics: ["cacheHit", "nope", "rounds", "cacheHit", null],
+    });
+    const info = await readSkillPanel(dir, [panelRoot]);
+    expect(info?.manifest.metrics).toEqual(["cacheHit", "rounds"]);
+
+    const invalid = writePanelDir("metrics-invalid", { version: 1, metrics: ["nope", 1, {}] });
+    const noMetrics = await readSkillPanel(invalid, [panelRoot]);
+    expect(noMetrics?.manifest).not.toHaveProperty("metrics");
+  });
+
+  it("commands 只留 toggle；全非法时省略字段", async () => {
+    const dir = writePanelDir("commands", {
+      version: 1,
+      commands: { " ": "toggle", run: "run", open: "toggle" },
+    });
+    const info = await readSkillPanel(dir, [panelRoot]);
+    expect(info?.manifest.commands).toEqual({ open: "toggle" });
+
+    const invalid = writePanelDir("commands-invalid", { version: 1, commands: { a: "run" } });
+    const noCommands = await readSkillPanel(invalid, [panelRoot]);
+    expect(noCommands?.manifest).not.toHaveProperty("commands");
+  });
+
+  it("ui 为越权相对路径或绝对路径时当作没有 ui", async () => {
+    const escape = writePanelDir("ui-escape", { version: 1, ui: "../x.html" });
+    writeFileSync(join(panelRoot, "x.html"), "<h1>外部</h1>");
+    const escapeInfo = await readSkillPanel(escape, [panelRoot]);
+    expect(escapeInfo?.manifest).not.toHaveProperty("ui");
+    expect(escapeInfo?.html).toBeUndefined();
+
+    const absolute = writePanelDir("ui-absolute", {
+      version: 1,
+      ui: join(panelRoot, "x.html"),
+    });
+    const absInfo = await readSkillPanel(absolute, [panelRoot]);
+    expect(absInfo?.manifest).not.toHaveProperty("ui");
+    expect(absInfo?.html).toBeUndefined();
+  });
+
+  it("ui 指向不存在的文件：manifest 保留 ui，但没有 html", async () => {
+    const dir = writePanelDir("ui-missing", { version: 1, ui: "ui/missing.html" });
+    const info = await readSkillPanel(dir, [panelRoot]);
+    expect(info?.manifest.ui).toBe("ui/missing.html");
+    expect(info?.html).toBeUndefined();
+  });
+
+  it("目录不在白名单（或不存在）返回 null", async () => {
+    const dir = writePanelDir("outside", { version: 1 });
+    await expect(readSkillPanel(dir, [])).resolves.toBeNull();
+    await expect(readSkillPanel(join(tmpdir(), "zen-no-such-dir-xyz"), [panelRoot])).resolves.toBeNull();
   });
 });
