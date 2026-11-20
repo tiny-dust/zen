@@ -1,11 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 
-import { listSkillFiles, listSkills, readSkillFile } from "@zen/skills";
+import { listSkillFiles, listSkills, readSkillFile, readSkillPanel } from "@zen/skills";
 
 import type {
   AgentSettings,
   SkillFileContent,
   SkillFileInfo,
+  SkillPanelInfo,
   SkillSummary,
   WebSearchApiProviderId,
   WebSearchStatus,
@@ -65,6 +66,15 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
     async (_event, dir: string, path: string): Promise<SkillFileContent> => {
       const settings = await loadAgentSettings();
       return readSkillFile(String(dir ?? ""), String(path ?? ""), settings.skillExtraPaths);
+    },
+  );
+
+  // 技能面板清单：读技能目录里的 panel.json（缺清单/越权/非法一律 null，渲染层回退不显示）
+  ipcMain.handle(
+    "agent:skill-panel",
+    async (_event, dir: string): Promise<SkillPanelInfo | null> => {
+      const settings = await loadAgentSettings();
+      return readSkillPanel(String(dir ?? ""), settings.skillExtraPaths);
     },
   );
 

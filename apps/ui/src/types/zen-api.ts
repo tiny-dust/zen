@@ -89,6 +89,7 @@ import type {
   AgentServiceInfo,
   SkillFileContent,
   SkillFileInfo,
+  SkillPanelInfo,
   SkillSummary,
   SyncResult,
   TerminalCreateResult,
@@ -137,7 +138,7 @@ export type WorkflowSnapshot = {
     >;
     edges: Array<{ from: string; to: string; label: "next" | "true" | "false" | "body" | "exit" | "approved" | "denied" }>;
   };
-  nodeSettings: Record<string, { prompt?: string; instructions?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }>;
+  nodeSettings: Record<string, { prompt?: string; instructions?: string; providerId?: string; modelId?: string; left?: string; right?: string; operator?: "equals" | "not-equals"; toolName?: string; toolInput?: string; script?: string; runtime?: "shell" | "node"; url?: string; method?: string; headers?: string; body?: string }>;
   budgets: { maxSteps: number; maxEffects: number; maxWallMs: number };
   /** 画布位置（仅渲染层用；旧版本快照没有该字段时按顺序自动排版） */
   layout?: Record<string, { x: number; y: number }>;
@@ -350,6 +351,8 @@ export interface ZenApi {
     listSkills(): Promise<SkillSummary[]>;
     /** 技能调用 tag 弹窗：技能目录文件枚举 */
     skillFiles(dir: string): Promise<SkillFileInfo[]>;
+    /** 技能面板：读技能目录里的 panel.json（无清单/越权返回 null，渲染层回退不显示） */
+    skillPanel(dir: string): Promise<SkillPanelInfo | null>;
     /** 技能调用 tag 弹窗：读取技能目录内单个文件（主进程做越权/二进制/大小校验） */
     readSkillFile(dir: string, path: string): Promise<SkillFileContent>;
     /** 会话文件快照：writeFile/editFile 写入前的原文件备份清单（最新在前） */
@@ -565,6 +568,8 @@ export interface ZenApi {
   workflow: {
     list(sessionId: string): Promise<Array<{ id: string; name: string; current_version: number; created_at: number }>>;
     listRuns(sessionId: string): Promise<WorkflowRunSummary[]>;
+    /** 当前会话可用的工具清单（内置 + 已启用 MCP），供工具节点选择 */
+    listTools(sessionId: string): Promise<Array<{ name: string; description: string }>>;
     open(id: string, sessionId: string, version?: number): Promise<WorkflowDefinition | null>;
     save(name: string, snapshot: WorkflowSnapshot, sessionId: string, id?: string): Promise<{ id: string; version: number }>;
     start(workflowId: string, sessionId: string): Promise<WorkflowRun | null>;

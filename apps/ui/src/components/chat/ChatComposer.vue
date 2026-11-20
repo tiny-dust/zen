@@ -38,6 +38,7 @@ import ComposerBranchPicker from "@/components/chat/ComposerBranchPicker.vue";
 import ContextUsagePicker from "@/components/chat/ContextUsagePicker.vue";
 import GoalChip from "@/components/chat/GoalChip.vue";
 import QueuedMessages from "@/components/chat/QueuedMessages.vue";
+import SkillPanelHost from "@/components/chat/SkillPanelHost.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
 import { useComposerFiles } from "@/composables/useComposerFiles";
@@ -329,6 +330,9 @@ function removeAttachment(id: string) {
 
       <!-- 本会话调用感知：Agent 用了哪些技能 / MCP 服务，弹出动效 tag -->
       <SkillUsageTags />
+
+      <!-- 技能面板：技能目录带 panel.json 就渲染（自带 HTML 走沙箱 iframe，否则内置指标行） -->
+      <SkillPanelHost />
 
       <!-- 语音授权引导（macOS 拒绝麦克风/识别授权时）：报错旁直接给系统设置入口 -->
       <div

@@ -22,7 +22,10 @@ import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useSkillUsageStore } from "@/stores/skill-usage";
 
+import { classifySkillFiles } from "@/lib/skill-extras";
+
 import type { SkillFileInfo } from "@zen/shared";
+import type { SkillExtraKind, SkillExtras } from "@/lib/skill-extras";
 import type { SkillUsageItem } from "@/stores/skill-usage";
 
 /**
@@ -84,6 +87,48 @@ function fileKey(dir: string, path: string): string {
 
 function previewOf(dir: string, path: string): FileContentState | null {
   return contentByFile[fileKey(dir, path)] ?? null;
+}
+
+/** 技能 tag 的文件行：附带分组与「组内首个」标记，供 popover 分组展示 */
+interface TagFile extends SkillFileInfo {
+  group: SkillExtraKind;
+  /** 组内文件数（分组标题用） */
+  groupCount: number;
+  /** 本组首行：分组标题渲染在这一行之前 */
+  showHeader: boolean;
+}
+
+interface TagExtraInfo {
+  extras: SkillExtras;
+  rows: TagFile[];
+}
+
+/** 文件已就绪的 tag：看板判断 + 分组后的文件行 */
+const extraInfo = computed<Record<string, TagExtraInfo>>(() => {
+  const info: Record<string, TagExtraInfo> = {};
+  for (const [key, state] of Object.entries(listByTag)) {
+    if (state.status !== "ready") {
+      continue;
+    }
+    const extras = classifySkillFiles(state.files);
+    const rows: TagFile[] = [];
+    for (const group of extras.groups) {
+      group.files.forEach((file, index) => {
+        rows.push({
+          ...file,
+          group: group.kind,
+          groupCount: group.files.length,
+          showHeader: index === 0,
+        });
+      });
+    }
+    info[key] = { extras, rows };
+  }
+  return info;
+});
+
+function filesOf(item: SkillUsageItem): TagFile[] {
+  return extraInfo.value[item.key]?.rows ?? [];
 }
 
 /** popover 打开：按展示名解析技能目录并枚举文件（幂等，仅首次拉取） */
@@ -249,67 +294,73 @@ function breathClass(item: SkillUsageItem): string {
                 {{ t("chat.usage.readError", { error: listByTag[item.key].error }) }}
               </div>
               <template v-else>
-                <HoverCard
-                  v-for="file in listByTag[item.key].files"
-                  :key="file.path"
-                  :open-delay="250"
-                  @update:open="
-                    (open: boolean) => open && ensureContent(listByTag[item.key].dir, file.path)
-                  "
-                >
-                  <HoverCardTrigger as-child>
-                    <button
-                      type="button"
-                      class="group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--color-chip-bg)] focus-visible:outline-hidden"
-                      @click="openFile(item, listByTag[item.key].dir, file.path)"
-                    >
-                      <FileText class="size-3.5 shrink-0 text-[var(--color-dim)]" aria-hidden="true" />
-                      <span class="min-w-0 flex-1 truncate text-[var(--color-txt)]">{{ file.path }}</span>
-                      <span class="shrink-0 text-[10px] text-[var(--color-dim)]">{{ formatSize(file.size) }}</span>
-                      <Badge
-                        v-if="file.path === 'SKILL.md'"
-                        variant="secondary"
-                        class="h-4 shrink-0 px-1.5 text-[10px]"
-                      >{{ t("chat.usage.injected") }}</Badge>
-                      <ChevronRight
-                        class="size-3 shrink-0 text-[var(--color-dim)] opacity-0 transition-opacity group-hover:opacity-100"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </HoverCardTrigger>
-                  <HoverCardContent
-                    align="start"
-                    class="w-96 max-w-[calc(100vw-2rem)] p-0"
+                <template v-for="file in filesOf(item)" :key="file.path">
+                  <div
+                    v-if="file.showHeader && file.group !== 'doc'"
+                    class="px-2 pt-1.5 pb-0.5 text-[10px] tracking-wide text-[var(--color-dim)] uppercase"
                   >
-                    <div class="max-h-72 overflow-y-auto p-3 text-xs">
-                      <template v-if="previewOf(listByTag[item.key].dir, file.path)">
-                        <div
-                          v-if="previewOf(listByTag[item.key].dir, file.path)!.loading"
-                          class="flex items-center gap-2 text-[var(--color-dim)]"
-                        >
-                          <Loader2 class="size-3 animate-spin" aria-hidden="true" />
-                          {{ t("chat.usage.loading") }}
-                        </div>
-                        <template v-else-if="previewOf(listByTag[item.key].dir, file.path)!.error">
-                          {{ t("chat.usage.readError", { error: previewOf(listByTag[item.key].dir, file.path)!.error }) }}
-                        </template>
-                        <template v-else>
-                          <Response
-                            :content="markdownOf(file.path, previewOf(listByTag[item.key].dir, file.path)!.content ?? '')"
-                            class="text-xs"
-                          />
+                    {{ t(`chat.usage.extraKind.${file.group}`) }} · {{ file.groupCount }}
+                  </div>
+                  <HoverCard
+                    :open-delay="250"
+                    @update:open="
+                      (open: boolean) => open && ensureContent(listByTag[item.key].dir, file.path)
+                    "
+                  >
+                    <HoverCardTrigger as-child>
+                      <button
+                        type="button"
+                        class="group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--color-chip-bg)] focus-visible:outline-hidden"
+                        @click="openFile(item, listByTag[item.key].dir, file.path)"
+                      >
+                        <FileText class="size-3.5 shrink-0 text-[var(--color-dim)]" aria-hidden="true" />
+                        <span class="min-w-0 flex-1 truncate text-[var(--color-txt)]">{{ file.path }}</span>
+                        <span class="shrink-0 text-[10px] text-[var(--color-dim)]">{{ formatSize(file.size) }}</span>
+                        <Badge
+                          v-if="file.path === 'SKILL.md'"
+                          variant="secondary"
+                          class="h-4 shrink-0 px-1.5 text-[10px]"
+                        >{{ t("chat.usage.injected") }}</Badge>
+                        <ChevronRight
+                          class="size-3 shrink-0 text-[var(--color-dim)] opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                      align="start"
+                      class="w-96 max-w-[calc(100vw-2rem)] p-0"
+                    >
+                      <div class="max-h-72 overflow-y-auto p-3 text-xs">
+                        <template v-if="previewOf(listByTag[item.key].dir, file.path)">
                           <div
-                            v-if="previewOf(listByTag[item.key].dir, file.path)!.truncated"
-                            class="mt-2 text-[10px] text-[var(--color-dim)]"
+                            v-if="previewOf(listByTag[item.key].dir, file.path)!.loading"
+                            class="flex items-center gap-2 text-[var(--color-dim)]"
                           >
-                            {{ t("chat.usage.truncated") }}
+                            <Loader2 class="size-3 animate-spin" aria-hidden="true" />
+                            {{ t("chat.usage.loading") }}
                           </div>
+                          <template v-else-if="previewOf(listByTag[item.key].dir, file.path)!.error">
+                            {{ t("chat.usage.readError", { error: previewOf(listByTag[item.key].dir, file.path)!.error }) }}
+                          </template>
+                          <template v-else>
+                            <Response
+                              :content="markdownOf(file.path, previewOf(listByTag[item.key].dir, file.path)!.content ?? '')"
+                              class="text-xs"
+                            />
+                            <div
+                              v-if="previewOf(listByTag[item.key].dir, file.path)!.truncated"
+                              class="mt-2 text-[10px] text-[var(--color-dim)]"
+                            >
+                              {{ t("chat.usage.truncated") }}
+                            </div>
+                          </template>
                         </template>
-                      </template>
-                      <div v-else class="text-[var(--color-dim)]">{{ t("chat.usage.loading") }}</div>
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
+                        <div v-else class="text-[var(--color-dim)]">{{ t("chat.usage.loading") }}</div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                </template>
                 <div class="px-2 pt-1 pb-0.5 text-[10px] text-[var(--color-dim)]">
                   {{ t("chat.usage.previewHint") }}
                 </div>

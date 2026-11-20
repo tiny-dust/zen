@@ -9,6 +9,7 @@ import type {
   PromptPreset,
   SkillFileContent,
   SkillFileInfo,
+  SkillPanelInfo,
   SkillSummary,
   ToolApprovalDecision,
   TurnCheckpointGroup,
@@ -107,6 +108,10 @@ export const agentApi = {
     /** 技能调用 tag 弹窗：技能目录文件枚举 */
     skillFiles(dir: string): Promise<SkillFileInfo[]> {
       return ipcRenderer.invoke("agent:skill-files", dir);
+    },
+    /** 技能面板：读技能目录里的 panel.json（无清单/越权返回 null） */
+    skillPanel(dir: string): Promise<SkillPanelInfo | null> {
+      return ipcRenderer.invoke("agent:skill-panel", dir);
     },
     /** 技能调用 tag 弹窗：读取技能目录内单个文件（主进程做越权/二进制/大小校验） */
     readSkillFile(dir: string, path: string): Promise<SkillFileContent> {
