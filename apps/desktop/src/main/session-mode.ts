@@ -56,8 +56,10 @@ export interface PhaseModelDefaults {
 }
 
 /**
- * 阶段模型解析，优先级：会话阶段覆盖 → 全局阶段默认 → 调用方 fallback（自动路由/默认选择）。
+ * 阶段模型解析：仅会话开启 P/A 双模型时生效，优先级
+ * 会话阶段覆盖 → 全局阶段默认 → 调用方 fallback（自动路由/默认选择）。
  * plan 模式取 planModel，其余模式（interactive/autopilot）取 actModel。
+ * 未开启 P/A 时直接用 fallback（单模型），阶段配置保留但不参与选模。
  */
 export function resolvePhaseModel(
   session: SessionRecord,
@@ -65,6 +67,9 @@ export function resolvePhaseModel(
   fallback: { providerId: string | null | undefined; modelId: string | null | undefined },
   defaults?: PhaseModelDefaults,
 ): { providerId: string | null | undefined; modelId: string | null | undefined } {
+  if (session.pairMode !== true) {
+    return fallback;
+  }
   const providerId = mode === "plan" ? session.planModelProviderId : session.actModelProviderId;
   const modelId = mode === "plan" ? session.planModelId : session.actModelId;
   if (providerId && modelId) {
@@ -136,4 +141,69 @@ export function appendGoalDirective(
     return basePrompt;
   }
   return basePrompt ? `${basePrompt}\n\n${directive}` : directive;
+}
+
+/** 自动两阶段：plan 模型先出计划，act 模型再执行（关闭手动切模式的负担） */
+export interface AutoPlanInput {
+  /** 会话是否开启 P/A 双模型；未开启时不做两阶段（与「计划模式」相互独立） */
+  pairMode?: boolean;
+  mode: SessionMode;
+  planProviderId?: string | null;
+  planModelId?: string | null;
+  actProviderId?: string | null;
+  actModelId?: string | null;
+  /** 后台会话 / 子 Agent：不触发，避免双倍成本 */
+  background?: boolean;
+  /** 请求级开关，缺省开启 */
+  autoPlan?: boolean;
+}
+
+/**
+ * 是否走自动两阶段：会话开启 P/A 双模型、非 plan 模式、有独立的 plan 模型，
+ * 且与 act 模型不同。plan 模式本身就会用 plan 模型，再预规划会重复。
+ */
+export function shouldAutoPlan(input: AutoPlanInput): boolean {
+  if (input.pairMode !== true) {
+    return false;
+  }
+  if (input.autoPlan === false || input.background) {
+    return false;
+  }
+  if (input.mode === "plan") {
+    return false;
+  }
+  if (!input.planProviderId || !input.planModelId) {
+    return false;
+  }
+  if (!input.actProviderId || !input.actModelId) {
+    return false;
+  }
+  return input.planProviderId !== input.actProviderId || input.planModelId !== input.actModelId;
+}
+
+/** 预规划提示词：只要计划，不执行（拿到计划后由 act 模型落地） */
+export function buildPlanPrompt(userMessage: string): string {
+  return [
+    "请为下面这个任务产出一份可执行的计划，不要执行任何操作：",
+    "",
+    userMessage,
+    "",
+    "输出要求：",
+    "1. 目标一句话；",
+    "2. 分步步骤（带顺序编号，每步说明要改哪个文件/跑什么命令）；",
+    "3. 风险与需要先确认的点；",
+    "4. 不要写代码，不要调用工具，不要复述任务原文。",
+  ].join("\n");
+}
+
+export const PLAN_SYSTEM_PROMPT =
+  "你是负责规划的高级工程师。只产出精炼、可执行的计划，不做实现。";
+
+/** 把预生成计划注入执行段系统提示（plan 文本已作为独立消息落库） */
+export function appendPlanDirective(systemPrompt: string, plan: string): string {
+  const trimmed = plan.trim();
+  if (!trimmed) {
+    return systemPrompt;
+  }
+  return `${systemPrompt}\n\n【预生成计划（由计划模型产出，供你执行时参考）】\n${trimmed}\n执行时按这份计划推进；发现计划不可行就在回复里先说明再调整。`;
 }

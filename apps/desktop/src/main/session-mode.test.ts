@@ -4,11 +4,14 @@ import type { AgentRunRequest, PermissionMode, SessionMode } from "@zen/shared";
 import { DEFAULT_SESSION_MODE, PLAN_APPROVAL_MESSAGE } from "@zen/shared";
 
 import {
+  appendPlanDirective,
   appendSessionModeDirective,
+  buildPlanPrompt,
   isPlanApproval,
   resolveRunSessionMode,
   resolvePhaseModel,
   sessionModeDirective,
+  shouldAutoPlan,
 } from "./session-mode";
 
 describe("isPlanApproval", () => {
@@ -66,6 +69,7 @@ describe("resolveRunSessionMode", () => {
 
 describe("resolvePhaseModel", () => {
   const session = {
+    pairMode: true,
     planModelProviderId: "p-plan", planModelId: "m-plan",
     actModelProviderId: "p-act", actModelId: "m-act",
   } as Parameters<typeof resolvePhaseModel>[0];
@@ -78,6 +82,17 @@ describe("resolvePhaseModel", () => {
 
   it("阶段未配置时保持原有模型选择", () => {
     expect(resolvePhaseModel({ ...session, actModelId: null }, "autopilot", fallback)).toEqual(fallback);
+  });
+
+  it("未开启 P/A 双模型时忽略阶段配置，直接用 fallback", () => {
+    expect(resolvePhaseModel({ ...session, pairMode: false }, "plan", fallback)).toEqual(fallback);
+    expect(resolvePhaseModel({ ...session, pairMode: undefined }, "interactive", fallback)).toEqual(fallback);
+    // 全局阶段默认同样不参与选模
+    expect(
+      resolvePhaseModel({ ...session, pairMode: false }, "plan", fallback, {
+        planModel: { providerId: "g-plan", modelId: "gm-plan" },
+      }),
+    ).toEqual(fallback);
   });
 
   const defaults = {
@@ -163,5 +178,43 @@ describe("sessionModeDirective / appendSessionModeDirective", () => {
       approvePlan: true,
     };
     expect(isPlanApproval(req.userMessage, req.approvePlan)).toBe(true);
+  });
+});
+
+describe("自动两阶段（shouldAutoPlan / 计划注入）", () => {
+  const base = {
+    pairMode: true,
+    mode: "interactive" as const,
+    planProviderId: "p-plan",
+    planModelId: "m-plan",
+    actProviderId: "p-act",
+    actModelId: "m-act",
+  };
+
+  it("非 plan 模式且计划/执行模型不同才触发", () => {
+    expect(shouldAutoPlan(base)).toBe(true);
+    expect(shouldAutoPlan({ ...base, mode: "plan" })).toBe(false);
+    // 未开启 P/A 双模型：只走单模型，不做自动两阶段
+    expect(shouldAutoPlan({ ...base, pairMode: false })).toBe(false);
+    // 计划与执行指向同一个供应商 + 同一个模型：无需两阶段
+    expect(shouldAutoPlan({ ...base, actProviderId: "p-plan", actModelId: "m-plan" })).toBe(false);
+    expect(shouldAutoPlan({ ...base, planModelId: null })).toBe(false);
+    expect(shouldAutoPlan({ ...base, background: true })).toBe(false);
+    expect(shouldAutoPlan({ ...base, autoPlan: false })).toBe(false);
+  });
+
+  it("预规划提示只要求计划，不执行", () => {
+    const prompt = buildPlanPrompt("给登录页加个验证码");
+    expect(prompt).toContain("给登录页加个验证码");
+    expect(prompt).toContain("不要执行任何操作");
+    expect(prompt).toContain("不要写代码");
+  });
+
+  it("计划注入排在原系统提示之后；空计划不改变提示", () => {
+    const merged = appendPlanDirective("基础提示", "1. 读文件\n2. 改组件");
+    expect(merged.startsWith("基础提示\n\n")).toBe(true);
+    expect(merged).toContain("【预生成计划");
+    expect(merged).toContain("2. 改组件");
+    expect(appendPlanDirective("基础提示", "   ")).toBe("基础提示");
   });
 });

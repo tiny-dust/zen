@@ -40,6 +40,7 @@ function stubZen() {
       setWorkspace: vi.fn(),
       setMode: vi.fn(),
       setPhaseModel: vi.fn(),
+      setPairMode: vi.fn(),
       autoTitle: vi.fn().mockResolvedValue(""),
     },
     workspace: {
@@ -293,6 +294,8 @@ describe("计划模式批准编排", () => {
         ],
       },
     ];
+    // 阶段模型只在 P/A 双模型开启时参与选模
+    await chat.setPairMode(true);
     await chat.setPhaseModel("plan", "p1", "m-plan");
     await chat.setPhaseModel("act", "p1", "m1");
     await chat.setSessionMode("plan");

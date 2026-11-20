@@ -32,6 +32,11 @@ export interface SessionRecord {
   planModelId?: string | null;
   actModelProviderId?: string | null;
   actModelId?: string | null;
+  /**
+   * P/A 双模型模式（会话级）：开启后每轮先由 Plan 模型出计划、再由 Act 模型执行；
+   * 关闭时只用会话模型，阶段模型配置保留但暂不生效。与「计划模式」相互独立。
+   */
+  pairMode?: boolean;
   /** 会话模式（interactive/plan/autopilot）；旧数据缺省按 interactive 处理 */
   mode?: SessionMode;
   /** 会话目标（Goals 目标模式）；null/缺省 = 未设定目标 */

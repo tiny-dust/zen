@@ -95,6 +95,11 @@ export const useChatStore = defineStore("chat", () => {
   const sessionModel = ref<SessionModel | null>(readLastSessionModel());
   const planModel = ref<SessionModel | null>(null);
   const actModel = ref<SessionModel | null>(null);
+  /**
+   * P/A 双模型模式（会话级）：开启后每轮先由 Plan 模型出计划、再由 Act 模型执行；
+   * 关闭时只用会话模型。与「计划模式」相互独立，切换即落库。
+   */
+  const pairMode = ref(false);
   /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
   const sessionMode = ref<SessionMode>("interactive");
   /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
@@ -387,11 +392,15 @@ export const useChatStore = defineStore("chat", () => {
   });
 
   /**
-   * 当前生效模型：会话阶段覆盖 → 设置页阶段全局默认（仍需模型启用）→ 会话模型。
-   * plan 模式取 plan 阶段，interactive/autopilot 取 act 阶段（与主进程 resolvePhaseModel 一致）。
+   * 当前生效模型：P/A 双模型开启时走阶段模型（会话阶段覆盖 → 设置页阶段全局默认 →
+   * 会话模型），plan 模式取 plan 阶段，interactive/autopilot 取 act 阶段；
+   * 未开启时直接用会话模型（阶段配置保留但不生效，与主进程 resolvePhaseModel 一致）。
    */
   const activeModelSelection = computed(() => {
     const modelsStore = useModelsStore();
+    if (!pairMode.value) {
+      return effectiveSelection.value;
+    }
     const override = sessionMode.value === "plan" ? planModel.value : actModel.value;
     if (override && modelsStore.findEnabledModel(override.providerId, override.modelId)) {
       return override;
@@ -1357,6 +1366,8 @@ export const useChatStore = defineStore("chat", () => {
       }
       if (planModel.value) await zen.session.setPhaseModel(id, "plan", planModel.value.providerId, planModel.value.modelId);
       if (actModel.value) await zen.session.setPhaseModel(id, "act", actModel.value.providerId, actModel.value.modelId);
+      // 未持久化阶段开启的 P/A 双模型同样补落库（关闭是缺省，无需写）
+      if (pairMode.value) await zen.session.setPairMode(id, true);
       // 未持久化阶段切过的会话模式同样补落库（interactive 是缺省，无需写）
       if (mode !== "interactive") {
         await zen.session.setMode(id, mode);
@@ -1470,6 +1481,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionModel.value = inheritedModel;
     planModel.value = null;
     actModel.value = null;
+    pairMode.value = false;
     sessionMode.value = "interactive";
     sessionGoal.value = null;
 
@@ -1571,6 +1583,8 @@ export const useChatStore = defineStore("chat", () => {
       ? { providerId: found.session.planModelProviderId, modelId: found.session.planModelId } : null;
     actModel.value = found.session.actModelProviderId && found.session.actModelId
       ? { providerId: found.session.actModelProviderId, modelId: found.session.actModelId } : null;
+    // 恢复该会话的 P/A 双模型开关（旧数据缺省关闭 → 单模型）
+    pairMode.value = found.session.pairMode === true;
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
     // 恢复该会话的目标（Goals 目标模式；未设定为 null）
@@ -1661,6 +1675,21 @@ export const useChatStore = defineStore("chat", () => {
     }
     if (phase === "plan") planModel.value = model;
     else actModel.value = model;
+  }
+
+  /**
+   * P/A 双模型开关：开启后本会话按计划/执行两段选模，关闭回落到会话单模型。
+   * 阶段模型配置保留在库里，重新开启时直接复用。
+   */
+  async function setPairMode(enabled: boolean) {
+    if (enabled === pairMode.value) {
+      return;
+    }
+    pairMode.value = enabled;
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setPairMode(sessionId.value, enabled);
+    }
   }
 
   /** 会话模式切换（interactive/plan/autopilot）；未持久化会话先记内存，首发补建时落库 */
@@ -1766,6 +1795,7 @@ export const useChatStore = defineStore("chat", () => {
     sessionModel,
     planModel,
     actModel,
+    pairMode,
     activeModelSelection,
     sessionMode,
     sessionGoal,
@@ -1774,6 +1804,7 @@ export const useChatStore = defineStore("chat", () => {
     effectiveModel,
     setSessionModel,
     setPhaseModel,
+    setPairMode,
     setSessionMode,
     setSessionGoal,
     updateGoalStatus,

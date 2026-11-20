@@ -322,4 +322,9 @@ export interface AgentRunRequest {
   display?: { id?: string; content: string; meta?: Record<string, unknown> };
   /** 计划模式批准：main 侧识别后把会话切回 interactive 再继续执行 */
   approvePlan?: boolean;
+  /**
+   * 自动两阶段开关（缺省开启）：配置了独立计划模型时，主进程先用计划模型
+   * 产出一份计划再交给执行模型落地。显式 false 关闭。
+   */
+  autoPlan?: boolean;
 }

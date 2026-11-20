@@ -513,6 +513,8 @@ export interface ZenApi {
     setModel(id: string, providerId: string | null, modelId: string | null): Promise<void>;
     /** Plan/Act 阶段模型覆盖；null 表示沿用会话模型。 */
     setPhaseModel(id: string, phase: "plan" | "act", providerId: string | null, modelId: string | null): Promise<void>;
+    /** P/A 双模型开关（会话级）；关闭后只用会话模型，阶段模型配置保留 */
+    setPairMode(id: string, enabled: boolean): Promise<void>;
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void>;
     /** 会话目标（Goals 目标模式）；null 表示清除目标 */

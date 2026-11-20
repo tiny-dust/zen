@@ -26,6 +26,7 @@ import {
   setSessionArchived,
   setSessionDraft,
   setSessionModel,
+  setSessionPairMode,
   setSessionPhaseModel,
   setSessionPinned,
   setSessionWorkspace,
@@ -216,6 +217,14 @@ export function registerSessionIpc(
       throw new Error("invalid phase model selection");
     }
     setSessionPhaseModel(id, phase, providerId as string | null, modelId as string | null);
+  });
+
+  // P/A 双模型开关（会话级）：与「计划模式」相互独立，关闭后只用会话模型
+  ipcMain.handle("session:set-pair-mode", (_event, id: unknown, enabled: unknown) => {
+    if (typeof id !== "string" || !id.trim() || typeof enabled !== "boolean") {
+      throw new Error("invalid pair mode request");
+    }
+    setSessionPairMode(id, enabled);
   });
 
   // 会话模式切换（interactive/plan/autopilot）；非法值忽略，保持原模式

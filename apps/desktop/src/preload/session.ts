@@ -44,6 +44,10 @@ export const sessionApi = {
     setPhaseModel(id: string, phase: "plan" | "act", providerId: string | null, modelId: string | null): Promise<void> {
       return ipcRenderer.invoke("session:set-phase-model", id, phase, providerId, modelId);
     },
+    /** P/A 双模型开关（会话级）；关闭后只用会话模型，阶段模型配置保留 */
+    setPairMode(id: string, enabled: boolean): Promise<void> {
+      return ipcRenderer.invoke("session:set-pair-mode", id, enabled);
+    },
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void> {
       return ipcRenderer.invoke("session:set-mode", id, mode);

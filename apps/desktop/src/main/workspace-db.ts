@@ -32,6 +32,7 @@ interface SessionRow {
   plan_model_id: string | null;
   act_model_provider_id: string | null;
   act_model_id: string | null;
+  pair_mode: number;
   mode: string;
   goal_json: string | null;
   created_at: number;
@@ -97,6 +98,7 @@ function toSession(row: SessionRow): SessionRecord {
     planModelId: row.plan_model_id,
     actModelProviderId: row.act_model_provider_id,
     actModelId: row.act_model_id,
+    pairMode: row.pair_mode === 1,
     mode: normalizeSessionMode(row.mode),
     goal: parseGoalJson(row.goal_json),
   };
@@ -260,6 +262,7 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     plan_model_id: null,
     act_model_provider_id: null,
     act_model_id: null,
+    pair_mode: 0,
     mode: "interactive",
     goal_json: null,
     created_at: Date.now(),
@@ -309,6 +312,13 @@ export function setSessionPhaseModel(
   getDb()
     .prepare(`UPDATE chat_sessions SET ${prefix}_model_provider_id = ?, ${prefix}_model_id = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
     .run(providerId && modelId ? providerId : null, providerId && modelId ? modelId : null, Date.now(), id, ...ownerParams());
+}
+
+/** P/A 双模型开关：关闭后阶段模型仍保留在库里，只是暂不参与选模 */
+export function setSessionPairMode(id: string, enabled: boolean): void {
+  getDb()
+    .prepare(`UPDATE chat_sessions SET pair_mode = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
+    .run(enabled ? 1 : 0, Date.now(), id, ...ownerParams());
 }
 
 /** 会话模式切换（interactive/plan/autopilot）；非法值忽略，不落库 */
