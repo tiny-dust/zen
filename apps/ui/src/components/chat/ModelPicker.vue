@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, History, Search, Sparkles } from "@lucide/vue";
+import { ArrowRight, Check, History, Search, Sparkles } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -23,12 +23,14 @@ const modelsStore = useModelsStore();
 const settingsStore = useSettingsStore();
 const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
 // 会话级模型覆盖与阶段覆盖都在 chat store：切换只影响当前会话
-const { effectiveSelection, activeModelSelection, planModel, actModel } = storeToRefs(chatStore);
+const { effectiveSelection, planModel, actModel } = storeToRefs(chatStore);
 
 const open = ref(false);
 const query = ref("");
-/** 模型 / 计划阶段 / 执行阶段 / 子代理 / 外部 agent 共用同一个弹层 */
-const activeTab = ref<"model" | "plan" | "act" | "sub" | "external">("model");
+/** 模型 / 计划+执行 / 子代理 / 外部 agent 共用同一个弹层；计划与执行在同一 tab 内切换 */
+const activeTab = ref<"model" | "phases" | "sub" | "external">("model");
+/** 「计划 / 执行」tab 内当前正在编辑的阶段 */
+const editingPhase = ref<"plan" | "act">("plan");
 const activeProviderId = ref<string | "recent" | null>(null);
 const recentKeys = ref<string[]>([]);
 const rootEl = ref<HTMLElement | null>(null);
@@ -38,27 +40,79 @@ const maxHeight = ref(0);
 
 const tabs = computed(() => [
   { id: "model" as const, label: t("chat.model.tabModel") },
-  { id: "plan" as const, label: t("chat.model.tabPlan") },
-  { id: "act" as const, label: t("chat.model.tabAct") },
+  { id: "phases" as const, label: t("chat.model.tabPhases") },
   { id: "sub" as const, label: t("chat.model.tabSub") },
   { id: "external" as const, label: t("chat.model.tabExternal") },
 ]);
 
-/** 当前 tab 对应的阶段；null = 选择会话模型（模型/子代理/外部 tab） */
+/** 当前正在编辑的阶段；null = 选择会话模型（模型/子代理/外部 tab） */
 const activePhase = computed<"plan" | "act" | null>(() =>
-  activeTab.value === "plan" || activeTab.value === "act" ? activeTab.value : null,
+  activeTab.value === "phases" ? editingPhase.value : null,
 );
 
-/** 会话阶段覆盖（只表示本会话的显式选择） */
+type PhaseSource = "override" | "default" | "session";
+
+interface PhaseSlot {
+  /** 当前阶段生效的模型选择 */
+  selection: { providerId: string; modelId: string };
+  /** 展示名（模型名，取不到时退回供应商名） */
+  label: string;
+  /** 供应商名（小屏头像组按它取品牌图标） */
+  vendor: string;
+  /** 来源：会话覆盖 / 设置页全局默认 / 会话模型 */
+  source: PhaseSource;
+}
+
+/** 阶段生效模型：会话覆盖 → 设置页阶段默认（仍需启用）→ 会话模型 */
+function resolvePhase(phase: "plan" | "act"): PhaseSlot {
+  const override = phase === "plan" ? planModel.value : actModel.value;
+  const overrideModel =
+    override && modelsStore.findEnabledModel(override.providerId, override.modelId);
+  if (override && overrideModel) {
+    return {
+      selection: override,
+      label: overrideModel.model.name,
+      vendor: overrideModel.provider.name,
+      source: "override",
+    };
+  }
+  const phaseDefault = phase === "plan" ? settingsStore.settings.planModel : settingsStore.settings.actModel;
+  const defaultModel =
+    phaseDefault && modelsStore.findEnabledModel(phaseDefault.providerId, phaseDefault.modelId);
+  if (phaseDefault && defaultModel) {
+    return {
+      selection: phaseDefault,
+      label: defaultModel.model.name,
+      vendor: defaultModel.provider.name,
+      source: "default",
+    };
+  }
+  const session = effectiveSelection.value;
+  const sessionModel = modelsStore.findEnabledModel(session.providerId, session.modelId);
+  return {
+    selection: session,
+    label: sessionModel?.model.name ?? "",
+    vendor: sessionModel?.provider.name ?? "",
+    source: "session",
+  };
+}
+
+const planSlot = computed(() => resolvePhase("plan"));
+const actSlot = computed(() => resolvePhase("act"));
+/** 双模型模式：任一阶段有自己的模型（会话覆盖或全局默认），否则就是单模型 */
+const dualMode = computed(
+  () => planSlot.value.source !== "session" || actSlot.value.source !== "session",
+);
+
+/** 触发器展示的模型（单模型模式下与运行一致） */
+const displayedModel = computed(() =>
+  modelsStore.findEnabledModel(actSlot.value.selection.providerId, actSlot.value.selection.modelId),
+);
+
+/** 当前编辑阶段的会话覆盖与全局默认 */
 const phaseOverride = computed(() =>
-  activePhase.value === "plan"
-    ? planModel.value
-    : activePhase.value === "act"
-      ? actModel.value
-      : null,
+  activePhase.value === "plan" ? planModel.value : activePhase.value === "act" ? actModel.value : null,
 );
-
-/** 设置页「阶段模型」里的全局默认 */
 const globalPhaseDefault = computed(() =>
   activePhase.value === "plan"
     ? settingsStore.settings.planModel ?? null
@@ -80,15 +134,11 @@ const globalPhaseDefaultLabel = computed(() => {
       });
 });
 
-/** 触发器展示的模型：阶段 tab 显示「覆盖 → 全局默认 → 会话模型」，其余显示当前生效模型 */
-const displayedSelection = computed(() => {
-  if (!activePhase.value) {
-    return activeModelSelection.value;
-  }
-  return phaseOverride.value ?? globalPhaseDefault.value ?? effectiveSelection.value;
-});
-const displayedModel = computed(() =>
-  modelsStore.findEnabledModel(displayedSelection.value.providerId, displayedSelection.value.modelId),
+/** 列表当前对比的模型：阶段 tab 用该阶段的生效选择，否则用会话模型 */
+const displayedSelection = computed(() =>
+  activePhase.value
+    ? resolvePhase(activePhase.value).selection
+    : { providerId: actSlot.value.selection.providerId, modelId: actSlot.value.selection.modelId },
 );
 
 const enabledGroups = computed(() =>
@@ -177,12 +227,41 @@ const routingReason = computed(() => {
     .join(t("model-routing.modelRouting.reasonSeparator"));
 });
 
-/** 触发按钮 title：自动模式下展示「自动模式 + 当前生效模型 + 上次理由」 */
+const sourceLabel = computed(() => ({
+  override: t("chat.model.phaseSourceOverride"),
+  default: t("chat.model.phaseSourceDefault"),
+  session: t("chat.model.phaseSourceSession"),
+}));
+
+/** 触发按钮 title：单模型给自动模式理由；双模型给两段完整说明 */
 const triggerTitle = computed(() => {
+  if (dualMode.value) {
+    return t("chat.model.triggerDual", {
+      plan: `${planSlot.value.label}（${sourceLabel.value[planSlot.value.source]}）`,
+      act: `${actSlot.value.label}（${sourceLabel.value[actSlot.value.source]}）`,
+    });
+  }
   const modelName = displayedModel.value?.model.name || displayedModel.value?.provider.name || t("chat.model.noModel");
   if (!autoRoute.value) return modelName;
   return t("model-routing.modelRouting.autoTitle", { model: modelName, reason: routingReason.value || t("model-routing.modelRouting.autoSubtitle") });
 });
+
+const triggerAria = computed(() =>
+  dualMode.value
+    ? t("chat.model.labelDual", { plan: planSlot.value.label, act: actSlot.value.label })
+    : t("chat.model.label", {
+        name: displayedModel.value?.model.name || displayedModel.value?.provider.name || t("chat.model.noModel"),
+      }),
+);
+
+const phaseTabs = computed(() => [
+  { id: "plan" as const, label: t("chat.model.phasePlan") },
+  { id: "act" as const, label: t("chat.model.phaseAct") },
+]);
+
+function slotOf(phase: "plan" | "act"): PhaseSlot {
+  return phase === "plan" ? planSlot.value : actSlot.value;
+}
 
 function railClass(id: string | "recent") {
   return classes(
@@ -284,20 +363,42 @@ watch(activeTab, () => {
     <Button
       variant="ghost"
       class="inline-flex items-center rounded-lg text-[var(--color-txt-strong)] hover:bg-[var(--color-menu-hover)] disabled:cursor-not-allowed disabled:opacity-55"
-      :class="compact ? 'size-7 justify-center' : 'max-w-[220px] gap-1.5 px-1.5 py-1 text-[12px]'"
+      :class="compact
+        ? ['h-7 justify-center', dualMode ? 'min-w-7 gap-0 px-1.5' : 'size-7']
+        : 'max-w-[280px] gap-1.5 px-1.5 py-1 text-[12px]'"
       :disabled="!enabledGroups.length"
       :title="triggerTitle"
-      :aria-label="t('chat.model.label', { name: displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') })"
+      :aria-label="triggerAria"
       @click="toggleOpen"
     >
+      <!-- 小屏双模型：头像组（计划 / 执行 两个品牌图标叠放） -->
+      <span v-if="compact && dualMode" class="flex items-center -space-x-1.5">
+        <VendorLogo
+          :vendor="planSlot.vendor || planSlot.label || t('chat.model.noModel')"
+          :size="15"
+          class="rounded-md ring-2 ring-[var(--color-composer-surface)]"
+        />
+        <VendorLogo
+          :vendor="actSlot.vendor || actSlot.label || t('chat.model.noModel')"
+          :size="15"
+          class="rounded-md ring-2 ring-[var(--color-composer-surface)]"
+        />
+      </span>
       <VendorLogo
+        v-else
         :vendor="displayedModel?.provider.name || displayedModel?.model.name || t('chat.model.noModel')"
-        :size="compact ? 16 : 16"
+        :size="16"
       />
-      <span v-if="!compact && autoRoute" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
+      <span v-if="!compact && autoRoute && !dualMode" class="shrink-0 text-[var(--color-accent)]" :title="triggerTitle">
         <Sparkles class="size-3" aria-hidden="true" />
       </span>
-      <span v-if="!compact" class="truncate font-medium">{{ displayedModel?.model.name || displayedModel?.provider.name || t('chat.model.noModel') }}</span>
+      <!-- 单模型：一个名字；双模型：计划 → 执行，两个名字都要看得见 -->
+      <span v-if="!compact && dualMode" class="flex min-w-0 items-center gap-1 font-medium">
+        <span class="max-w-[112px] truncate">{{ planSlot.label || t("chat.model.noModel") }}</span>
+        <ArrowRight class="size-3 shrink-0 text-[var(--color-dim)]" aria-hidden="true" />
+        <span class="max-w-[112px] truncate">{{ actSlot.label || t("chat.model.noModel") }}</span>
+      </span>
+      <span v-else-if="!compact" class="truncate font-medium">{{ displayedModel?.model.name || displayedModel?.provider.name || t("chat.model.noModel") }}</span>
       <svg
         v-if="!compact"
         class="size-3 shrink-0 text-[var(--color-mut)]"
@@ -334,6 +435,40 @@ watch(activeTab, () => {
       </div>
 
       <template v-if="activeTab === 'model' || activePhase">
+        <!-- 计划 / 执行同一 tab：上方两个阶段卡，点击切换要改的阶段，两个模型的当前值一眼可见 -->
+        <div
+          v-if="activePhase"
+          class="flex flex-none items-stretch gap-1.5 border-b border-[var(--color-line)] px-3 py-2"
+        >
+          <Button
+            v-for="phase in phaseTabs"
+            :key="phase.id"
+            variant="ghost"
+            class="flex min-w-0 flex-1 flex-col items-start gap-0 rounded-lg px-2.5 py-1.5 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+            :class="
+              editingPhase === phase.id
+                ? 'border border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line))] bg-[var(--color-menu-active)]'
+                : 'border border-transparent'
+            "
+            :aria-label="t('chat.model.editPhase', { phase: phase.label })"
+            :title="t('chat.model.editPhaseHint')"
+            @click="editingPhase = phase.id"
+          >
+            <span class="flex w-full items-center gap-1.5 text-[10px] text-[var(--color-dim)]">
+              {{ phase.label }}
+              <span
+                v-if="slotOf(phase.id).source !== 'session'"
+                class="rounded-full border border-[var(--color-line-strong)] px-1 text-[10px] font-normal text-[var(--color-mut)]"
+              >
+                {{ sourceLabel[slotOf(phase.id).source] }}
+              </span>
+            </span>
+            <span class="w-full truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
+              {{ slotOf(phase.id).label || t("chat.model.noModel") }}
+            </span>
+          </Button>
+        </div>
+
         <div class="flex flex-none items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
           <Search class="size-3.5 shrink-0 text-[var(--color-mut)]" aria-hidden="true" />
           <Input

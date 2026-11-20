@@ -86,8 +86,8 @@ describe("ModelPicker 自动选择文案", () => {
   });
 });
 
-describe("ModelPicker 阶段模型 tab", () => {
-  it("Plan 与 Act 的会话覆盖互不影响，清除后回落全局默认/会话模型", async () => {
+describe("ModelPicker 计划 / 执行收拢", () => {
+  it("同一 tab 内分阶段选模型，触发器同时显示两个模型", async () => {
     const models = useModelsStore();
     const chat = useChatStore();
     const settings = useSettingsStore();
@@ -104,29 +104,37 @@ describe("ModelPicker 阶段模型 tab", () => {
     };
 
     const wrapper = mount(ModelPicker);
+    const openPhases = async () => {
+      await wrapper.get("button").trigger("click");
+      await buttonByText(wrapper, "计划 / 执行").trigger("click");
+    };
 
-    // 执行 tab：选中 Reasoner，只写会话 Act 覆盖
+    // 计划与执行只有一个 tab
     await wrapper.get("button").trigger("click");
-    await buttonByText(wrapper, "执行 (Act)").trigger("click");
-    await buttonByText(wrapper, "Reasoner").trigger("click");
-    expect(chat.actModel?.modelId).toBe("m1");
-    expect(chat.planModel).toBeNull();
+    expect(wrapper.text()).toContain("计划 / 执行");
+    await buttonByText(wrapper, "计划 / 执行").trigger("click");
 
-    // 计划 tab：会话未覆盖时顶部展示全局默认
-    await wrapper.get("button").trigger("click");
-    await buttonByText(wrapper, "计划 (Plan)").trigger("click");
-    expect(wrapper.get('[role="listbox"]').text()).toContain("全局默认：Test / Executor");
+    // 默认编辑「计划」：选 Reasoner 只写 plan 覆盖
+    expect(wrapper.text()).toContain("全局默认");
     await buttonByText(wrapper, "Reasoner").trigger("click");
     expect(chat.planModel?.modelId).toBe("m1");
-    // 两个阶段互不覆盖
+    expect(chat.actModel).toBeNull();
+
+    // 切到「执行」卡：选同一个模型只写 act 覆盖
+    await openPhases();
+    await wrapper.get("button[aria-label='编辑执行模型']").trigger("click");
+    await buttonByText(wrapper, "Reasoner").trigger("click");
     expect(chat.actModel?.modelId).toBe("m1");
+    expect(chat.planModel?.modelId).toBe("m1");
 
-    // 计划阶段覆盖生效时，plan 模式使用会话覆盖
-    await chat.setSessionMode("plan");
-    expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m1" });
+    // 触发器：双模型时两个名字都要出现（计划 Reasoner → 执行 Reasoner）
+    const trigger = wrapper.get("button[aria-label^='计划 ']");
+    expect(trigger.text()).toContain("Reasoner");
+    expect(trigger.text()).toContain("Reasoner");
 
-    // 清除计划覆盖：回落 Plan 全局默认（Executor）
-    await wrapper.get("button").trigger("click");
+    // 清除计划覆盖：回落全局默认（Executor），执行仍是会话覆盖
+    await openPhases();
+    await wrapper.get("button[aria-label='编辑计划模型']").trigger("click");
     const followGlobal = wrapper
       .findAll('[role="listbox"] button')
       .find((button) => button.text().includes("跟随全局默认"));
@@ -134,9 +142,11 @@ describe("ModelPicker 阶段模型 tab", () => {
     await followGlobal!.trigger("click");
     expect(chat.planModel).toBeNull();
     expect(chat.actModel?.modelId).toBe("m1");
+
+    // 计划阶段（会话无覆盖）跟随全局默认 Executor
+    await chat.setSessionMode("plan");
     expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m2" });
 
-    // 没有全局默认时回落会话模型
     settings.settings = { ...settings.settings, planModel: null };
     expect(chat.activeModelSelection).toEqual({ providerId: "p1", modelId: "m1" });
     wrapper.unmount();

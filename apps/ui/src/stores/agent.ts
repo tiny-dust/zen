@@ -10,6 +10,7 @@ import type {
   PromptPreset,
   SkillFileContent,
   SkillFileInfo,
+  SkillPanelInfo,
   SkillSummary,
   SyncResult,
 } from "@zen/shared";
@@ -81,6 +82,15 @@ export const useAgentStore = defineStore("agent", () => {
       return;
     }
     skills.value = await zen.agent.listSkills();
+  }
+
+  /** 技能面板：读取技能目录里的 panel.json（旧 preload 无此方法时返回 null） */
+  async function skillPanel(dir: string): Promise<SkillPanelInfo | null> {
+    const zen = window.zen;
+    if (!zen?.agent?.skillPanel) {
+      return null;
+    }
+    return zen.agent.skillPanel(dir);
   }
 
   /** 技能调用 tag 弹窗：技能目录文件枚举（旧 preload 无此方法时返回空） */
@@ -209,6 +219,7 @@ export const useAgentStore = defineStore("agent", () => {
     updateSettings,
     refreshSkills,
     skillFiles,
+    skillPanel,
     readSkillFile,
     refreshMcp,
     authorizeMcp,
