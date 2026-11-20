@@ -6,12 +6,19 @@ import { completeOnce } from "./model-api";
 import { listProviders } from "./model-db";
 import { getSession } from "./workspace-db";
 import {
-  commitPersistedModelOutput, createWorkflowRun, getWorkflowRun, listWorkflowRuns, listWorkflows, openWorkflow, pendingModelStep, recordApproval,
-  recoverWorkflowRuns, recordWorkflowOutput, resolveWorkflowValue, saveWorkflow, skipUncertainModel, updateWorkflowRun, workflowJournal,
+  commitPersistedEffectOutput, createWorkflowRun, getWorkflowRun, listWorkflowRuns, listWorkflows, openWorkflow, pendingEffectStep, recordApproval,
+  recoverWorkflowRuns, recordWorkflowOutput, resolveWorkflowValue, saveWorkflow, skipUncertainEffect, updateWorkflowRun, workflowJournal,
 } from "./workflow-store";
+import { createWorkflowEffectRunner, interpolateOutputs, listWorkflowTools, MAX_EFFECT_TIMEOUT_MS } from "./workflow-effects";
+import type { WorkflowEffectRunner } from "./workflow-effects";
+
+/** getWorkflowRun 的返回形态（summary + 快照/日志/输出） */
+type WorkflowRunRecord = NonNullable<ReturnType<typeof getWorkflowRun>>;
 
 const active = new Map<string, AbortController>();
 const activeSessions = new Set<string>();
+/** 重试中的运行标记：UI 依据它显示「重试中，可取消」（旧记录仍可能带 model 版文案） */
+const RETRYING_DETAIL = "Retrying workflow effect; cancellation is available.";
 
 export function isWorkflowSessionActive(sessionId: string): boolean {
   return activeSessions.has(sessionId);
@@ -52,6 +59,46 @@ async function completeWorkflowModel(prompt: string, setting: { providerId?: str
   }
 }
 
+/**
+ * 执行一个副作用节点并把输出落库：模型走 completeOnce，工具/脚本/HTTP 走工作流执行器。
+ * `$node-id` 在上游节点有输出时替换为该输出，否则保留原样（不会静默丢内容）。
+ */
+async function executeEffectNode(options: {
+  run: WorkflowRunRecord;
+  node: { id: string; type: "model" | "tool" | "script" | "http" };
+  key: string;
+  signal: AbortSignal;
+  effects: () => Promise<WorkflowEffectRunner>;
+}): Promise<void> {
+  const { run, node, key, signal } = options;
+  const setting = run.snapshot.nodeSettings[node.id];
+  const timeLeft = run.snapshot.budgets.maxWallMs - (Date.now() - run.created_at);
+  if (signal.aborted || timeLeft <= 0) throw new Error("Wall-time budget expired");
+  const resolveNode = (nodeId: string): string | undefined => {
+    try {
+      return resolveWorkflowValue(run.id, `$${nodeId}`);
+    } catch {
+      return undefined;
+    }
+  };
+  let output: string;
+  if (node.type === "model") {
+    const prompt = setting?.instructions ?? setting?.prompt;
+    if (!prompt) throw new Error("Missing model instructions");
+    output = await completeWorkflowModel(
+      interpolateOutputs(prompt, resolveNode),
+      setting,
+      Math.min(timeLeft, MAX_EFFECT_TIMEOUT_MS),
+      signal,
+    );
+  } else {
+    const runner = await options.effects();
+    output = await runner.run({ type: node.type, setting: setting ?? {}, resolve: resolveNode, signal, timeoutMs: timeLeft });
+  }
+  if (signal.aborted) throw new Error("Workflow cancelled or wall-time budget expired");
+  recordWorkflowOutput(run.id, key, node.id, output);
+}
+
 /** A run is always resumed from its immutable version and committed journal. */
 async function driveRun(id: string) {
   const run = getWorkflowRun(id);
@@ -65,8 +112,11 @@ async function driveRun(id: string) {
   active.set(id, controller);
   activeSessions.add(run.session_id);
   const timer = setTimeout(() => controller.abort(), remaining);
+  // 工具/脚本/HTTP 各共用一次工具集；只有真正跑副作用节点时才解析工作区与 MCP 工具
+  let effectRunner: Promise<WorkflowEffectRunner> | null = null;
+  const effects = () => (effectRunner ??= createWorkflowEffectRunner(run.session_id));
   try {
-    commitPersistedModelOutput(id);
+    commitPersistedEffectOutput(id);
     updateWorkflowRun(id, "running");
     const providers = await listProviders();
     for (const node of run.snapshot.graph.nodes) {
@@ -82,16 +132,8 @@ async function driveRun(id: string) {
       journal: workflowJournal, signal: controller.signal,
       adapters: {
         async execute(node, context) {
-          if (node.type !== "model") throw new Error("Unsafe effect adapter disabled");
-          const setting = run.snapshot.nodeSettings[node.id];
-          const prompt = setting?.instructions ?? setting?.prompt;
-          if (!prompt) throw new Error("Missing model instructions");
-          const timeLeft = run.snapshot.budgets.maxWallMs - (Date.now() - run.created_at);
-          if (context.signal?.aborted || timeLeft <= 0) throw new Error("Wall-time budget expired");
           // No external exactly-once guarantee: before is durable, an uncertain completion needs review.
-          const output = await completeWorkflowModel(prompt, setting, Math.min(timeLeft, 120_000), controller.signal);
-          if (controller.signal.aborted) throw new Error("Workflow cancelled or wall-time budget expired");
-          recordWorkflowOutput(context.runId, context.key, node.id, output);
+          await executeEffectNode({ run, node, key: context.key, signal: controller.signal, effects });
         },
         async requestApproval() {
           // Approval is resolved by review IPC, which commits the outcome before resuming.
@@ -138,6 +180,8 @@ export function registerWorkflowIpc(isSessionRunning: (id: string) => boolean): 
     saveWorkflow(name, snapshot, ownedSession(sessionId), id));
   ipcMain.handle("workflow:list", (_event, sessionId: unknown) => listWorkflows(ownedSession(sessionId)));
   ipcMain.handle("workflow:list-runs", (_event, sessionId: unknown) => listWorkflowRuns(ownedSession(sessionId)));
+  // 工具清单是全局配置（内置 + 已启用 MCP），不依赖会话归属：草稿会话也能挑工具
+  ipcMain.handle("workflow:list-tools", (_event, sessionId: unknown) => listWorkflowTools(validId(sessionId) ? sessionId : "session-less"));
   ipcMain.handle("workflow:open", (_event, id: unknown, version: unknown, sessionId: unknown) => {
     if (!validId(id) || (version !== undefined && (!Number.isSafeInteger(version) || (version as number) < 1))) throw new Error("Invalid workflow identifier");
     return openWorkflow(id, ownedSession(sessionId), version as number | undefined);
@@ -174,26 +218,29 @@ export function registerWorkflowIpc(isSessionRunning: (id: string) => boolean): 
     if (typeof decision === "boolean") {
       recordApproval(id, decision);
     } else if (decision === "skip" && confirmation === `skip:${id}`) {
-      skipUncertainModel(id);
+      skipUncertainEffect(id);
     } else if (decision === "retry" && confirmation === `retry:${id}`) {
-      const pending = pendingModelStep(id);
-      if (!pending || pending.run.status !== "pending-review" || pending.output) throw new Error("No uncertain model effect to retry");
+      const pending = pendingEffectStep(id);
+      if (!pending || pending.run.status !== "pending-review" || pending.output) throw new Error("No uncertain effect to retry");
       const remaining = run.snapshot.budgets.maxWallMs - (Date.now() - run.created_at);
       if (remaining <= 0) throw new Error("Wall-time budget expired");
-      const setting = run.snapshot.nodeSettings[pending.before.nodeId];
-      const prompt = setting?.instructions ?? setting?.prompt;
-      if (!prompt) throw new Error("Missing model instructions");
       const controller = new AbortController();
       active.set(id, controller);
       activeSessions.add(run.session_id);
       const timer = setTimeout(() => controller.abort(), remaining);
-      updateWorkflowRun(id, "pending-review", "Retrying model effect; cancellation is available.");
+      updateWorkflowRun(id, "pending-review", RETRYING_DETAIL);
+      let effectRunner: Promise<WorkflowEffectRunner> | null = null;
+      const effects = () => (effectRunner ??= createWorkflowEffectRunner(pending.run.session_id));
       void (async () => {
         try {
-          const output = await completeWorkflowModel(prompt, setting, Math.min(remaining, 120_000), controller.signal);
-          if (controller.signal.aborted) throw new Error("Workflow cancelled or wall-time budget expired");
-          recordWorkflowOutput(id, pending.before.key, pending.before.nodeId, output);
-          commitPersistedModelOutput(id);
+          await executeEffectNode({
+            run: pending.run,
+            node: { id: pending.node.id, type: pending.node.type as "model" | "tool" | "script" | "http" },
+            key: pending.before.key,
+            signal: controller.signal,
+            effects,
+          });
+          commitPersistedEffectOutput(id);
           updateWorkflowRun(id, "pending-review", "Retry committed. Select Resume to continue.");
         } catch (error) {
           console.error(`Workflow retry ${id} failed`, error);

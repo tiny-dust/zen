@@ -7,7 +7,12 @@ import { getDb } from "./model-db-connection";
 
 export type WorkflowSnapshot = {
   graph: WorkflowGraph;
-  nodeSettings: Record<string, { prompt?: string; providerId?: string; modelId?: string; instructions?: string; expression?: string; left?: string; right?: string; operator?: "equals" | "not-equals" }>;
+  nodeSettings: Record<string, {
+    prompt?: string; providerId?: string; modelId?: string; instructions?: string; expression?: string;
+    left?: string; right?: string; operator?: "equals" | "not-equals";
+    toolName?: string; toolInput?: string; script?: string; runtime?: "shell" | "node";
+    url?: string; method?: string; headers?: string; body?: string;
+  }>;
   budgets: { maxSteps: number; maxEffects: number; maxWallMs: number };
   /** 画布位置（可选；旧版本快照没有该字段，回读时由渲染层自动排版） */
   layout?: Record<string, { x: number; y: number }>;
@@ -16,6 +21,28 @@ export type WorkflowRun = {
   id: string; workflow_id: string; version: number; session_id: string;
   status: string; detail: string | null; created_at: number; updated_at: number;
 };
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
+
+/** 只接受 http/https：file:、data: 等协议不允许作为工作流外部请求 */
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function parseToolInput(value: string, nodeId: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`Invalid tool input: ${nodeId}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Invalid tool input: ${nodeId}`);
+}
 
 type VersionRow = { snapshot_json: string };
 type JournalRow = { event_json: string };
@@ -32,8 +59,7 @@ export function parseSnapshot(input: unknown): WorkflowSnapshot {
       !["start", "end", "model", "tool", "script", "http", "approval", "condition", "loop"].includes(node.type)) {
       throw new Error("Invalid workflow node");
     }
-    if (["tool", "script", "http"].includes(node.type)) throw new Error(`${node.type} execution is disabled until permission and lifetime integration is available`);
-    if ((node.type === "model" || node.type === "approval") && node.idempotent !== false) {
+    if (["model", "tool", "script", "http", "approval"].includes(node.type) && (node as { idempotent?: boolean }).idempotent !== false) {
       throw new Error("Effects must be non-idempotent: uncertain outcomes require review");
     }
     if (node.type === "loop" && node.maxIterations !== undefined && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 0)) {
@@ -66,6 +92,23 @@ export function parseSnapshot(input: unknown): WorkflowSnapshot {
       if (setting?.expression !== undefined) throw new Error(`Condition expression is disabled until a safe evaluator is available: ${node.id}`);
       if (typeof setting?.left !== "string" || typeof setting.right !== "string" ||
         !["equals", "not-equals"].includes(setting.operator ?? "")) throw new Error(`Condition comparison required: ${node.id}`);
+    }
+    if (node.type === "tool") {
+      if (typeof setting?.toolName !== "string" || !setting.toolName.trim() || setting.toolName.length > 128) throw new Error(`Tool name required: ${node.id}`);
+      if (setting.toolInput !== undefined) {
+        if (typeof setting.toolInput !== "string" || setting.toolInput.length > 20_000) throw new Error(`Invalid tool input: ${node.id}`);
+        if (setting.toolInput.trim()) parseToolInput(setting.toolInput, node.id);
+      }
+    }
+    if (node.type === "script") {
+      if (typeof setting?.script !== "string" || !setting.script.trim() || setting.script.length > 20_000) throw new Error(`Script required: ${node.id}`);
+      if (setting.runtime !== undefined && !["shell", "node"].includes(setting.runtime)) throw new Error(`Invalid script runtime: ${node.id}`);
+    }
+    if (node.type === "http") {
+      if (typeof setting?.url !== "string" || !isHttpUrl(setting.url)) throw new Error(`Invalid HTTP url: ${node.id}`);
+      if (!HTTP_METHODS.includes((setting.method ?? "GET").toUpperCase())) throw new Error(`Invalid HTTP method: ${node.id}`);
+      if (setting.headers !== undefined && (typeof setting.headers !== "string" || setting.headers.length > 4_000)) throw new Error(`Invalid HTTP headers: ${node.id}`);
+      if (setting.body !== undefined && (typeof setting.body !== "string" || setting.body.length > 20_000)) throw new Error(`Invalid HTTP body: ${node.id}`);
     }
   }
   const rawBudgets = raw.budgets as Partial<WorkflowSnapshot["budgets"]> | undefined;
@@ -162,7 +205,8 @@ export function updateWorkflowRun(id: string, status: string, detail: string | n
 export function recoverWorkflowRuns(): void {
   getDb().prepare("UPDATE workflow_runs SET status = 'interrupted', detail = 'Application exited while run was active; inspect journal before resuming', updated_at = ? WHERE status = 'running'")
     .run(Date.now());
-  getDb().prepare("UPDATE workflow_runs SET detail = 'Application exited during model retry; inspect effect before deciding again', updated_at = ? WHERE status = 'pending-review' AND detail = 'Retrying model effect; cancellation is available.'")
+  // 重试中的运行在退出后不可能还在跑：保留 pending-review，但把 detail 改成可判断的终态文案
+  getDb().prepare("UPDATE workflow_runs SET detail = 'Application exited during effect retry; inspect effect before deciding again', updated_at = ? WHERE status = 'pending-review' AND detail IN ('Retrying workflow effect; cancellation is available.', 'Retrying model effect; cancellation is available.')")
     .run(Date.now());
 }
 
@@ -185,24 +229,28 @@ export function appendWorkflowEvent(event: WorkflowEvent): void {
 export function recordWorkflowOutput(runId: string, key: string, nodeId: string, output: string): void {
   const last = loadWorkflowEvents(runId).at(-1);
   if (!last || last.type !== "before" || last.key !== key || last.nodeId !== nodeId ||
-    key !== workflowEffectKey(runId, last.step, nodeId)) throw new Error("Model output has no pending step");
+    key !== workflowEffectKey(runId, last.step, nodeId)) throw new Error("Effect output has no pending step");
   getDb().prepare("INSERT INTO workflow_outputs (key, run_id, node_id, output, created_at) VALUES (?, ?, ?, ?, ?)")
     .run(key, runId, nodeId, output, Date.now());
 }
 
-export function pendingModelStep(id: string) {
+/** 待确认的副作用步骤：模型/工具/脚本/HTTP 共用（审批节点由 recordApproval 处理） */
+const EFFECT_TYPES = ["model", "tool", "script", "http"];
+
+export function pendingEffectStep(id: string) {
   const run = getWorkflowRun(id);
   const last = run?.journal.at(-1);
+  const node = last ? run?.snapshot.graph.nodes.find((item) => item.id === last.nodeId) : undefined;
   if (!run || !last || last.type !== "before" || last.key !== workflowEffectKey(id, last.step, last.nodeId) ||
-    run.snapshot.graph.nodes.find((node) => node.id === last.nodeId)?.type !== "model") return null;
-  return { run, before: last, output: run.outputs.find((row) => row.key === last.key) };
+    !node || !EFFECT_TYPES.includes(node.type)) return null;
+  return { run, node, before: last, output: run.outputs.find((row) => row.key === last.key) };
 }
 
 /** Replay only the journal commit, never the external model call. */
-export function commitPersistedModelOutput(id: string): boolean {
+export function commitPersistedEffectOutput(id: string): boolean {
   const db = getDb();
   return db.transaction(() => {
-    const pending = pendingModelStep(id);
+    const pending = pendingEffectStep(id);
     if (!pending?.output) return false;
     if (!["running", "interrupted", "pending-review"].includes(pending.run.status)) throw new Error("Run cannot replay");
     if (pending.run.status === "interrupted") updateWorkflowRun(id, "pending-review");
@@ -211,9 +259,9 @@ export function commitPersistedModelOutput(id: string): boolean {
   })();
 }
 
-export function skipUncertainModel(id: string): void {
-  const pending = pendingModelStep(id);
-  if (!pending || pending.run.status !== "pending-review" || pending.output) throw new Error("No uncertain model effect to skip");
+export function skipUncertainEffect(id: string): void {
+  const pending = pendingEffectStep(id);
+  if (!pending || pending.run.status !== "pending-review" || pending.output) throw new Error("No uncertain effect to skip");
   appendWorkflowEvent({ type: "after", runId: id, step: pending.before.step, nodeId: pending.before.nodeId, key: pending.before.key, outcome: "next" });
 }
 

@@ -7,7 +7,7 @@ const db = new Database(":memory:");
 vi.mock("./model-db-connection", () => ({ getDb: () => db }));
 
 import {
-  appendWorkflowEvent, commitPersistedModelOutput, createWorkflowRun, getWorkflowRun, openWorkflow, parseSnapshot, skipUncertainModel,
+  appendWorkflowEvent, commitPersistedEffectOutput, createWorkflowRun, getWorkflowRun, openWorkflow, parseSnapshot, skipUncertainEffect,
   recordApproval, recordWorkflowOutput, recoverWorkflowRuns, resolveWorkflowValue, saveWorkflow, listWorkflows, listWorkflowRuns, updateWorkflowRun, workflowJournal,
 } from "./workflow-store";
 
@@ -43,12 +43,29 @@ beforeAll(() => {
 afterAll(() => db.close());
 
 describe("workflow persistence", () => {
-  it("rejects unsafe effects and invalid budgets, but accepts bounded loops without a local limit", () => {
-    expect(() => parseSnapshot({ ...approval, graph: { ...approval.graph, nodes: [{ id: "start", type: "start" }, { id: "review", type: "tool", idempotent: false }, { id: "end", type: "end" }] } })).toThrow(/disabled/);
+  it("accepts tool/script/http effects with their required inputs and rejects invalid budgets", () => {
+    // 副作用节点必须显式 non-idempotent（不确定结果需要人工确认）
+    expect(() => parseSnapshot({ ...approval, graph: { ...approval.graph, nodes: [{ id: "start", type: "start" }, { id: "review", type: "tool", idempotent: true }, { id: "end", type: "end" }] } })).toThrow(/non-idempotent/);
     expect(() => parseSnapshot({ ...approval, budgets: { ...approval.budgets, maxWallMs: Infinity } })).toThrow(/budgets/);
-    for (const type of ["script", "http"] as const) {
-      expect(() => parseSnapshot({ ...approval, graph: { ...approval.graph, nodes: [{ id: "start", type: "start" }, { id: "review", type, idempotent: false }, { id: "end", type: "end" }] } })).toThrow(/disabled/);
-    }
+
+    const effect = (type: "tool" | "script" | "http", nodeSettings: Record<string, unknown>) => ({
+      ...approval,
+      graph: {
+        ...approval.graph,
+        nodes: [{ id: "start", type: "start" }, { id: "review", type, idempotent: false }, { id: "end", type: "end" }],
+        edges: [{ from: "start", to: "review", label: "next" }, { from: "review", to: "end", label: "next" }],
+      },
+      nodeSettings,
+    });
+    expect(parseSnapshot(effect("tool", { review: { toolName: "readFile", toolInput: '{ "path": "README.md" }' } })).graph.nodes[1]).toMatchObject({ type: "tool" });
+    expect(parseSnapshot(effect("script", { review: { script: "echo hi", runtime: "shell" } })).graph.nodes[1]).toMatchObject({ type: "script" });
+    expect(parseSnapshot(effect("http", { review: { url: "https://example.com", method: "POST" } })).graph.nodes[1]).toMatchObject({ type: "http" });
+    expect(() => parseSnapshot(effect("tool", { review: { toolName: "" } }))).toThrow(/Tool name required/);
+    expect(() => parseSnapshot(effect("tool", { review: { toolName: "readFile", toolInput: "{ nope" } }))).toThrow(/Invalid tool input/);
+    expect(() => parseSnapshot(effect("script", { review: { script: "  " } }))).toThrow(/Script required/);
+    expect(() => parseSnapshot(effect("script", { review: { script: "echo", runtime: "python" } }))).toThrow(/Invalid script runtime/);
+    expect(() => parseSnapshot(effect("http", { review: { url: "file:///etc/passwd" } }))).toThrow(/Invalid HTTP url/);
+    expect(() => parseSnapshot(effect("http", { review: { url: "https://example.com", method: "TRACE" } }))).toThrow(/Invalid HTTP method/);
     const condition = { graph: { nodes: [{ id: "start", type: "start" }, { id: "check", type: "condition" }, { id: "end", type: "end" }],
       edges: [{ from: "start", to: "check", label: "next" }, { from: "check", to: "end", label: "true" }, { from: "check", to: "end", label: "false" }] },
       nodeSettings: { check: { expression: "true" } }, budgets: approval.budgets };
@@ -100,10 +117,10 @@ describe("workflow persistence", () => {
     expect(getWorkflowRun(id)?.outputs).toMatchObject([{ key, output: "yes" }]);
     updateWorkflowRun(id, "pending-review");
     expect(() => recordApproval(id, true)).toThrow(/Only approval/);
-    expect(commitPersistedModelOutput(id)).toBe(true);
+    expect(commitPersistedEffectOutput(id)).toBe(true);
     expect(getWorkflowRun(id)?.journal.at(-1)).toMatchObject({ type: "after", key, outcome: "next" });
-    expect(commitPersistedModelOutput(id)).toBe(false);
-    expect(() => skipUncertainModel(id)).toThrow(/No uncertain/);
+    expect(commitPersistedEffectOutput(id)).toBe(false);
+    expect(() => skipUncertainEffect(id)).toThrow(/No uncertain/);
   });
 
   it("resumes a committed model output without calling the model again", async () => {
@@ -116,7 +133,7 @@ describe("workflow persistence", () => {
     appendWorkflowEvent({ type: "before", runId: id, step: 1, nodeId: "generate", key });
     recordWorkflowOutput(id, key, "generate", "saved");
     recoverWorkflowRuns();
-    expect(commitPersistedModelOutput(id)).toBe(true);
+    expect(commitPersistedEffectOutput(id)).toBe(true);
     updateWorkflowRun(id, "running");
     const execute = vi.fn();
     const result = await runWorkflow({ graph: getWorkflowRun(id)!.snapshot.graph, runId: id, budgets: approval.budgets, journal: workflowJournal,
@@ -149,8 +166,8 @@ describe("workflow persistence", () => {
     const key = workflowEffectKey(id, 1, "generate");
     appendWorkflowEvent({ type: "before", runId: id, step: 1, nodeId: "generate", key });
     updateWorkflowRun(id, "pending-review");
-    expect(commitPersistedModelOutput(id)).toBe(false);
-    skipUncertainModel(id);
+    expect(commitPersistedEffectOutput(id)).toBe(false);
+    skipUncertainEffect(id);
     expect(getWorkflowRun(id)?.journal.at(-1)).toMatchObject({ type: "after", key });
   });
 
