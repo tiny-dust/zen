@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ModelMessage } from "ai";
 
 import {
+  clearStaleToolResults,
   compactMessagesForOverflow,
   isContextOverflowError,
   recentTouchedFilePaths,
@@ -247,5 +248,77 @@ describe("recentTouchedFilePaths", () => {
 
   it("无文件工具调用时返回空数组", () => {
     expect(recentTouchedFilePaths([user("q"), assistant("a")])).toEqual([]);
+  });
+});
+
+describe("clearStaleToolResults", () => {
+  function outputOf(message: ModelMessage | undefined): string {
+    const part = (message?.content as Array<{ output?: { value?: string } }>)[0];
+    return part?.output?.value ?? "";
+  }
+
+  function history(): ModelMessage[] {
+    const messages: ModelMessage[] = [user("当前任务")];
+    for (let i = 0; i < 8; i += 1) {
+      messages.push(...toolPair(`call_${i}`, `结果${i} ` + "r".repeat(3000)));
+    }
+    return messages;
+  }
+
+  it("尾窗外的大块输出换成占位：配对与 id 保留，尾窗原样，不修改入参", () => {
+    const messages = history();
+    const snapshot = JSON.stringify(messages);
+    const result = clearStaleToolResults(messages);
+    expect(result).not.toBeNull();
+    const { messages: next, clearedCount, freedChars } = result as NonNullable<typeof result>;
+
+    expect(JSON.stringify(messages)).toBe(snapshot);
+    expect(next).toHaveLength(messages.length);
+    expect(clearedCount).toBeGreaterThan(0);
+    expect(freedChars).toBeGreaterThan(0);
+    // 最早的结果被清理，但 tool-call / tool-result 的 id 与工具名都在
+    expect(outputOf(next[2])).toContain("[工具结果已清理] readFile");
+    expect(JSON.stringify(next[1])).toContain("call_0");
+    expect(JSON.stringify(next[2])).toContain("call_0");
+    // 尾窗（最近的调用）保持原文
+    expect(next.at(-1)).toEqual(messages.at(-1));
+    expect(outputOf(next.at(-1))).toContain("结果7");
+    // 再跑一次没有新的可清理内容：不重复改写（保住缓存前缀）
+    expect(clearStaleToolResults(next)).toBeNull();
+  });
+
+  it("不可重新获取的工具输出保留原文（技能正文、子 Agent 结果）", () => {
+    const messages: ModelMessage[] = [user("当前任务")];
+    messages.push(...toolCallPair("call_skill", "loadSkill", "coder", "技能正文 " + "s".repeat(3000)));
+    messages.push(
+      ...toolCallPair("call_agents", "collectAgentResults", "-", "子结果 " + "a".repeat(3000)),
+    );
+    for (let i = 0; i < 8; i += 1) {
+      messages.push(...toolPair(`call_${i}`, `结果${i} ` + "r".repeat(3000)));
+    }
+    const result = clearStaleToolResults(messages);
+    expect(result).not.toBeNull();
+    const next = (result as NonNullable<typeof result>).messages;
+    expect(outputOf(next[2])).toContain("技能正文");
+    expect(outputOf(next[4])).toContain("子结果");
+    expect(outputOf(next[6])).toContain("[工具结果已清理]");
+  });
+
+  it("没有可清理内容或释放量不足时返回 null", () => {
+    // 全在尾窗内
+    expect(clearStaleToolResults([user("q"), ...toolPair("c1", "r".repeat(3000))])).toBeNull();
+    // 输出都很小
+    const small: ModelMessage[] = [user("当前任务")];
+    for (let i = 0; i < 8; i += 1) {
+      small.push(...toolPair(`call_${i}`, "ok"));
+    }
+    expect(clearStaleToolResults(small)).toBeNull();
+    // 只有一条可清理，但相对总量太小（不足 10%）
+    const diluted: ModelMessage[] = [user("背景 " + "x".repeat(40000))];
+    diluted.push(...toolPair("call_old", "r".repeat(1000)));
+    for (let i = 0; i < 8; i += 1) {
+      diluted.push(...toolPair(`call_${i}`, "ok"));
+    }
+    expect(clearStaleToolResults(diluted)).toBeNull();
   });
 });

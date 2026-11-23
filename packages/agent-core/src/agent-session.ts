@@ -26,6 +26,7 @@ import { errorMessage } from "./agent-parts";
 import type { PendingApproval, PendingAsk } from "./agent-parts";
 import {
   AUTO_COMPACT_RATIO,
+  clearStaleToolResults,
   compactMessagesForOverflow,
   formatCompactSummary,
   isContextOverflowError,
@@ -33,6 +34,7 @@ import {
   recentTouchedFilePaths,
   summarizeWithModel,
   tailWindowForCompact,
+  TOOL_RESULT_CLEAR_RATIO,
 } from "./context-overflow";
 import { processStreamPart } from "./agent-stream";
 import type { StreamPartState } from "./agent-stream";
@@ -1443,6 +1445,8 @@ export class AgentSession {
           }
           return;
         }
+      } else if (this.shouldClearToolResults()) {
+        this.clearToolResults();
       }
       await this.continueLoop();
       return;
@@ -1461,6 +1465,44 @@ export class AgentSession {
       return false;
     }
     return this.lastInputTokens >= window * AUTO_COMPACT_RATIO;
+  }
+
+  /**
+   * 工具结果清理判据：与主动压缩同样要求已知窗口 + 改写后已有新 usage，
+   * 阈值更低（TOOL_RESULT_CLEAR_RATIO）。只在未达摘要阈值时由调用方走到这里。
+   */
+  private shouldClearToolResults(): boolean {
+    const window = this.config.contextWindow ?? 0;
+    if (window <= 0) {
+      return false;
+    }
+    if (this.lastInputTokens == null || this.lastUsageStep <= this.lastCompactStep) {
+      return false;
+    }
+    return this.lastInputTokens >= window * TOOL_RESULT_CLEAR_RATIO;
+  }
+
+  /**
+   * 步间工具结果清理：把尾部窗口之外的大块工具输出换成占位，不调用模型、不丢消息。
+   * 释放量不足时不改写历史（保住 prompt 缓存前缀），留给后续步或摘要压缩处理。
+   */
+  private clearToolResults(): boolean {
+    const cleared = clearStaleToolResults(this.messages);
+    if (!cleared) {
+      return false;
+    }
+    this.messages = cleared.messages;
+    this.persistRewrite();
+    // 历史已改写：旧 usage 不再代表当前上下文，等下一步的真实 usage 再判断
+    this.lastCompactStep = this.lastUsageStep;
+    this.config.emit({
+      type: "context_compacted",
+      sessionId: this.sessionId,
+      mode: "tool-results",
+      droppedMessages: cleared.clearedCount,
+      summaryChars: 0,
+    });
+    return true;
   }
 
   /**

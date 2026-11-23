@@ -177,6 +177,7 @@ type Behavior =
   | "overflow-retry"
   | "auto-compact"
   | "compact-reinject"
+  | "clear-tool-results"
   | "repair-tool-input"
   | "repair-tool-name"
   | "missing-finish-reason";
@@ -434,6 +435,41 @@ function blocksFor(behavior: Behavior, isChild: boolean, seq: number): string[] 
           ],
         }, null),
         chunkWithUsage("tool_calls", { prompt_tokens: 900, completion_tokens: 10 }),
+        "data: [DONE]\n\n",
+      ];
+    }
+    return textBlocks("完成");
+  }
+  // 工具结果清理：第 1 步 readFile 大文件，多步工具调用把它推出尾窗，
+  // 第 7 步回传 650/1000（≥ 60% 清理阈值、< 75% 摘要阈值）
+  if (behavior === "clear-tool-results") {
+    if (seq === 1) {
+      return toolCall("readFile", { path: "big.md" }, "call_big_1");
+    }
+    if (seq < 7) {
+      return toolCall(
+        "updateTasks",
+        { tasks: [{ id: "t1", label: `步骤${seq}`, done: false }] },
+        `call_clear_${seq}`,
+      );
+    }
+    if (seq === 7) {
+      return [
+        chunk({ role: "assistant", content: "" }, null),
+        chunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_clear_7",
+              type: "function",
+              function: {
+                name: "updateTasks",
+                arguments: JSON.stringify({ tasks: [{ id: "t1", label: "步骤7", done: false }] }),
+              },
+            },
+          ],
+        }, null),
+        chunkWithUsage("tool_calls", { prompt_tokens: 650, completion_tokens: 10 }),
         "data: [DONE]\n\n",
       ];
     }
@@ -1123,6 +1159,41 @@ describe("AgentSession 步间主动压缩", () => {
     expect(retryBody).toContain("步骤7");
     // readFile 那一步已被摘要进 head：早期历史不再直发
     expect(retryBody).not.toContain("旧问题0");
+  });
+
+  it("usage 在 60%~75%：只清理尾窗外的大块工具输出，不调用摘要器、不丢消息", async () => {
+    const events: AgentStreamEvent[] = [];
+    requestBodies.length = 0;
+    let summarized = false;
+    const marker = "大文件标记" + "g".repeat(4000);
+    writeFileSync(join(workspaceRoot, "big.md"), marker, "utf8");
+    const session = createSession(events, "sess-clear-results", "clear-tool-results", {
+      contextWindow: 1000,
+      permissionMode: "full",
+      summarizeHistory: async () => {
+        summarized = true;
+        return "不应被调用";
+      },
+    });
+    await session.start("当前任务");
+
+    const compacted = events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "context_compacted" }> =>
+        event.type === "context_compacted",
+    );
+    expect(compacted).toHaveLength(1);
+    expect(compacted[0]?.mode).toBe("tool-results");
+    expect(compacted[0]?.droppedMessages).toBe(1);
+    expect(summarized).toBe(false);
+    expect(events.some((event) => event.type === "done" && event.reason === "stop")).toBe(true);
+    // 清理前的请求仍带原文；清理后的请求换成占位，调用记录与当前任务都在
+    expect(requestBodies.at(-2) ?? "").toContain("大文件标记");
+    const lastBody = requestBodies.at(-1) ?? "";
+    expect(lastBody).toContain("工具结果已清理");
+    expect(lastBody).not.toContain("大文件标记");
+    expect(lastBody).toContain("call_big_1");
+    expect(lastBody).toContain("当前任务");
+    expect(lastBody).not.toContain("上下文已压缩");
   });
 });
 

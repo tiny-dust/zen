@@ -173,6 +173,20 @@ describe("createChatEventGateway context_compacted", () => {
     expect(ctx.status.value).toBe("idle");
     expect(ctx.isPaused.value).toBe(false);
   });
+
+  it("tool-results 模式提示清理的工具输出条数，而不是「折叠为摘要」", () => {
+    const ctx = contextOf();
+    const { handleStreamEvent } = createChatEventGateway(ctx);
+    handleStreamEvent({
+      type: "context_compacted",
+      sessionId: "s1",
+      mode: "tool-results",
+      droppedMessages: 3,
+      summaryChars: 0,
+    });
+    expect(ctx.statusText.value).toBe("上下文已瘦身：3 条较早的工具输出已清理，需要时会重新获取");
+    expect(ctx.lastError.value).toBe("");
+  });
 });
 
 describe("createChatEventGateway 后台会话面板事件落桶", () => {

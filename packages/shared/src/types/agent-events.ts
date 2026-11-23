@@ -215,11 +215,13 @@ export type AgentStreamEvent =
    * 主动上下文压缩（步间）：run 内真实 usage 逼近窗口阈值时，agent-core 用 LLM
    * 结构化摘要替换早期历史（摘要失败回退确定性裁剪）。与 context_overflow
    * （超限报错后的恢复）互补：一个防患于未然，一个兜底已发生。
+   * mode="tool-results" 是更早的廉价一档：只把较早的大块工具输出换成占位，
+   * 不丢消息、不调用模型；此时 droppedMessages 表示被清理的工具结果条数。
    */
   | {
       type: "context_compacted";
       sessionId: string;
-      mode: "llm" | "deterministic";
+      mode: "llm" | "deterministic" | "tool-results";
       droppedMessages: number;
       summaryChars: number;
     }

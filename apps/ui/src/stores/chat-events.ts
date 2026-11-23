@@ -581,9 +581,12 @@ export function createChatEventGateway(ctx: ChatEventContext) {
         break;
       case "context_compacted":
         // 步间主动压缩只是过程提示而非错误：不置 lastError、不改运行态
-        ctx.statusText.value = i18n.global.t("app.chat.contextCompacted", {
-          count: event.droppedMessages,
-        });
+        ctx.statusText.value = i18n.global.t(
+          event.mode === "tool-results"
+            ? "app.chat.contextToolResultsCleared"
+            : "app.chat.contextCompacted",
+          { count: event.droppedMessages },
+        );
         break;
       case "step_start":
         ctx.currentStep.value = event.step;

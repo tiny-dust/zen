@@ -41,7 +41,8 @@ const SUMMARY_GUIDE =
   "你是会话摘要器。把这段对话历史压缩成一份供后续继续工作的结构化摘要，用简洁要点，" +
   "按以下类别组织（没有内容的类别省略）：\n" +
   "1. 用户请求与意图；2. 关键技术概念与决策；3. 已查看/修改的文件及重要代码片段（保留文件路径）；" +
-  "4. 报错及修复方式；5. 待办与未完成任务；6. 当前进展与下一步。\n" +
+  "4. 报错及修复方式；5. 已尝试但放弃的方案及原因（避免重复尝试）；" +
+  "6. 待办与未完成任务；7. 当前进展与下一步。\n" +
   "保留具体的路径、命令、错误信息原文；不要编造，不要评论，只输出摘要正文。";
 
 /** 默认摘要实现：当前会话模型跑一次无工具的 generateText；previousInstructions 并入 system 以延续要点 */
@@ -217,6 +218,86 @@ export function compactMessagesForOverflow(messages: ModelMessage[]): CompactOve
   }
   trimStart = trimEnd;
   return { messages: kept.slice(trimStart), droppedCount };
+}
+
+/**
+ * 工具结果清理触发：真实 usage 输入达到窗口的该比例（且未到 AUTO_COMPACT_RATIO）。
+ * 比 LLM 摘要更早、更便宜的一档：不调用模型，只把较早的大块工具输出换成占位。
+ */
+export const TOOL_RESULT_CLEAR_RATIO = 0.6;
+
+/** 小于该序列化长度的工具输出不清理：占位本身也要占字符，清了不划算 */
+const CLEAR_MIN_CHARS = 800;
+/** 至少释放总字节量的该比例才改写历史：改写会让 prompt 缓存前缀失效一次，收益太小不值得 */
+const CLEAR_MIN_FREED_RATIO = 0.1;
+
+/**
+ * 输出不可重新获取或本身就是提炼结果的工具：技能正文、用户回答、任务清单、
+ * 长期记忆、子 Agent 结果。清掉后模型无法靠重调工具找回，保留原文。
+ */
+const CLEAR_KEEP_TOOLS = new Set([
+  "loadSkill",
+  "askUser",
+  "updateTasks",
+  "readMemory",
+  "updateMemory",
+  "spawnAgent",
+  "listAgents",
+  "waitForAgents",
+  "collectAgentResults",
+]);
+
+export interface ClearToolResultsResult {
+  messages: ModelMessage[];
+  clearedCount: number;
+  freedChars: number;
+}
+
+/**
+ * 清理尾部窗口之外的大块工具输出：保留 tool-call 与 tool-result 的配对和 id，
+ * 只把 output 换成一行占位（工具名 + 原始长度 + 重新获取的提示）。
+ * 不修改入参；没有可清理内容或释放量不足时返回 null（调用方不改写历史）。
+ */
+export function clearStaleToolResults(messages: ModelMessage[]): ClearToolResultsResult | null {
+  const tailLength = tailWindowForCompact(messages).length;
+  const headLength = messages.length - tailLength;
+  if (headLength <= 0) {
+    return null;
+  }
+  let clearedCount = 0;
+  let freedChars = 0;
+  const next = messages.map((message, index) => {
+    if (index >= headLength || message.role !== "tool" || !Array.isArray(message.content)) {
+      return message;
+    }
+    let touched = false;
+    const content = message.content.map((part) => {
+      const result = part as { type?: string; toolName?: string; output?: unknown };
+      if (result.type !== "tool-result" || CLEAR_KEEP_TOOLS.has(result.toolName ?? "")) {
+        return part;
+      }
+      const size = JSON.stringify(result.output ?? null).length;
+      if (size < CLEAR_MIN_CHARS) {
+        return part;
+      }
+      const placeholder =
+        `[工具结果已清理] ${result.toolName ?? "工具"} 的输出（约 ${size} 字符）` +
+        "已从上下文移除以节省窗口；需要其内容时请重新调用该工具获取，不要凭空假设。";
+      touched = true;
+      clearedCount += 1;
+      freedChars += size - placeholder.length;
+      return { ...part, output: { type: "text", value: placeholder } };
+    });
+    return touched ? ({ ...message, content } as ModelMessage) : message;
+  });
+  if (clearedCount === 0) {
+    return null;
+  }
+  const total = messages.reduce((sum, message) => sum + JSON.stringify(message).length, 0);
+  if (freedChars < total * CLEAR_MIN_FREED_RATIO) {
+    return null;
+  }
+  return { messages: next, clearedCount, freedChars };
 }
 
 /**
