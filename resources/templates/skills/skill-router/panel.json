@@ -2,7 +2,6 @@
   "version": 1,
   "title": "skill-router",
   "showOnSkillUse": true,
-  "ui": "ui/panel.html",
   "metrics": ["rounds", "tools", "elapsed", "tests"],
   "commands": { "band": "toggle" }
 }

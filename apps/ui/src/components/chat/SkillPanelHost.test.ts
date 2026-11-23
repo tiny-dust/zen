@@ -62,6 +62,17 @@ describe("SkillPanelHost 技能面板", () => {
     expect(wrapper.text()).toContain("1 次工具");
   });
 
+  it("Ponytail band 使用宿主指标行而不是依赖内联脚本", async () => {
+    chatState.lastInputTokens = 1200;
+    chatState.lastOutputTokens = 300;
+    const wrapper = await mountWithPanel(panel({ title: "Ponytail band", metrics: ["rounds", "tools", "tokens"] }));
+    expect(wrapper.find("iframe").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Ponytail band");
+    expect(wrapper.text()).toContain("输入 1.2K / 输出 300");
+    chatState.lastInputTokens = null;
+    chatState.lastOutputTokens = null;
+  });
+
   it("技能没有 panel.json 时不渲染任何面板", async () => {
     const wrapper = await mountWithPanel(null);
     expect(wrapper.text()).toBe("");
