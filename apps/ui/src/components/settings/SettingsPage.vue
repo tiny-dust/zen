@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Boxes, Cat, Keyboard, MessageSquare, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
+import { Bot, Boxes, Cat, Keyboard, MessageSquare, MonitorSmartphone, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -13,6 +13,7 @@ import SettingsPet from "@/components/settings/SettingsPet.vue";
 import SettingsPermissions from "@/components/settings/SettingsPermissions.vue";
 import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
+import SettingsRemote from "@/components/settings/SettingsRemote.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
 import { searchSettings } from "@/components/settings/settings-search";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ const navGroups = computed(() => [
       { id: "agent" as const, label: t("settings.nav.agent"), icon: Bot },
       { id: "permissions" as const, label: t("settings.nav.permissions"), icon: ShieldCheck },
       { id: "lark" as const, label: t("settings.nav.lark"), icon: MessageSquare },
+      { id: "remote" as const, label: t("settings.nav.remote"), icon: MonitorSmartphone },
       { id: "prompts" as const, label: t("settings.nav.prompts"), icon: Sparkles },
       { id: "pet" as const, label: t("settings.nav.pet"), icon: Cat },
     ],
@@ -74,6 +76,7 @@ function tabLabel(tab: SettingsTab): string {
     agent: t("settings.nav.agent"),
     permissions: t("settings.nav.permissions"),
     lark: t("settings.nav.lark"),
+    remote: t("settings.nav.remote"),
     prompts: t("settings.nav.prompts"),
     profile: t("settings.nav.profile"),
     models: t("settings.nav.models"),
@@ -105,6 +108,8 @@ const paneDesc = computed(() => {
       return t("settings.nav.descPermissions");
     case "lark":
       return t("settings.nav.descLark");
+    case "remote":
+      return t("settings.nav.descRemote");
     case "prompts":
       return t("settings.nav.descPrompts");
     default:
@@ -268,6 +273,7 @@ watch(
             <SettingsAgent v-else-if="activeTab === 'agent'" />
             <SettingsPermissions v-else-if="activeTab === 'permissions'" />
             <SettingsLark v-else-if="activeTab === 'lark'" />
+            <SettingsRemote v-else-if="activeTab === 'remote'" />
             <SettingsPrompts v-else-if="activeTab === 'prompts'" />
             <div
               v-else-if="activeTab === 'skills' || activeTab === 'mcp'"

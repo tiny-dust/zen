@@ -23,4 +23,12 @@ export default defineConfig({
       "@": srcDir,
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        index: resolve(__dirname, "index.html"),
+        remote: resolve(__dirname, "remote.html"),
+      },
+    },
+  },
 });

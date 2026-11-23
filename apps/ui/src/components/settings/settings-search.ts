@@ -101,6 +101,14 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     titleKey: "settings.lark.bridgeTitle",
     keywords: ["lark feishu bridge gateway cli 飞书 桥接 网关 quick command 快捷命令"],
   },
+  // 手机远程
+  {
+    tab: "remote",
+    sectionId: "set-remote-bridge",
+    titleKey: "settings.remote.title",
+    descKey: "settings.remote.description",
+    keywords: ["phone remote relay pairing wss 手机 远程 中继 配对"],
+  },
   // 提示词
   {
     tab: "prompts",

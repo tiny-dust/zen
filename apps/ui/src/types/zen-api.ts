@@ -113,6 +113,14 @@ import type {
   SessionMode,
 } from "@zen/shared";
 
+export interface RemoteStatus {
+  enabled: boolean;
+  relayUrl: string;
+  deviceId: string;
+  status: "disabled" | "connecting" | "connected" | "disconnected" | "error";
+  error?: string;
+}
+
 export interface AppInfo {
   workspaceRoot: string;
   /** 应用版本（package.json version） */
@@ -675,6 +683,13 @@ export interface ZenApi {
     /** 设置页发送测试问询卡片（验证卡片按钮回调链路） */
     testAskCard(): Promise<{ ok: boolean; error?: string }>;
     onLoginEvent(handler: (event: LarkLoginEvent) => void): () => void;
+  };
+  remote: {
+    getConfig(): Promise<RemoteStatus>;
+    setConfig(input: { enabled?: boolean; relayUrl?: string }): Promise<RemoteStatus>;
+    requestPairCode(): Promise<{ code: string; expiresAt: number }>;
+    revoke(): Promise<RemoteStatus>;
+    onStatus(handler: (status: RemoteStatus) => void): () => void;
   };
   /** 定时/计划任务：到点自动在目标工作区运行 agent 并通知 */
   scheduler: {

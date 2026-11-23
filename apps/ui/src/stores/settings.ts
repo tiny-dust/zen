@@ -48,6 +48,7 @@ export type SettingsTab =
   | "shortcuts"
   | "agent"
   | "lark"
+  | "remote"
   | "skills"
   | "mcp"
   | "prompts";
@@ -86,6 +87,7 @@ export const useSettingsStore = defineStore("settings", () => {
       "shortcuts",
       "agent",
       "lark",
+      "remote",
       "skills",
       "mcp",
       "prompts",

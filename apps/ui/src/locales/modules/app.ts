@@ -126,6 +126,7 @@ export default {
       contextOverflowRetrying: "上下文超出模型窗口，已自动裁剪早期对话并重试",
       contextOverflowFailed: "上下文超限自动恢复失败，请缩短会话或新建会话后重试",
       contextCompacted: "上下文已自动压缩：{count} 条早期消息已折叠为结构化摘要",
+      contextToolResultsCleared: "上下文已瘦身：{count} 条较早的工具输出已清理，需要时会重新获取",
       context: {
         lastRequestUsage: "上次请求输入 {tokens} tokens · {usage}%",
         lastRequestNoUsage: "上次请求输入：API 未返回 usage",
@@ -343,6 +344,8 @@ export default {
       contextOverflowFailed:
         "Auto-recovery from context overflow failed; start a shorter session or a new chat",
       contextCompacted: "Context compacted: {count} older messages folded into a structured summary",
+      contextToolResultsCleared:
+        "Context trimmed: {count} older tool outputs cleared; they will be re-fetched if needed",
       context: {
         lastRequestUsage: "Last request input {tokens} tokens · {usage}%",
         lastRequestNoUsage: "Last request input: no usage from API",

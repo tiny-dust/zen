@@ -51,7 +51,7 @@ import { shutdownTerminalService } from "./terminal/service";
 import { startCliServer, stopCliServer } from "./cli-server";
 import { recordErrorReport, registerErrorReportsIpc } from "./error-reports";
 import { registerFeatureCatalogIpc } from "./feature-catalog";
-import { initZenDir, loadAgentSettings, sessionCacheDir } from "./zen-dir";
+import { initZenDir, loadAgentSettings, sessionCacheDir, zenRoot } from "./zen-dir";
 import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
 import { registerSchedulerIpc, shutdownScheduler } from "./scheduler-ipc";
@@ -59,7 +59,8 @@ import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./la
 import { registerWindowControlsIpc, registerTitleBarOverlayThemeSync, titleBarOverlayOptions } from "./window-controls";
 import { registerSystemAbilitiesIpc, shutdownSystemAbilities } from "./abilities/ipc";
 import { unregisterAllGlobalShortcuts } from "./global-shortcuts";
-import { appendMessage, getSession, getWorkspace } from "./workspace-db";
+import { appendMessage, getSession, getWorkspace, listWorkspaceGroups } from "./workspace-db";
+import { RemoteBridge } from "./remote/bridge";
 
 import type { AgentSession } from "@zen/agent-core";
 import type {
@@ -70,6 +71,17 @@ import type {
 } from "@zen/shared";
 
 const sessions = new Map<string, AgentSession>();
+const remote = new RemoteBridge({
+  file: join(zenRoot(), "remote-device.json"),
+  broadcast,
+  listGroups: listWorkspaceGroups,
+  getSession,
+  isBusy: (id) => {
+    const state = sessions.get(id)?.getRunState();
+    return Boolean(state && (state.runActive || state.waitingApproval || state.waitingAskCount > 0 || state.inserting));
+  },
+  continueChat: (id, text, send, onFinished) => continueLarkChat(id, text, sessions, send, onFinished),
+});
 let mainWindow: BrowserWindow | null = null;
 
 const execFileAsync = promisify(execFile);
@@ -184,6 +196,11 @@ function createWindow(): BrowserWindow {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("remote:get-config", () => remote.getConfig());
+  ipcMain.handle("remote:set-config", (_event, input: unknown) => remote.setConfig(input));
+  ipcMain.handle("remote:request-pair-code", () => remote.requestPairCode());
+  ipcMain.handle("remote:revoke", () => remote.revoke());
+
   ipcMain.handle("app:info", () => ({
     workspaceRoot: process.cwd(),
     version: app.getVersion(),
@@ -493,6 +510,7 @@ function applyDockBrand() {
 app.whenReady().then(() => {
   applyDockBrand();
   registerIpc();
+  void remote.start().catch((error) => console.warn("[zen] 远程配置初始化失败:", error));
   // 内置技能（skill-router）同步到 ~/.zen/skills：读不到模板就跳过，不阻塞启动
   void ensureBuiltinSkills();
   // 启动即同步飞书桥接设置（enabled 时拉起事件网关；registerLarkIpc 已就绪）
@@ -584,6 +602,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  remote.shutdown();
   shutdownMcp();
   shutdownTerminalService();
   shutdownBrowserService();

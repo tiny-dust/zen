@@ -13,6 +13,7 @@ import { mcpApi } from "./mcp";
 import { memoryApi } from "./memory";
 import { modelsApi } from "./models";
 import { petApi } from "./pet";
+import { remoteApi } from "./remote";
 import { sessionApi } from "./session";
 import { schedulerApi } from "./scheduler";
 import { settingsApi } from "./settings";
@@ -45,6 +46,7 @@ const zen = {
   ...errorsApi,
   ...syncApi,
   ...larkApi,
+  ...remoteApi,
   ...workspaceApi,
   ...sessionApi,
   ...workflowApi,

@@ -1,0 +1,19 @@
+{
+  "name": "@zen/relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm build && node --test dist/server.test.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": { "ws": "^8.18.3" },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "5.9.3"
+  }
+}

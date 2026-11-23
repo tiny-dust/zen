@@ -725,6 +725,8 @@ export function continueLarkChat(
   sessionId: string,
   message: string,
   sessions: Map<string, AgentSession>,
+  send?: (event: AgentStreamEvent) => void,
+  onFinished?: () => void,
 ): LarkChatStartResult {
   try {
     if (!message?.trim()) {
@@ -770,9 +772,11 @@ export function continueLarkChat(
       userMessage: message,
       history,
     };
-    void runAgentRequest(request, { sessions }).catch((error) => {
-      console.warn("[lark] 飞书续聊运行失败:", error);
-    });
+    void runAgentRequest(request, { sessions, send })
+      .catch((error) => {
+        console.warn("[zen] 续聊运行失败:", error);
+      })
+      .finally(onFinished);
     return { ok: true, sessionId, title: record.session.title };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
