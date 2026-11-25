@@ -59,7 +59,7 @@ import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./la
 import { registerWindowControlsIpc, registerTitleBarOverlayThemeSync, titleBarOverlayOptions } from "./window-controls";
 import { registerSystemAbilitiesIpc, shutdownSystemAbilities } from "./abilities/ipc";
 import { unregisterAllGlobalShortcuts } from "./global-shortcuts";
-import { appendMessage, getSession, getWorkspace, listWorkspaceGroups } from "./workspace-db";
+import { appendMessage, createSession, getSession, getWorkspace, listWorkspaceGroups } from "./workspace-db";
 import { RemoteBridge } from "./remote/bridge";
 
 import type { AgentSession } from "@zen/agent-core";
@@ -76,6 +76,7 @@ const remote = new RemoteBridge({
   broadcast,
   listGroups: listWorkspaceGroups,
   getSession,
+  createSession,
   isBusy: (id) => {
     const state = sessions.get(id)?.getRunState();
     return Boolean(state && (state.runActive || state.waitingApproval || state.waitingAskCount > 0 || state.inserting));
@@ -87,6 +88,7 @@ let mainWindow: BrowserWindow | null = null;
 const execFileAsync = promisify(execFile);
 
 function emit(webContents: Electron.WebContents, event: AgentStreamEvent): void {
+  remote.forwardAgentEvent(event);
   if (!webContents.isDestroyed()) {
     webContents.send("agent:event", event);
   }

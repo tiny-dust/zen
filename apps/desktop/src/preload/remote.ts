@@ -4,6 +4,9 @@ export interface RemoteStatus {
   enabled: boolean;
   relayUrl: string;
   deviceId: string;
+  deviceName: string;
+  username: string;
+  hasPassword: boolean;
   status: "disabled" | "connecting" | "connected" | "disconnected" | "error";
   error?: string;
 }
@@ -13,7 +16,7 @@ export const remoteApi = {
     getConfig(): Promise<RemoteStatus> {
       return ipcRenderer.invoke("remote:get-config");
     },
-    setConfig(input: { enabled?: boolean; relayUrl?: string }): Promise<RemoteStatus> {
+    setConfig(input: { enabled?: boolean; relayUrl?: string; deviceName?: string; username?: string; password?: string }): Promise<RemoteStatus> {
       return ipcRenderer.invoke("remote:set-config", input);
     },
     requestPairCode(): Promise<{ code: string; expiresAt: number }> {

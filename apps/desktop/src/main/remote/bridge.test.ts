@@ -59,6 +59,7 @@ describe("RemoteBridge", () => {
       file: join(dir, "remote-device.json"), broadcast: vi.fn(),
       connect, listGroups: () => groups,
       getSession: (id) => lookup(id),
+      createSession: (workspaceId) => ({ ...session, workspaceId }),
       isBusy: () => busy, continueChat,
     });
   });
@@ -70,7 +71,7 @@ describe("RemoteBridge", () => {
 
   async function ready() {
     await bridge.start();
-    await bridge.setConfig({ enabled: true, relayUrl: "wss://example.test" });
+    await bridge.setConfig({ enabled: true, relayUrl: "wss://example.test", deviceName: "My Mac", username: "alice", password: "test-password" });
     const socket = sockets.at(-1)!;
     socket.open();
     socket.message({ type: "ready" });
@@ -91,7 +92,7 @@ describe("RemoteBridge", () => {
 
   it("ready 前拒绝 RPC，hello 带设备凭据，之后接受配对码", async () => {
     await bridge.start();
-    await bridge.setConfig({ enabled: true, relayUrl: "wss://example.test" });
+    await bridge.setConfig({ enabled: true, relayUrl: "wss://example.test", deviceName: "My Mac", username: "alice", password: "test-password" });
     expect(connect).toHaveBeenCalledWith("wss://example.test/ws/device");
     const socket = sockets[0]!;
     socket.open();
@@ -127,6 +128,7 @@ describe("RemoteBridge", () => {
 
   it("忙态/连续发送拒绝并发，只转发白名单事件", async () => {
     const socket = await ready();
+    socket.message({ type: "watch", sessionIds: ["s1"] });
     busy = true;
     socket.message({ type: "request", id: "busy", action: "message.send", sessionId: "s1", text: "hello" });
     expect(socket.sent.at(-1)).toMatchObject({ id: "busy", ok: false, error: "session busy" });
@@ -178,6 +180,49 @@ describe("RemoteBridge", () => {
     expect(detail.ok).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(detail))).toBeLessThan(32_768);
     expect((detail.data as { messages: Array<{ id: string }> }).messages.at(-1)?.id).toBe("m99");
+  });
+
+  it("无损分页长消息、Unicode 和归档历史，保留旧数字游标", async () => {
+    const socket = await ready();
+    const long = `${"中\\\"".repeat(15_000)}😀尾`;
+    lookup = () => ({ session: { ...session, archived: true }, taskLists: [], messages: [
+      { id: "old", role: "user", content: "早期提问", createdAt: 1 },
+      { id: "private", role: "tool", content: "NEVER_SEND", createdAt: 2 },
+      { id: "large", role: "assistant", content: long, reasoning: "NEVER_SEND", createdAt: 3 },
+    ] });
+    let cursor: string | undefined;
+    let reconstructed = "";
+    let previousOffset = long.length;
+    let sawOld = false;
+    const seen = new Set<string>();
+    for (let page = 0; page < 100; page++) {
+      socket.message({ type: "request", id: `page${page}`, action: "sessions.get", sessionId: "s1", ...(cursor ? { cursor } : {}) });
+      const frame = socket.sent.at(-1)!;
+      expect(frame.ok).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThan(32_768);
+      expect(JSON.stringify(frame)).not.toContain("NEVER_SEND");
+      const detail = frame.data as { messages: Array<{ id: string; content: string; offset: number; totalLength: number }>; nextCursor: string | null };
+      const chunk = detail.messages.find((item) => item.id === "large");
+      if (chunk) {
+        expect(chunk.totalLength).toBe(long.length);
+        expect(chunk.offset + chunk.content.length).toBe(previousOffset);
+        expect(chunk.content).not.toMatch(/^[\uDC00-\uDFFF]/);
+        reconstructed = chunk.content + reconstructed;
+        previousOffset = chunk.offset;
+      }
+      if (detail.messages.some((item) => item.id === "old")) sawOld = true;
+      if (!detail.nextCursor) break;
+      expect(seen.has(detail.nextCursor)).toBe(false);
+      seen.add(detail.nextCursor);
+      cursor = detail.nextCursor;
+    }
+    expect(reconstructed).toBe(long);
+    expect(previousOffset).toBe(0);
+    expect(sawOld).toBe(true);
+    socket.message({ type: "request", id: "legacy", action: "sessions.get", sessionId: "s1", cursor: "1" });
+    expect(socket.sent.at(-1)).toMatchObject({ ok: true, data: { messages: [{ id: "old", content: "早期提问" }] } });
+    socket.message({ type: "request", id: "invalid", action: "sessions.get", sessionId: "s1", cursor: "2:999999" });
+    expect(socket.sent.at(-1)).toMatchObject({ id: "invalid", ok: false, error: "invalid cursor" });
   });
 
   it("断线重连并在撤销后停止、轮换 secret", async () => {
