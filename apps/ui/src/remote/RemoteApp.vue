@@ -4,12 +4,24 @@ import { computed, nextTick, shallowRef, useTemplateRef, watch } from "vue";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useRemote } from "./useRemote";
 
 const remote = useRemote();
-const code = shallowRef("");
+const loginDeviceId = shallowRef("");
+const username = shallowRef("");
+const password = shallowRef("");
 const draft = shallowRef("");
+function login() {
+  void remote.login(loginDeviceId.value, username.value.trim(), password.value).then(() => { password.value = ""; });
+}
+function switchDevice() {
+  loginDeviceId.value = "";
+  username.value = "";
+  password.value = "";
+  remote.switchDevice();
+}
 const timeline = useTemplateRef<HTMLElement>("timeline");
 const view = computed(() => !remote.paired.value ? "pair" : remote.selectedId.value ? "conversation" : "sessions");
 const statusLabel = computed(() => !remote.online.value ? "设备离线" : !remote.connected.value ? "正在同步" : "已连接");
@@ -37,7 +49,7 @@ watch(() => remote.messages.value, async () => {
   <div class="remote-shell">
     <header class="remote-header">
       <div class="remote-heading">
-        <Button v-if="view === 'conversation'" variant="ghost" size="icon-lg" aria-label="返回会话列表" @click="remote.selectedId.value = null">
+        <Button v-if="view === 'conversation'" variant="ghost" size="icon-lg" aria-label="返回会话列表" @click="remote.leaveSession">
           <ArrowLeft />
         </Button>
         <div class="remote-title-group">
@@ -63,11 +75,21 @@ watch(() => remote.messages.value, async () => {
       <section v-else-if="view === 'pair'" class="remote-center remote-pair">
         <div class="remote-mark" aria-hidden="true">Z</div>
         <h2>在手机上继续对话</h2>
-        <p>输入桌面端显示的配对码，连接你的 Zen。</p>
-        <form class="remote-pair-form" @submit.prevent="remote.pair(code.trim())">
-          <label for="pair-code">配对码</label>
-          <Input id="pair-code" v-model="code" autocomplete="one-time-code" inputmode="numeric" placeholder="输入配对码" :disabled="remote.busy.value" />
-          <Button size="lg" type="submit" :disabled="remote.busy.value || !code.trim()">{{ remote.busy.value ? '连接中…' : '连接设备' }}</Button>
+        <p>选择设备并输入该设备的登录凭据。</p>
+        <form class="remote-pair-form" @submit.prevent="login">
+          <label>设备</label>
+          <div v-if="!remote.devices.value.length" class="remote-empty">暂无可用设备，请先在桌面端连接中继。</div>
+          <div v-else class="remote-device-list" role="group" aria-label="选择设备">
+            <Button v-for="device in remote.devices.value" :key="device.id" type="button" variant="ghost" class="remote-device"
+              :aria-pressed="loginDeviceId === device.id" @click="loginDeviceId = device.id">
+              {{ device.name }} · {{ device.online ? '在线' : '离线' }}
+            </Button>
+          </div>
+          <label for="remote-username">用户名</label>
+          <Input id="remote-username" v-model="username" autocomplete="username" :disabled="remote.busy.value" />
+          <label for="remote-password">密码</label>
+          <Input id="remote-password" v-model="password" type="password" autocomplete="current-password" :disabled="remote.busy.value" />
+          <Button size="lg" type="submit" :disabled="remote.busy.value || !loginDeviceId || !username.trim() || !password">{{ remote.busy.value ? '登录中…' : '登录设备' }}</Button>
         </form>
       </section>
 
@@ -84,6 +106,17 @@ watch(() => remote.messages.value, async () => {
             <h2>最近的会话</h2>
             <span>{{ remote.sessions.value.length }}</span>
           </div>
+          <div class="remote-session-actions">
+            <Select v-model="remote.workspaceId.value">
+              <SelectTrigger aria-label="选择工作区"><SelectValue placeholder="公共区" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="common">公共区</SelectItem>
+                <SelectItem v-for="workspace in remote.workspaces.value.filter((item) => item.id !== 'common')" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button :disabled="!remote.online.value || remote.busy.value" @click="remote.createSession">新建会话</Button>
+          </div>
+          <Button variant="ghost" class="remote-switch" @click="switchDevice">切换设备</Button>
           <p v-if="!remote.sessions.value.length" class="remote-empty">{{ remote.online.value ? '暂无会话。请先在桌面端创建会话。' : '设备离线，恢复连接后会自动加载会话。' }}</p>
           <ul v-else class="remote-session-list">
             <li v-for="session in remote.sessions.value" :key="session.id">
@@ -100,6 +133,8 @@ watch(() => remote.messages.value, async () => {
 
         <section v-else class="remote-conversation" aria-label="对话">
           <div ref="timeline" class="remote-timeline" data-select-text>
+            <Button v-if="remote.olderCursor.value" variant="ghost" :disabled="remote.loadingOlder.value" @click="remote.loadOlder">{{ remote.loadingOlder.value ? '加载中…' : '加载更早' }}</Button>
+            <p v-if="remote.generating.value" class="remote-generation" role="status">{{ remote.generationStatus.value || '正在生成…' }}</p>
             <p v-if="!remote.messages.value.length" class="remote-empty">还没有消息。在下方输入并发送，继续这个会话。</p>
             <div v-for="message in remote.messages.value" :key="message.id" class="remote-message" :class="{ 'remote-message--user': message.role === 'user' }">
               <span class="remote-message-label">{{ message.role === 'user' ? '你' : 'Zen' }}</span>
@@ -138,7 +173,14 @@ watch(() => remote.messages.value, async () => {
 .remote-pair-form { display: flex; flex-direction: column; gap: 12px; width: min(100%, 340px); text-align: left; }
 .remote-pair-form label { font-size: 12px; font-weight: 600; color: var(--color-mut); }
 .remote-pair-form :deep([data-slot="input"]) { height: 44px; font-family: var(--font-mono); font-size: 17px; letter-spacing: .08em; }
-.remote-pair-form :deep([data-slot="button"]) { height: 44px; margin-top: 8px; }
+.remote-pair-form :deep([data-slot="button"]) { min-height: 44px; margin-top: 8px; }
+.remote-device-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+.remote-device { justify-content: flex-start; border: 1px solid var(--color-line-soft); }
+.remote-device[aria-pressed="true"] { border-color: var(--color-line-strong); background: var(--color-side-sel); }
+.remote-session-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.remote-session-actions :deep([data-slot="select-trigger"]) { flex: 1; min-width: 0; }
+.remote-switch { margin-bottom: 12px; }
+.remote-generation { margin: 0; color: var(--color-mut); font-size: 12px; }
 .remote-status { display: flex; align-items: center; gap: 8px; flex: none; min-height: 38px; padding: 7px 20px; border-bottom: 1px solid var(--color-line-soft); color: var(--color-mut); font-size: 12px; }
 .remote-status svg { width: 14px; height: 14px; }
 .remote-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ok); }

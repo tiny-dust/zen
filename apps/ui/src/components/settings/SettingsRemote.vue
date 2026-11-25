@@ -13,6 +13,9 @@ import type { RemoteStatus } from "@/types/zen-api";
 const { t } = useI18n();
 const config = shallowRef<RemoteStatus | null>(null);
 const relayUrl = shallowRef("");
+const deviceName = shallowRef("");
+const username = shallowRef("");
+const password = shallowRef("");
 const pairCode = shallowRef("");
 const error = shallowRef("");
 const pending = shallowRef(false);
@@ -35,6 +38,9 @@ const phoneUrl = computed(() => {
 function updateConfig(next: RemoteStatus) {
   config.value = next;
   relayUrl.value = next.relayUrl;
+  deviceName.value = next.deviceName;
+  username.value = next.username;
+  password.value = "";
   if (!next.enabled || next.status !== "connected") pairCode.value = "";
 }
 
@@ -64,7 +70,7 @@ async function saveConfig(enabled: boolean) {
   pending.value = true;
   error.value = "";
   try {
-    updateConfig(await window.zen.remote.setConfig({ relayUrl: relayUrl.value, enabled }));
+    updateConfig(await window.zen.remote.setConfig({ relayUrl: relayUrl.value, deviceName: deviceName.value, username: username.value, password: password.value, enabled }));
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t("settings.remote.failed");
   } finally {
@@ -115,9 +121,16 @@ async function revoke() {
       <label for="remote-relay-url" class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.remote.relayLabel") }}</label>
       <div class="flex flex-wrap items-center gap-2">
         <Input id="remote-relay-url" v-model="relayUrl" :placeholder="t('settings.remote.relayPlaceholder')" class="min-w-[200px] flex-1 text-[12px]" autocomplete="url" spellcheck="false" />
-        <Button variant="outline" size="sm" :disabled="pending || !config" @click="saveConfig(config?.enabled ?? false)">{{ t("settings.remote.save") }}</Button>
       </div>
       <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t("settings.remote.relayHint") }}</p>
+      <label for="remote-device-name" class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.remote.deviceName") }}</label>
+      <Input id="remote-device-name" v-model="deviceName" maxlength="100" autocomplete="off" />
+      <label for="remote-username" class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.remote.username") }}</label>
+      <Input id="remote-username" v-model="username" maxlength="100" autocomplete="username" />
+      <label for="remote-password" class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("settings.remote.password") }}</label>
+      <Input id="remote-password" v-model="password" type="password" maxlength="256" autocomplete="new-password" :placeholder="config?.hasPassword ? t('settings.remote.passwordSaved') : ''" />
+      <p class="m-0 text-[11px] text-[var(--color-mut)]">{{ t("settings.remote.passwordHint") }}</p>
+      <Button variant="outline" size="sm" class="self-start" :disabled="pending || !config" @click="saveConfig(config?.enabled ?? false)">{{ t("settings.remote.save") }}</Button>
     </div>
     <div class="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-line)] p-3">
       <div class="flex flex-col gap-1">

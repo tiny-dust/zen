@@ -117,6 +117,9 @@ export interface RemoteStatus {
   enabled: boolean;
   relayUrl: string;
   deviceId: string;
+  deviceName: string;
+  username: string;
+  hasPassword: boolean;
   status: "disabled" | "connecting" | "connected" | "disconnected" | "error";
   error?: string;
 }
@@ -686,7 +689,7 @@ export interface ZenApi {
   };
   remote: {
     getConfig(): Promise<RemoteStatus>;
-    setConfig(input: { enabled?: boolean; relayUrl?: string }): Promise<RemoteStatus>;
+    setConfig(input: { enabled?: boolean; relayUrl?: string; deviceName?: string; username?: string; password?: string }): Promise<RemoteStatus>;
     requestPairCode(): Promise<{ code: string; expiresAt: number }>;
     revoke(): Promise<RemoteStatus>;
     onStatus(handler: (status: RemoteStatus) => void): () => void;
