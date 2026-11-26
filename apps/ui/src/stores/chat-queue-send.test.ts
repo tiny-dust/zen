@@ -31,6 +31,7 @@ function stubZen() {
         draft: "",
         pinned: false,
         archived: false,
+        pairMode: true,
         createdAt: 1,
         updatedAt: 1,
       })),
@@ -80,6 +81,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+describe("新会话 P/A 默认", () => {
+  it("启动草稿与正常新建默认开启，用户关闭后首发补建保持关闭", async () => {
+    const chat = useChatStore();
+    expect(chat.pairMode).toBe(true);
+
+    await chat.newTask();
+    expect(chat.pairMode).toBe(true);
+    expect(window.zen?.session.setPairMode).not.toHaveBeenCalled();
+
+    await chat.newTask(undefined, false);
+    expect(chat.pairMode).toBe(true);
+    await chat.setPairMode(false);
+    agentRun.mockResolvedValueOnce({ ok: true });
+    chat.input = "单模型执行";
+    await chat.send();
+    expect(window.zen?.session.setPairMode).toHaveBeenCalledWith(chat.sessionId, false);
+  });
 });
 
 describe("运行中发送 = 排队编排", () => {
