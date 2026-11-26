@@ -13,6 +13,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { isAbsolutePathLike } from "@/components/files/file-ref";
 import { useAppTheme } from "@/composables/useAppTheme";
 import { isImagePath } from "@/lib/image-file";
 
@@ -131,7 +132,7 @@ function render() {
   imageDataUrl.value = "";
   imageZoomed.value = false;
   readonlyView.value = false;
-  if (!props.path || !props.root) {
+  if (!props.path || (!props.root && !isAbsolutePathLike(props.path))) {
     return;
   }
   const zen = window.zen;
@@ -275,7 +276,7 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <template v-if="path && root">
+    <template v-if="path && (root || isAbsolutePathLike(path))">
       <div v-if="dirty || saveError" class="flex flex-none items-center gap-1.5 pb-1">
         <span v-if="dirty" class="text-[11px] text-[var(--color-accent)]">{{ t("panels.unsaved") }}</span>
         <span v-if="saveError" class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-err)]">
