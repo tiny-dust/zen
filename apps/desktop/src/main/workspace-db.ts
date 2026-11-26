@@ -262,7 +262,7 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     plan_model_id: null,
     act_model_provider_id: null,
     act_model_id: null,
-    pair_mode: 0,
+    pair_mode: 1,
     mode: "interactive",
     goal_json: null,
     created_at: Date.now(),
@@ -270,8 +270,8 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
   };
   // 指定 id 重复创建（补建竞态）不报错，返回既有记录
   db.prepare(
-    `INSERT OR IGNORE INTO chat_sessions (id, title, workspace_id, draft, pinned, archived, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(row.id, row.title, row.workspace_id, row.draft, row.pinned, row.archived, row.user_id, row.created_at, row.updated_at);
+    `INSERT OR IGNORE INTO chat_sessions (id, title, workspace_id, draft, pinned, archived, user_id, pair_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(row.id, row.title, row.workspace_id, row.draft, row.pinned, row.archived, row.user_id, row.pair_mode, row.created_at, row.updated_at);
   const existing = db.prepare("SELECT * FROM chat_sessions WHERE id = ?").get(row.id) as
     | SessionRow
     | undefined;
