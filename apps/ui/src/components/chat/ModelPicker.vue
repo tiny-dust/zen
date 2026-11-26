@@ -215,7 +215,7 @@ function isPhaseGlobalDefault(providerId: string, modelId: string) {
 
 /** 顶部首项：「自动（推荐）」或「跟随全局默认」的选中态 */
 const topChoiceSelected = computed(() =>
-  activePhase.value ? !phaseOverride.value : autoRoute.value,
+  activePhase.value ? !phaseOverride.value : autoRoute.value && !pairMode.value,
 );
 
 /** 上次路由理由：规则 id → i18n 文本，多规则以「；」拼接 */

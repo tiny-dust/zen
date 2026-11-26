@@ -92,7 +92,8 @@ describe("ModelPicker 自动选择文案", () => {
 describe("ModelPicker 小屏头像组", () => {
   it("P/A 双模型开启时叠放两个品牌图标，关闭时仍是一个", async () => {
     const chat = useChatStore();
-    // 关闭 P/A：只有一个图标（全局阶段默认不再强制双模型展示）
+    // 显式关闭 P/A：只有一个图标（新会话现在默认开启）
+    await chat.setPairMode(false);
     const single = mount(ModelPicker, { props: { compact: true } });
     expect(single.findAllComponents(VendorLogo).length).toBe(1);
     single.unmount();
