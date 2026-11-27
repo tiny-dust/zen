@@ -2,6 +2,7 @@
 
 > 状态：已定型 · 2026-09-14
 > 适用范围：apps/ui 全部界面。新界面/新组件一律遵循本规范；存量代码按此逐步收敛。
+> 2026-11-26 起视觉参照改为 `Cookieboty/nomi-ai`：**色彩/圆角/间距/控件高/字号以 [`NOMI_REPLICA.md`](./NOMI_REPLICA.md) 为准**，本文第 1、2 节的颜色与圆角数值已被其覆盖；组件分层、破坏性操作、去重等结构规则仍然有效。
 
 ## 1. 风格基调
 
@@ -23,7 +24,10 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 | 文字 | `--color-txt / -txt-strong / -mut / -dim` | 正文、标题、次要、弱化 |
 | 交互 | `--color-menu-hover / -menu-active / -side-sel` | 悬停、选中态背景 |
 | 状态 | `--color-ok / -err / -add / -del / -danger-*` | 成功/错误/删除等 |
-| 圆角 | `--radius(-sm/-lg/-shell)` | 8 / 12 / 16px，全局只用这四档 |
+| 圆角 | `--radius(-sm/-md/-lg/-shell)` | 4 / 6 / 6 / 8px，窗口与大面板不设圆角 |
+| Agent 语义 | `--agent-thinking/-approval/-success/-danger` | 思考/审批/成功/失败；与用户可选强调色解耦，业务组件禁止另造状态色 |
+| Diff | `--diff-add-bg / --diff-del-bg` | 增删行低饱和半透明底色 |
+| 终端 | `--term-bg/-fg/-cursor/-selection` | xterm 取色用（引擎只认具体色值，由适配层读计算值） |
 | 动效 | `--motion-fast/-base/-slow` + `--ease-*` | 0.12s/0.18s/0.2s，只动颜色与位移 |
 | 阴影 | `--shadow-composer / -menu / -pop / -tip` | 输入卡、浮层、弹窗、tooltip 四档 |
 | 壳体尺寸 | `--titlebar-h / -pad / -lead`、`--panel-head-h`、`--control-h` | 标题栏 38px、上下内边距 5px、窗口按钮预留 72px、栏头行 38px、控件高 28px |
@@ -50,18 +54,18 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
 
 8. **消息区无气泡（assistant）**：assistant 内容为裸 markdown 直接铺在背板上（无卡片壳、无头像、无角色标签）；user 消息右对齐弱气泡（`--color-side-sel`）。离底 >80px 时 composer 上方出现圆形「回到底部」浮动按钮。composer 底部为居中的「内容由 AI 生成，请注意核实」免责声明行；仓库/分支/上下文用量移入会话信息卡的「环境信息」节。
 
-9. **按钮无聚焦样式；图标按钮 hover 不上底色**：所有 `button` 一律不显示聚焦反馈（`button:focus-visible { outline: none }`，Button 原语也已移除 `focus-visible:border-*`）——聚焦边框只保留给输入类控件（Input/Textarea/Select 触发器）。**图标按钮**（Button 的 `icon-*` 尺寸，以及 `<button>` 自绘的纯图标按钮：标题栏/侧栏图标、会话行 +/置顶/归档/删除、composer +/麦克风、回底按钮等）hover 只高亮图标本身（`hover:text-*`），**不出现任何底色**；Button 原语通过 `compoundVariants` 对 icon 尺寸强制 `hover:bg-transparent!`。行式按钮与菜单项（导航行、列表行、DropdownMenuItem）保留 hover 底色；破坏性图标按钮 hover 用更亮的危险色取代红色底。
+9. **按钮聚焦只做 1px 边框色；图标按钮 hover 不上底色**：全局移除 `outline`/`ring` 粗圈（`button:focus-visible { outline: none }`），Button 原语用 `focus-visible:border-ring` 给出 1px 边框色变化作为键盘焦点反馈；输入类控件保留同样的 `focus-visible:border-ring`。**图标按钮**（Button 的 `icon-*` 尺寸，以及 `<button>` 自绘的纯图标按钮：标题栏/侧栏图标、会话行 +/置顶/归档/删除、composer +/麦克风、回底按钮等）hover 只高亮图标本身（`hover:text-*`），**不出现任何底色**；Button 原语通过 `compoundVariants` 对 icon 尺寸强制 `hover:bg-transparent!`。行式按钮与菜单项（导航行、列表行、DropdownMenuItem）保留 hover 底色；破坏性图标按钮 hover 用更亮的危险色取代红色底。
 
 ## 4. 布局骨架
 
-四列可拖拽布局（`App.vue`）：左栏 180–420 / 中央区（聊天列 + 250px 会话信息卡列，≥1100px 宽时出现信息卡）/ 右工具侧栏 240–窗口 75%。拖拽钳制两侧互斥（`stores/layout.ts`）：任何一侧拉宽都必须给中央区保底 420px（含会话信息卡列时 670px），窗口 resize 后按新边界回收两侧宽度。聊天内容与 composer 共用 860px 居中列。底部终端面板属于中央区（不盖住工具侧栏）。
+外壳（对齐 nomi）：外层画布 `--color-side` + 顶栏 44px 三段（左 系统信息 / 中 会话名与操作 / 右 右栏标签）+ 64px 常驻分类轨道 + 一块左上圆角 20px 的工作区（`--color-panel`，内含会话面板 / 中央区 / 右栏）。会话面板与右栏可拖拽：面板 180–420（总宽 244–484）/ 右栏 240–窗口 75%；分类入口在轨道上切内容区整页，不弹窗。拖拽钳制两侧互斥（`stores/layout.ts`）：任何一侧拉宽都必须给中央区保底 420px（含会话信息卡列时 670px），窗口 resize 后按新边界回收两侧宽度。聊天内容与 composer 共用 860px 居中列。底部终端面板属于中央区（不盖住工具侧栏）。
 
-**窗口 chrome 按列拆分（无全宽标题栏）**——各列自带 38px 头行（`--titlebar-h`），背景即列背景，相互之间只用背景色区分、不画分隔线：
+**单条全宽顶栏 + 三段与分栏同宽**——`AppTitlebar` 横跨整窗（`--titlebar-h: 44px`，拖拽区，按钮 `no-drag`），三段宽度直接取自下方分栏状态，不做「按内容撑开」：
 
-- 左侧栏头行（`AppSidebar`）：交通灯预留 `--titlebar-lead: 72px` + 侧栏开关 + 搜索 + 通知，图标左对齐跟交通灯；
-- 中央区头行（`AppTitlebar`）：会话名左对齐于主区左缘；右簇 = 新对话 ｜ 会话信息 → 底部面板（右栏收起时追加右栏开关）；
-- 工具侧栏头行（`RightPanel`）：面板开关（展开态自带选中底色）；
-- 所有头行均为拖拽区，按钮 `no-drag`；侧栏收起时其控件回退到中央区头行（交通灯预留同步迁移）。
+- 左段 = 64px 轨道 + 会话面板宽（`NAV_RAIL_W + panelWidth`）：交通灯预留 `--titlebar-lead: 72px` + 面板开关 + 系统信息；右边界 = 会话面板右边界；
+- 中段 = 剩余宽度：会话名（下拉切换）+ 新建 / 会话信息 / 在 App 打开 / 终端 / 视图密度（右栏收起时追加右栏开关）；左右边界分别对齐内容区左右边界；
+- 右段 = 右栏宽（`rightWidth`）：右栏标签条 + 新增面板 + 收起右栏，右端预留 `--titlebar-trail` 给 Windows/Linux 原生三键；右栏收起或整页模式下整段不渲染、只留 `--titlebar-trail` 占位；
+- 面板收起时左段只有 64px、放不下「交通灯 + 控件」，此时开关与系统信息移到中段开头，中段左侧内缩 `max(8px, lead − 64px + 8px)` 让过交通灯——**段边界始终等于内容区边界**，只是控件换位置。
 
 右栏结构（对齐 MiMo）：**会话信息卡**（`SessionInfoPanel`，圆角悬浮卡 `--color-raise`，节头 = 标题 + chevron + 计数徽标；环境信息 / 任务清单 / 产物 / 参考 / 项目文件，节可折叠）+ **工具侧栏**（`RightPanel`，图标 + 文字纵向导航：文件 / Git / 浏览器 / 终端，选中/开启态用 `--color-menu-active` 底色）。
 
@@ -177,3 +181,37 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - **技能 / MCP 合并为单行两列**（原两行常驻占一倍纵向空间）。
   - **UserBlock 登录卡片原生化**：登录方式选择的两个裸 `<button>` 迁移到 `Button variant="outline"`（外观不变），对齐第 3 节第 3 条。
   - 验证：`vue-tsc` 0 错、vitest 211 过（`MessageBubble.test.ts` 5 例为存量失败，与本批改动无关，HEAD 上同样失败）、dev 实例 DOM 复查（标题栏新对话=1、悬浮 FAB=0、组级 +=4、无控制台报错）。
+- 2026-11-26（设计底座 · Phase 2A/2B）：
+  - **圆角刻度收敛**：`--radius` 12→6px（4 / 6 / 6 / 8 四档），窗口与大面板不再有圆角；业务组件用 `rounded-md`(6) / `rounded-sm`(4)，禁止 `rounded-[10px]` 之类任意值。`DESIGN.md` 的 rounded 段同步。
+  - **排版基准 13px**：`body` 14→13px，`.md-content` 14/1.8→13/1.7；`code/pre/kbd/samp` 统一 `font-variant-numeric: tabular-nums`（行号、耗时、token 统计）。
+  - **新增语义 Token**：`--agent-thinking/-approval/-success/-danger`、`--diff-add-bg/-del-bg`、`--term-bg/-fg/-cursor/-selection`；`--color-ok/-err/-add/-del` 改为指向 agent 语义，避免重复维护。`@theme inline` 暴露 `bg-agent-*` / `text-agent-*` 等工具类。
+  - **`--card` 语义修正**：dark 从设置卡片表面 `#282828` 改为编辑器画布 `--color-panel`，`bg-card` 恢复「编辑区/画布」原意。
+  - **终端取色走 Token**：`useTerminalPanes` 不再硬编码十六进制，改为读 `--term-*` 计算值（带格式校验与等价回退），行高 1.25→1.5。
+  - **新增业务组件**：`components/agent/StatusBadge.vue`（4px 徽章 + agent 语义，替代 ToolCallRow 的内联状态色）与 `components/agent/ApprovalActionBar.vue`（允许一次 / 本次会话信任 / 拒绝，替代 ApprovalCard 内联按钮组）。
+  - **审批卡去任意值**：`rounded-2xl`/`gap-[9px]`/`rounded-[7px]`/`pl-[33px]` → `rounded-md`/`gap-2`/`rounded-sm`/`pl-8`；边框与图标色由 `--color-accent-2` 改 `--agent-approval`。
+  - **键盘焦点回归**：Button 原语加 `focus-visible:border-ring`（1px 边框色一档），取代「按钮无任何焦点反馈」。
+  - **减弱动效**：`SkillUsageTags` 的呼吸高亮与入退场位移在 `prefers-reduced-motion` 下停用，状态仍由图标与文字表达。
+  - 验证：`pnpm --filter @zen/ui typecheck` 0 错、`test` 127 文件 / 886 用例全过、`build` 通过（dist CSS 已含 `--agent-*` 与 4px 圆角）。
+
+- 2026-11-26（nomi-ai 复刻 · Phase 1 设计底座）：
+  - 参照 `Cookieboty/nomi-ai`（MIT）的 `tokens.css`：深色采用 `graphite`（冷灰 `#13161b` + 靛蓝 `#7887f5`），浅色采用 `light`（暖白 `#faf9f6` + 陶土红 `#9d3f29`）；暖橙降级为可选强调色 `data-accent-color="orange"`。
+  - 新增「nomi-ai 复刻层」（`styles.css` 末尾）：圆角 6/8/10/14/20、间距 4px 网格、控件高 20–40 六档（`--control-h` 28→32）、字号阶梯 12/13/14/16/18/22；正文基准 13→14px。
+  - 冲突裁决与分期计划见 `docs/design/NOMI_REPLICA.md`（Phase 2 组件、Phase 3 骨架、Phase 4 其余界面待做）。
+  - 验证：`vue-tsc` 0 错，vitest 131 文件 / 910 用例全过，`vite build` 通过。
+- 2026-11-27（nomi-ai 复刻 · n4 收尾）：
+  - 断点只保留一个来源：`apps/ui/src/stores/layout.ts` 导出 `WIDE_BREAKPOINT = 1360`，渲染层用它构造 media query；此前 `App.vue` 写死 1100px，导致信息列挤压聊天区。
+  - 侧栏收起时右栏上限仍扣 52px 常驻轨道（此前按 0 计，收起后可拖出窗口）。
+  - 面板收起后账户/设置入口保留在轨道（`UserBlock` 新增 `compact`），不再随面板消失。
+  - 圆角刻度只在 `:root` 定义一次（6/8/10/14/20），删除深色块与复刻层里的重复声明。
+  - 验证：ui 920 用例、`pnpm typecheck`、`pnpm build` 通过；截图对照未完成（内嵌浏览器无法加载本地 http）。
+- 2026-11-27（nomi-ai 复刻 · n5 按规范收敛）：
+  - 设置页导航项圆角由 `rounded-lg`（已变 14px）改回 `--radius-sm` 8px；标题走 `--font-size-md`。
+  - 模型列表：名称 13px、辅助行 12px、徽标 11px（原先 12/11/10）。
+  - Agent 看板：栏头 13px、状态与耗时 12px、运行日志 11px、问询气泡 14px + `--radius-lg`。
+  - 用量账本：说明与行摘要 13px、标签 12px，数字保持 tabular-nums。
+  - 素材库：预览/缩略图圆角走 `--radius-xs`；删除按钮从「外层 button 内的 span」改为独立 `button`，键盘可聚焦、二次确认期间常显（原实现键盘不可达）。
+  - 运行态复验（构建产物）：控制台零报错，轨道 52px，深色 `#13161b` / `#7887f5`，`--radius-sm: 8px`，导航入口无重复。
+- 2026-11-27（空态与规范收口）：
+  - 空会话改为「欢迎区 + 输入框」整体居中：`ChatTimeline` 新增 `empty` 属性（空态不占满高度），`App.vue` 用 `messages/pendingApproval/pendingAsk` 派生，不再看运行状态（发送后消息即刻出现，自然回到底部输入框）。实测整组中心偏移 0。
+  - `DESIGN.md` 直接替换旧规则：配色改 nomi graphite/light 语义表、圆角 6/8/10/14/20、正文 14px、控件高走 `--control-h-*`；删除「暖橙为唯一强调色」「6px 圆角」「28px 控件」等 MiMo 条款，暖橙降级为可选主题。
+  - 补充 Layout 段（标题栏 44 / 轨道 52 / 面板 260 / 内容列 768 / 信息列 350 / 断点 1360）。
