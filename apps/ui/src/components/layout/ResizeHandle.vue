@@ -77,8 +77,8 @@ const rootClass = computed(() =>
     :class="[
       rootClass,
       orientation === 'vertical'
-        ? 'w-[5px] -mx-0.5 cursor-col-resize'
-        : 'h-[5px] -my-0.5 cursor-row-resize',
+        ? 'w-[9px] -mx-1 cursor-col-resize'
+        : 'h-[9px] -my-1 cursor-row-resize',
       dragging ? 'after:bg-[color-mix(in_srgb,var(--color-accent)_55%,transparent)]!' : '',
     ]"
     role="separator"

@@ -16,7 +16,7 @@ import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue";
 import AppRail from "@/components/sidebar/AppRail.vue";
 import AppSidebar from "@/components/sidebar/AppSidebar.vue";
 import AppTitlebar from "@/components/topbar/AppTitlebar.vue";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import { Toaster } from "@/components/ui/toast";
 import { useBrowserOverlayAutoGuard } from "@/composables/useBrowserOverlayAutoGuard";
 import { useGlobalShortcuts } from "@/composables/useGlobalShortcuts";
@@ -69,9 +69,9 @@ const userStore = useUserStore();
 const settingsStore = useSettingsStore();
 const modelsStore = useModelsStore();
 const {
-  panelWidth, leftCollapsed, panelMin, panelMax,
-  rightWidth, rightCollapsed, rightBounds,
-  bottomHeight, bottomCollapsed, bottomBounds,
+  leftWidth, leftCollapsed, panelWidth,
+  rightWidth, rightCollapsed,
+  bottomHeight, bottomCollapsed,
   sessionOpen,
 } = storeToRefs(layoutStore);
 
@@ -199,81 +199,28 @@ onUnmounted(() => {
   schedulerStore.dispose();
 });
 
-type PanelApi = {
-  collapse: () => void;
-  expand: () => void;
-  resize: (size: number) => void;
-};
-
-const leftPanel = ref<PanelApi | null>(null);
-const rightPanel = ref<PanelApi | null>(null);
-const bottomPanel = ref<PanelApi | null>(null);
+/** 终端首次打开后才挂载（避免启动即建 PTY），之后常驻、靠高度折叠 */
+const terminalMounted = ref(!bottomCollapsed.value);
+watch(bottomCollapsed, (collapsed) => {
+  if (!collapsed) terminalMounted.value = true;
+});
 
 /**
- * store → 面板回写的尺寸会被 reka 立刻以旧值回声一次（px 与 % 换算后取整），
- * 回声再写回 store 就把宽度钉回原值——左栏「拖不动」就是这个自反馈。
- * 记住刚推下去的尺寸，回声直接丢弃。
+ * 分栏拖拽：手柄只上报位移，宽度一律由 layout store 钳制后回灌到行内尺寸。
+ * （此前用 reka Splitter 做双向回写，拖动时面板会以旧布局回声覆盖 store，
+ *  分割线在边界附近每帧来回跳——改成单一真源后没有回声可言。）
  */
-let pushedLeft = -1;
-let pushedRight = -1;
-let pushedBottom = -1;
-
-/** 会话面板以 px 上报自身宽度：store 里存的是「轨道 + 面板」总宽 */
-function onLeftResize(size: number) {
-  const rounded = Math.round(size);
-  if (rounded === pushedLeft) return;
-  if (!leftCollapsed.value) layoutStore.setLeftWidth(rounded + NAV_RAIL_W);
+function onLeftDrag(delta: number) {
+  layoutStore.setLeftWidth(leftWidth.value + delta);
 }
 
-function onRightResize(size: number) {
-  const rounded = Math.round(size);
-  if (rounded === pushedRight) return;
-  if (!rightCollapsed.value) layoutStore.setRightWidth(rounded);
+function onRightDrag(delta: number) {
+  layoutStore.setRightWidth(rightWidth.value - delta);
 }
 
-function onBottomResize(size: number) {
-  const rounded = Math.round(size);
-  if (rounded === pushedBottom) return;
-  if (!bottomCollapsed.value) layoutStore.setBottomHeight(rounded);
+function onBottomDrag(delta: number) {
+  layoutStore.setBottomHeight(bottomHeight.value - delta);
 }
-
-/** store 侧变化（展开还原、窗口缩放回收）反向驱动面板，避免两套真源 */
-function syncPanel(panel: PanelApi | null, size: number, collapsed: boolean) {
-  if (!panel) return;
-  if (collapsed) {
-    panel.collapse();
-    return;
-  }
-  panel.expand();
-  panel.resize(size);
-}
-
-function syncLeftPanel(size: number, collapsed: boolean) {
-  if (!collapsed) pushedLeft = Math.round(size);
-  syncPanel(leftPanel.value, size, collapsed);
-}
-
-function syncRightPanel(size: number, collapsed: boolean) {
-  if (!collapsed) pushedRight = Math.round(size);
-  syncPanel(rightPanel.value, size, collapsed);
-}
-
-function syncBottomPanel(size: number, collapsed: boolean) {
-  if (!collapsed) pushedBottom = Math.round(size);
-  syncPanel(bottomPanel.value, size, collapsed);
-}
-
-watch(() => [panelWidth.value, leftCollapsed.value] as const, ([size, collapsed]) => {
-  syncLeftPanel(size, collapsed);
-}, { flush: "post" });
-
-watch(() => [rightWidth.value, rightCollapsed.value] as const, ([size, collapsed]) => {
-  syncRightPanel(size, collapsed);
-}, { flush: "post" });
-
-watch(() => [bottomHeight.value, bottomCollapsed.value] as const, ([size, collapsed]) => {
-  syncBottomPanel(size, collapsed);
-}, { flush: "post" });
 
 </script>
 
@@ -290,98 +237,59 @@ watch(() => [bottomHeight.value, bottomCollapsed.value] as const, ([size, collap
       <div
         class="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-tl-[var(--radius-shell)] bg-[var(--color-panel)] shadow-[var(--shadow-edge-top)]"
       >
-        <ResizablePanelGroup direction="horizontal" class="min-h-0 flex-1">
-          <ResizablePanel
-            v-if="!leftCollapsed"
-            ref="leftPanel"
-            size-unit="px"
-            collapsible
-            :collapsed-size="0"
-            :min-size="panelMin"
-            :max-size="panelMax"
-            :default-size="panelWidth"
-            :order="1"
-            @resize="onLeftResize"
+        <!-- 左：会话面板（收起时整个不渲染，导航轨道在更外层常驻） -->
+        <div
+          v-if="!leftCollapsed"
+          class="flex min-h-0 min-w-0 flex-none overflow-hidden"
+          :style="{ width: `${panelWidth}px` }"
+        >
+          <AppSidebar />
+        </div>
+
+        <ResizeHandle v-if="!leftCollapsed" line @drag="onLeftDrag" />
+
+        <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <!-- 整页模式：分类页面占满工作区 -->
+          <WorkbenchPages v-if="!chatMode" />
+          <!--
+            对话子树始终挂载，整页模式下只做视觉隐藏（绝对定位 + invisible）：
+            输入框里的未提交文字、正在流式输出的消息不会因为切页丢失。
+          -->
+          <div
+            class="flex min-h-0 flex-col"
+            :class="chatMode ? 'flex-1' : 'pointer-events-none invisible absolute inset-0'"
           >
-            <div class="h-full min-w-0 overflow-hidden">
-              <AppSidebar />
-            </div>
-          </ResizablePanel>
-
-          <ResizableHandle v-if="!leftCollapsed" />
-
-          <ResizablePanel :order="2">
-            <div class="relative flex h-full min-h-0 min-w-0 flex-col">
-              <!-- 整页模式：分类页面占满工作区 -->
-              <WorkbenchPages v-if="!chatMode" />
-              <!--
-                对话子树始终挂载，整页模式下只做视觉隐藏（绝对定位 + invisible）：
-                输入框里的未提交文字、正在流式输出的消息不会因为切页丢失，
-                同时避免 display:none 让分栏尺寸被重新测量成 0。
-              -->
-              <ResizablePanelGroup
-                direction="vertical"
-                :class="chatMode ? 'min-h-0 flex-1' : 'pointer-events-none invisible absolute inset-0'"
+            <div :class="centerClass" class="min-h-0 flex-1">
+              <div
+                class="relative flex h-full min-h-0 min-w-0 flex-col"
+                :class="chatEmpty ? 'justify-center' : ''"
               >
-                  <ResizablePanel :order="1">
-                    <div :class="centerClass">
-                      <div
-                        class="relative flex h-full min-h-0 min-w-0 flex-col"
-                        :class="chatEmpty ? 'justify-center' : ''"
-                      >
-                        <ChatBackground />
-                        <ChatTimeline :empty="chatEmpty" />
-                        <ChatComposer @open-workflow="rightPanelStore.ensureTab('workflow')" />
-                      </div>
-                      <SessionInfoPanel v-if="showSessionColumn" />
-                    </div>
-                  </ResizablePanel>
-
-                  <ResizableHandle v-if="!bottomCollapsed" />
-
-                  <ResizablePanel
-                    ref="bottomPanel"
-                    size-unit="px"
-                    collapsible
-                    :collapsed-size="0"
-                    :min-size="bottomCollapsed ? 0 : bottomBounds.min"
-                    :max-size="bottomBounds.max"
-                    :default-size="bottomCollapsed ? 0 : bottomHeight"
-                    :order="2"
-                    @resize="onBottomResize"
-                  >
-                    <div
-                      v-if="!bottomCollapsed"
-                      class="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
-                    >
-                      <TerminalPanel />
-                    </div>
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-            </div>
-          </ResizablePanel>
-
-          <template v-if="chatMode">
-            <ResizableHandle v-if="!rightCollapsed" />
-
-            <ResizablePanel
-              v-if="!rightCollapsed"
-              ref="rightPanel"
-              size-unit="px"
-              collapsible
-              :collapsed-size="0"
-              :min-size="rightBounds.min"
-              :max-size="rightBounds.max"
-              :default-size="rightWidth"
-              :order="3"
-              @resize="onRightResize"
-            >
-              <div class="h-full min-w-0 overflow-hidden">
-                <RightPanel />
+                <ChatBackground />
+                <ChatTimeline :empty="chatEmpty" />
+                <ChatComposer @open-workflow="rightPanelStore.ensureTab('workflow')" />
               </div>
-            </ResizablePanel>
-          </template>
-        </ResizablePanelGroup>
+              <SessionInfoPanel v-if="showSessionColumn" />
+            </div>
+
+            <ResizeHandle v-if="!bottomCollapsed" line orientation="horizontal" @drag="onBottomDrag" />
+
+            <!-- 首次打开后常挂载、用高度折叠，避免重建 PTY 视图 -->
+            <div
+              class="min-h-0 flex-none overflow-hidden bg-[var(--color-bg)] shadow-[var(--shadow-edge-top)]"
+              :class="bottomCollapsed ? 'h-0 shadow-none' : ''"
+              :style="bottomCollapsed ? undefined : { height: `${bottomHeight}px` }"
+            >
+              <TerminalPanel v-if="terminalMounted" />
+            </div>
+          </div>
+        </div>
+
+        <template v-if="chatMode && !rightCollapsed">
+          <ResizeHandle line invert @drag="onRightDrag" />
+          <div class="flex min-h-0 min-w-0 flex-none overflow-hidden" :style="{ width: `${rightWidth}px` }">
+            <RightPanel />
+          </div>
+        </template>
       </div>
     </div>
 
