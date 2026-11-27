@@ -42,6 +42,14 @@ export const systemAbilitiesApi = {
     stop(): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke("tts:stop");
     },
+    /** 播报进程结束（读完 / 打断 / 出错）推送：用于复位「停止」态 */
+    onEnded(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on("tts:ended", listener);
+      return () => {
+        ipcRenderer.removeListener("tts:ended", listener);
+      };
+    },
   },
   ocr: {
     probe(): Promise<AbilityProbe> {

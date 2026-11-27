@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Settings2 } from "@lucide/vue";
+import { IconAdjustments as Settings2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

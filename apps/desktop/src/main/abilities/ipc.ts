@@ -30,8 +30,13 @@ export function registerSystemAbilitiesIpc(): void {
   ipcMain.handle("voice:stop", () => voice.stop());
 
   ipcMain.handle("tts:probe", () => tts.probe());
-  ipcMain.handle("tts:speak", (_event, text: string, options?: { voice?: string; rate?: number }) =>
-    tts.speak(text, options),
+  ipcMain.handle("tts:speak", (event, text: string, options?: { voice?: string; rate?: number }) =>
+    tts.speak(text, options, () => {
+      // 播报结束/被打断：通知发起窗口复位朗读按钮（进程自然退出不会再有其它信号）
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("tts:ended");
+      }
+    }),
   );
   ipcMain.handle("tts:stop", () => tts.stop());
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AppWindow, Check, Copy, CornerDownLeft, Send } from "@lucide/vue";
+import { IconAppWindow as AppWindow, IconCheck as Check, IconCopy as Copy, IconCornerDownLeft as CornerDownLeft, IconSend as Send } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 

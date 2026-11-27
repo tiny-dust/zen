@@ -69,7 +69,7 @@ describe("ComposerEditor atomic tokens", () => {
     const wrapper = editor(source, true);
     expect(wrapper.get(".composer-editor").element.textContent).toBe(source);
     expect(wrapper.find(".composer-token-skill .composer-token-prefix").text()).toBe("/skill:");
-    expect(wrapper.find(".composer-token-skill .lucide").exists()).toBe(true);
+    expect(wrapper.find(".composer-token-skill svg").exists()).toBe(true);
     expect(wrapper.find(".file-label--link").text()).toBe("报告.ts");
     expect(wrapper.findAll(".composer-token").every(token => token.attributes("contenteditable") === "false")).toBe(true);
   });
@@ -191,7 +191,7 @@ describe("ComposerEditor atomic tokens", () => {
     const token = wrapper.get(".composer-token-element");
     expect(token.find(".composer-token-prefix").text()).toBe("$el:");
     expect(token.find(".composer-token-name").text()).toBe("登录");
-    expect(token.find(".lucide").exists()).toBe(true);
+    expect(token.find("svg").exists()).toBe(true);
     expect(token.attributes("contenteditable")).toBe("false");
     expect(wrapper.get(".composer-editor").element.textContent).toBe("请点 $el:登录");
   });

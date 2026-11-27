@@ -40,7 +40,11 @@ export class TtsService {
     return resolveTtsBackend(process.platform, tools as ToolAvailability);
   }
 
-  async speak(text: string, options?: TtsSpeakOptions): Promise<{ ok: boolean; error?: string }> {
+  async speak(
+    text: string,
+    options?: TtsSpeakOptions,
+    onEnd?: () => void,
+  ): Promise<{ ok: boolean; error?: string }> {
     const trimmed = text?.trim();
     if (!trimmed) {
       return { ok: false, error: "没有可朗读的文本" };
@@ -60,7 +64,7 @@ export class TtsService {
           stdio: ["ignore", "ignore", "ignore"],
           windowsHide: true,
         });
-        this.track(child);
+        this.track(child, onEnd);
         return { ok: true };
       }
       const spec = buildTtsCommand(probe.backend ?? "espeak", trimmed, options);
@@ -73,7 +77,7 @@ export class TtsService {
         child.stdin.write(spec.stdin ?? "");
         child.stdin.end();
       }
-      this.track(child);
+      this.track(child, onEnd);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "语音播报启动失败" };
@@ -86,18 +90,22 @@ export class TtsService {
     return { ok: true };
   }
 
-  private track(child: ChildProcess): void {
+  /** 播报进程结束（自然读完 / 被打断 / 出错）只通知一次，渲染层据此复位「停止」态 */
+  private track(child: ChildProcess, onEnd?: () => void): void {
     this.current = child;
-    child.once("exit", () => {
+    let notified = false;
+    const finish = () => {
       if (this.current === child) {
         this.current = null;
       }
-    });
-    child.once("error", () => {
-      if (this.current === child) {
-        this.current = null;
+      if (notified) {
+        return;
       }
-    });
+      notified = true;
+      onEnd?.();
+    };
+    child.once("exit", finish);
+    child.once("error", finish);
   }
 }
 

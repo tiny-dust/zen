@@ -10,6 +10,7 @@ import type {
   AttachmentRef,
   ChatMessage,
   ChatRunSummary,
+  CliRuntimeId,
   ReasoningEffort,
   SessionGoal,
   SessionGoalStatus,
@@ -102,6 +103,8 @@ export const useChatStore = defineStore("chat", () => {
   const pairMode = ref(true);
   /** 会话模式（interactive/plan/autopilot）：main 侧按它注入模式指令，切换即落库 */
   const sessionMode = ref<SessionMode>("interactive");
+  /** 会话底座：本机外部 CLI；null = 走 API 模型（默认，旧会话一律 API） */
+  const sessionRuntimeCli = ref<CliRuntimeId | null>(null);
   /** 会话目标（Goals 目标模式）：文本 + 状态 + token 预算；null = 未设定 */
   const sessionGoal = ref<SessionGoal | null>(null);
   /** 自动续跑仅由 max_steps 触发；每个会话单独计数，防止目标未达成时无界循环。 */
@@ -1242,6 +1245,8 @@ export const useChatStore = defineStore("chat", () => {
             },
         // 计划模式批准标记：main 侧识别后把会话切回 interactive 再继续执行
         approvePlan: options?.approvePlan === true ? true : undefined,
+        // 会话底座：null 不传 = main 走 API；外部 CLI 由 main 校验安装与权限模式
+        ...(sessionRuntimeCli.value ? { runtimeCli: sessionRuntimeCli.value } : {}),
       });
     } catch (error) {
       result = {
@@ -1372,6 +1377,10 @@ export const useChatStore = defineStore("chat", () => {
       if (mode !== "interactive") {
         await zen.session.setMode(id, mode);
       }
+      // 未持久化阶段选过的外部 CLI 底座同样补落库
+      if (sessionRuntimeCli.value) {
+        await zen.session.setRuntimeCli(id, sessionRuntimeCli.value);
+      }
       // 未持久化阶段设定的会话目标同样补落库（过桥前先序列化成纯对象，防响应式 Proxy）
       if (goal) {
         await zen.session.setGoal(
@@ -1483,6 +1492,7 @@ export const useChatStore = defineStore("chat", () => {
     actModel.value = null;
     pairMode.value = true;
     sessionMode.value = "interactive";
+    sessionRuntimeCli.value = null;
     sessionGoal.value = null;
 
     sessionWorkspaceId.value = target;
@@ -1587,6 +1597,8 @@ export const useChatStore = defineStore("chat", () => {
     pairMode.value = found.session.pairMode === true;
     // 恢复该会话的模式（interactive/plan/autopilot；旧数据缺省 interactive）
     sessionMode.value = normalizeSessionMode(found.session.mode);
+    // 恢复该会话的底座（null = API 模型，旧会话一律 API）
+    sessionRuntimeCli.value = found.session.runtimeCli ?? null;
     // 恢复该会话的目标（Goals 目标模式；未设定为 null）
     sessionGoal.value = found.session.goal ?? null;
     // 目标会话仍在后台运行且缓冲存在 → 缓冲优先（含切走后未落库的流式内容；
@@ -1704,6 +1716,18 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /** 会话底座切换：null = 回到 API 模型；未落库会话先记内存，首发补建时一并落库 */
+  async function setSessionRuntimeCli(runtimeCli: CliRuntimeId | null) {
+    if (runtimeCli === sessionRuntimeCli.value) {
+      return;
+    }
+    sessionRuntimeCli.value = runtimeCli;
+    const zen = window.zen;
+    if (zen && sessionPersisted.value) {
+      await zen.session.setRuntimeCli(sessionId.value, runtimeCli);
+    }
+  }
+
   /**
    * 设置/更新会话目标（Goals 目标模式）并持久化；goal 为 null 表示清除。
    * 未落库的新会话先补建会话再写目标——只记内存的话，切走会话目标就丢了。
@@ -1798,6 +1822,7 @@ export const useChatStore = defineStore("chat", () => {
     pairMode,
     activeModelSelection,
     sessionMode,
+    sessionRuntimeCli,
     sessionGoal,
     goalBudgetLabel,
     effectiveSelection,
@@ -1806,6 +1831,7 @@ export const useChatStore = defineStore("chat", () => {
     setPhaseModel,
     setPairMode,
     setSessionMode,
+    setSessionRuntimeCli,
     setSessionGoal,
     updateGoalStatus,
     approvePlan,

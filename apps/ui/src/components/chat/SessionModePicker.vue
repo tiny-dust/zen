@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ListChecks, MessagesSquare, Rocket } from "@lucide/vue";
+import { IconListCheck as ListChecks, IconMessages as MessagesSquare, IconRocket as Rocket } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { Ban, Check, ChevronRight, Hourglass, Loader2, Pause, X } from "@lucide/vue";
+import { IconBan as Ban, IconCheck as Check, IconChevronRight as ChevronRight, IconHourglass as Hourglass, IconLoader2 as Loader2, IconPlayerPause as Pause, IconX as X } from "@tabler/icons-vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+import StatusBadge from "@/components/agent/StatusBadge.vue";
 import { toolDisplay, toolStateLabel, toolStatusLine } from "@/components/chat/tool-part";
 import ToolResultView from "@/components/chat/ToolResultView.vue";
+import { toolFileDiff } from "@/components/chat/tool-file-diff";
 import { codeLines, toolResult, toolResultState } from "@/components/chat/tool-result";
 import FileLabel from "@/components/files/FileLabel.vue";
 import { resolveFileRefPath } from "@/components/files/file-ref";
@@ -29,6 +31,14 @@ const awaitingApproval = computed(() => props.part.state === "awaiting-approval"
 const running = computed(() => props.part.state === "running");
 const hasDetails = computed(() => result.value !== null);
 const statusLabel = computed(() => toolStateLabel(state.value, props.part.percent));
+/** 状态语义映射：执行/准备=思考色，等审批=警示色，完成=成功色，失败/拒绝=危险色 */
+const statusTone = computed(() => {
+  if (preparing.value || running.value) return "thinking" as const;
+  if (awaitingApproval.value) return "approval" as const;
+  if (state.value === "ok") return "success" as const;
+  if (state.value === "error" || state.value === "denied") return "danger" as const;
+  return "idle" as const;
+});
 const statusText = computed(() => toolStatusLine({ ...props.part, state: state.value }));
 const readRange = computed(() => {
   if (props.part.toolName !== "readFile" || result.value?.kind !== "code") return "";
@@ -43,9 +53,15 @@ const targetTitle = computed(() => {
 
 function revealFile() {
   const target = display.value.target;
-  if ((target?.kind === "file" || target?.kind === "dir") && target.text) {
-    rightPanel.revealFile(target.text);
+  if ((target?.kind !== "file" && target?.kind !== "dir") || !target.text) {
+    return;
   }
+  // 写/改文件带 diff 时定位到首个改动行（点击瞬间才算，避免每次渲染都做一次 diff）
+  const current = result.value;
+  const line = target.kind === "file" && current?.kind === "diff"
+    ? toolFileDiff(current.before, current.after).firstChangedLine
+    : null;
+  rightPanel.revealFile(line ? `${target.text}#L${line}` : target.text);
 }
 </script>
 
@@ -83,15 +99,14 @@ function revealFile() {
       </span>
 
       <span v-if="readRange" class="tool-range">{{ readRange }}</span>
-      <span class="tool-state" :data-state="state" :title="statusText">
-        <Loader2 v-if="preparing || running" class="size-3.5 animate-spin" aria-hidden="true" />
-        <Hourglass v-else-if="awaitingApproval" class="size-3.5" aria-hidden="true" />
-        <Check v-else-if="state === 'ok'" class="size-3.5" aria-hidden="true" />
-        <Ban v-else-if="state === 'denied'" class="size-3.5" aria-hidden="true" />
-        <Pause v-else-if="state === 'cancelled' || state === 'interrupted'" class="size-3.5" aria-hidden="true" />
-        <X v-else class="size-3.5" aria-hidden="true" />
-        <span>{{ statusLabel }}</span>
-      </span>
+      <StatusBadge :status="statusTone" :label="statusLabel" :title="statusText" class="flex-none">
+        <Loader2 v-if="preparing || running" class="size-3 animate-spin" aria-hidden="true" />
+        <Hourglass v-else-if="awaitingApproval" class="size-3" aria-hidden="true" />
+        <Check v-else-if="state === 'ok'" class="size-3" aria-hidden="true" />
+        <Ban v-else-if="state === 'denied'" class="size-3" aria-hidden="true" />
+        <Pause v-else-if="state === 'cancelled' || state === 'interrupted'" class="size-3" aria-hidden="true" />
+        <X v-else class="size-3" aria-hidden="true" />
+      </StatusBadge>
     </div>
 
     <CollapsibleContent v-if="result">
@@ -107,11 +122,14 @@ function revealFile() {
   max-width: 100%;
 }
 
+/* 单行排布：路径按可分配宽度截断（悬浮看全路径），状态徽标始终留在同一行，
+   不再因为列窄把「完成 / 失败」挤到下一行 */
 .tool-row {
   display: flex;
-  width: fit-content;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px 8px;
   padding: 3px 0;
@@ -120,6 +138,7 @@ function revealFile() {
 
 .tool-action {
   display: inline-flex;
+  flex: none;
   align-items: center;
   min-width: 0;
   max-width: 100%;
@@ -147,7 +166,7 @@ function revealFile() {
   height: auto;
   min-width: 0;
   max-width: 100%;
-  flex-shrink: 1;
+  flex: 0 1 auto;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -158,7 +177,7 @@ function revealFile() {
 }
 
 .tool-file-path {
-  max-width: min(520px, 100%);
+  max-width: min(640px, 100%);
   overflow: hidden;
   color: var(--color-mut);
   font-family: var(--font-mono);
@@ -176,38 +195,9 @@ function revealFile() {
   font-size: 11px;
 }
 
-.tool-state {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  white-space: nowrap;
-  color: var(--color-mut);
-}
-
 .tool-range {
   color: var(--color-dim);
   font-family: var(--font-mono);
   font-size: 11px;
 }
-
-.tool-state[data-state="input-streaming"],
-.tool-state[data-state="running"],
-.tool-state[data-state="awaiting-approval"] {
-  color: var(--color-accent);
-}
-
-.tool-state[data-state="ok"] {
-  color: var(--color-ok);
-}
-
-.tool-state[data-state="error"] {
-  color: var(--color-err);
-}
-
-.tool-state[data-state="denied"] {
-  color: var(--color-accent-2);
-}
-
 </style>

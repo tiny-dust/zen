@@ -5,7 +5,7 @@ import type { CalendarDate as CalendarDateValue } from "@internationalized/date"
 import type { DateValue } from "reka-ui";
 import type { MonthlyPattern, ScheduledTaskSchedule, ScheduleUnit } from "@zen/shared";
 import { matchesDate, nextOccurrences } from "@zen/shared";
-import { CalendarClock, ChevronDown, ChevronRight, Plus, X } from "@lucide/vue";
+import { IconCalendarTime as CalendarClock, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconPlus as Plus, IconX as X } from "@tabler/icons-vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { AudioLines, Ban, Check, CircleAlert, Copy, Download, GitBranch, Globe, Pencil, Play, Pause, RefreshCw, ScanText, Sparkles, TriangleAlert, Volume2, Zap } from "@lucide/vue";
+import { IconWaveSine as AudioLines, IconBan as Ban, IconCheck as Check, IconAlertCircle as CircleAlert, IconCopy as Copy, IconDownload as Download, IconGitBranch as GitBranch, IconWorld as Globe, IconPencil as Pencil, IconPlayerPlay as Play, IconPlayerPause as Pause, IconRefresh as RefreshCw, IconScan as ScanText, IconSparkles as Sparkles, IconAlertTriangle as TriangleAlert, IconVolume as Volume2, IconBolt as Zap } from "@tabler/icons-vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+
+import { showsReasoning, useTranscriptView } from "@/stores/transcript-view";
 
 import { Loader } from "@/components/ai-elements/loader";
 import {
@@ -44,6 +46,10 @@ const { t } = useI18n();
 
 const chatStore = useChatStore();
 
+/** 会话详细程度：精简/极简不显示思考块（思考仍保留在数据里，随时可切回查看） */
+const { view: transcriptView } = useTranscriptView(() => chatStore.sessionId);
+const showReasoning = computed(() => showsReasoning(transcriptView.value));
+
 const rightPanel = useRightPanelStore();
 
 /** 按时间顺序的分段：新消息用 parts，旧消息按「思考 → 正文」合成 */
@@ -65,7 +71,9 @@ const parts = computed<ChatMessagePart[]>(() => {
   return legacy;
 });
 
-const displayParts = computed(() => groupMessageParts(parts.value));
+const displayParts = computed(() =>
+  groupMessageParts(parts.value).filter((part) => part.type !== "reasoning" || showReasoning.value),
+);
 
 /** 分段后是否还有正文/工具：决定思考块默认展开与自动收起 */
 function hasTextAfter(index: number): boolean {

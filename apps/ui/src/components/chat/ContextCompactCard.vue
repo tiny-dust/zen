@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, FoldVertical } from "@lucide/vue";
+import { IconChevronRight as ChevronRight, IconFoldDown as FoldVertical } from "@tabler/icons-vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 

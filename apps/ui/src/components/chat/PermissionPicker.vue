@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import PermissionIcon from "@/components/brand/PermissionIcon.vue";
@@ -30,11 +31,19 @@ const permissionModes = PERMISSION_MODES;
 async function setPermissionMode(mode: unknown) {
   await agentStore.updateSettings({ permissionMode: mode as PermissionMode });
 }
+
+/** 下拉受控打开：斜杠命令 /mode 需要程序化唤起同一个菜单 */
+const menuOpen = ref(false);
+defineExpose({
+  openPanel: () => {
+    menuOpen.value = true;
+  },
+});
 </script>
 
 <template>
   <!-- 权限：宽屏文字+图标，小屏仅三态自绘 icon -->
-  <DropdownMenu>
+  <DropdownMenu :open="menuOpen" @update:open="(value: boolean) => (menuOpen = value)">
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"

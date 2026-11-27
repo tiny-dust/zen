@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Brain, Check, ChevronDown, FileCode2, FolderSearch, LoaderCircle, Terminal, X } from "@lucide/vue";
+import { IconBrain as Brain, IconCheck as Check, IconChevronDown as ChevronDown, IconFileCode2 as FileCode2, IconFolderSearch as FolderSearch, IconLoader2 as LoaderCircle, IconTerminal2 as Terminal, IconX as X } from "@tabler/icons-vue";
 import { computed } from "vue";
 
 import MessageBubble from "@/components/MessageBubble.vue";

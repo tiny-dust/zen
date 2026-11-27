@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpToLine, Pencil, X, Zap } from "@lucide/vue";
+import { IconArrowUpBar as ArrowUpToLine, IconPencil as Pencil, IconX as X, IconBolt as Zap } from "@tabler/icons-vue";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 

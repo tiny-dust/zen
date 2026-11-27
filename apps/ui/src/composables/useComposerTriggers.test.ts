@@ -83,6 +83,78 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("useComposerTriggers / 本地斜杠命令", () => {
+  /** 干净环境重建实例，便于注入 onCommand */
+  function makeTriggers(onCommand = vi.fn()) {
+    value = "";
+    caretAt = 0;
+    const instance = useComposerTriggers({
+      caret: () => caretAt,
+      value: () => value,
+      setValue,
+      setCaret,
+      focus,
+      onCommand,
+    });
+    return { instance, onCommand };
+  }
+
+  function typeIn(instance: ReturnType<typeof useComposerTriggers>, text: string) {
+    value = value.slice(0, caretAt) + text + value.slice(caretAt);
+    caretAt += text.length;
+    instance.evaluate();
+  }
+
+  function press(instance: ReturnType<typeof useComposerTriggers>, key: string) {
+    return instance.onKeydown({ key, preventDefault: vi.fn() } as unknown as KeyboardEvent);
+  }
+
+  it("裸 / 同时列出技能与本地命令（技能不再被命令挤掉）", () => {
+    const { instance } = makeTriggers();
+    typeIn(instance, "/");
+    expect(instance.kind.value).toBe("command");
+    const icons = instance.items.value.map((item) => item.icon);
+    expect(icons).toContain("skill");
+    expect(icons).toContain("command");
+  });
+
+  it("输入 /cle 只留 clear 命令，Enter 执行且不插入正文", () => {
+    const { instance, onCommand } = makeTriggers();
+    typeIn(instance, "/cle");
+    expect(instance.items.value.map((item) => item.commandId)).toContain("clear");
+    expect(press(instance, "Enter")).toBe(true);
+    expect(onCommand).toHaveBeenCalledWith("clear");
+    expect(value).toBe("");
+    expect(instance.open.value).toBe(false);
+  });
+
+  it("Tab 只把命令补全成 /名字 ，不执行", () => {
+    const { instance, onCommand } = makeTriggers();
+    typeIn(instance, "/cle");
+    expect(press(instance, "Tab")).toBe(true);
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(value).toBe("/clear ");
+  });
+
+  it("未知命令 Enter 不发消息，只收起弹层", () => {
+    const { instance } = makeTriggers();
+    typeIn(instance, "/zzz");
+    expect(instance.items.value).toHaveLength(0);
+    expect(press(instance, "Enter")).toBe(true);
+    expect(instance.open.value).toBe(false);
+    expect(value).toBe("/zzz");
+  });
+
+  it("@ 文件触发仍不受命令影响", async () => {
+    const { instance } = makeTriggers();
+    typeIn(instance, "@");
+    expect(instance.kind.value).toBe("file");
+    await vi.waitFor(() => {
+      expect(listFiles).toHaveBeenCalled();
+    });
+  });
+});
+
 describe("useComposerTriggers # MCP 工具菜单", () => {
   it("裸 # 触发：空输入打下 # 后打开 mcp 菜单", () => {
     type("#");

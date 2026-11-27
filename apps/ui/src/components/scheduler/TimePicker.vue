@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClockIcon } from "@lucide/vue";
+import { IconClock as ClockIcon } from "@tabler/icons-vue";
 import { computed } from "vue";
 
 import { Button } from "@/components/ui/button";

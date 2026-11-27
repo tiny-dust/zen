@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown } from "@lucide/vue";
+import { IconArrowDown as ArrowDown } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -15,6 +15,11 @@ import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat";
 
 import { getMessageRun } from "@zen/shared";
+
+const props = defineProps<{
+  /** 空会话：时间线只按内容高度占位，让「欢迎区 + 输入框」在对话列里整体居中 */
+  empty?: boolean;
+}>();
 
 const { t } = useI18n();
 const chatStore = useChatStore();
@@ -422,7 +427,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="relative h-full min-h-0 min-w-0 flex-1 bg-[var(--color-main-bg)]" :aria-label="t('chat.conversation')">
+  <section
+    :class="
+      empty
+        ? 'relative min-h-0 min-w-0 flex-none bg-[var(--color-main-bg)]'
+        : 'relative h-full min-h-0 min-w-0 flex-1 bg-[var(--color-main-bg)]'
+    "
+    :aria-label="t('chat.conversation')"
+  >
     <!-- 左侧引导线轨：刻度簇整体垂直居中贴左缘，点击定位；悬浮/键盘聚焦弹自绘 tooltip。
          悬浮某刻度时邻近刻度按距离衰减变长（--tick-w），形成坡度 -->
     <nav
@@ -473,14 +485,14 @@ onUnmounted(() => {
         v-if="chatStore.pendingApproval"
         class="sticky top-0 z-10 -ml-[var(--chat-gutter)] -mr-4 mb-1 flex flex-col gap-2 bg-[var(--color-main-bg)] pl-[var(--chat-gutter)] pr-4 pb-2 pt-3"
       >
-        <div class="mx-auto flex w-full max-w-[1024px] flex-col gap-2">
+        <div class="mx-auto flex w-full max-w-[var(--chat-content-w)] flex-col gap-2">
           <ApprovalCard />
         </div>
       </div>
 
       <div
         ref="contentEl"
-        class="mx-auto flex w-full max-w-[1024px] flex-1 flex-col gap-4"
+        class="mx-auto flex w-full max-w-[var(--chat-content-w)] flex-1 flex-col gap-4"
       >
         <div v-if="messages.length === 0 && !showThinkingHint" class="m-auto text-center text-[var(--color-mut)]">
           <p class="m-0">{{ t("chat.startConversation") }}</p>

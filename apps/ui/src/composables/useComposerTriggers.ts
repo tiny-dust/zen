@@ -2,13 +2,17 @@ import { computed, ref } from "vue";
 
 import type { WorkspaceFile } from "@zen/shared";
 import { BUILTIN_SKILLS } from "@zen/shared";
+import { i18n } from "@/locales";
+import { findSlashCommand, matchSlashCommands, type SlashCommandId } from "@/lib/slash-commands";
 import { useAgentStore } from "@/stores/agent";
 
 export interface TriggerItem {
   insert: string;
   label: string;
   desc: string;
-  icon: "skill" | "file" | "dir" | "mcp";
+  icon: "skill" | "file" | "dir" | "mcp" | "command";
+  /** 本地斜杠命令：选中即执行，不插入正文 */
+  commandId?: SlashCommandId;
   /** 技能条目附加信息（文件类无） */
   id?: string;
   dir?: string;
@@ -27,7 +31,7 @@ export interface UploadedFileRef {
   isImage?: boolean;
 }
 
-export type TriggerKind = "skill" | "mcp" | "file";
+export type TriggerKind = "skill" | "mcp" | "file" | "command";
 
 /**
  * 模糊匹配打分：query 以子序列命中 haystack（大小写不敏感）；
@@ -88,6 +92,8 @@ export function useComposerTriggers(options: {
   uploadedFiles?: () => UploadedFileRef[];
   /** 选中已上传文件时登记为 composer 附件（path 去重），`$名称` 才能按附件 token 渲染并随消息发送 */
   registerUploaded?: (file: UploadedFileRef) => void;
+  /** 选中本地斜杠命令时执行（不插入正文） */
+  onCommand?: (id: SlashCommandId) => void;
 }) {
   const open = ref(false);
   const kind = ref<TriggerKind>("skill");
@@ -134,6 +140,20 @@ export function useComposerTriggers(options: {
       query.value,
     ).slice(0, 30);
   });
+
+  /**
+   * 本地斜杠命令（`/help` 这类，不含冒号）；技能是 `/skill:名称`，两者共用 `/` 前缀。
+   * 命令选中即执行，不往正文插入 token。
+   */
+  const commandItems = computed<TriggerItem[]>(() =>
+    matchSlashCommands(query.value).map((command) => ({
+      insert: "",
+      label: i18n.global.t(`chat.${command.labelKey}`),
+      desc: i18n.global.t(`chat.${command.descKey}`),
+      icon: "command" as const,
+      commandId: command.id,
+    })),
+  );
 
   /** 运行中 MCP 服务的工具清单（# 触发）：无运行中服务时为空 */
   const mcpItems = computed<TriggerItem[]>(() =>
@@ -193,6 +213,10 @@ export function useComposerTriggers(options: {
   const items = computed<TriggerItem[]>(() => {
     if (kind.value === "skill") {
       return skillItems.value;
+    }
+    if (kind.value === "command") {
+      // `/` 同时给出本地命令与技能：命令在前，避免技能模糊命中把命令挤到后面
+      return [...commandItems.value, ...skillItems.value];
     }
     if (kind.value === "mcp") {
       return mcpItems.value;
@@ -256,7 +280,14 @@ export function useComposerTriggers(options: {
       return;
     }
     tokenStart.value = cursor - token.length;
-    kind.value = token.startsWith("/") ? "skill" : token.startsWith("#") ? "mcp" : "file";
+    // `/名字`（无冒号）走本地命令；`/skill:名字` 走技能
+    kind.value = token.startsWith("/")
+      ? token.includes(":")
+        ? "skill"
+        : "command"
+      : token.startsWith("#")
+        ? "mcp"
+        : "file";
     query.value = token.slice(1);
     active.value = 0;
 
@@ -292,6 +323,14 @@ export function useComposerTriggers(options: {
     const value = options.value();
     const cursor = Math.min(Math.max(options.caret(), 0), value.length);
 
+    // 本地命令：抹掉已输入的 `/名字`，再交给调用方执行（不进正文、不发送消息）
+    if (target.commandId) {
+      options.setValue(value.slice(0, tokenStart.value) + value.slice(cursor));
+      close();
+      options.onCommand?.(target.commandId);
+      return true;
+    }
+
     // 技能与文件一致：以 token 形式插入正文（/skill:名称），编辑器渲染成内联技能标签
     const next = value.slice(0, tokenStart.value) + target.insert + value.slice(cursor);
     options.setValue(next);
@@ -321,7 +360,34 @@ export function useComposerTriggers(options: {
       close();
       return true;
     }
-    if (event.key === "Enter" || event.key === "Tab") {
+    if (event.key === "Tab") {
+      // Tab 只补全：本地命令补成 `/名字 ` 不执行；技能/文件/MCP 仍按原逻辑落 token
+      const target = activeItem.value;
+      const command = target?.commandId ? findSlashCommand(target.commandId) : undefined;
+      if (command) {
+        event.preventDefault();
+        const value = options.value();
+        const cursor = Math.min(Math.max(options.caret(), 0), value.length);
+        const insert = `/${command.name} `;
+        options.setValue(value.slice(0, tokenStart.value) + insert + value.slice(cursor));
+        options.setCaret(tokenStart.value + insert.length);
+        close();
+        return true;
+      }
+      if (apply(null)) {
+        event.preventDefault();
+        return true;
+      }
+      close();
+      return false;
+    }
+    if (event.key === "Enter") {
+      // 本地命令无命中时不把半截 `/xxx` 直接发给模型：先收起弹层，再按一次 Enter 才是普通文本
+      if (kind.value === "command" && !items.value.length) {
+        event.preventDefault();
+        close();
+        return true;
+      }
       if (apply(null)) {
         event.preventDefault();
         return true;

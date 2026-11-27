@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Three content treatments on one isolated review page; no application state is bootstrapped.
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Layers, LayoutList, Pause, Play, RotateCcw, Search, SlidersHorizontal } from "@lucide/vue";
+import { IconArrowLeft as ArrowLeft, IconArrowRight as ArrowRight, IconCheck as Check, IconChevronRight as ChevronRight, IconStack2 as Layers, IconLayoutList as LayoutList, IconPlayerPause as Pause, IconPlayerPlay as Play, IconRotate as RotateCcw, IconSearch as Search, IconAdjustmentsHorizontal as SlidersHorizontal } from "@tabler/icons-vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { Button } from "@/components/ui/button";

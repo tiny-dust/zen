@@ -2,7 +2,7 @@
 import { CalendarDate, DateFormatter, getLocalTimeZone, parseDate, today } from "@internationalized/date";
 
 import type { DateValue } from "@internationalized/date";
-import { CalendarIcon } from "@lucide/vue";
+import { IconCalendar as CalendarIcon } from "@tabler/icons-vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 

@@ -1,29 +1,4 @@
-import {
-  AppWindow,
-  Bot,
-  Camera,
-  FilePen,
-  FileSearch,
-  FileText,
-  FoldVertical,
-  FolderOpen,
-  Gauge,
-  Globe,
-  HelpCircle,
-  Hourglass,
-  Inbox,
-  ListTodo,
-  MousePointerClick,
-  Plug,
-  ScanSearch,
-  ScanText,
-  Sparkles,
-  SquareCode,
-  SquareTerminal,
-  Terminal,
-  TextCursorInput,
-  Wrench,
-} from "@lucide/vue";
+import { IconAppWindow as AppWindow, IconRobot as Bot, IconCamera as Camera, IconFilePencil as FilePen, IconFileSearch as FileSearch, IconFileText as FileText, IconFoldDown as FoldVertical, IconFolderOpen as FolderOpen, IconGauge as Gauge, IconWorld as Globe, IconHelpCircle as HelpCircle, IconHourglass as Hourglass, IconInbox as Inbox, IconListDetails as ListTodo, IconPointer as MousePointerClick, IconPlug as Plug, IconZoomScan as ScanSearch, IconScan as ScanText, IconSparkles as Sparkles, IconCode as SquareCode, IconTerminal2 as SquareTerminal, IconTerminal2 as Terminal, IconForms as TextCursorInput, IconTool as Wrench } from "@tabler/icons-vue";
 import type { Component } from "vue";
 
 import { i18n } from "@/locales";

@@ -1,21 +1,7 @@
 <script setup lang="ts">
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  LoaderCircle,
-  Mic,
-  Play,
-  Plus,
-  Sparkles,
-  Square,
-  TriangleAlert,
-  Wrench,
-  Workflow,
-  X,
-} from "@lucide/vue";
+import { IconArrowUp as ArrowUp, IconCheck as Check, IconChevronDown as ChevronDown, IconPhotoPlus as ImagePlus, IconLoader2 as LoaderCircle, IconMicrophone as Mic, IconPlayerPlay as Play, IconPlus as Plus, IconSparkles as Sparkles, IconSquare as Square, IconTerminal2 as Terminal, IconAlertTriangle as TriangleAlert, IconTool as Wrench, IconSitemap as Workflow, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import {
@@ -27,6 +13,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import FileLabel from "@/components/files/FileLabel.vue";
 import ComposerEditor from "@/components/chat/ComposerEditor.vue";
+import ImageStudioDialog from "@/components/chat/ImageStudioDialog.vue";
 import AskUserCard from "@/components/chat/AskUserCard.vue";
 import EffortSlider from "@/components/chat/EffortSlider.vue";
 import ModelPicker from "@/components/chat/ModelPicker.vue";
@@ -41,16 +28,25 @@ import QueuedMessages from "@/components/chat/QueuedMessages.vue";
 import SkillPanelHost from "@/components/chat/SkillPanelHost.vue";
 import SkillUsageTags from "@/components/chat/SkillUsageTags.vue";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useComposerFiles } from "@/composables/useComposerFiles";
 import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useOverlayGeometry } from "@/composables/useOverlayGeometry";
-import { useVoiceInput } from "@/composables/useSystemAbilities";
+import { cancelVoiceInput, useVoiceInput } from "@/composables/useSystemAbilities";
+import { SLASH_COMMANDS, type SlashCommandId } from "@/lib/slash-commands";
 import { useChatStore } from "@/stores/chat";
+import { useLayoutStore } from "@/stores/layout";
+import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { AttachmentData } from "@/components/ai-elements/attachments";
-import type { ReasoningEffort } from "@zen/shared";
+import type { GeneratedImageRecord, ReasoningEffort } from "@zen/shared";
 
 const { t } = useI18n();
 const emit = defineEmits<{ openWorkflow: [] }>();
@@ -185,6 +181,10 @@ function openMicSettings() {
   );
 }
 
+// 会话切换/组件销毁：丢掉未转写的录音，避免转写文本落到别的会话输入框
+watch(() => chatStore.sessionId, () => void cancelVoiceInput());
+onBeforeUnmount(() => void cancelVoiceInput());
+
 async function onMicClick() {
   try {
     const text = await toggleVoice();
@@ -240,7 +240,74 @@ const triggers = useComposerTriggers({
   // 本会话上传过的文件（当前附件 + 历史消息附件）：@ 弹层置顶可搜
   uploadedFiles: () => chatStore.sessionUploadedFiles,
   registerUploaded: (file) => chatStore.registerAttachmentRef(file),
+  onCommand: (id) => runSlashCommand(id),
 });
+
+/** 斜杠命令帮助弹窗：列出全部本地命令 */
+const slashHelpOpen = ref(false);
+
+/** 生图弹层：生成结果落本地素材库，插入即登记为当前会话附件 */
+const imageStudioOpen = ref(false);
+
+function onImageInsert(record: GeneratedImageRecord) {
+  chatStore.registerAttachmentRef({
+    name: record.fileName,
+    path: record.path,
+    size: record.sizeBytes,
+    isImage: true,
+  });
+}
+
+/** 底栏三个面板：命令需要程序化打开它们自己的弹层 */
+interface PickerHandle {
+  openPanel: () => void;
+}
+const modelPickerRef = ref<PickerHandle | null>(null);
+const contextPickerRef = ref<PickerHandle | null>(null);
+const permissionPickerRef = ref<PickerHandle | null>(null);
+
+/** 这些面板在「更多选项」折叠里；先展开，等渲染出组件再开弹层 */
+async function openAdvancedPicker(target: typeof modelPickerRef) {
+  advancedOpen.value = true;
+  await nextTick();
+  target.value?.openPanel();
+}
+
+/** 本地斜杠命令：只执行真实存在的动作（打开面板 / 新建对话 / 展示帮助） */
+function runSlashCommand(id: SlashCommandId) {
+  switch (id) {
+    case "help":
+      slashHelpOpen.value = true;
+      break;
+    case "clear":
+      chatStore.newTask();
+      break;
+    case "status":
+      // 只打开信息面板：toggleInfo 会反复开关，命令应表现为「显示」
+      useLayoutStore().infoOpen = true;
+      break;
+    case "diff":
+      useRightPanelStore().ensureTab("git");
+      break;
+    case "context":
+      void openAdvancedPicker(contextPickerRef);
+      break;
+    case "model":
+      modelPickerRef.value?.openPanel();
+      break;
+    case "mode":
+      void openAdvancedPicker(permissionPickerRef);
+      break;
+  }
+}
+
+/** 发送：`//xxx` 表示字面量文本，去掉一个斜杠再发，避免被当成命令 */
+function sendMessage() {
+  if (input.value.startsWith("//")) {
+    input.value = input.value.slice(1);
+  }
+  void chatStore.send();
+}
 
 // 浏览器「标注」等：写入 composer 光标处
 watch(
@@ -301,7 +368,7 @@ function onKeydown(event: KeyboardEvent) {
   }
   if (!event.shiftKey) {
     event.preventDefault();
-    void chatStore.send();
+    sendMessage();
   }
   // Shift+Enter 不拦截：交给编辑器 beforeinput 的 insertParagraph 换行
 }
@@ -324,7 +391,7 @@ function removeAttachment(id: string) {
   <!-- 与消息区同一背板；输入面是一块深色圆角壳，内部上文本、下工具条。
        左侧与消息区共用 --chat-gutter 引导线槽，保持两列对齐（见 styles.css） -->
   <div class="flex-none bg-[var(--color-main-bg)] pl-[var(--chat-gutter)] pr-4 pb-4 pt-2">
-    <div class="relative mx-auto max-w-[1024px]">
+    <div class="relative mx-auto max-w-[var(--chat-content-w)]">
       <!-- Agent 提问卡：贴在输入框上方，回答动作紧邻输入位置 -->
       <AskUserCard v-if="chatStore.pendingAsk" class="mb-2" />
 
@@ -466,6 +533,16 @@ function removeAttachment(id: string) {
               </Button>
               <Button
                 variant="ghost"
+                size="icon-sm"
+                class="flex-none text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="t('chat.imageStudio.open')"
+                :title="t('chat.imageStudio.open')"
+                @click="imageStudioOpen = true"
+              >
+                <ImagePlus class="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
                 size="sm"
                 class="h-7 gap-1 text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
                 :aria-expanded="advancedOpen"
@@ -485,7 +562,7 @@ function removeAttachment(id: string) {
                 v-model="effort"
                 :allowed="allowedEfforts"
               />
-              <ModelPicker :compact="isCompactBar" />
+              <ModelPicker ref="modelPickerRef" :compact="isCompactBar" />
               <!-- 语音输入：平台不支持时隐藏；录音中变停止（点击结束并转写） -->
               <Button
                 v-if="voiceSupported"
@@ -540,7 +617,7 @@ function removeAttachment(id: string) {
                 "
                 :disabled="!canSend"
                 :aria-label="isPreparing ? t('chat.bubble.thinking') : t('chat.send')"
-                @click="chatStore.send()"
+                @click="sendMessage()"
               >
                 <LoaderCircle v-if="isPreparing" class="size-4 animate-spin" />
                 <ArrowUp v-else class="size-4" />
@@ -574,8 +651,8 @@ function removeAttachment(id: string) {
                 <Workflow class="size-4" aria-hidden="true" />
                 <span v-if="!isCompactBar" class="text-[11px] font-normal">{{ t('chat.workflows') }}</span>
               </Button>
-              <PermissionPicker :compact="isCompactBar" />
-              <ContextUsagePicker :compact="isCompactBar" />
+              <PermissionPicker ref="permissionPickerRef" :compact="isCompactBar" />
+              <ContextUsagePicker ref="contextPickerRef" :compact="isCompactBar" />
             </div>
           </div>
         </div>
@@ -624,6 +701,13 @@ function removeAttachment(id: string) {
               {{ item.desc }}
             </span>
           </template>
+          <template v-else-if="item.icon === 'command'">
+            <Terminal class="size-3.5 shrink-0 text-[var(--color-mut)]" />
+            <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
+            <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-dim)]">
+              {{ item.desc }}
+            </span>
+          </template>
           <template v-else>
             <Sparkles class="size-3.5 shrink-0 text-[var(--color-mut)]" />
             <span class="min-w-0 truncate text-[12px]">{{ item.label }}</span>
@@ -642,6 +726,26 @@ function removeAttachment(id: string) {
           {{ triggers.kind.value === "mcp" ? t("chat.noMcpRunning") : t("chat.noMatch") }}
         </div>
       </div>
+
+      <!-- /help：本地斜杠命令清单（只列真实可执行的命令） -->
+      <Dialog v-model:open="slashHelpOpen">
+        <DialogContent class="gap-2 sm:max-w-[420px]">
+          <DialogTitle>{{ t("chat.slash.help") }}</DialogTitle>
+          <DialogDescription>{{ t("chat.slash.helpDesc") }}</DialogDescription>
+          <ul class="mt-1 flex flex-col gap-1">
+            <li v-for="command in SLASH_COMMANDS" :key="command.id" class="flex items-baseline gap-2">
+              <code class="shrink-0 font-[family-name:var(--font-mono)] text-[12px] text-[var(--color-txt-strong)]">
+                /{{ command.name }}
+              </code>
+              <span class="min-w-0 flex-1 text-[12px] text-[var(--color-mut)]">
+                {{ t(`chat.${command.descKey}`) }}
+              </span>
+            </li>
+          </ul>
+        </DialogContent>
+      </Dialog>
+
+      <ImageStudioDialog v-model:open="imageStudioOpen" @insert="onImageInsert" />
     </div>
   </div>
 </template>

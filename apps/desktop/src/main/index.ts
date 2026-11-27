@@ -6,9 +6,10 @@ import { promisify } from "node:util";
 import { registerMcpRuntime } from "@zen/agent-core";
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from "electron";
 
-import { runAgentRequest, continueLarkChat, startLarkChat } from "./agent-runner";
+import { runAgentRequest, continueLarkChat, startLarkChat, stopCliRun } from "./agent-runner";
 import { getAgentServicesRegistry, initAgentServices, shutdownAgentServices } from "./agent-services";
 import { registerAgentServicesIpc } from "./agent-services-ipc";
+import { registerImageIpc } from "./image-ipc";
 import { ensureBuiltinSkills } from "./builtin-skills";
 import { setupApplicationMenu } from "./app-menu";
 import { registerAgentIpc } from "./agent-ipc";
@@ -23,11 +24,15 @@ import {
   undoTurnCheckpoints,
 } from "./session-checkpoints";
 import { initUserState, registerUserIpc } from "./user-ipc";
+import { registerThemeImageIpc } from "./theme-image";
+import { registerThemePackIpc } from "./theme-pack";
 import { registerUpdaterIpc } from "./updater";
 import { registerModelIpc } from "./model-ipc";
 import { registerPetIpc, restorePetWindow } from "./pet-service";
 import { isPetTrayWindow } from "./pet-tray-window";
 import { isPetWindow } from "./pet-window";
+import { registerExternalSessionsIpc } from "./external-sessions-ipc";
+import { registerSideChatIpc, shutdownSideChatRuns } from "./side-chat-ipc";
 import { registerSessionIpc } from "./session-ipc";
 import { registerWorkflowIpc } from "./workflow-ipc";
 import { startGoalReminders, shutdownGoalReminders } from "./goal-reminders";
@@ -55,6 +60,7 @@ import { initZenDir, loadAgentSettings, sessionCacheDir, zenRoot } from "./zen-d
 import { initDeviceMemory } from "./memory";
 import { registerMemoryIpc } from "./memory-ipc";
 import { registerSchedulerIpc, shutdownScheduler } from "./scheduler-ipc";
+import { registerTasksIpc, shutdownTasks } from "./tasks-ipc";
 import { registerLarkIpc, shutdownLark, syncLarkGatewayWithSettings } from "./lark/ipc";
 import { registerWindowControlsIpc, registerTitleBarOverlayThemeSync, titleBarOverlayOptions } from "./window-controls";
 import { registerSystemAbilitiesIpc, shutdownSystemAbilities } from "./abilities/ipc";
@@ -237,7 +243,8 @@ function registerIpc(): void {
   ipcMain.handle("agent:cancel", async (_event, sessionId: string) => {
     const session = sessions.get(sessionId);
     if (!session) {
-      return { ok: false, error: "session not running" };
+      // 外部 CLI 会话不在 AgentSession 表里：交给 CLI 停止（进程组整体收掉）
+      return stopCliRun(sessionId) ? { ok: true } : { ok: false, error: "session not running" };
     }
     await session.cancel();
     sessions.delete(sessionId);
@@ -518,6 +525,8 @@ app.whenReady().then(() => {
   // 启动即同步飞书桥接设置（enabled 时拉起事件网关；registerLarkIpc 已就绪）
   void loadAgentSettings().then((settings) => syncLarkGatewayWithSettings(settings));
   registerUserIpc();
+  registerThemeImageIpc();
+  registerThemePackIpc();
   registerModelIpc();
   registerPetIpc(() => mainWindow, sessions, (sessionId) => {
     const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow();
@@ -528,12 +537,19 @@ app.whenReady().then(() => {
     else sendOpenRequest();
   });
   registerSessionIpc((sessionId) => sessions.has(sessionId));
+  registerExternalSessionsIpc();
+  // 侧边对话：独立落库的续聊（共用 sessions 登记表，事件走 side-chat:stream 广播）
+  registerSideChatIpc({
+    sessions,
+    broadcast: (event) => broadcast("side-chat:stream", event),
+  });
   registerWorkflowIpc((sessionId) => sessions.has(sessionId));
   registerWorkspaceIpc();
   registerGitIpc();
   registerShellIpc();
   registerAgentIpc(broadcast);
   registerAgentServicesIpc(initAgentServices(broadcast));
+  registerImageIpc();
   registerMcpIpc();
   registerCacheIpc();
   // 站点图标（浏览器历史 / 网络来源）：主进程抓取 + 缓存，渲染层只拿 data URL
@@ -550,6 +566,8 @@ app.whenReady().then(() => {
   registerSystemAbilitiesIpc();
   // 定时任务：IPC + 每分钟调度循环（含启动补跑错过的 daily 任务）
   registerSchedulerIpc(broadcast, sessions);
+  // 持续任务：IPC + 队列/执行循环（复用旧计划的到期算法，独立于上面的定时任务）
+  registerTasksIpc(broadcast, sessions);
   registerWindowControlsIpc();
   registerTitleBarOverlayThemeSync();
   // 可选功能目录：feature:list 返回目录 + probe 结果
@@ -611,7 +629,10 @@ app.on("will-quit", () => {
   shutdownSystemAbilities();
   shutdownLark();
   shutdownScheduler();
+  shutdownTasks();
   shutdownGoalReminders();
+  // 侧聊在跑的 run：取消并清空登记（记录已落库，重启后按记录继续）
+  shutdownSideChatRuns();
   unregisterAllGlobalShortcuts();
   void stopCliServer().catch((error) => {
     console.warn("[zen] CLI 服务清理失败:", error);

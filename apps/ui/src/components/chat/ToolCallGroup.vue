@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ChevronRight, ListChecks, Loader2 } from "@lucide/vue";
-import { computed, ref } from "vue";
+import { IconChevronRight as ChevronRight, IconListCheck as ListChecks, IconLoader2 as Loader2 } from "@tabler/icons-vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+
+import { useChatStore } from "@/stores/chat";
+import { toolsExpandedByDefault, useTranscriptView } from "@/stores/transcript-view";
 
 import { summarizeTools } from "@/components/chat/message-groups";
 import ToolCallRow from "@/components/chat/ToolCallRow.vue";
@@ -11,7 +14,16 @@ import type { ToolPart } from "@/components/chat/tool-part";
 
 const props = defineProps<{ tools: ToolPart[] }>();
 const { t } = useI18n();
-const open = ref(false);
+const chatStore = useChatStore();
+const { view } = useTranscriptView(() => chatStore.sessionId);
+// 「详细」档默认展开工具步骤；切档时同步，用户手动开合后仍以本地为准
+const open = ref(toolsExpandedByDefault(view.value));
+watch(
+  () => toolsExpandedByDefault(view.value),
+  (next) => {
+    open.value = next;
+  },
+);
 const summary = computed(() => summarizeTools(props.tools));
 </script>
 

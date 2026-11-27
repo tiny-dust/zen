@@ -47,6 +47,21 @@ function ensureProbe(
 /** 语音输入（点击开始 → 再点结束 → 转写文本回填输入框） */
 const voicePartialText = ref("");
 let voicePartialUnsub: (() => void) | null = null;
+/** 点击串行化：开始/停止请求在途时忽略重复点击，避免「已有进行中的录音」类竞态 */
+let voiceInFlight = false;
+
+/**
+ * 会话切换或组件销毁时取消录音：文本丢弃而不是插入到另一个会话的输入框。
+ * 主进程一次只允许一路录音，这里不区分发起者。
+ */
+export async function cancelVoiceInput(): Promise<void> {
+  voicePartialText.value = "";
+  try {
+    await window.zen?.voice?.stop();
+  } catch {
+    // 没有进行中的录音时 stop 会报错，忽略
+  }
+}
 
 /** partial 订阅懒接线：只在首次录音时订阅一次，模块级共享给所有调用方 */
 function ensureVoicePartialSubscription(): void {
@@ -70,9 +85,18 @@ export function useVoiceInput() {
 
   /** 返回 null=本次点击只切换录音态；出错抛出消息供调用方提示 */
   async function toggle(): Promise<string | null> {
-    if (!supported.value || transcribing.value) {
+    if (!supported.value || transcribing.value || voiceInFlight) {
       return null;
     }
+    voiceInFlight = true;
+    try {
+      return await runToggle();
+    } finally {
+      voiceInFlight = false;
+    }
+  }
+
+  async function runToggle(): Promise<string | null> {
     if (!recording.value) {
       // locale = 当前界面语言：系统默认识别语言与用户口音不匹配时结果为空（macOS）
       const started = await window.zen?.voice?.start(i18n.global.locale.value);
@@ -106,10 +130,23 @@ export function useVoiceInput() {
 }
 
 /** TTS 播报（助手消息「朗读」/「停止」） */
+/** 当前正在朗读的消息 id（模块级共享：一条在播时其它消息显示「停止」） */
+const speakingId = ref<string | null>(null);
+let ttsEndUnsub: (() => void) | null = null;
+
+/** 播报进程结束推送：自然读完也要复位，否则按钮会一直停在「停止」 */
+function ensureTtsEndSubscription(): void {
+  if (ttsEndUnsub) {
+    return;
+  }
+  ttsEndUnsub = window.zen?.tts?.onEnded?.(() => {
+    speakingId.value = null;
+  }) ?? null;
+}
+
 export function useTts() {
   const supported = ref(false);
-  /** 当前正在朗读的消息 id（模块级共享：一条在播时其它消息显示「停止」） */
-  const speakingId = ref<string | null>(null);
+  ensureTtsEndSubscription();
 
   void ensureProbe(ttsState, () => window.zen?.tts?.probe()).then((probe) => {
     supported.value = probe.supported;

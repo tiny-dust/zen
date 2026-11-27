@@ -2,6 +2,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import MessageBubble from "@/components/MessageBubble.vue";
+import { resetTranscriptViewForTests, setGlobalView } from "@/stores/transcript-view";
 
 import type { ChatMessage } from "@zen/shared";
 
@@ -177,7 +178,7 @@ describe("MessageBubble 终态与工具语义", () => {
     expect(wrapper.text()).toContain("登录");
     expect(wrapper.text()).toContain("请点");
     expect(wrapper.text()).not.toContain("$el:");
-    expect(wrapper.find(".lucide").exists()).toBe(true);
+    expect(wrapper.find("svg.tabler-icon").exists()).toBe(true);
   });
 
   it("正常 stop 显示弱化的已完成，不显示失败文案", () => {
@@ -204,7 +205,7 @@ describe("MessageBubble 终态与工具语义", () => {
     const wrapper = mountMessage(completed, false, true);
     const exportButton = wrapper.get('button[aria-label="导出本轮"]');
     expect(exportButton.attributes("title")).toBe("导出本轮");
-    expect(exportButton.find(".lucide-download").exists()).toBe(true);
+    expect(exportButton.find("svg").exists()).toBe(true);
     expect(exportButton.text()).toBe("");
     await exportButton.trigger("click");
     expect(wrapper.emitted("exportTurn")).toHaveLength(1);
@@ -361,6 +362,40 @@ describe("MessageBubble 文件引用", () => {
     await flushPromises();
     expect(wrapper.find("img.max-h-40").exists()).toBe(false);
     expect(wrapper.find(".file-label").exists()).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+describe("会话详细程度对思考块的影响", () => {
+  const message = {
+    id: "m1",
+    sessionId: "s1",
+    role: "assistant",
+    content: "结论",
+    reasoning: "先想一下",
+    createdAt: 1,
+    sortIndex: 0,
+  } as unknown as ChatMessage;
+
+  afterEach(() => {
+    resetTranscriptViewForTests();
+  });
+
+  it("显示思考档渲染思考块", async () => {
+    setGlobalView("thinking");
+    const wrapper = mountMessage(message);
+    await flushPromises();
+    expect(wrapper.find("reasoning-stub").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("精简档不渲染思考块，但正文保留", async () => {
+    setGlobalView("normal");
+    const wrapper = mountMessage(message);
+    await flushPromises();
+    // 思考块被过滤；正文由 Response stub 承载，这里只验证不误删其它分段
+    expect(wrapper.find("reasoning-stub").exists()).toBe(false);
+    expect(wrapper.find("response-stub").exists()).toBe(true);
     wrapper.unmount();
   });
 });

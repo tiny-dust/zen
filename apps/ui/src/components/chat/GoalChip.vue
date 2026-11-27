@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bell, Check, PauseCircle, Play, Target, Trash2 } from "@lucide/vue";
+import { IconBell as Bell, IconCheck as Check, IconCirclePause as PauseCircle, IconPlayerPlay as Play, IconTarget as Target, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

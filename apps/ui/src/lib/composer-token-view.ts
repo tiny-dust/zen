@@ -3,7 +3,7 @@
 // （已挂载的 Vue 子视图容器、悬浮明细 tooltip），随实例销毁。
 
 import { h, render as renderVue } from "vue";
-import { Globe, Sparkles, Wrench } from "@lucide/vue";
+import { IconWorld as Globe, IconSparkles as Sparkles, IconTool as Wrench } from "@tabler/icons-vue";
 
 import FileLabel from "@/components/files/FileLabel.vue";
 import { formatElementDetail } from "@/lib/browser-element";

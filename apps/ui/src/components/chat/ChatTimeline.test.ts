@@ -223,3 +223,21 @@ describe("ChatTimeline 本轮导出入口", () => {
     expect(dialog.props("assistantMessageId")).toBe("done");
   });
 });
+
+describe("空会话布局", () => {
+  it("empty 时时间线按内容高度占位，交给外层把欢迎区与输入框整体居中", () => {
+    chatState.messages.value = [];
+    const wrapper = mount(ChatTimeline, { props: { empty: true }, global: { stubs: { Loader: true } } });
+    const classes = wrapper.find("section").classes();
+    expect(classes).toContain("flex-none");
+    expect(classes).not.toContain("flex-1");
+    wrapper.unmount();
+  });
+
+  it("有消息时恢复占满高度、自行滚动", () => {
+    chatState.messages.value = [userMsg("u1")];
+    const wrapper = mount(ChatTimeline, { props: { empty: false }, global: { stubs: { Loader: true } } });
+    expect(wrapper.find("section").classes()).toContain("flex-1");
+    wrapper.unmount();
+  });
+});

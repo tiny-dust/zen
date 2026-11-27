@@ -1,3 +1,4 @@
+import type { CustomTheme, CustomThemePack, ThemeImagePickResult } from "@zen/shared";
 import type {
   AbilityProbe,
   AddModelInput,
@@ -10,6 +11,16 @@ import type {
   ErrorReportAnalysis,
   ErrorReportPayload,
   ErrorReportRecord,
+  ExternalSessionTrace,
+  ExternalSessionsResult,
+  ExternalClientCapability,
+  ExternalRunEvent,
+  ExternalRunRequest,
+  ExternalRunStarted,
+  SideChatListResult,
+  SideChatModelRef,
+  SideChatRecord,
+  SideChatStreamEvent,
   OcrResult,
   TtsSpeakOptions,
   VoiceStartResult,
@@ -53,6 +64,8 @@ import type {
   GitStashEntry,
   GitStatus,
   GitSyncResult,
+  WorktreeListResult,
+  WorktreeRemoveResult,
   LarkLoginEvent,
   LarkStatus,
   McpServerConfig,
@@ -60,6 +73,11 @@ import type {
   McpDiscoveredServer,
   MemoryCategory,
   MemoryConsolidationResult,
+  ConversationMemoryList,
+  ConversationMemorySettings,
+  ConversationMemoryState,
+  MemoryIngestMessage,
+  MemoryIngestResult,
   MemoryNote,
   MemoryScope,
   MemorySnapshot,
@@ -83,10 +101,23 @@ import type {
   ScheduledTaskInput,
   ScheduledTaskRun,
   ScheduledTaskRunEvent,
+  Task,
+  TaskAttempt,
+  TaskInput,
+  TaskJournalEntry,
+  TaskListResult,
+  TaskQueueInfo,
+  TaskStreamEvent,
   SessionRecord,
   SessionWorktree,
   SetModelsEnabledInput,
   AgentServiceInfo,
+  ProcessStat,
+  GeneratedImageRecord,
+  UsageLedger,
+  UsageLedgerFilter,
+  ImageGenerateInput,
+  ImageGenerateResult,
   SkillFileContent,
   SkillFileInfo,
   SkillPanelInfo,
@@ -213,6 +244,10 @@ export interface ZenApi {
   git: {
     discover(root: string): Promise<GitRepository[]>;
     info(cwd?: string): Promise<{ repo: string; branch: string }>;
+    worktrees(cwd: string | string[], currentPath?: string): Promise<WorktreeListResult>;
+    removeWorktree(repoPath: string, worktreePath: string): Promise<WorktreeRemoveResult>;
+    stage(cwd: string | undefined, paths: string[]): Promise<GitSyncResult>;
+    unstage(cwd: string | undefined, paths: string[]): Promise<GitSyncResult>;
     status(cwd?: string): Promise<GitStatus | null>;
     diff(cwd: string | undefined, path: string, staged?: boolean): Promise<string | null>;
     commit(
@@ -223,6 +258,7 @@ export interface ZenApi {
         push?: boolean;
         includeUnstaged?: boolean;
         autoMessage?: boolean;
+        stagedOnly?: boolean;
         model?: GitCompletionModel;
       },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string; aiNote?: string }>;
@@ -337,6 +373,8 @@ export interface ZenApi {
     chatgptRefresh(providerId: string): Promise<{ status: ChatGptAuthStatus; error?: string }>;
     chatgptLogout(providerId: string): Promise<ChatGptAuthStatus>;
     getUsage(providerId: string): Promise<ProviderUsageSnapshot>;
+    /** 用量账本（明细表）：窗口筛选后的汇总与最近记录；费用不做估算 */
+    usageLedger(filter?: UsageLedgerFilter): Promise<UsageLedger>;
   };
   agent: {
     run(request: AgentRunRequest): Promise<{ ok: boolean; error?: string }>;
@@ -392,6 +430,8 @@ export interface ZenApi {
     ): Promise<{ ok: boolean; error?: string; removed?: number }>;
     pickDirectory(): Promise<string | null>;
     promptPresets(): Promise<PromptPreset[]>;
+    /** 外部 CLI 探测：path 为 null 表示本机未安装 */
+    cliRuntimes(): Promise<Array<{ id: "claude" | "codex"; label: string; command: string; path: string | null }>>;
     sandboxDir(): Promise<string>;
     rebuildSandbox(projectPath: string): Promise<{ ok: boolean; dir?: string; error?: string }>;
     /** 网络搜索供应商 Key 配置状态（masked 为脱敏预览，仅设置页展示用） */
@@ -454,6 +494,28 @@ export interface ZenApi {
     authorize(serverId: string): Promise<McpServerStatus[]>;
   };
   memory: {
+    /** 对话记忆（对照 Nomi）：摘要 / 事实 / 档案 / 设置，与设备备注各自独立 */
+    conversations: {
+      state(): Promise<ConversationMemoryState>;
+      list(query?: string): Promise<ConversationMemoryList>;
+      ingest(
+        sessionId: string,
+        messages: MemoryIngestMessage[],
+        options?: { force?: boolean },
+      ): Promise<MemoryIngestResult>;
+      updateEpisode(
+        id: string,
+        patch: { title?: string; summary?: string; pinned?: boolean },
+      ): Promise<ConversationMemoryList>;
+      upsertFact(input: { id?: string; text: string; kind: string; pinned?: boolean }): Promise<ConversationMemoryList>;
+      remove(kind: "episode" | "fact", id: string): Promise<ConversationMemoryList>;
+      persona(): Promise<string>;
+      setPersona(text: string): Promise<{ ok: boolean }>;
+      setSettings(patch: Partial<ConversationMemorySettings>): Promise<ConversationMemoryState>;
+      exportAll(format: "json" | "md"): Promise<{ ok: boolean; path?: string; error?: string }>;
+      clear(): Promise<ConversationMemoryList>;
+      onChanged(handler: () => void): () => void;
+    };
     /** 设备域只含分类索引（数量 + 摘要），正文走 notes() 按需读取 */
     get(): Promise<MemoryView>;
     /** 按分类读取备注正文（category 缺省 = 该域全部） */
@@ -526,6 +588,8 @@ export interface ZenApi {
     setPhaseModel(id: string, phase: "plan" | "act", providerId: string | null, modelId: string | null): Promise<void>;
     /** P/A 双模型开关（会话级）；关闭后只用会话模型，阶段模型配置保留 */
     setPairMode(id: string, enabled: boolean): Promise<void>;
+    /** 会话底座：null = API 模型；'claude'/'codex' = 本机外部 CLI（未安装时 main 侧忽略） */
+    setRuntimeCli(id: string, runtimeCli: string | null): Promise<void>;
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void>;
     /** 会话目标（Goals 目标模式）；null 表示清除目标 */
@@ -672,8 +736,30 @@ export interface ZenApi {
   /** 长驻服务（runTerminal 起的 dev server 等）：主进程进程组跟踪，可关闭 */
   services: {
     list(): Promise<AgentServiceInfo[]>;
+    /** 真实进程指标采样；读不到的 pid 不会出现在结果里 */
+    stats(pids: number[]): Promise<ProcessStat[]>;
     kill(id: string): Promise<{ ok: boolean; error?: string }>;
     onChange(handler: (services: AgentServiceInfo[]) => void): () => void;
+  };
+  /** 聊天区图片背景：主进程负责选图、校验与复制，渲染层只拿文件名与 data URL */
+  themeImage: {
+    pick(): Promise<ThemeImagePickResult>;
+    read(id: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
+    clear(id: string): Promise<{ ok: boolean; error?: string }>;
+    exists(id: string): Promise<boolean>;
+  };
+  /** 主题包导入/导出：兼容 nomi 的 .nomitheme.json 与 .nomitheme（ZIP） */
+  themePack: {
+    import(): Promise<{ ok: boolean; canceled?: boolean; pack?: CustomThemePack; error?: string }>;
+    export(theme: CustomTheme): Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+  };
+  /** 生图与本地素材库（~/.zen/images，每条记录带绝对路径可直接作会话附件） */
+  images: {
+    generate(input: ImageGenerateInput): Promise<ImageGenerateResult>;
+    list(): Promise<GeneratedImageRecord[]>;
+    read(id: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
+    remove(id: string): Promise<{ ok: boolean; error?: string }>;
+    cancel(): Promise<{ ok: boolean }>;
   };
   /** 飞书桥接：lark-cli 网关状态（lark:status / lark:changed，main 侧托管启停） */
   lark: {
@@ -695,6 +781,26 @@ export interface ZenApi {
     onStatus(handler: (status: RemoteStatus) => void): () => void;
   };
   /** 定时/计划任务：到点自动在目标工作区运行 agent 并通知 */
+  /** 持续任务：CRUD、执行控制、执行记录与实时事件 */
+  tasks: {
+    list(): Promise<TaskListResult>;
+    get(id: string): Promise<{ task: Task; attempts: TaskAttempt[]; queue?: TaskQueueInfo } | null>;
+    journal(id: string): Promise<TaskJournalEntry[]>;
+    create(input: TaskInput): Promise<Task | { error: string }>;
+    update(patch: { id: string } & Partial<TaskInput>): Promise<Task | { error: string }>;
+    runNow(id: string): Promise<{ ok: boolean; error?: string }>;
+    pause(id: string): Promise<Task | null>;
+    resume(id: string): Promise<Task | null>;
+    cancel(id: string): Promise<Task | null>;
+    accept(id: string): Promise<Task | null>;
+    reject(id: string, feedback: string): Promise<Task | null>;
+    archive(id: string): Promise<Task | null>;
+    unarchive(id: string): Promise<Task | null>;
+    ack(id: string): Promise<Task | null>;
+    remove(id: string): Promise<{ ok: boolean }>;
+    decide(id: string, approve: boolean, text?: string): Promise<Task | null>;
+    onEvent(handler: (event: TaskStreamEvent) => void): () => void;
+  };
   scheduler: {
     list(): Promise<ScheduledTask[]>;
     /** 某任务的运行历史（新→旧；展开任务卡历史时拉取） */
@@ -728,6 +834,8 @@ export interface ZenApi {
     probe(): Promise<AbilityProbe>;
     speak(text: string, options?: TtsSpeakOptions): Promise<{ ok: boolean; error?: string }>;
     stop(): Promise<{ ok: boolean }>;
+    /** 播报结束推送（自然读完/打断/出错）：复位朗读按钮状态 */
+    onEnded(handler: () => void): () => void;
   };
   /** OCR：图片附件「识别文字」，结果回填输入框 */
   ocr: {
@@ -748,5 +856,27 @@ export interface ZenApi {
     analyze(id: string): Promise<ErrorReportAnalysis | null>;
     /** 异常记录变更广播（无载荷，收到后重新 list） */
     onChanged(handler: () => void): () => void;
+  };
+
+  /** 外部 agent 会话（只读）：本机 Claude Code / Codex / Gemini / DSH / Grok 的会话文件 */
+  externalSessions: {
+    list(): Promise<ExternalSessionsResult>;
+    trace(id: string): Promise<ExternalSessionTrace>;
+    capabilities(): Promise<ExternalClientCapability[]>;
+    send(request: ExternalRunRequest): Promise<ExternalRunStarted | { error: string; blocked?: string }>;
+    stop(runId: string): Promise<{ ok: boolean }>;
+    onRun(handler: (event: ExternalRunEvent) => void): () => void;
+  };
+
+  /** 侧边对话：独立落库，关闭标签只关闭视图 */
+  sideChat: {
+    list(sessionId: string): Promise<SideChatListResult>;
+    create(sessionId: string): Promise<SideChatRecord>;
+    save(record: SideChatRecord): Promise<{ ok: boolean; error?: string }>;
+    remove(id: string): Promise<{ ok: boolean }>;
+    setModel(id: string, model: SideChatModelRef | null, effort: string | null): Promise<{ ok: boolean }>;
+    send(id: string, text: string): Promise<{ ok: boolean; error?: string }>;
+    stop(id: string): Promise<{ ok: boolean }>;
+    onStream(handler: (event: SideChatStreamEvent) => void): () => void;
   };
 }

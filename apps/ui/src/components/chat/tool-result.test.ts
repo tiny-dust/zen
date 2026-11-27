@@ -111,9 +111,13 @@ describe("toolFileDiff", () => {
   });
 
   it("handles new, cleared, unchanged and unterminated files", () => {
-    expect(toolFileDiff("", "a\nb\n")).toEqual({ patch: "@@ -0,0 +1,2 @@\n+a\n+b", added: 2, removed: 0 });
-    expect(toolFileDiff("a\nb\n", "")).toEqual({ patch: "@@ -1,2 +0,0 @@\n-a\n-b", added: 0, removed: 2 });
-    expect(toolFileDiff("a", "a")).toEqual({ patch: "", added: 0, removed: 0 });
+    expect(toolFileDiff("", "a\nb\n")).toEqual({
+      patch: "@@ -0,0 +1,2 @@\n+a\n+b", added: 2, removed: 0, firstChangedLine: 1,
+    });
+    expect(toolFileDiff("a\nb\n", "")).toEqual({
+      patch: "@@ -1,2 +0,0 @@\n-a\n-b", added: 0, removed: 2, firstChangedLine: 1,
+    });
+    expect(toolFileDiff("a", "a")).toEqual({ patch: "", added: 0, removed: 0, firstChangedLine: null });
     expect(toolFileDiff("a\nb", "a\nB")).toMatchObject({ added: 1, removed: 1 });
     expect(toolFileDiff("a\nb\nc", "a\nB\nC")).toMatchObject({ added: 2, removed: 2 });
     expect(toolFileDiff("a\nb\nc", "a\nb\nC").patch).toContain("-c\n\\ No newline at end of file\n+C");
@@ -122,10 +126,12 @@ describe("toolFileDiff", () => {
 
   it("keeps every unterminated line when creating or clearing a file", () => {
     expect(toolFileDiff("", "a\nb")).toEqual({
-      patch: "@@ -0,0 +1,2 @@\n+a\n+b\n\\ No newline at end of file", added: 2, removed: 0,
+      patch: "@@ -0,0 +1,2 @@\n+a\n+b\n\\ No newline at end of file",
+      added: 2, removed: 0, firstChangedLine: 1,
     });
     expect(toolFileDiff("a\nb", "")).toEqual({
-      patch: "@@ -1,2 +0,0 @@\n-a\n-b\n\\ No newline at end of file", added: 0, removed: 2,
+      patch: "@@ -1,2 +0,0 @@\n-a\n-b\n\\ No newline at end of file",
+      added: 0, removed: 2, firstChangedLine: 1,
     });
     expect(toolFileDiff("a", "a\n").patch).toBe("@@ -1,1 +1,1 @@\n-a\n\\ No newline at end of file\n+a");
     expect(toolFileDiff("a\n", "a").patch).toBe("@@ -1,1 +1,1 @@\n-a\n+a\n\\ No newline at end of file");
@@ -133,11 +139,17 @@ describe("toolFileDiff", () => {
 
   it("keeps insertion and deletion line positions", () => {
     expect(toolFileDiff("a\nb\n", "a\nx\nb\n")).toEqual({
-      patch: "@@ -1,2 +1,3 @@\n a\n+x\n b", added: 1, removed: 0,
+      patch: "@@ -1,2 +1,3 @@\n a\n+x\n b", added: 1, removed: 0, firstChangedLine: 2,
     });
     expect(toolFileDiff("a\nx\nb\n", "a\nb\n")).toEqual({
-      patch: "@@ -1,3 +1,2 @@\n a\n-x\n b", added: 0, removed: 1,
+      patch: "@@ -1,3 +1,2 @@\n a\n-x\n b", added: 0, removed: 1, firstChangedLine: 2,
     });
+  });
+
+  it("reports the first changed line for jumping from the tool card", () => {
+    const before = Array.from({ length: 20 }, (_, i) => `line ${i + 1}\n`).join("");
+    expect(toolFileDiff(before, before.replace("line 12", "updated 12")).firstChangedLine).toBe(12);
+    expect(toolFileDiff(before, before.replace("line 3", "updated 3")).firstChangedLine).toBe(3);
   });
 
   it("merges overlapping context without repeating unchanged lines", () => {
