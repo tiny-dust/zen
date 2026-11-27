@@ -11,6 +11,8 @@ import type {
   GitStashEntry,
   GitStatus,
   GitSyncResult,
+  WorktreeListResult,
+  WorktreeRemoveResult,
 } from "@zen/shared";
 
 /** 补全类任务（commit message 等）显式指定的模型：优先于全局选中 */
@@ -41,6 +43,8 @@ export const gitApi = {
         push?: boolean;
         includeUnstaged?: boolean;
         autoMessage?: boolean;
+        /** 只提交已暂存内容（VS Code 行为）：不再先 git add */
+        stagedOnly?: boolean;
         model?: GitCompletionModel;
       },
     ): Promise<{ ok: boolean; error?: string; output?: string; message?: string; aiNote?: string }> {
@@ -115,6 +119,22 @@ export const gitApi = {
     },
     stashDrop(cwd: string | undefined, index: number): Promise<GitSyncResult> {
       return ipcRenderer.invoke("git:stash-drop", cwd, index);
+    },
+    /** 暂存指定文件（等于 VS Code 的 Stage Changes） */
+    stage(cwd: string | undefined, paths: string[]): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:stage", cwd, paths);
+    },
+    /** 取消暂存（保留工作区改动） */
+    unstage(cwd: string | undefined, paths: string[]): Promise<GitSyncResult> {
+      return ipcRenderer.invoke("git:unstage", cwd, paths);
+    },
+    /** 仓库里 Git 登记的全部工作树（含 Agent / 其他工具创建的链接工作树） */
+    worktrees(cwd: string | string[], currentPath?: string): Promise<WorktreeListResult> {
+      return ipcRenderer.invoke("git:worktrees", cwd, currentPath);
+    },
+    /** 删除一个链接工作树：不做 --force，不顺带删分支；目录已丢失时只清理 Git 登记 */
+    removeWorktree(repoPath: string, worktreePath: string): Promise<WorktreeRemoveResult> {
+      return ipcRenderer.invoke("git:worktree-remove", repoPath, worktreePath);
     },
     branches(cwd?: string): Promise<GitBranches> {
       return ipcRenderer.invoke("git:branches", cwd);

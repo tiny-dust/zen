@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GitGraph as GitGraphIcon, X } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconGitFork as GitGraphIcon, IconSparkles as Sparkles, IconX as X } from "@tabler/icons-vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -11,6 +11,13 @@ import DiffView from "@/components/right/DiffView.vue";
 import FileLabel from "@/components/files/FileLabel.vue";
 import ResizeHandle from "@/components/layout/ResizeHandle.vue";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import GitRepositoryPicker from "@/components/git/GitRepositoryPicker.vue";
 import { useChatStore } from "@/stores/chat";
@@ -119,6 +126,50 @@ function tabCls(id: string) {
       : "text-[var(--color-mut)] hover:text-[var(--color-txt)]",
   );
 }
+
+/** git 面板新增文案统一放 git-panel 模块（命名空间 git-panel） */
+const gp = (key: string) => t(`git-panel.gitPanel.${key}`);
+
+/** 提交输入框：只提交已暂存内容（VS Code Source Control 语义） */
+const commitMessage = ref("");
+const commitBusy = ref(false);
+const messageBusy = ref(false);
+/** 暂存区为空时禁用提交：不偷偷 add 工作区改动 */
+const canCommit = computed(() => gitStore.stagedFiles.length > 0 && !gitStore.mutationBusy);
+
+watch(() => gitStore.cwd(), () => {
+  commitMessage.value = "";
+});
+
+async function submitCommit(push: boolean) {
+  if (commitBusy.value || !canCommit.value) {
+    return;
+  }
+  commitBusy.value = true;
+  try {
+    const result = await gitStore.commitStaged(commitMessage.value, { push });
+    if (result.ok) {
+      commitMessage.value = "";
+    }
+  } finally {
+    commitBusy.value = false;
+  }
+}
+
+async function generateMessage() {
+  if (messageBusy.value) {
+    return;
+  }
+  messageBusy.value = true;
+  try {
+    const message = await gitStore.generateMessage();
+    if (message.trim()) {
+      commitMessage.value = message.trim();
+    }
+  } finally {
+    messageBusy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -130,6 +181,63 @@ function tabCls(id: string) {
         class="flex min-h-0 flex-none flex-col gap-1 overflow-hidden"
         :style="{ width: `${sidebarWidth}px` }"
       >
+        <!-- 提交框：只提交已暂存内容；暂存区为空时禁用并提示先暂存 -->
+        <section class="flex flex-none flex-col gap-1">
+          <Textarea
+            v-model="commitMessage"
+            class="min-h-14 resize-none text-[12px]"
+            :placeholder="gp('commitPlaceholder')"
+            :aria-label="gp('commit')"
+            rows="2"
+            @keydown.meta.enter.prevent="submitCommit(false)"
+            @keydown.ctrl.enter.prevent="submitCommit(false)"
+          />
+          <div class="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              :aria-label="gp('generateMessage')"
+              :title="gp('generateMessage')"
+              :disabled="messageBusy || gitStore.mutationBusy"
+              @click="generateMessage"
+            >
+              <Sparkles :class="messageBusy ? 'animate-pulse' : ''" />
+            </Button>
+            <Button
+              size="xs"
+              class="min-w-0 flex-1"
+              :disabled="!canCommit || commitBusy"
+              @click="submitCommit(false)"
+            >
+              {{ gp("commit") }}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  :aria-label="gp('commitAndPush')"
+                  :title="gp('commitAndPush')"
+                  :disabled="!canCommit || commitBusy"
+                >
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem :disabled="!canCommit" @select="submitCommit(true)">
+                  {{ gp("commitAndPush") }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <p
+            v-if="!gitStore.stagedFiles.length"
+            class="m-0 px-0.5 text-[10px] leading-snug text-[var(--color-dim)]"
+          >
+            {{ gp("nothingStagedHint") }}
+          </p>
+        </section>
+
         <GitChangesSection :open="openSections.has('changes')" @toggle="toggleSection('changes')" />
         <GitBranchesSection :open="openSections.has('branches')" @toggle="toggleSection('branches')" />
         <GitStashesSection :open="openSections.has('stashes')" @toggle="toggleSection('stashes')" />
@@ -168,6 +276,11 @@ function tabCls(id: string) {
             >
               <span class="min-w-0 truncate font-[family-name:var(--font-mono)]">{{ tabLabel(path) }}</span>
             </Button>
+            <span
+              class="flex-none rounded-[3px] bg-[var(--color-np-btn-bg)] px-1 text-[9px] leading-[14px] text-[var(--color-mut)]"
+            >
+              {{ gitStore.diffSideOf(path) === "staged" ? gp("stagedBadge") : gp("unstagedBadge") }}
+            </span>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -202,6 +315,7 @@ function tabCls(id: string) {
               v-else-if="gitStore.diff"
               :diff="gitStore.diff"
               :path="gitStore.selectedPath"
+              :staged="gitStore.diffSide === 'staged'"
               commentable
               @comment="addReviewComment"
             />

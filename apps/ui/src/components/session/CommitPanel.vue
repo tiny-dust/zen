@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  ArrowRight,
-  Check,
-  ChevronDown,
-  GitBranch,
-  GitCommitHorizontal,
-  RefreshCw,
-} from "@lucide/vue";
+import { IconArrowRight as ArrowRight, IconCheck as Check, IconChevronDown as ChevronDown, IconGitBranch as GitBranch, IconGitCommit as GitCommitHorizontal, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

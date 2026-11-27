@@ -21,9 +21,48 @@ import { i18n } from "@/locales";
 
 export type DiffLayout = "single" | "double";
 
+/** diff 侧别：工作区（git diff）或暂存区（git diff --cached） */
+export type DiffSide = "unstaged" | "staged";
+
+/** porcelain 状态对里未合并（冲突）的标记：UU/AU/UA/DU/UD/AA/DD */
+export function isConflictChange(change: GitFileChange): boolean {
+  return (
+    change.x === "U" ||
+    change.y === "U" ||
+    (change.x === "A" && change.y === "A") ||
+    (change.x === "D" && change.y === "D")
+  );
+}
+
+/** 变更按 VS Code Source Control 语义分组：冲突 > 已暂存（x 有状态）> 更改（y 有状态或未跟踪） */
+export function groupChanges(files: GitFileChange[]): {
+  conflicts: GitFileChange[];
+  staged: GitFileChange[];
+  unstaged: GitFileChange[];
+} {
+  const conflicts: GitFileChange[] = [];
+  const staged: GitFileChange[] = [];
+  const unstaged: GitFileChange[] = [];
+  for (const change of files) {
+    if (isConflictChange(change)) {
+      conflicts.push(change);
+    } else {
+      if (change.x !== " " && change.x !== "?") {
+        staged.push(change);
+      }
+      if (change.untracked || (change.y !== " " && change.y !== "?")) {
+        unstaged.push(change);
+      }
+    }
+  }
+  return { conflicts, staged, unstaged };
+}
+
 /** 提交/推送操作类型；空串 = 空闲。状态放 store：关闭提交弹窗后操作继续、信息卡仍能展示 loading */
 export type GitOpKind = "commit" | "commit-push" | "push";
 
+/** zen-api.ts 的 git 段暂未声明 stage / unstage（preload 已实现两个 channel、主进程已注册）：
+ *  先用窄类型兜住调用，等主线程补完声明即可删掉。 */
 export const useGitStore = defineStore("git", () => {
   const status = ref<GitStatus | null>(null);
   const branches = ref<GitBranches>({ local: [], remote: [] });
@@ -47,6 +86,10 @@ export const useGitStore = defineStore("git", () => {
   /** 右侧 diff tab：图谱 tab 固定存在（"graph"），点击变更文件追加文件 tab */
   const diffTabs = ref<string[]>([]);
   const activeDiffTab = ref<string>("graph");
+  /** 每个文件 tab 打开的侧别（同一路径可来自「已暂存」或「更改」分组） */
+  const diffSides = ref<Record<string, DiffSide>>({});
+  /** 当前展示 diff 的侧别 */
+  const diffSide = ref<DiffSide>("unstaged");
 
   /** 目录内独立仓库；选择按会话及其实际工作目录保存，避免工作树间串仓库。 */
   const repositories = ref<GitRepository[]>([]);
@@ -175,7 +218,12 @@ export const useGitStore = defineStore("git", () => {
   }
 
   async function selectRepository(path: string): Promise<void> {
-    if (mutationBusy.value || !repositories.value.some((repo) => repo.path === path)) return;
+    if (mutationBusy.value) return;
+    if (!repositories.value.some((repo) => repo.path === path)) {
+      // 外部/Agent 创建的工作树不在扫描结果里：补一条临时条目，让它也能在 Git 面板里操作
+      const name = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+      repositories.value = [...repositories.value, { path, relativePath: path, name }];
+    }
     if (selectedRepositoryPath.value === path) return;
     selectedRepositoryPath.value = path;
     selectedScopeKey.value = scopeKey.value;
@@ -199,6 +247,21 @@ export const useGitStore = defineStore("git", () => {
   const totalAdd = computed(() => files.value.reduce((sum, item) => sum + item.add, 0));
   const totalDel = computed(() => files.value.reduce((sum, item) => sum + item.del, 0));
   const hasChanges = computed(() => files.value.length > 0);
+  /** VS Code 式三段分组：合并冲突 / 已暂存 / 更改 */
+  const groups = computed(() => groupChanges(files.value));
+  const conflictFiles = computed(() => groups.value.conflicts);
+  const stagedFiles = computed(() => groups.value.staged);
+  const unstagedFiles = computed(() => groups.value.unstaged);
+
+  /** 未记录侧别时按状态推断：只有暂存区改动的文件看 --cached diff */
+  function inferDiffSide(path: string): DiffSide {
+    const change = files.value.find((item) => item.path === path);
+    if (!change || isConflictChange(change) || change.untracked) {
+      return "unstaged";
+    }
+    const stagedOnly = change.x !== " " && change.x !== "?" && (change.y === " " || change.y === "?");
+    return stagedOnly ? "staged" : "unstaged";
+  }
 
   /** 父仓库的 porcelain 会把独立子仓库记作 `?? child/`；只在该子仓库自己的视图展示。 */
   function withoutNestedRepositories(next: GitStatus, root: string): GitStatus {
@@ -230,6 +293,9 @@ export const useGitStore = defineStore("git", () => {
     const valid = new Set(files.value.map((item) => item.path));
     // 文件已提交/被撤回后：关闭对应 diff tab；激活 tab 失效则回退到相邻 tab 或图谱
     diffTabs.value = diffTabs.value.filter((path) => valid.has(path));
+    diffSides.value = Object.fromEntries(
+      Object.entries(diffSides.value).filter(([path]) => valid.has(path)),
+    );
     if (activeDiffTab.value !== "graph" && !valid.has(activeDiffTab.value)) {
       const fallback = diffTabs.value[diffTabs.value.length - 1] ?? "graph";
       activeDiffTab.value = fallback;
@@ -429,10 +495,12 @@ export const useGitStore = defineStore("git", () => {
       .join("\n");
   }
 
-  async function selectFile(path: string) {
+  async function selectFile(path: string, side?: DiffSide) {
     const zen = window.zen;
     const root = await resolvedCwd();
+    const target = side ?? diffSides.value[path] ?? inferDiffSide(path);
     selectedPath.value = path;
+    diffSide.value = target;
     if (!zen?.git || !root) {
       diff.value = "";
       return;
@@ -441,17 +509,17 @@ export const useGitStore = defineStore("git", () => {
     diffLoading.value = true;
     try {
       const change = files.value.find((item) => item.path === path);
-      if (change?.untracked) {
+      if (change?.untracked && target === "unstaged") {
         const content = await zen.workspace.readFile(root, path);
         if (scopeKey.value === key && cwd() === root && selectedPath.value === path) {
           diff.value = content ? toAddedDiff(path, content.content) : `Binary files ${path} differ`;
         }
         return;
       }
-      let raw = await zen.git.diff(root, path);
+      let raw = await zen.git.diff(root, path, target === "staged");
       if (!raw) {
-        // 仅已暂存的文件没有 unstaged diff，回落到 staged diff
-        raw = await zen.git.diff(root, path, true);
+        // 选中侧没有差异（如仅暂存文件点了「更改」），回落到另一侧
+        raw = await zen.git.diff(root, path, target !== "staged");
       }
       if (scopeKey.value === key && cwd() === root && selectedPath.value === path) diff.value = raw ?? "";
     } catch (error) {
@@ -461,13 +529,20 @@ export const useGitStore = defineStore("git", () => {
     }
   }
 
-  /** 打开（或激活）文件 diff tab；点击变更文件时调用 */
-  function openFileTab(path: string) {
+  /** 某文件 tab 当前展示的侧别（tab 徽标用） */
+  function diffSideOf(path: string): DiffSide {
+    return diffSides.value[path] ?? inferDiffSide(path);
+  }
+
+  /** 打开（或激活）文件 diff tab；side 缺省沿用该 tab 上次的侧别（再缺省按状态推断） */
+  function openFileTab(path: string, side?: DiffSide) {
+    const target = side ?? diffSides.value[path] ?? inferDiffSide(path);
     if (!diffTabs.value.includes(path)) {
       diffTabs.value.push(path);
     }
+    diffSides.value = { ...diffSides.value, [path]: target };
     activeDiffTab.value = path;
-    void selectFile(path);
+    void selectFile(path, target);
   }
 
   /** 关闭文件 diff tab：激活 tab 被关则切到相邻文件 tab，否则回图谱 */
@@ -575,6 +650,113 @@ export const useGitStore = defineStore("git", () => {
         : base;
       toast.ok(feedback.value);
       await Promise.all([refreshStatus(), refreshBranches()]);
+    } else {
+      feedback.value = result.error ?? i18n.global.t("app.git.commitFailed");
+      toast.err(result.error ?? i18n.global.t("app.git.commitFailed"));
+    }
+    return result;
+  }
+
+  /** 暂存（git add）：单文件行内 / 整组 / 冲突文件标记为已解决共用 */
+  async function stage(paths: string[]) {
+    const zen = window.zen;
+    const root = await resolvedCwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    if (!paths.length) {
+      return { ok: false, error: i18n.global.t("gitPanel.nothingToStage") };
+    }
+    const result = await runMutation(() => zen.git.stage(root, paths));
+    if (cwd() !== root) return result;
+    if (!result.ok) {
+      toast.err(result.error ?? i18n.global.t("gitPanel.stageFailed"));
+    }
+    // 暂存可能同时改变冲突状态：无论成功失败都刷新一次，失败时状态回到真实值
+    await refreshStatus();
+    if (result.ok) await refreshLog();
+    return result;
+  }
+
+  /** 取消暂存（git reset）：保留工作区改动 */
+  async function unstage(paths: string[]) {
+    const zen = window.zen;
+    const root = await resolvedCwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    if (!paths.length) {
+      return { ok: false, error: i18n.global.t("gitPanel.nothingToUnstage") };
+    }
+    const result = await runMutation(() => zen.git.unstage(root, paths));
+    if (cwd() !== root) return result;
+    if (!result.ok) {
+      toast.err(result.error ?? i18n.global.t("gitPanel.unstageFailed"));
+    }
+    await refreshStatus();
+    return result;
+  }
+
+  /** 更改分组整组暂存 */
+  async function stageAll() {
+    return stage(unstagedFiles.value.map((change) => change.path));
+  }
+
+  /** 已暂存分组整组取消暂存 */
+  async function unstageAll() {
+    return unstage(stagedFiles.value.map((change) => change.path));
+  }
+
+  /** 合并冲突整组标记为解决（等价 VS Code 的 Stage All Conflicts） */
+  async function resolveConflicts() {
+    return stage(conflictFiles.value.map((change) => change.path));
+  }
+
+  /** AI 生成提交信息：失败返回空串，交由调用方保留原输入 */
+  async function generateMessage(): Promise<string> {
+    const zen = window.zen;
+    const root = await resolvedCwd();
+    if (!zen?.git || !root) return "";
+    try {
+      return (await runMutation(() => zen.git.aiMessage(root, completionModel()))) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  /** 提交已暂存内容（VS Code 语义：不自动 add 工作区改动；暂存区为空直接失败） */
+  async function commitStaged(message: string, options: { push?: boolean } = {}) {
+    const zen = window.zen;
+    const root = await resolvedCwd();
+    if (!zen?.git || !root) {
+      return { ok: false, error: i18n.global.t("app.git.noWorkDir") };
+    }
+    const paths = stagedFiles.value.map((change) => change.path);
+    if (!paths.length) {
+      return { ok: false, error: i18n.global.t("gitPanel.nothingStagedHint") };
+    }
+    opBusy.value = options.push ? "commit-push" : "commit";
+    let result: Awaited<ReturnType<typeof zen.git.commit>>;
+    try {
+      result = await runMutation(() => zen.git.commit(root, message, paths, {
+        stagedOnly: true,
+        push: options.push,
+        autoMessage: true,
+        model: completionModel(),
+      }));
+    } finally {
+      opBusy.value = "";
+    }
+    if (cwd() !== root) return result;
+    if (result.ok) {
+      const base = options.push
+        ? i18n.global.t("app.git.committedAndPushed")
+        : i18n.global.t("app.git.committed");
+      feedback.value = result.aiNote
+        ? `${base}（${i18n.global.t("app.git.aiFallbackNote", { reason: result.aiNote })}）`
+        : base;
+      toast.ok(feedback.value);
+      await Promise.all([refreshStatus(), refreshBranches(), refreshLog()]);
     } else {
       feedback.value = result.error ?? i18n.global.t("app.git.commitFailed");
       toast.err(result.error ?? i18n.global.t("app.git.commitFailed"));
@@ -854,6 +1036,8 @@ export const useGitStore = defineStore("git", () => {
     stashesLoading.value = false;
     diffTabs.value = [];
     activeDiffTab.value = "graph";
+    diffSides.value = {};
+    diffSide.value = "unstaged";
     logRef.value = "";
   }
 
@@ -914,6 +1098,18 @@ export const useGitStore = defineStore("git", () => {
     totalAdd,
     totalDel,
     hasChanges,
+    conflictFiles,
+    stagedFiles,
+    unstagedFiles,
+    diffSide,
+    diffSideOf,
+    stage,
+    unstage,
+    stageAll,
+    unstageAll,
+    resolveConflicts,
+    generateMessage,
+    commitStaged,
     refreshStatus,
     refreshRepositories,
     selectRepository,

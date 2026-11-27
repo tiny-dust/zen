@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ArchiveRestore, RefreshCw, Trash2 } from "@lucide/vue";
+import { IconArchive as Archive, IconArchiveOff as ArchiveRestore, IconRefresh as RefreshCw, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 

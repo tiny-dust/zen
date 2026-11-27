@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRightLeft, Check, GitBranch, GitMerge, RefreshCw } from "@lucide/vue";
+import { IconArrowsLeftRight as ArrowRightLeft, IconCheck as Check, IconGitBranch as GitBranch, IconGitMerge as GitMerge, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 

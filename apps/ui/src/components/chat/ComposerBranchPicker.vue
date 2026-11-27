@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, GitBranch } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconGitBranch as GitBranch } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

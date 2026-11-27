@@ -107,8 +107,13 @@ export function toolFileDiff(before: string, after: string) {
     appendContext(patch, linesA, cursorA, hunk.toA);
   }
 
+  // 首个改动在新文件里的行号（1 基）：纯删除时指向原位置的后一行，便于直接定位
+  const firstChange = hunks[0]?.changes[0];
+  const firstChangedLine = firstChange ? Math.max(1, firstChange.fromB + 1) : null;
+
   return {
     patch: patch.join("\n"),
+    firstChangedLine,
     added: hunks.reduce((total, hunk) => total + hunk.changes.reduce((sum, change) => sum + change.toB - change.fromB, 0), 0),
     removed: hunks.reduce((total, hunk) => total + hunk.changes.reduce((sum, change) => sum + change.toA - change.fromA, 0), 0),
   };

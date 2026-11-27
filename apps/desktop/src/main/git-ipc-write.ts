@@ -3,8 +3,153 @@ import { ipcMain } from "electron";
 import { fallbackCommitMessage, generateAiMessage, planBatches } from "./git-commit-ai";
 import type { CompletionModel } from "./git-commit-ai";
 import { git } from "./git-exec";
+import { removeWorktree } from "./git-worktrees";
 
-import type { GitCommitBatch } from "@zen/shared";
+import type { GitCommitBatch, GitSyncResult, WorktreeRemoveResult } from "@zen/shared";
+
+/** git 子进程失败时的可读信息（execFile 错误带 stderr） */
+function gitErrorText(error: unknown, fallback: string): string {
+  const err = error as { stderr?: string; message?: string };
+  return err?.stderr?.trim() || err?.message || fallback;
+}
+
+/** 渲染层传来的路径过滤：去空去重，`-` 开头的路径会被 git 当旗标解析，直接拒绝 */
+function sanitizePaths(paths: string[] | undefined): { paths: string[]; rejected: string[] } {
+  const valid: string[] = [];
+  const rejected: string[] = [];
+  for (const raw of paths ?? []) {
+    const path = raw.trim();
+    if (!path) {
+      continue;
+    }
+    if (path.startsWith("-")) {
+      rejected.push(path);
+    } else if (!valid.includes(path)) {
+      valid.push(path);
+    }
+  }
+  return { paths: valid, rejected };
+}
+
+/** 暂存文件（git add）：工作区改动进暂存区，冲突文件 add 后即标记为已解决 */
+export async function stageFiles(workdir: string, paths: string[]): Promise<GitSyncResult> {
+  const { paths: list, rejected } = sanitizePaths(paths);
+  if (rejected.length) {
+    return { ok: false, error: `路径不合法：${rejected.join("、")}` };
+  }
+  if (!list.length) {
+    return { ok: false, error: "没有选择要暂存的文件" };
+  }
+  try {
+    await git(workdir, ["add", "--", ...list]);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: gitErrorText(error, "暂存失败") };
+  }
+}
+
+/** 取消暂存（保留工作区改动）：HEAD 存在时 reset 回 HEAD；首个提交前（unborn HEAD）
+ *  没有可比对象，改用 rm --cached 把条目移出暂存区并保留磁盘文件 */
+export async function unstageFiles(workdir: string, paths: string[]): Promise<GitSyncResult> {
+  const { paths: list, rejected } = sanitizePaths(paths);
+  if (rejected.length) {
+    return { ok: false, error: `路径不合法：${rejected.join("、")}` };
+  }
+  if (!list.length) {
+    return { ok: false, error: "没有选择要取消暂存的文件" };
+  }
+  try {
+    const hasHead = await git(workdir, ["rev-parse", "--verify", "--quiet", "HEAD"])
+      .then(() => true)
+      .catch(() => false);
+    await git(
+      workdir,
+      hasHead
+        ? ["reset", "-q", "HEAD", "--", ...list]
+        : ["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--", ...list],
+    );
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: gitErrorText(error, "取消暂存失败") };
+  }
+}
+
+export interface GitCommitOptions {
+  push?: boolean;
+  includeUnstaged?: boolean;
+  autoMessage?: boolean;
+  /** 只提交已暂存内容（VS Code 行为）：不再先 git add，暂存区为空时直接失败 */
+  stagedOnly?: boolean;
+  model?: CompletionModel;
+}
+
+export interface GitCommitResult {
+  ok: boolean;
+  error?: string;
+  output?: string;
+  message?: string;
+  /** 提交信息走了兜底生成时的 AI 失败原因 */
+  aiNote?: string;
+}
+
+/** 提交：stagedOnly 只提交暂存区；否则可选先把 files（缺省全部）加入暂存区再提交 */
+export async function commitChanges(
+  workdir: string,
+  message: string,
+  files: string[],
+  options: GitCommitOptions = {},
+): Promise<GitCommitResult> {
+  const push = options.push ?? false;
+  const stagedOnly = options.stagedOnly ?? false;
+  const includeUnstaged = !stagedOnly && (options.includeUnstaged ?? true);
+  const { paths, rejected } = sanitizePaths(files);
+  if (rejected.length) {
+    return { ok: false, error: `路径不合法：${rejected.join("、")}` };
+  }
+  let trimmed = (message ?? "").trim();
+  /** AI 生成失败原因：提交继续走兜底，但要让用户知道为什么不是 AI 生成 */
+  let aiNote = "";
+
+  try {
+    // 任意提交相关操作：空 message 一律现场生成（AI 优先，失败用变更摘要兜底）
+    if (!trimmed && options.autoMessage !== false) {
+      trimmed = (
+        await generateAiMessage(workdir, options.model).catch((error: unknown) => {
+          aiNote = error instanceof Error && error.message ? error.message : "模型调用失败";
+          return "";
+        })
+      ).trim();
+    }
+    if (!trimmed && options.autoMessage !== false) {
+      trimmed = await fallbackCommitMessage(workdir);
+    }
+    if (!trimmed) {
+      return { ok: false, error: "提交信息不能为空" };
+    }
+    if (stagedOnly) {
+      // 暂存区为空时明确失败：不偷偷 add 工作区改动（与 VS Code 提交语义一致）
+      const staged = await git(workdir, ["diff", "--cached", "--name-only"]).catch(() => "");
+      if (!staged.trim()) {
+        return { ok: false, error: "暂存区为空：先暂存要提交的变更" };
+      }
+    } else if (includeUnstaged) {
+      await git(workdir, ["add", "--", ...(paths.length ? paths : ["."])]);
+    }
+    const commitOut = await git(workdir, ["commit", "-m", trimmed]);
+    if (push) {
+      const pushOut = await pushWithUpstream(workdir);
+      return {
+        ok: true,
+        message: trimmed,
+        output: `${commitOut.trim()}\n${pushOut.trim()}`.trim(),
+        ...(aiNote ? { aiNote } : {}),
+      };
+    }
+    return { ok: true, message: trimmed, output: commitOut.trim(), ...(aiNote ? { aiNote } : {}) };
+  } catch (error) {
+    return { ok: false, error: gitErrorText(error, "提交失败") };
+  }
+}
 
 /** 推送当前分支：-u 兼容首推（无上游时自动建立 tracking，已设置时幂等）。
  *  remote 名取仓库第一个 remote（通常 origin），无 remote 时回落普通 push 交由 git 报错 */
@@ -16,8 +161,20 @@ async function pushWithUpstream(workdir: string): Promise<string> {
     : git(workdir, ["push"]);
 }
 
-/** 写入组：commit / push / checkout / commit-batched / ai-message / create-branch */
+/** 写入组：stage / unstage / commit / push / checkout / commit-batched / ai-message / create-branch / worktree-remove */
 export function registerGitWriteIpc(): void {
+  ipcMain.handle(
+    "git:stage",
+    async (_event, cwd: string | undefined, paths: string[]): Promise<GitSyncResult> =>
+      stageFiles(cwd || process.cwd(), paths),
+  );
+
+  ipcMain.handle(
+    "git:unstage",
+    async (_event, cwd: string | undefined, paths: string[]): Promise<GitSyncResult> =>
+      unstageFiles(cwd || process.cwd(), paths),
+  );
+
   ipcMain.handle(
     "git:commit",
     async (
@@ -25,55 +182,8 @@ export function registerGitWriteIpc(): void {
       cwd: string | undefined,
       message: string,
       files: string[],
-      options?: {
-        push?: boolean;
-        includeUnstaged?: boolean;
-        autoMessage?: boolean;
-        model?: CompletionModel;
-      },
-    ): Promise<{ ok: boolean; error?: string; output?: string; message?: string }> => {
-      const workdir = cwd || process.cwd();
-      const push = options?.push ?? false;
-      const includeUnstaged = options?.includeUnstaged ?? true;
-      let trimmed = (message ?? "").trim();
-      /** AI 生成失败原因：提交继续走兜底，但要让用户知道为什么不是 AI 生成 */
-      let aiNote = "";
-
-      try {
-        // 任意提交相关操作：空 message 一律现场生成（AI 优先，失败用变更摘要兜底）
-        if (!trimmed && options?.autoMessage !== false) {
-          trimmed = (
-            await generateAiMessage(workdir, options?.model).catch((error: unknown) => {
-              aiNote = error instanceof Error && error.message ? error.message : "模型调用失败";
-              return "";
-            })
-          ).trim();
-        }
-        if (!trimmed && options?.autoMessage !== false) {
-          trimmed = await fallbackCommitMessage(workdir);
-        }
-        if (!trimmed) {
-          return { ok: false, error: "提交信息不能为空" };
-        }
-        if (includeUnstaged) {
-          await git(workdir, ["add", "--", ...(files.length ? files : ["."])]);
-        }
-        const commitOut = await git(workdir, ["commit", "-m", trimmed]);
-        if (push) {
-          const pushOut = await pushWithUpstream(workdir);
-          return {
-            ok: true,
-            message: trimmed,
-            output: `${commitOut.trim()}\n${pushOut.trim()}`.trim(),
-            ...(aiNote ? { aiNote } : {}),
-          };
-        }
-        return { ok: true, message: trimmed, output: commitOut.trim(), ...(aiNote ? { aiNote } : {}) };
-      } catch (error) {
-        const err = error as { stderr?: string; message?: string };
-        return { ok: false, error: err.stderr?.trim() || err.message || "提交失败" };
-      }
-    },
+      options?: GitCommitOptions,
+    ): Promise<GitCommitResult> => commitChanges(cwd || process.cwd(), message, files, options),
   );
 
   ipcMain.handle(
@@ -190,6 +300,17 @@ export function registerGitWriteIpc(): void {
         const err = error as { stderr?: string; message?: string };
         return { ok: false, error: err.stderr?.trim() || err.message || "创建分支失败" };
       }
+    },
+  );
+
+  /** 删除链接工作树：主进程校验路径确实登记在该仓库，从不加 --force */
+  ipcMain.handle(
+    "git:worktree-remove",
+    async (_event, repoPath: unknown, worktreePath: unknown): Promise<WorktreeRemoveResult> => {
+      if (typeof repoPath !== "string" || typeof worktreePath !== "string") {
+        return { ok: false, error: "仓库路径与工作树路径不能为空" };
+      }
+      return removeWorktree(repoPath, worktreePath);
     },
   );
 }

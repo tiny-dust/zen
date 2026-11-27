@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MessageSquarePlus } from "@lucide/vue";
+import { IconMessagePlus as MessageSquarePlus } from "@tabler/icons-vue";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -22,6 +22,8 @@ const props = defineProps<{
   /** 目标文件路径：传入时 diff 行按扩展名做语法高亮 */
   path?: string;
   commentable?: boolean;
+  /** 展示的是暂存区 diff（git diff --cached）：左上角标出侧别，避免与工作区 diff 混淆 */
+  staged?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -185,6 +187,12 @@ function gutter(value: number | null): string {
     role="figure"
     :aria-label="t('panels.fileDiff')"
   >
+    <span
+      v-if="staged"
+      class="sticky left-0 mb-1 inline-block rounded-[3px] bg-[var(--color-np-btn-bg)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-mut)]"
+    >
+      {{ t("git-panel.gitPanel.stagedBadge") }}
+    </span>
     <template v-for="(line, index) in lines" :key="index">
       <div
         class="group/line flex items-start gap-1.5 rounded-[3px] px-1"

@@ -58,6 +58,22 @@ function findRow(sessionId: string): WorktreeRow | undefined {
     .get(sessionId) as WorktreeRow | undefined;
 }
 
+/**
+ * 按工作树路径查绑定会话（供仓库级 worktree 列表标记 Zen 管理项）。
+ * 路径逐条 resolve 后比较：不做前缀匹配，也不同步依赖数据库里的写法。
+ */
+export function findSessionIdByWorktreePath(worktreePath: string): string | null {
+  const target = worktreePath?.trim();
+  if (!target) {
+    return null;
+  }
+  const rows = getDb()
+    .prepare("SELECT session_id, worktree_path FROM session_worktrees")
+    .all() as Array<{ session_id: string; worktree_path: string }>;
+  const resolved = resolve(target);
+  return rows.find((row) => resolve(row.worktree_path) === resolved)?.session_id ?? null;
+}
+
 /** 仅返回当前用户可见会话的绑定，不创建目录。 */
 export function getSessionWorktree(sessionId: string): SessionWorktree | null {
   if (!hasSession(sessionId)) {

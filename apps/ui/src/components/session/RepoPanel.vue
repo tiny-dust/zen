@@ -1,24 +1,5 @@
 <script setup lang="ts">
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowDown,
-  ArrowRightLeft,
-  ArrowUp,
-  Check,
-  ChevronDown,
-  CloudUpload,
-  ExternalLink,
-  FolderGit2,
-  GitBranch,
-  GitBranchPlus,
-  GitCommitHorizontal,
-  GitMerge,
-  LoaderCircle,
-  RefreshCw,
-  Sparkles,
-  Trash2,
-} from "@lucide/vue";
+import { IconArchive as Archive, IconArchiveOff as ArchiveRestore, IconArrowDown as ArrowDown, IconArrowsLeftRight as ArrowRightLeft, IconArrowUp as ArrowUp, IconCheck as Check, IconChevronDown as ChevronDown, IconCloudUpload as CloudUpload, IconExternalLink as ExternalLink, IconFolder as FolderGit2, IconGitBranch as GitBranch, IconGitBranch as GitBranchPlus, IconGitCommit as GitCommitHorizontal, IconGitMerge as GitMerge, IconLoader2 as LoaderCircle, IconRefresh as RefreshCw, IconSparkles as Sparkles, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

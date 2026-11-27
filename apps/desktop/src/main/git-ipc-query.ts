@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { execFileAsync, git, resolveWorkdir } from "./git-exec";
+import { listRepoWorktrees } from "./git-worktrees";
 
 import type {
   GitBranchInfo,
@@ -13,10 +14,13 @@ import type {
   GitLogEntry,
   GitPullRequest,
   GitStatus,
+  WorktreeListResult,
 } from "@zen/shared";
 
 const DIFF_LIMIT = 200 * 1024;
 const COMMIT_HASH_RE = /^[0-9a-f]{4,40}$/i;
+/** 一次 IPC 最多列的仓库数：环境信息面板只关心当前工作区关联的少量仓库 */
+const MAX_WORKTREE_REPOS = 50;
 
 function parseNumstat(output: string): Map<string, { add: number; del: number }> {
   const map = new Map<string, { add: number; del: number }>();
@@ -384,6 +388,26 @@ export function registerGitQueryIpc(): void {
       } catch {
         return null;
       }
+    },
+  );
+
+  /** 仓库里 Git 登记的全部工作树；参数可为单个仓库路径、路径数组或空，逐个合并结果 */
+  ipcMain.handle(
+    "git:worktrees",
+    async (_event, input: unknown, currentPath?: unknown): Promise<WorktreeListResult> => {
+      const paths = (Array.isArray(input) ? input : [input])
+        .filter((item): item is string => typeof item === "string" && !!item.trim())
+        .slice(0, MAX_WORKTREE_REPOS);
+      if (!paths.length) {
+        return { repos: [] };
+      }
+      const current = typeof currentPath === "string" && currentPath.trim() ? currentPath : undefined;
+      const results = await Promise.all(paths.map((repoPath) => listRepoWorktrees(repoPath, current)));
+      const error = results.find((result) => result.error)?.error;
+      return {
+        repos: results.flatMap((result) => result.repos),
+        ...(error ? { error } : {}),
+      };
     },
   );
 }

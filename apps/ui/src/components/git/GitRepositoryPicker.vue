@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GitBranch, RefreshCw } from "@lucide/vue";
+import { IconGitBranch as GitBranch, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { useI18n } from "vue-i18n";
 
 import type { GitRepository } from "@zen/shared";
