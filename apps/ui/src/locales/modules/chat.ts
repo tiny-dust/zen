@@ -296,6 +296,17 @@ export default {
       removeConfirmTitle: "删除这条排队消息？",
       removeConfirmDescription: "这条待发送消息及其附件将从队列移除，无法撤销。",
       hint: "已加入队列，当前任务结束后自动执行",
+      header: "排队中 · {n} 条",
+      headerHint: "当前任务结束后依次发送",
+      position: "第 {n} 位",
+      sendsAfterTask: "等待当前任务结束",
+      sendsWithAttachments: "含 {n} 个附件 · 随队列发送",
+    },
+
+    /* 输入框内联引用（页面元素 / 文件） */
+    composer: {
+      elementRefs: "已引用的页面元素",
+      elementReveal: "点击在右栏定位该元素的源码",
     },
 
     /* 本会话技能/MCP 调用 tag */
@@ -703,6 +714,17 @@ export default {
       removeConfirmTitle: "Delete this queued message?",
       removeConfirmDescription: "This unsent message and its attachments will be removed from the queue. This can't be undone.",
       hint: "Queued — it will run automatically when the current task finishes",
+      header: "Queued · {n}",
+      headerHint: "sends in order when the current task ends",
+      position: "Position {n}",
+      sendsAfterTask: "Waits for the current task",
+      sendsWithAttachments: "{n} attachment(s) · sends with the queue",
+    },
+
+    /* Inline references in the composer (page elements / files) */
+    composer: {
+      elementRefs: "Referenced page elements",
+      elementReveal: "Click to reveal this element's source in the right panel",
     },
 
     /* Session skill/MCP usage tags */

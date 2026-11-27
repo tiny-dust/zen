@@ -545,11 +545,11 @@ async function ocrAttachment(path: string) {
         <div v-for="thumb in imageThumbList" :key="thumb.path" class="group/th relative">
           <button
             type="button"
-            class="block overflow-hidden rounded-lg border border-[var(--color-line)]"
+            class="block size-[96px] overflow-hidden rounded-lg border border-[var(--color-line)] transition-colors hover:border-[var(--color-line-strong)]"
             :title="thumb.name"
             @click="openFileRef(thumb.path)"
           >
-            <img :src="thumb.url" :alt="thumb.name" class="max-h-40 max-w-full" loading="lazy">
+            <img :src="thumb.url" :alt="thumb.name" class="size-full object-cover" loading="lazy">
           </button>
           <Button
             v-if="ocrSupported"
@@ -707,26 +707,25 @@ async function ocrAttachment(path: string) {
       </Button>
     </div>
 
-    <!-- run 终态语义行：文字 + 图标，颜色仅辅助；空回复也能看到 -->
-    <div
-      v-else-if="runBanner"
-      class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]"
-      :class="runToneClass"
-      role="status"
-    >
-      <component :is="runBanner.icon" class="size-3.5 shrink-0" aria-hidden="true" />
-      <span class="font-medium">{{ runBanner.label }}</span>
-      <span v-if="runBanner.detail" class="min-w-0 text-[var(--color-mut)]">{{ runBanner.detail }}</span>
+    <!-- 页脚：run 终态（图标+文字+用量）与操作行同一行，读完状态就能顺手复制/重试 -->
+    <div v-if="!streaming" class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[var(--color-dim)]">
       <span
-        v-if="runSummary?.usage"
-        class="text-[11px] text-[var(--color-dim)] tabular-nums"
+        v-if="runBanner"
+        class="flex min-w-0 items-center gap-x-1.5 text-[12px]"
+        :class="runToneClass"
+        role="status"
       >
-        {{ t("chat.bubble.usageLine", { input: runSummary.usage.inputTokens, output: runSummary.usage.outputTokens }) }}
+        <component :is="runBanner.icon" class="size-3.5 shrink-0" aria-hidden="true" />
+        <span class="font-medium">{{ runBanner.label }}</span>
+        <span v-if="runBanner.detail" class="min-w-0 truncate text-[var(--color-mut)]">{{ runBanner.detail }}</span>
+        <span
+          v-if="runSummary?.usage"
+          class="text-[11px] tabular-nums text-[var(--color-dim)]"
+        >
+          {{ t("chat.bubble.usageLine", { input: runSummary.usage.inputTokens, output: runSummary.usage.outputTokens }) }}
+        </span>
       </span>
-    </div>
-
-    <!-- 消息底部操作行：发送时间 / 复制 / 重试 / 分叉 / 导出本轮 -->
-    <div v-if="!streaming" class="flex items-center gap-1 text-[var(--color-dim)]">
+      <span v-else class="flex-none" aria-hidden="true" />
       <time
         class="text-[11px]"
         :datetime="new Date(message.createdAt).toISOString()"

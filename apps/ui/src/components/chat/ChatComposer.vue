@@ -1,16 +1,10 @@
 <script setup lang="ts">
-import { IconArrowUp as ArrowUp, IconCheck as Check, IconChevronDown as ChevronDown, IconPhotoPlus as ImagePlus, IconLoader2 as LoaderCircle, IconMicrophone as Mic, IconPlayerPlay as Play, IconPlus as Plus, IconSparkles as Sparkles, IconSquare as Square, IconTerminal2 as Terminal, IconAlertTriangle as TriangleAlert, IconTool as Wrench, IconSitemap as Workflow, IconX as X } from "@tabler/icons-vue";
+import { IconArrowUp as ArrowUp, IconCheck as Check, IconChevronDown as ChevronDown, IconPhotoPlus as ImagePlus, IconWorld as Globe, IconLoader2 as LoaderCircle, IconMicrophone as Mic, IconPlayerPlay as Play, IconPlus as Plus, IconSparkles as Sparkles, IconSquare as Square, IconTerminal2 as Terminal, IconAlertTriangle as TriangleAlert, IconTool as Wrench, IconSitemap as Workflow, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import {
-  Attachment,
-  Attachments,
-  AttachmentInfo,
-  AttachmentPreview,
-  AttachmentRemove,
-} from "@/components/ai-elements/attachments";
+import FileIcon from "@/components/files/FileIcon.vue";
 import FileLabel from "@/components/files/FileLabel.vue";
 import ComposerEditor from "@/components/chat/ComposerEditor.vue";
 import ImageStudioDialog from "@/components/chat/ImageStudioDialog.vue";
@@ -39,13 +33,14 @@ import { useComposerTriggers } from "@/composables/useComposerTriggers";
 import { useMediaQuery } from "@/composables/useMediaQuery";
 import { useOverlayGeometry } from "@/composables/useOverlayGeometry";
 import { cancelVoiceInput, useVoiceInput } from "@/composables/useSystemAbilities";
+import { formatElementDetail } from "@/lib/browser-element";
 import { SLASH_COMMANDS, type SlashCommandId } from "@/lib/slash-commands";
 import { useChatStore } from "@/stores/chat";
 import { useLayoutStore } from "@/stores/layout";
 import { useRightPanelStore } from "@/stores/right-panel";
 import { useWorkspaceStore } from "@/stores/workspace";
 
-import type { AttachmentData } from "@/components/ai-elements/attachments";
+import type { ComposerElementMark } from "@/lib/browser-element";
 import type { GeneratedImageRecord, ReasoningEffort } from "@zen/shared";
 
 const { t } = useI18n();
@@ -333,16 +328,26 @@ function formatSize(bytes: number): string {
   return `${bytes}B`;
 }
 
-/** ComposerAttachment → ai-elements AttachmentData（媒体类型供选图标） */
-function attachmentData(att: { id: string; name: string; path: string; isImage: boolean }): AttachmentData {
-  return {
-    id: att.id,
-    type: "file",
-    filename: att.name,
-    path: att.path,
-    url: imageUrls.value.get(att.id) ?? "",
-    mediaType: att.isImage ? "image/*" : "application/octet-stream",
-  };
+/** 附件分两层展示：图片直接看缩略图，其它文件给信息行（名称 / 大小 / 打开 / 移除） */
+const imageAttachments = computed(() => attachments.value.filter((att) => att.isImage));
+const fileAttachments = computed(() => attachments.value.filter((att) => !att.isImage));
+
+/** 图片缩略图点击：右栏预览该文件 */
+function previewAttachment(att: { path: string }) {
+  useRightPanelStore().revealFile(att.path);
+}
+
+/** 元素引用 chip 的悬浮明细：定位器 / 文本 / 选择器摘要 */
+function formatElementLabel(mark: ComposerElementMark): string {
+  return formatElementDetail(mark.ref);
+}
+
+/** 页面元素引用 chip 点击：在右栏定位命中源码文件（没有源码命中时只保留 tooltip） */
+function revealElement(mark: ComposerElementMark) {
+  const file = mark.ref.sourceFiles?.[0];
+  if (file) {
+    useRightPanelStore().revealFile(file);
+  }
 }
 
 function onModelValue(value: string) {
@@ -444,24 +449,113 @@ function removeAttachment(id: string) {
         </span>
       </div>
 
-      <!-- 附件列表（ai-elements inline 变体）：在输入面上方一行文件 chip -->
-      <Attachments v-if="attachments.length" variant="inline" class="mb-2">
-        <Attachment
-          v-for="att in attachments"
-          :key="att.id"
-          :data="attachmentData(att)"
-          class="max-w-[240px]"
-          :class="hoveredAttachmentId === att.id ? 'text-[var(--color-accent)]' : ''"
-          @remove="removeAttachment(att.id)"
+      <!-- 页面元素引用：与正文里的 `$el:名称` token 一一对应，悬浮 token 会点亮对应 chip -->
+      <div
+        v-if="elementMarks.length"
+        class="mb-1.5 flex flex-wrap items-center gap-1.5"
+        :aria-label="t('chat.composer.elementRefs')"
+      >
+        <button
+          v-for="mark in elementMarks"
+          :key="mark.id"
+          type="button"
+          class="flex h-7 max-w-[260px] items-center gap-1.5 rounded-lg border px-2 text-[12px] transition-colors"
+          :class="
+            hoveredAttachmentId === mark.id
+              ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))] bg-[var(--color-menu-active)] text-[var(--color-txt-strong)]'
+              : 'border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-composer-surface)] text-[var(--color-txt)]'
+          "
+          :title="mark.ref.sourceFiles?.length ? t('chat.composer.elementReveal') : formatElementLabel(mark)"
+          @click="revealElement(mark)"
         >
-          <AttachmentPreview />
-          <AttachmentInfo />
-          <span class="shrink-0 text-[10px] text-[var(--color-dim)]">
-            {{ formatSize(att.size) }}
-          </span>
-          <AttachmentRemove :label="t('chat.removeAttachment')" class="hover:bg-transparent!" />
-        </Attachment>
-      </Attachments>
+          <Globe class="size-3.5 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
+          <span class="min-w-0 truncate">{{ mark.label }}</span>
+        </button>
+      </div>
+
+      <!-- 附件区：图片给缩略图（能直接看清是哪张），其它文件给信息行，两类视觉上分开 -->
+      <div v-if="attachments.length" class="mb-2 flex flex-col gap-1.5">
+        <div v-if="imageAttachments.length" class="flex flex-wrap items-start gap-1.5">
+          <div
+            v-for="att in imageAttachments"
+            :key="att.id"
+            class="group/att relative size-[60px] overflow-hidden rounded-lg border transition-colors"
+            :class="
+              hoveredAttachmentId === att.id
+                ? 'border-[var(--color-accent)]'
+                : 'border-[var(--color-line)] hover:border-[var(--color-line-strong)]'
+            "
+          >
+            <button
+              type="button"
+              class="block size-full"
+              :title="`${att.name} · ${formatSize(att.size)}`"
+              @click="previewAttachment(att)"
+            >
+              <img
+                v-if="imageUrls.get(att.id)"
+                :src="imageUrls.get(att.id)"
+                :alt="att.name"
+                class="size-full object-cover"
+              >
+              <span v-else class="grid size-full place-items-center bg-[var(--color-np-btn-bg)]">
+                <ImagePlus class="size-4 text-[var(--color-dim)]" aria-hidden="true" />
+              </span>
+            </button>
+            <span
+              class="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-[color-mix(in_srgb,var(--color-side)_82%,transparent)] px-1 py-0.5 text-[10px] leading-tight text-[var(--color-txt)] opacity-0 transition-opacity group-hover/att:opacity-100"
+            >
+              {{ formatSize(att.size) }}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              class="absolute right-0.5 top-0.5 size-[18px] rounded-md bg-[color-mix(in_srgb,var(--color-side)_82%,transparent)] text-[var(--color-txt)] opacity-0 transition-opacity hover:text-[var(--color-txt-strong)] focus-visible:opacity-100 group-hover/att:opacity-100"
+              :aria-label="t('chat.removeAttachment')"
+              :title="t('common.delete')"
+              @click="removeAttachment(att.id)"
+            >
+              <X class="size-3" />
+            </Button>
+          </div>
+        </div>
+
+        <div v-if="fileAttachments.length" class="flex flex-wrap items-center gap-1.5">
+          <div
+            v-for="att in fileAttachments"
+            :key="att.id"
+            class="group/file flex h-7 max-w-[280px] items-center gap-1.5 rounded-lg border px-2 transition-colors"
+            :class="
+              hoveredAttachmentId === att.id
+                ? 'border-[var(--color-accent)] bg-[var(--color-menu-active)]'
+                : 'border-[var(--color-line)] bg-[var(--color-composer-surface)] hover:border-[var(--color-line-strong)]'
+            "
+          >
+            <button
+              type="button"
+              class="flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--color-txt)] hover:text-[var(--color-txt-strong)]"
+              :title="att.path"
+              @click="previewAttachment(att)"
+            >
+              <FileIcon :path="att.name" class="size-3.5 shrink-0" />
+              <span class="min-w-0 truncate">{{ att.name }}</span>
+            </button>
+            <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
+              {{ formatSize(att.size) }}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              class="size-[18px] flex-none rounded-md text-[var(--color-dim)] hover:text-[var(--color-txt-strong)]"
+              :aria-label="t('chat.removeAttachment')"
+              :title="t('common.delete')"
+              @click="removeAttachment(att.id)"
+            >
+              <X class="size-3" />
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <div
         class="rounded-2xl bg-[var(--color-composer-surface)] px-3 pb-2.5 pt-3 shadow-[var(--shadow-composer)]"

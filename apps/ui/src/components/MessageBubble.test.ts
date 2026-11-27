@@ -336,8 +336,8 @@ describe("MessageBubble 文件引用", () => {
     });
     await flushPromises();
     expect(previewFile).toHaveBeenCalledWith(undefined, "/tmp/upload/shot.png");
-    // 缩略图 img 带 max-h-40 类（FileIcon 的 img 是 16px 图标，区分开）
-    const img = wrapper.find("img.max-h-40");
+    // 缩略图 img 撑满 96px 方块并用 object-cover（FileIcon 的 img 是 16px 图标，区分开）
+    const img = wrapper.find("img.object-cover");
     expect(img.exists()).toBe(true);
     expect(img.attributes("src")).toBe("data:image/png;base64,QUJD");
     // 图片走缩略图后正文里不再出现 $shot.png；非图片附件保持 chip

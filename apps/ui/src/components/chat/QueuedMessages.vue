@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { IconArrowUpBar as ArrowUpToLine, IconPencil as Pencil, IconX as X, IconBolt as Zap } from "@tabler/icons-vue";
+import {
+  IconArrowUpBar as ArrowUpToLine,
+  IconHourglass as Hourglass,
+  IconPaperclip as Paperclip,
+  IconPencil as Pencil,
+  IconBolt as Zap,
+  IconX as X,
+} from "@tabler/icons-vue";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -51,70 +58,115 @@ function insertButtonHint(item: QueuedMessage): { disabled: boolean; label: stri
   }
   return { disabled: false, label: t("chat.queued.insertTitle") };
 }
+
+/** 行内说明：这条现在处于什么状态、接下来会怎样 */
+function stateLine(item: QueuedMessage): string {
+  if (insertBlocked(item)) {
+    return t("chat.queued.sendsWithAttachments", { n: item.attachments?.length ?? 0 });
+  }
+  return t("chat.queued.sendsAfterTask");
+}
 </script>
 
 <template>
-  <!-- 运行中插入的消息队列：每条可插入执行 / 插队（移到最前）/ 编辑（放回输入框）/ 删除 -->
+  <!-- 运行中排队消息：等待态（按序发送）与「插入执行」（打断当前任务先跑）分两种语义展示 -->
   <div
     v-if="items.length"
-    class="mb-1.5 flex flex-col gap-0.5"
+    class="mb-2 flex flex-col gap-1"
     :aria-label="t('chat.queued.label')"
   >
+    <div class="flex min-w-0 items-center gap-1.5 px-1 text-[11px]">
+      <Hourglass class="size-3 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+      <span class="flex-none font-medium text-[var(--color-mut)]">
+        {{ t("chat.queued.header", { n: items.length }) }}
+      </span>
+      <span class="min-w-0 truncate text-[var(--color-dim)]">{{ t("chat.queued.headerHint") }}</span>
+    </div>
+
     <div
       v-for="(item, index) in items"
       :key="item.id"
-      class="flex items-center gap-1.5 rounded-lg px-2 py-1"
-      :class="index === 0 ? 'bg-[var(--color-menu-active)]' : 'bg-[var(--color-np-btn-bg)]'"
+      class="flex min-w-0 items-start gap-2 rounded-lg border px-2 py-1.5"
+      :class="
+        index === 0
+          ? 'border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-line))] bg-[var(--color-menu-active)]'
+          : 'border-[var(--color-line-soft)] bg-[var(--color-np-btn-bg)]'
+      "
     >
-      <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
+      <span
+        class="mt-0.5 flex size-4 flex-none items-center justify-center rounded-full text-[10px] font-medium tabular-nums"
+        :class="
+          index === 0
+            ? 'bg-[var(--color-accent)] text-[var(--color-accent-fg)]'
+            : 'bg-[var(--color-line)] text-[var(--color-mut)]'
+        "
+        :title="index === 0 ? t('chat.queued.atHead') : t('chat.queued.position', { n: index + 1 })"
+      >
         {{ index + 1 }}
       </span>
-      <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-txt)]" :title="displayText(item)">
-        {{ displayText(item) }}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-accent)]"
-        :disabled="insertButtonHint(item).disabled"
-        :title="insertButtonHint(item).label"
-        :aria-label="insertButtonHint(item).label"
-        @click="$emit('insert', item.id)"
-      >
-        <Zap class="size-3" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-        :disabled="index === 0"
-        :title="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promoteTitle')"
-        :aria-label="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promote')"
-        @click="$emit('promote', item.id)"
-      >
-        <ArrowUpToLine class="size-3" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-        :title="t('chat.queued.editTitle')"
-        :aria-label="t('chat.queued.edit')"
-        @click="$emit('edit', item.id)"
-      >
-        <Pencil class="size-3" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-        :title="t('common.delete')"
-        :aria-label="t('chat.queued.remove')"
-        @click="removeCandidateId = item.id"
-      >
-        <X class="size-3" />
-      </Button>
+
+      <div class="min-w-0 flex-1">
+        <p class="m-0 line-clamp-2 whitespace-pre-wrap break-words text-[12px] leading-snug text-[var(--color-txt)]">
+          {{ displayText(item) }}
+        </p>
+        <p class="m-0 mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-[var(--color-dim)]">
+          <Paperclip v-if="insertBlocked(item)" class="size-2.5 flex-none" aria-hidden="true" />
+          <span class="min-w-0 truncate">{{ stateLine(item) }}</span>
+        </p>
+      </div>
+
+      <div class="flex flex-none items-center gap-0.5">
+        <!-- 主操作：插入执行（打断当前任务，优先跑这条） -->
+        <Button
+          variant="ghost"
+          class="h-6 flex-none items-center gap-1 rounded-md border px-1.5 text-[11px] transition-colors"
+          :class="
+            insertButtonHint(item).disabled
+              ? 'border-[var(--color-line-soft)] text-[var(--color-dim)]'
+              : 'border-[color-mix(in_srgb,var(--color-accent)_35%,var(--color-line))] text-[var(--color-accent)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt-strong)]'
+          "
+          :disabled="insertButtonHint(item).disabled"
+          :title="insertButtonHint(item).label"
+          :aria-label="insertButtonHint(item).label"
+          @click="emit('insert', item.id)"
+        >
+          <Zap class="size-3" aria-hidden="true" />
+          {{ t("chat.queued.insert") }}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+          :disabled="index === 0"
+          :title="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promoteTitle')"
+          :aria-label="index === 0 ? t('chat.queued.atHead') : t('chat.queued.promote')"
+          @click="emit('promote', item.id)"
+        >
+          <ArrowUpToLine class="size-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+          :title="t('chat.queued.editTitle')"
+          :aria-label="t('chat.queued.edit')"
+          @click="emit('edit', item.id)"
+        >
+          <Pencil class="size-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="flex-none text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+          :title="t('common.delete')"
+          :aria-label="t('chat.queued.remove')"
+          @click="removeCandidateId = item.id"
+        >
+          <X class="size-3" />
+        </Button>
+      </div>
     </div>
+
     <ConfirmDialog
       :open="removeCandidateId !== null"
       :title="t('chat.queued.removeConfirmTitle')"
