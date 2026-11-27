@@ -50,6 +50,11 @@ export function zenMemoryDir(): string {
   return join(zenRoot(), "memory");
 }
 
+/** 生图素材库：生成结果按文件存放（文件名即记录 id），元数据落同名 .json */
+export function zenImagesDir(): string {
+  return join(zenRoot(), "images");
+}
+
 /** 应用域 userData（auth/settings/db），与 ~/.zen 分离 */
 export function appDataDir(): string {
   return app.getPath("userData");

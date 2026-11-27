@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Globe, X } from "@lucide/vue";
+import { IconWorld as Globe, IconX as X } from "@tabler/icons-vue";
 import { onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 

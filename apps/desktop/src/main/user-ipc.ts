@@ -15,9 +15,10 @@ import { isModernSecret } from "./secret";
 import { currentLocale, mainT } from "./i18n";
 
 import type { EncryptedTokens, GitHubTokens } from "./github-auth";
-import type { AppSettings, AuthState, GitHubUser, PhaseModelRef } from "@zen/shared";
-import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME, DEFAULT_ACCENT_COLOR, normalizeAccentColor } from "@zen/shared";
+import type { AppSettings, AuthState, GitHubUser, PhaseModelRef, ThemeMode } from "@zen/shared";
+import { DEFAULT_SHORTCUTS, DEFAULT_CODE_THEME, DEFAULT_UPDATE_FEED_URL, DEFAULT_LOCALE, DEFAULT_THEME, DEFAULT_THEME_IMAGE, DEFAULT_ACCENT_COLOR, isAdaptiveTheme, isDarkPreset, normalizeAccentColor, normalizeThemeImage, normalizeThemeSelection, normalizeCustomThemes } from "@zen/shared";
 import { setCurrentUserId } from "./workspace-db";
+import { deleteThemeImages } from "./theme-image";
 import { syncGlobalShortcuts } from "./global-shortcuts";
 
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
@@ -38,7 +39,9 @@ const defaultSettings: AppSettings = {
   updateFeedUrl: DEFAULT_UPDATE_FEED_URL,
   codeTheme: DEFAULT_CODE_THEME,
   theme: DEFAULT_THEME,
+  customThemes: [],
   accentColor: DEFAULT_ACCENT_COLOR,
+  themeImage: { ...DEFAULT_THEME_IMAGE },
   locale: DEFAULT_LOCALE,
   displayAccount: "auto",
   planModel: null,
@@ -107,8 +110,48 @@ async function writeJson(path: string, value: unknown) {
 
 /** 主题三档同步到 Electron：dark/light 固定，system 跟随操作系统
  *  （nativeTheme.themeSource 会联动渲染层 prefers-color-scheme，system 档由 OS 决定） */
-function applyThemeMode(theme: AppSettings["theme"]) {
-  nativeTheme.themeSource = theme === "light" || theme === "dark" ? theme : "system";
+function applyThemeMode(theme: AppSettings["theme"], customThemes: AppSettings["customThemes"] = []) {
+  // system 交给操作系统；固定预设按各自基底；自定义主题按它自己的基底与明暗变体
+  if (theme === "system") {
+    nativeTheme.themeSource = "system";
+    return;
+  }
+  if (theme.startsWith("custom:")) {
+    const def = customThemes.find((item) => item.id === theme.slice(7));
+    // 带另一套明暗的自定义主题跟随系统，否则按它自己的基底
+    nativeTheme.themeSource = def && isAdaptiveTheme(def) ? "system" : def?.base === "light" ? "light" : "dark";
+    return;
+  }
+  nativeTheme.themeSource = isDarkPreset(theme as ThemeMode) ? "dark" : "light";
+}
+
+/** 设置里引用的全部图片 id：图片主题 + 每个自定义主题的背景图 */
+function referencedImageIds(settings: AppSettings): Set<string> {
+  return new Set(
+    [
+      settings.themeImage.id,
+      ...settings.customThemes.map((theme) => theme.background?.id ?? ""),
+    ].filter(Boolean),
+  );
+}
+
+/** 旧设置引用、新设置不再引用的图片：只有这些才允许删 */
+function releasedImageIds(prev: AppSettings, next: AppSettings): string[] {
+  const keep = referencedImageIds(next);
+  return [...referencedImageIds(prev)].filter((id) => !keep.has(id));
+}
+
+/**
+ * 渲染层主动移除背景：仍被设置引用时拒绝删除。
+ * 删除是不可逆操作，不能只凭渲染层传个 id 就执行。
+ */
+export async function releaseThemeImage(id: string): Promise<{ ok: boolean; error?: string }> {
+  const settings = await loadSettings();
+  if (referencedImageIds(settings).has(id)) {
+    return { ok: false, error: "in-use" };
+  }
+  await deleteThemeImages([id]);
+  return { ok: true };
 }
 
 async function loadSettings(): Promise<AppSettings> {
@@ -124,7 +167,10 @@ async function loadSettings(): Promise<AppSettings> {
   cachedSettings = {
     ...defaultSettings,
     ...storedRest,
+    theme: normalizeThemeSelection(storedRest.theme),
+    customThemes: normalizeCustomThemes(storedRest.customThemes),
     accentColor: normalizeAccentColor(stored.accentColor),
+    themeImage: normalizeThemeImage(stored.themeImage),
     shortcuts: stored.shortcuts?.length
       ? stored.shortcuts
       : defaultSettings.shortcuts.map((item) => ({ ...item })),
@@ -431,7 +477,12 @@ export function registerUserIpc(): void {
     const next: AppSettings = {
       ...current,
       ...partial,
+      theme: normalizeThemeSelection(partial.theme ?? current.theme),
+      customThemes: partial.customThemes
+        ? normalizeCustomThemes(partial.customThemes)
+        : current.customThemes,
       accentColor: normalizeAccentColor(partial.accentColor ?? current.accentColor),
+      themeImage: normalizeThemeImage(partial.themeImage ?? current.themeImage),
       shortcuts: partial.shortcuts?.length
         ? partial.shortcuts
         : current.shortcuts.map((item) => ({ ...item })),
@@ -446,7 +497,12 @@ export function registerUserIpc(): void {
     cachedSettings = next;
     await writeJson(settingsFile(), next);
     if (partial.theme) {
-      applyThemeMode(next.theme);
+      applyThemeMode(next.theme, next.customThemes);
+    }
+    // 设置已落盘，才删除「旧引用里有、新引用里没有」的图；不做目录扫描，也不碰未保存的选择
+    const released = releasedImageIds(current, next);
+    if (released.length) {
+      void deleteThemeImages(released);
     }
     // 快捷键变化即时同步系统全局注册表（含关闭 global 开关时的注销）
     syncGlobalShortcuts(next.shortcuts);
@@ -458,6 +514,7 @@ export function registerUserIpc(): void {
 export async function initUserState() {
   const settings = await loadSettings();
   applyThemeMode(settings.theme);
+  // 启动时不做任何图片清理：用户未保存的选择、手工放进目录的文件都可能是他要的
   // 启动时恢复系统全局快捷键注册（含 global 开关的用户配置）
   syncGlobalShortcuts(settings.shortcuts);
   return settings;

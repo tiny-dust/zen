@@ -1,10 +1,15 @@
 import { ipcRenderer } from "electron";
 
 import type {
+  ConversationMemoryList,
+  ConversationMemorySettings,
+  ConversationMemoryState,
   MemoryCategory,
   MemoryConsolidationResult,
   MemoryNote,
   MemoryScope,
+  MemoryIngestMessage,
+  MemoryIngestResult,
   MemoryView,
 } from "@zen/shared";
 
@@ -37,6 +42,66 @@ export const memoryApi = {
       notes: Array<{ id: string; text: string; createdAt: number }>,
     ): Promise<MemoryView> {
       return ipcRenderer.invoke("memory:apply", scope, notes);
+    },
+
+    /** 对话记忆（对照 nomi）：摘要 / 事实 / 档案 / 设置，与设备备注各自独立 */
+    conversations: {
+      state(): Promise<ConversationMemoryState> {
+        return ipcRenderer.invoke("memory:conv-state");
+      },
+      list(query?: string): Promise<ConversationMemoryList> {
+        return ipcRenderer.invoke("memory:conv-list", query);
+      },
+      /** 用一段会话生成摘要与事实；force = 忽略「太短 / 没新内容」的跳过条件 */
+      ingest(
+        sessionId: string,
+        messages: MemoryIngestMessage[],
+        options?: { force?: boolean },
+      ): Promise<MemoryIngestResult> {
+        return ipcRenderer.invoke("memory:conv-ingest", sessionId, messages, options);
+      },
+      updateEpisode(
+        id: string,
+        patch: { title?: string; summary?: string; pinned?: boolean },
+      ): Promise<ConversationMemoryList> {
+        return ipcRenderer.invoke("memory:conv-update-episode", id, patch);
+      },
+      upsertFact(input: {
+        id?: string;
+        text: string;
+        kind: string;
+        pinned?: boolean;
+      }): Promise<ConversationMemoryList> {
+        return ipcRenderer.invoke("memory:conv-upsert-fact", input);
+      },
+      remove(kind: "episode" | "fact", id: string): Promise<ConversationMemoryList> {
+        return ipcRenderer.invoke("memory:conv-remove", kind, id);
+      },
+      persona(): Promise<string> {
+        return ipcRenderer.invoke("memory:conv-persona");
+      },
+      setPersona(text: string): Promise<{ ok: boolean }> {
+        return ipcRenderer.invoke("memory:conv-set-persona", text);
+      },
+      setSettings(patch: Partial<ConversationMemorySettings>): Promise<ConversationMemoryState> {
+        return ipcRenderer.invoke("memory:conv-set-settings", patch);
+      },
+      /** 导出全部对话记忆（json / md），返回落盘路径 */
+      exportAll(format: "json" | "md"): Promise<{ ok: boolean; path?: string; error?: string }> {
+        return ipcRenderer.invoke("memory:conv-export", format);
+      },
+      /** 清空对话摘要与事实（保 persona 与设备备注） */
+      clear(): Promise<ConversationMemoryList> {
+        return ipcRenderer.invoke("memory:conv-clear");
+      },
+      /** 数据变化广播（自动摘要完成、设置变更后刷新） */
+      onChanged(handler: () => void): () => void {
+        const listener = () => handler();
+        ipcRenderer.on("memory:conv-changed", listener);
+        return () => {
+          ipcRenderer.removeListener("memory:conv-changed", listener);
+        };
+      },
     },
   },
 };

@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { chatGptUsageAccountKey, getProviderUsage, recordProviderUsage } from "./model-usage";
+import {
+  chatGptUsageAccountKey,
+  getProviderUsage,
+  queryUsageLedger,
+  recordProviderUsage,
+  usageWindowStartDay,
+} from "./model-usage";
 
 let db: Database.Database;
 vi.mock("./model-db-connection", () => ({ getDb: () => db }));
@@ -20,6 +26,19 @@ beforeEach(() => {
       usage_events INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (provider_id, account_key, model_id, local_day)
+    );
+    CREATE TABLE usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      local_day TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      account_key TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'api',
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0
     );
   `);
 });
@@ -98,5 +117,69 @@ describe("provider usage", () => {
     );
     expect(chatGptUsageAccountKey(undefined, "person@example.com")).not.toContain("person@example.com");
     expect(chatGptUsageAccountKey()).toBeNull();
+  });
+});
+
+describe("usage ledger", () => {
+  const day = (offset: number) => new Date(2026, 9, 30 - offset, 12).getTime();
+
+  function seed() {
+    recordProviderUsage("codex", "gpt-a", {
+      type: "usage", sessionId: "s1", inputTokens: 100, outputTokens: 20, cachedInputTokens: 80,
+    }, day(0), "", "s1");
+    recordProviderUsage("codex", "gpt-a", {
+      type: "usage", sessionId: "s1", inputTokens: 50, outputTokens: 10, cachedInputTokens: 30,
+    }, day(0) + 1000, "", "s1");
+    recordProviderUsage("codex", "gpt-b", {
+      type: "usage", sessionId: "s2", inputTokens: 40, outputTokens: 5, cachedInputTokens: 0,
+    }, day(5), "", "s2");
+    recordProviderUsage("other", "model-x", {
+      type: "usage", sessionId: "s3", inputTokens: 7, outputTokens: 3, cachedInputTokens: 0,
+    }, day(40), "", "s3");
+  }
+
+  it("明细与聚合各记一次，不重复计数", () => {
+    seed();
+    const ledger = queryUsageLedger({}, day(0));
+    expect(ledger.totals).toEqual({
+      inputTokens: 197, outputTokens: 38, cachedInputTokens: 110, totalTokens: 235, events: 4,
+    });
+    // 聚合表与账本来自同一次调用，累计值一致
+    const snapshot = getProviderUsage("codex", day(0));
+    expect(snapshot.total.inputTokens).toBe(190);
+    expect(snapshot.total.outputTokens).toBe(35);
+    expect(snapshot.total.usageEvents).toBe(3);
+  });
+
+  it("按会话汇总并保留非零会话归属", () => {
+    seed();
+    const ledger = queryUsageLedger({ days: 0 }, day(0));
+    expect(ledger.bySession.map((row) => [row.sessionId, row.events, row.totalTokens])).toEqual([
+      ["s1", 2, 180],
+      ["s2", 1, 45],
+      ["s3", 1, 10],
+    ]);
+  });
+
+  it("时间窗口只统计最近 N 个自然日（含今天）", () => {
+    seed();
+    const week = queryUsageLedger({ days: 7 }, day(0));
+    expect(week.totals.events).toBe(3);
+    expect(week.totals.inputTokens).toBe(190);
+    expect(queryUsageLedger({ days: 0 }, day(0)).totals.events).toBe(4);
+  });
+
+  it("供应商筛选只看该供应商，且不产出费用估算", () => {
+    seed();
+    const only = queryUsageLedger({ providerId: "other" }, day(0));
+    expect(only.totals.inputTokens).toBe(7);
+    expect(only.byModel.map((row) => row.modelId)).toEqual(["model-x"]);
+    expect(only.estimatedCost).toBeNull();
+  });
+
+  it("窗口起点按自然日计算", () => {
+    expect(usageWindowStartDay(0)).toBeNull();
+    expect(usageWindowStartDay(1, day(0))).toBe("2026-10-30");
+    expect(usageWindowStartDay(3, day(0))).toBe("2026-10-28");
   });
 });

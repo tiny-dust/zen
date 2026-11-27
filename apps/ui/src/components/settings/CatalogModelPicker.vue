@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Search } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconLoader2 as Loader2, IconPlus as Plus, IconRefresh as RefreshCw, IconSearch as Search } from "@tabler/icons-vue";
 import { useI18n } from "vue-i18n";
 
 import CapabilityLine from "@/components/settings/CapabilityLine.vue";

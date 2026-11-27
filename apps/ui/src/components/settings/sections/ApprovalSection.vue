@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ListChecks, ShieldCheck, Trash2, TriangleAlert } from "@lucide/vue";
+import { IconListCheck as ListChecks, IconShieldCheck as ShieldCheck, IconTrash as Trash2, IconAlertTriangle as TriangleAlert } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";

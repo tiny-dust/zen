@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers } from "@lucide/vue";
+import { IconStack2 as Layers } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

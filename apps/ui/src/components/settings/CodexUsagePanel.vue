@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ExternalLink, RefreshCw } from "@lucide/vue";
+import { IconExternalLink as ExternalLink, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 
 import { Button } from "@/components/ui/button";
 

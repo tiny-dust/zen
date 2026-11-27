@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RefreshCw } from "@lucide/vue";
+import { IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -88,6 +88,10 @@ async function rebuild() {
     </p>
     <p v-if="chatStore.appInfo" class="m-0 text-[11px] text-[var(--color-dim)]">
       {{ t("settings.agent.sandboxTip") }}
+    </p>
+    <!-- 如实说明能力边界：目录副本不是 OS 级隔离 -->
+    <p class="m-0 text-[11px] leading-relaxed text-[var(--color-dim)]">
+      {{ t("settings.agent.sandboxLimits") }}
     </p>
   </section>
 </template>

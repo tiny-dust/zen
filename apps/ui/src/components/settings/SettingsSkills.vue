@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderOpen, Plus, RefreshCw, Trash2 } from "@lucide/vue";
+import { IconFolderOpen as FolderOpen, IconPlus as Plus, IconRefresh as RefreshCw, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { onMounted, ref } from "vue";

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Bot, Boxes, Cat, Keyboard, MessageSquare, MonitorSmartphone, Palette, Search, Settings2, ShieldCheck, Sparkles, UserRound, X } from "@lucide/vue";
+import { IconRobot as Bot, IconBoxMultiple as Boxes, IconCat as Cat, IconChartBar as ChartColumnIncreasing, IconKeyboard as Keyboard, IconMessage as MessageSquare, IconDevices as MonitorSmartphone, IconPalette as Palette, IconSearch as Search, IconAdjustments as Settings2, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconUserCircle as UserRound, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import SettingsAgent from "@/components/settings/SettingsAgent.vue";
@@ -15,9 +15,9 @@ import SettingsProfile from "@/components/settings/SettingsProfile.vue";
 import SettingsPrompts from "@/components/settings/SettingsPrompts.vue";
 import SettingsRemote from "@/components/settings/SettingsRemote.vue";
 import SettingsShortcuts from "@/components/settings/SettingsShortcuts.vue";
+import SettingsUsage from "@/components/settings/SettingsUsage.vue";
 import { searchSettings } from "@/components/settings/settings-search";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useSettingsStore } from "@/stores/settings";
@@ -26,7 +26,7 @@ import type { SettingsTab } from "@/stores/settings";
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
-const { settingsOpen, activeTab } = storeToRefs(settingsStore);
+const { activeTab } = storeToRefs(settingsStore);
 
 const search = ref("");
 /** 面板滚动容器：搜索命中后把小节滚进可视区 */
@@ -57,6 +57,7 @@ const navGroups = computed(() => [
     items: [
       { id: "profile" as const, label: t("settings.nav.profile"), icon: UserRound },
       { id: "models" as const, label: t("settings.nav.models"), icon: Boxes },
+      { id: "usage" as const, label: t("settings.nav.usage"), icon: ChartColumnIncreasing },
     ],
   },
 ]);
@@ -80,6 +81,7 @@ function tabLabel(tab: SettingsTab): string {
     prompts: t("settings.nav.prompts"),
     profile: t("settings.nav.profile"),
     models: t("settings.nav.models"),
+    usage: t("settings.nav.usage"),
     pet: t("settings.nav.pet"),
     skills: t("settings.nav.general"),
     mcp: t("settings.nav.general"),
@@ -117,12 +119,6 @@ const paneDesc = computed(() => {
   }
 });
 
-function onDialogOpenChange(open: boolean) {
-  if (!open) {
-    settingsStore.closeSettings();
-  }
-}
-
 function selectTab(next: SettingsTab) {
   settingsStore.openSettings(next);
   const hash = `#settings/${next}`;
@@ -151,31 +147,27 @@ async function jumpToResult(entry: { tab: SettingsTab; sectionId?: string }) {
   });
 }
 
-watch(
-  () => settingsOpen.value,
-  (open) => {
-    if (!open) {
-      search.value = "";
-    }
-    if (!open && window.location.hash.startsWith("#settings")) {
-      history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-  },
-);
+/** 离开设置页：清搜索词与 #settings 深链接，下次进入是干净状态 */
+onUnmounted(() => {
+  search.value = "";
+  if (window.location.hash.startsWith("#settings")) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+});
 </script>
 
 <template>
-  <Dialog :open="settingsOpen" @update:open="onDialogOpenChange">
-    <DialogContent
-      data-large-panel="true"
-      :show-close-button="false"
-      class="grid h-[min(820px,calc(100vh-56px))] w-[min(1180px,calc(100vw-48px))] grid-cols-[208px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[var(--radius)] border border-[var(--color-line)] bg-[var(--color-settings-content)] p-0 text-[var(--color-txt)] shadow-[var(--shadow-pop)] ring-0"
-      data-select-text
-    >
+  <!-- 设置整页（对齐 nomi）：占满内容区，左侧导航 + 右侧面板 -->
+  <section
+    data-large-panel="true"
+    data-select-text
+    class="grid h-full min-h-0 grid-cols-[208px_minmax(0,1fr)] overflow-hidden bg-[var(--color-settings-content)] text-[var(--color-txt)]"
+    :aria-label="t('settings.nav.title')"
+  >
       <aside
         class="flex min-h-0 flex-col gap-2.5 overflow-hidden border-r border-[var(--color-line)] bg-[var(--color-settings-nav)] p-3.5"
       >
-        <DialogTitle class="px-2.5 pb-0.5 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.nav.title") }}</DialogTitle>
+        <h2 class="m-0 px-2.5 pb-0.5 text-[var(--font-size-md)] font-semibold text-[var(--color-txt-strong)]">{{ t("settings.nav.title") }}</h2>
         <Input
           v-model="search"
           class="h-[30px] w-full flex-none bg-[var(--color-np-btn-bg)] text-[13px]"
@@ -194,7 +186,7 @@ watch(
               v-for="entry in searchResults"
               :key="`${entry.tab}-${entry.sectionId ?? 'page'}`"
               variant="ghost"
-              class="flex min-h-9 w-full flex-row items-start justify-start gap-2 rounded-lg px-2.5 py-1.5 text-left font-normal hover:bg-[var(--color-menu-hover)]"
+              class="flex min-h-9 w-full flex-row items-start justify-start gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left font-normal hover:bg-[var(--color-menu-hover)]"
               @click="jumpToResult(entry)"
             >
               <span class="flex min-w-0 flex-1 flex-col items-start">
@@ -222,7 +214,7 @@ watch(
                 v-for="item in group.items"
                 :key="item.id"
                 variant="ghost"
-                class="flex min-h-8 w-full flex-row items-center justify-start gap-2 rounded-lg px-2.5 text-left text-[13px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
+                class="flex min-h-8 w-full flex-row items-center justify-start gap-2 rounded-[var(--radius-sm)] px-2.5 text-left text-[13px] font-normal text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]"
                 :class="
                   activeTab === item.id
                     ? 'bg-[var(--color-side-active)] font-medium text-[var(--color-txt-strong)]'
@@ -247,7 +239,7 @@ watch(
             <h2 class="m-0 text-[15px] font-semibold text-[var(--color-txt-strong)]">
               {{ paneTitle }}
             </h2>
-            <DialogDescription class="mt-0.5 truncate text-[12px] text-[var(--color-mut)]">{{ paneDesc }}</DialogDescription>
+            <p class="mt-0.5 mb-0 truncate text-[12px] text-[var(--color-mut)]">{{ paneDesc }}</p>
           </div>
           <Button
             variant="ghost"
@@ -269,6 +261,7 @@ watch(
             <SettingsShortcuts v-else-if="activeTab === 'shortcuts'" />
             <SettingsProfile v-else-if="activeTab === 'profile'" />
             <SettingsModels v-else-if="activeTab === 'models'" />
+            <SettingsUsage v-else-if="activeTab === 'usage'" />
             <SettingsPet v-else-if="activeTab === 'pet'" />
             <SettingsAgent v-else-if="activeTab === 'agent'" />
             <SettingsPermissions v-else-if="activeTab === 'permissions'" />
@@ -284,6 +277,5 @@ watch(
           </div>
         </div>
       </main>
-    </DialogContent>
-  </Dialog>
+  </section>
 </template>

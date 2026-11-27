@@ -99,6 +99,25 @@ function migrate(conn: Database.Database) {
       FOREIGN KEY (provider_id) REFERENCES model_providers(id) ON DELETE CASCADE
     );
 
+    -- 用量明细账（只追加）：供应商聚合表之外保留可追溯的单次记录，
+    -- 关联会话；不设外键，供应商/模型被删也保留历史（账本用于复盘，不做级联清理）。
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      local_day TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      account_key TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'api',
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS usage_events_lookup
+      ON usage_events (local_day, provider_id, model_id);
+
     CREATE TABLE IF NOT EXISTS catalog_models (
       model_key TEXT PRIMARY KEY,
       vendor TEXT NOT NULL,
@@ -363,6 +382,10 @@ function migrate(conn: Database.Database) {
     // 会话目标（Goals 目标模式）：文本 + 状态 + token 预算（JSON）；NULL = 未设定
     if (!sessionCols.some((col) => col.name === "goal_json")) {
       conn.exec(`ALTER TABLE chat_sessions ADD COLUMN goal_json TEXT`);
+    }
+    // 会话底座：'claude'/'codex' = 外部 CLI；NULL = 走 API 模型（旧会话默认，行为不变）
+    if (!sessionCols.some((col) => col.name === "runtime_cli")) {
+      conn.exec(`ALTER TABLE chat_sessions ADD COLUMN runtime_cli TEXT`);
     }
   }
 }

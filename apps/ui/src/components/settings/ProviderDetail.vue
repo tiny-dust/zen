@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Copy, LogIn, RefreshCw, Trash2 } from "@lucide/vue";
+import { IconCopy as Copy, IconLogin as LogIn, IconRefresh as RefreshCw, IconTrash as Trash2 } from "@tabler/icons-vue";
 
 import VendorLogo from "@/components/brand/VendorLogo.vue";
 import CatalogModelPicker from "@/components/settings/CatalogModelPicker.vue";

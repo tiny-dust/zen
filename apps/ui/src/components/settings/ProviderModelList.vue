@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { CheckCircle2, Pencil, Plus, RefreshCw, Search, Trash2 } from "@lucide/vue";
+import { IconCircleCheck as CheckCircle2, IconPencil as Pencil, IconPlus as Plus, IconRefresh as RefreshCw, IconSearch as Search, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { useI18n } from "vue-i18n";
 import { classes } from "rattail";
 
@@ -67,7 +67,7 @@ function onSelect(model: ProviderModel) {
 <template>
   <section class="flex min-w-0 flex-col gap-2 pt-2.5 pb-1">
     <div class="flex items-center justify-between gap-2">
-      <span class="flex items-center gap-1.5 text-[12px] text-[var(--color-txt-strong)]">
+      <span class="flex items-center gap-1.5 text-[var(--font-size-sm)] text-[var(--color-txt-strong)]">
         <CheckCircle2 v-if="enabledCount > 0" class="size-3.5 flex-none text-[var(--color-add)]" aria-hidden="true" />
         {{ t("settings.models.modelCount", { enabled: enabledCount, total: models.length }) }}
       </span>
@@ -96,7 +96,7 @@ function onSelect(model: ProviderModel) {
       />
       <Input
         v-model="query"
-        class="h-8 pl-7 text-[12px]"
+        class="h-8 pl-7 text-[var(--font-size-sm)]"
         :placeholder="t('settings.models.searchModelPlaceholder')"
       />
     </div>
@@ -119,19 +119,19 @@ function onSelect(model: ProviderModel) {
         >
           <span class="flex min-w-0 max-w-full items-center gap-1.5">
             <VendorLogo :vendor="model.id" :size="16" class="flex-none" />
-            <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">
+            <span class="truncate text-[var(--font-size-sm)] font-medium text-[var(--color-txt-strong)]">
               {{ model.name }}
             </span>
             <span
               v-if="model.custom"
-              class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[10px] text-[var(--color-mut)]"
+              class="shrink-0 rounded-full border border-[var(--color-line-strong)] px-1.5 text-[11px] text-[var(--color-mut)]"
             >
               {{ t("settings.models.customTag") }}
             </span>
             <CapabilityLine :capabilities="model.capabilities" class="shrink-0" />
           </span>
           <span
-            class="flex min-w-0 max-w-full items-center gap-1.5 pl-6 text-[11px] text-[var(--color-dim)]"
+            class="flex min-w-0 max-w-full items-center gap-1.5 pl-6 text-[var(--font-size-xs)] text-[var(--color-dim)]"
           >
             <span
               v-if="model.id !== model.name"

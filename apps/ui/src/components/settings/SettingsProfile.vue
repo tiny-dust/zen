@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, CloudDownload, CloudUpload, ExternalLink } from "@lucide/vue";
+import { IconCheck as Check, IconCloudDownload as CloudDownload, IconCloudUpload as CloudUpload, IconExternalLink as ExternalLink } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

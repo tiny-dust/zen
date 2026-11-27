@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, RefreshCw } from "@lucide/vue";
+import { IconPlus as Plus, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";

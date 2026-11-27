@@ -135,6 +135,13 @@ export const SETTINGS_INDEX: SettingsIndexEntry[] = [
     keywords: ["model provider api key base url 模型 供应商 添加模型 上下文 推理"],
   },
   {
+    tab: "usage",
+    sectionId: "set-usage-ledger",
+    titleKey: "settings.usage.title",
+    descKey: "settings.usage.description",
+    keywords: ["usage tokens ledger cost billing session 用量 token 账本 统计 费用 会话"],
+  },
+  {
     tab: "models",
     sectionId: "set-models-phase",
     titleKey: "settings.models.phaseTitle",

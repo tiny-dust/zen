@@ -11,7 +11,7 @@ import {
 } from "./chatgpt-auth";
 import { fetchModelsByCredentials, fetchModelsFromProvider, inspectRemoteModel } from "./model-api";
 import { getDb } from "./model-db-connection";
-import { chatGptUsageAccountKey, getProviderUsage } from "./model-usage";
+import { chatGptUsageAccountKey, getProviderUsage, queryUsageLedger } from "./model-usage";
 import { ensureChatGptProvider, syncChatGptModels } from "./model-db";
 import {
   getCatalogUpdatedAt,
@@ -43,6 +43,7 @@ import type {
   ProviderInput,
   SetModelsEnabledInput,
   UpdateModelInput,
+  UsageLedgerFilter,
 } from "@zen/shared";
 
 export function registerModelIpc(): void {
@@ -188,6 +189,16 @@ export function registerModelIpc(): void {
       };
     }
     return { status: await getChatGptAuthStatus(providerId) };
+  });
+
+  /** 用量账本：按窗口/供应商/模型筛选后的明细汇总（费用不做估算） */
+  ipcMain.handle("models:usage-ledger", (_event, filter: UsageLedgerFilter = {}) => {
+    const safe: UsageLedgerFilter = {
+      days: typeof filter?.days === "number" ? filter.days : 0,
+      providerId: typeof filter?.providerId === "string" ? filter.providerId : undefined,
+      modelId: typeof filter?.modelId === "string" ? filter.modelId : undefined,
+    };
+    return queryUsageLedger(safe);
   });
 
   ipcMain.handle("models:usage", async (_event, providerId: string) => {

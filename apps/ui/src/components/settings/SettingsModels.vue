@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown, Plus, Search } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconPlus as Plus, IconSearch as Search } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { classes } from "rattail";

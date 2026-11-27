@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MonitorSmartphone } from "@lucide/vue";
+import { IconDevices as MonitorSmartphone } from "@tabler/icons-vue";
 import { computed, onMounted, onUnmounted, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 

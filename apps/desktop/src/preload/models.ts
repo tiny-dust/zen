@@ -18,6 +18,8 @@ import type {
   ProviderUsageSnapshot,
   SetModelsEnabledInput,
   UpdateModelInput,
+  UsageLedger,
+  UsageLedgerFilter,
 } from "@zen/shared";
 
 export const modelsApi = {
@@ -109,6 +111,10 @@ export const modelsApi = {
     },
     getUsage(providerId: string): Promise<ProviderUsageSnapshot> {
       return ipcRenderer.invoke("models:usage", providerId);
+    },
+    /** 用量账本：窗口 + 供应商/模型筛选后的汇总与最近明细 */
+    usageLedger(filter: UsageLedgerFilter = {}): Promise<UsageLedger> {
+      return ipcRenderer.invoke("models:usage-ledger", filter);
     },
   },
 };

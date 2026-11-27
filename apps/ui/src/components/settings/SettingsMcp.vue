@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Download, Pencil, Plus, RefreshCw, ScanSearch, Trash2, Wand2, X } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconDownload as Download, IconPencil as Pencil, IconPlus as Plus, IconRefresh as RefreshCw, IconZoomScan as ScanSearch, IconTrash as Trash2, IconWand as Wand2, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";

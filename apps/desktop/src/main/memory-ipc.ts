@@ -1,9 +1,12 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 
 import { MEMORY_CATEGORIES } from "@zen/shared";
 import type {
+  ConversationMemoryList,
+  ConversationMemoryState,
   MemoryCategory,
   MemoryConsolidationResult,
+  MemoryIngestResult,
   MemoryNote,
   MemoryScope,
   MemoryView,
@@ -19,10 +22,25 @@ import {
   removeMemoryNote,
   toMemoryView,
 } from "./memory";
+import {
+  clearConversationMemory,
+  exportConversationMemory,
+  ingestConversationMemory,
+  listConversationMemory,
+  readConversationMemoryState,
+  readConversationPersona,
+  removeConversationMemoryItem,
+  setConversationMemoryNotifier,
+  setConversationMemorySettings,
+  setConversationPersona,
+  updateConversationEpisode,
+  upsertConversationFact,
+} from "./memory-conversations";
 
 /**
  * 记忆域 IPC：~/.zen/memory 的读取、备注增删、设备快照重采与记忆整固。
  * 设备/用户两域共用 scope 参数区分；整固先预览 diff，用户确认后才原子写回。
+ * 对话记忆（摘要/事实/档案/设置）各自独立文件，写操作成功后广播 memory:conv-changed。
  */
 
 function asScope(value: unknown): MemoryScope | null {
@@ -46,6 +64,25 @@ function asNotes(value: unknown): MemoryNote[] | null {
     text: typeof (note as MemoryNote)?.text === "string" ? (note as MemoryNote).text : "",
     createdAt: Number((note as MemoryNote)?.createdAt) || 0,
   }));
+}
+
+/** 对话记忆入参清洗：只接受 user/assistant 正文（长度与合法性由主进程再校验） */
+function asIngestMessages(value: unknown): Array<{ role: "user" | "assistant"; content: string }> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const out: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const item of value) {
+    const message = item as { role?: unknown; content?: unknown } | null;
+    if (message?.role !== "user" && message?.role !== "assistant") {
+      continue;
+    }
+    if (typeof message.content !== "string") {
+      continue;
+    }
+    out.push({ role: message.role, content: message.content });
+  }
+  return out;
 }
 
 export function registerMemoryIpc(): void {
@@ -132,4 +169,106 @@ export function registerMemoryIpc(): void {
       return toMemoryView(await applyMemoryConsolidation(validScope, validNotes));
     },
   );
+
+  // -------------------------------------------------------------------------
+  // 对话记忆（摘要 / 事实 / 档案 / 设置）：与设备备注各自独立文件
+  // 写操作成功后由 memory-conversations 统一广播 memory:conv-changed
+  // -------------------------------------------------------------------------
+  setConversationMemoryNotifier(broadcastConversationMemoryChanged);
+
+  // 总体状态：设置 + 统计 + 最近一次自动摘要失败原因
+  ipcMain.handle("memory:conv-state", async (): Promise<ConversationMemoryState> => {
+    return readConversationMemoryState();
+  });
+
+  // 列表（可选按关键词过滤）；非法 query 视为不过滤
+  ipcMain.handle(
+    "memory:conv-list",
+    async (_event, query: unknown): Promise<ConversationMemoryList> => {
+      return listConversationMemory(query);
+    },
+  );
+
+  // 手动/自动摘要：sessionId 与 messages 一律按 unknown 清洗，失败返回 {ok:false}（不 reject）
+  ipcMain.handle(
+    "memory:conv-ingest",
+    async (
+      _event,
+      sessionId: unknown,
+      messages: unknown,
+      options: unknown,
+    ): Promise<MemoryIngestResult> => {
+      const validSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
+      const validMessages = asIngestMessages(messages);
+      if (!validSessionId || !validMessages) {
+        return { ok: false, error: "invalid sessionId or messages", factsAdded: 0 };
+      }
+      const force = (options as { force?: unknown } | null)?.force === true;
+      return ingestConversationMemory(validSessionId, validMessages, { force });
+    },
+  );
+
+  ipcMain.handle(
+    "memory:conv-update-episode",
+    async (_event, id: unknown, patch: unknown): Promise<ConversationMemoryList> => {
+      const raw = (patch && typeof patch === "object" ? patch : {}) as Record<string, unknown>;
+      // 字段白名单：title/summary/pinned，其余丢弃
+      const clean: { title?: unknown; summary?: unknown; pinned?: unknown } = {};
+      for (const key of ["title", "summary", "pinned"] as const) {
+        if (Object.prototype.hasOwnProperty.call(raw, key)) {
+          clean[key] = raw[key];
+        }
+      }
+      return updateConversationEpisode(id, clean);
+    },
+  );
+
+  ipcMain.handle(
+    "memory:conv-upsert-fact",
+    async (_event, input: unknown): Promise<ConversationMemoryList> => {
+      return upsertConversationFact(input);
+    },
+  );
+
+  ipcMain.handle(
+    "memory:conv-remove",
+    async (_event, kind: unknown, id: unknown): Promise<ConversationMemoryList> => {
+      return removeConversationMemoryItem(kind, id);
+    },
+  );
+
+  ipcMain.handle("memory:conv-persona", async (): Promise<string> => {
+    return readConversationPersona();
+  });
+
+  ipcMain.handle("memory:conv-set-persona", async (_event, text: unknown): Promise<{ ok: boolean }> => {
+    return setConversationPersona(text);
+  });
+
+  ipcMain.handle(
+    "memory:conv-set-settings",
+    async (_event, patch: unknown): Promise<ConversationMemoryState> => {
+      return setConversationMemorySettings(patch);
+    },
+  );
+
+  ipcMain.handle(
+    "memory:conv-export",
+    async (_event, format: unknown): Promise<{ ok: boolean; path?: string; error?: string }> => {
+      return exportConversationMemory(format);
+    },
+  );
+
+  ipcMain.handle("memory:conv-clear", async (): Promise<ConversationMemoryList> => {
+    return clearConversationMemory();
+  });
+}
+
+/** 广播对话记忆变更（自动摘要完成 / 手改 / 设置变更后刷新界面） */
+function broadcastConversationMemoryChanged(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("memory:conv-changed");
+    }
+  }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { MonitorSmartphone, TriangleAlert } from "@lucide/vue";
+import { IconDevices as MonitorSmartphone, IconAlertTriangle as TriangleAlert } from "@tabler/icons-vue";
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";

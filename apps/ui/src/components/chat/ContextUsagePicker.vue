@@ -12,7 +12,7 @@ export function formatTokens(value: number): string {
 </script>
 
 <script setup lang="ts">
-import { Gauge, GitBranch } from "@lucide/vue";
+import { IconGauge as Gauge, IconGitBranch as GitBranch } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -133,6 +133,13 @@ onMounted(() => {
 onBeforeUnmount(() => {
   close();
   gitStore.stopStatusWatch();
+});
+
+/** 供斜杠命令 /context 打开弹层（与点触发器同一路径） */
+defineExpose({
+  openPanel: () => {
+    if (!open.value) toggle();
+  },
 });
 </script>
 

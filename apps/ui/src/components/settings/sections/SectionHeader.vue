@@ -21,8 +21,8 @@ defineProps<{
       <component :is="icon" :size="14" />
     </span>
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <h3 class="m-0 text-[13px] font-semibold text-[var(--color-txt-strong)]">{{ title }}</h3>
-      <p v-if="desc" class="m-0 text-[12px] leading-relaxed text-[var(--color-mut)]">{{ desc }}</p>
+      <h3 class="m-0 text-[var(--font-size-md)] font-semibold text-[var(--color-txt-strong)]">{{ title }}</h3>
+      <p v-if="desc" class="m-0 text-[var(--font-size-sm)] leading-relaxed text-[var(--color-mut)]">{{ desc }}</p>
     </div>
     <div v-if="$slots.actions" class="flex flex-none items-center gap-1.5">
       <slot name="actions" />

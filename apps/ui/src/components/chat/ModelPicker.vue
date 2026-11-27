@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Check, History, Layers, Search, Sparkles } from "@lucide/vue";
+import { IconArrowRight as ArrowRight, IconCheck as Check, IconHistory as History, IconStack2 as Layers, IconSearch as Search, IconSparkles as Sparkles } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { classes } from "rattail";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -19,6 +19,8 @@ defineProps<{
 
 const { t } = useI18n();
 const chatStore = useChatStore();
+/** 本机外部 CLI 探测结果；未安装的只展示状态，不可选中 */
+const cliRuntimes = ref<Array<{ id: "claude" | "codex"; label: string; path: string | null }>>([]);
 const modelsStore = useModelsStore();
 const settingsStore = useSettingsStore();
 const { providers, autoRoute, lastRouting } = storeToRefs(modelsStore);
@@ -30,6 +32,26 @@ const open = ref(false);
 const query = ref("");
 /** 模型 / 计划+执行 / 子代理 / 外部 agent 共用同一个弹层；计划与执行在同一 tab 内切换 */
 const activeTab = ref<"model" | "phases" | "sub" | "external">("model");
+
+// 外部 agent tab 首次打开时探测本机 CLI（只读探测，不安装、不改配置）
+watch(
+  activeTab,
+  (tab) => {
+    if (tab !== "external" || cliRuntimes.value.length) return;
+    void window.zen?.agent
+      .cliRuntimes?.()
+      .then((list) => {
+        cliRuntimes.value = list;
+      })
+      .catch(() => undefined);
+  },
+  { immediate: true },
+);
+
+/** 选中即切会话底座；再点一次回到 API 模型 */
+function toggleRuntime(id: "claude" | "codex") {
+  void chatStore.setSessionRuntimeCli(chatStore.sessionRuntimeCli === id ? null : id);
+}
 /** 「计划 / 执行」tab 内当前正在编辑的阶段 */
 const editingPhase = ref<"plan" | "act">("plan");
 const activeProviderId = ref<string | "recent" | null>(null);
@@ -389,6 +411,13 @@ watch(activeTab, () => {
     activeProviderId.value = displayedSelection.value.providerId;
   }
 });
+
+/** 供斜杠命令 /model 打开弹层（与点触发器同一路径） */
+defineExpose({
+  openPanel: () => {
+    if (!open.value) toggleOpen();
+  },
+});
 </script>
 
 <template>
@@ -677,8 +706,32 @@ watch(activeTab, () => {
         </div>
       </template>
 
+      <!-- 外部 agent：本机已安装的 CLI 可作为会话底座（未安装只显示状态，不可选） -->
+      <div v-else-if="activeTab === 'external'" class="flex flex-col gap-0.5">
+        <Button
+          v-for="runtime in cliRuntimes"
+          :key="runtime.id"
+          variant="ghost"
+          class="h-9 w-full justify-start gap-2 rounded-md px-2.5 text-[13px] font-normal"
+          :disabled="!runtime.path"
+          @click="toggleRuntime(runtime.id)"
+        >
+          <Check
+            class="size-3.5 shrink-0 text-[var(--color-accent)]"
+            :class="chatStore.sessionRuntimeCli === runtime.id ? '' : 'invisible'"
+            aria-hidden="true"
+          />
+          <span class="min-w-0 flex-1 truncate text-left">{{ runtime.label }}</span>
+          <span v-if="!runtime.path" class="shrink-0 text-[11px] text-[var(--color-mut)]">
+            {{ t("chat.model.cliNotInstalled") }}
+          </span>
+        </Button>
+        <p class="m-0 px-3 py-3 text-[11px] leading-relaxed text-[var(--color-mut)]">
+          {{ t("chat.model.cliHint") }}
+        </p>
+      </div>
       <div v-else class="m-0 px-3 py-4 text-center text-[12px] text-[var(--color-mut)]">
-        {{ activeTab === "sub" ? t("chat.model.noSubAgents") : t("chat.model.noExternalAgents") }}
+        {{ t("chat.model.noSubAgents") }}
       </div>
     </div>
   </div>

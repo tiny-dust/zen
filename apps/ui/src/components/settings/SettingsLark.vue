@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Check, CircleAlert, Download, Pencil, Plus, RefreshCw, Trash2 } from "@lucide/vue";
+import { IconRobot as Bot, IconCheck as Check, IconAlertCircle as CircleAlert, IconDownload as Download, IconPencil as Pencil, IconPlus as Plus, IconRefresh as RefreshCw, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
