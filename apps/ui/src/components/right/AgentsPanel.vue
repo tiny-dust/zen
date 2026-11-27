@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { IconRobot as Bot, IconMessageCircleQuestion as MessageCircleQuestion, IconRotate as RotateCcw, IconTerminal2 as SquareTerminal } from "@tabler/icons-vue";
+import { IconCheck as Check, IconAlertCircle as CircleAlert, IconMessageCircleQuestion as MessageCircleQuestion, IconRobot as Bot, IconRotate as RotateCcw, IconTarget as Target, IconTerminal2 as SquareTerminal } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -147,7 +147,7 @@ const rows = computed<Row[]>(() => {
  */
 interface Segment {
   key: string;
-  kind: "text" | "reasoning" | "ask" | "error" | "result" | "system" | "tools";
+  kind: "task" | "text" | "reasoning" | "ask" | "error" | "result" | "system" | "tools";
   text: string;
   parts?: ChatMessagePart[];
 }
@@ -189,7 +189,11 @@ const segments = computed<Segment[]>(() => {
       list.push({ key: row.key, kind: "reasoning", text: row.text });
       continue;
     }
-    if (row.kind === "task" || row.kind === "ask") {
+    if (row.kind === "task") {
+      list.push({ key: row.key, kind: "task", text: row.text });
+      continue;
+    }
+    if (row.kind === "ask") {
       list.push({ key: row.key, kind: "ask", text: row.text });
       continue;
     }
@@ -232,84 +236,97 @@ async function onRetry() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-2" :aria-label="t('panels.agentMessages')">
-    <!-- 顶部：选中 Agent 状态 + 紧凑切换条（替代原二级列表，点击直达消息流） -->
-    <div class="flex flex-none items-center gap-2 px-1 text-[var(--font-size-sm)] text-[var(--color-mut)]">
-      <Bot class="size-3.5" aria-hidden="true" />
-      <span v-if="selected" class="min-w-0 truncate font-medium text-[var(--color-txt-strong)]">
-        {{ selected.name }}
-      </span>
-      <span v-if="selected" class="flex-none" :class="meta(selected.status).cls">
-        {{ meta(selected.status).label }}
-      </span>
-      <span
-        v-if="selected && elapsedLabel(selected)"
-        class="flex-none tabular-nums text-[var(--font-size-xs)] text-[var(--color-dim)]"
-        :title="selected.error || selected.result || ''"
-      >
-        {{ elapsedLabel(selected) }}
-      </span>
-      <button
-        v-if="selected && canRetry"
-        type="button"
-        class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[var(--font-size-xs)] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
-        :aria-label="t('panels.retryAgent')"
-        @click="onRetry"
-      >
-        <RotateCcw class="size-3" aria-hidden="true" />
-        {{ t("panels.retry") }}
-      </button>
-      <span class="ml-auto flex-none tabular-nums text-[11px] text-[var(--color-dim)]">
-        {{ t("panels.concurrency", { running, limit }) }}
-      </span>
-    </div>
+  <div class="flex h-full min-h-0 flex-col" :aria-label="t('panels.agentMessages')">
+    <!-- 面板头：是谁 / 什么状态 / 跑了多久 / 并发额度，切换条紧随其后 -->
+    <header class="flex flex-none flex-col gap-1.5 border-b border-[var(--color-line-soft)] pb-2">
+      <div class="flex min-w-0 items-center gap-2 px-1 text-[var(--font-size-sm)] text-[var(--color-mut)]">
+        <Bot class="size-3.5 flex-none" aria-hidden="true" />
+        <span v-if="selected" class="min-w-0 truncate font-medium text-[var(--color-txt-strong)]">
+          {{ selected.name }}
+        </span>
+        <span v-if="selected" class="flex-none" :class="meta(selected.status).cls">
+          {{ meta(selected.status).label }}
+        </span>
+        <span
+          v-if="selected && elapsedLabel(selected)"
+          class="flex-none tabular-nums text-[var(--font-size-xs)] text-[var(--color-dim)]"
+          :title="selected.error || selected.result || ''"
+        >
+          {{ elapsedLabel(selected) }}
+        </span>
+        <button
+          v-if="selected && canRetry"
+          type="button"
+          class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[var(--font-size-xs)] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
+          :aria-label="t('panels.retryAgent')"
+          @click="onRetry"
+        >
+          <RotateCcw class="size-3" aria-hidden="true" />
+          {{ t("panels.retry") }}
+        </button>
+        <span class="ml-auto flex-none tabular-nums text-[11px] text-[var(--color-dim)]">
+          {{ t("panels.concurrency", { running, limit }) }}
+        </span>
+      </div>
 
-    <p v-if="retryError" class="m-0 px-1 text-[11px] text-[var(--color-danger-fg)]" role="alert">
+      <div
+        v-if="nodes.length > 1"
+        class="flex flex-none gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:thin]"
+        role="tablist"
+        :aria-label="t('panels.switchAgent')"
+      >
+        <button
+          v-for="node in nodes"
+          :key="node.id"
+          type="button"
+          role="tab"
+          :aria-selected="node.id === selectedId"
+          class="flex h-6 flex-none items-center gap-1 rounded-full px-2 text-[var(--font-size-xs)] font-normal transition-colors"
+          :class="
+            node.id === selectedId
+              ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]'
+              : 'text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]'
+          "
+          @click="agentsStore.select(node.id)"
+        >
+          <component
+            :is="meta(node.status).icon"
+            class="size-3 flex-none"
+            :class="[meta(node.status).cls, node.status === 'running' ? 'animate-spin' : '']"
+            aria-hidden="true"
+          />
+          <span class="max-w-[160px] truncate">{{ node.name }}</span>
+        </button>
+      </div>
+    </header>
+
+    <p v-if="retryError" class="m-0 px-1 pt-1.5 text-[11px] text-[var(--color-danger-fg)]" role="alert">
       {{ t("panels.retryFailedWith", { message: retryError }) }}
     </p>
 
-    <div
-      v-if="nodes.length > 1"
-      class="flex flex-none gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
-      role="tablist"
-      :aria-label="t('panels.switchAgent')"
-    >
-      <button
-        v-for="node in nodes"
-        :key="node.id"
-        type="button"
-        role="tab"
-        :aria-selected="node.id === selectedId"
-        class="flex h-6 flex-none items-center gap-1 rounded-full px-2 text-[var(--font-size-xs)] font-normal transition-colors"
-        :class="
-          node.id === selectedId
-            ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]'
-            : 'text-[var(--color-mut)] hover:bg-[var(--color-menu-hover)] hover:text-[var(--color-txt)]'
-        "
-        @click="agentsStore.select(node.id)"
-      >
-        <component
-          :is="meta(node.status).icon"
-          class="size-3 flex-none"
-          :class="[meta(node.status).cls, node.status === 'running' ? 'animate-spin' : '']"
-          aria-hidden="true"
-        />
-        <span class="max-w-[160px] truncate">{{ node.name }}</span>
-      </button>
-    </div>
-
-    <!-- 全宽消息流：与主信息流同构（markdown 正文 / 思考块 / 工具卡 / 右对齐问询气泡） -->
-    <div
-      class="min-h-0 flex-1 overflow-auto px-1"
-      :aria-label="t('panels.agentTranscript')"
-    >
+    <!-- 消息流：任务卡 → 过程（正文 / 思考 / 工具）→ 结果，与主信息流同一套组件 -->
+    <div class="min-h-0 flex-1 overflow-auto px-1 pt-2" :aria-label="t('panels.agentTranscript')">
       <p v-if="!selected" class="m-0 px-1 py-3 text-[12px] text-[var(--color-dim)]">
         {{ t("panels.noAgentMessages") }}
       </p>
-      <div v-else class="mx-auto flex w-full flex-col gap-4">
+      <div v-else class="mx-auto flex w-full flex-col gap-3">
         <template v-for="seg in segments" :key="seg.key">
+          <!-- 任务：左对齐的任务卡，和 Agent 自己的输出同侧阅读 -->
+          <div
+            v-if="seg.kind === 'task'"
+            class="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-side)] px-3 py-2"
+          >
+            <div class="mb-1 flex items-center gap-1.5 text-[11px] text-[var(--color-dim)]">
+              <Target class="size-3 flex-none" aria-hidden="true" />
+              <span>{{ t("panels.taskLabel") }}</span>
+            </div>
+            <p class="m-0 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[var(--color-txt-strong)]">
+              {{ seg.text }}
+            </p>
+          </div>
+
           <!-- 工具组：与主信息流同一张工具卡 -->
-          <ToolCallGroup v-if="seg.kind === 'tools'" :tools="(seg.parts ?? []) as never" />
+          <ToolCallGroup v-else-if="seg.kind === 'tools'" :tools="(seg.parts ?? []) as never" />
 
           <!-- 正文：与助手气泡相同的 markdown 渲染 -->
           <Response
@@ -324,43 +341,46 @@ async function onRetry() {
             <ReasoningContent :content="seg.text" class="mt-2 min-w-0 text-[12px] reasoning-dim" />
           </Reasoning>
 
-          <!-- 任务 / 问询：右对齐用户气泡样式 -->
+          <!-- 问询：子 Agent 反过来问人的内容，右对齐气泡 -->
           <div v-else-if="seg.kind === 'ask'" class="flex w-full justify-end">
             <div
               class="flex max-w-[min(760px,85%)] items-start gap-1.5 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--font-size-md)] text-[var(--color-txt-strong)]"
             >
-              <MessageCircleQuestion
-                v-if="seg.key !== 'task'"
-                class="mt-0.5 size-3.5 flex-none text-[var(--color-accent)]"
-                aria-hidden="true"
-              />
+              <MessageCircleQuestion class="mt-0.5 size-3.5 flex-none text-[var(--color-accent)]" aria-hidden="true" />
               <span class="min-w-0 whitespace-pre-wrap break-words">{{ seg.text }}</span>
             </div>
           </div>
 
-          <!-- 结果 / 错误 / 运行日志 -->
-          <div v-else class="w-fit min-w-0 max-w-[min(100%,72ch)]">
-            <div
-              v-if="seg.kind === 'result' || seg.kind === 'error'"
-              class="flex items-start gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
-              :class="
-                seg.kind === 'error'
-                  ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'
-                  : 'border border-[var(--color-line-soft)] bg-[var(--color-side)] text-[var(--color-ok,#3d9a6a)]'
-              "
-              :role="seg.kind === 'error' ? 'alert' : 'status'"
-            >
-              <span class="flex-none font-medium">{{ segmentKindLabel(seg.kind === 'error' ? 'error' : 'result') }}</span>
-              <span class="min-w-0 whitespace-pre-wrap break-words">{{ seg.text }}</span>
+          <!-- 结果 / 错误：带标签的终态卡 -->
+          <div
+            v-else-if="seg.kind === 'result' || seg.kind === 'error'"
+            class="rounded-[var(--radius-sm)] px-3 py-2 text-[12px]"
+            :class="
+              seg.kind === 'error'
+                ? 'bg-[var(--color-notice-danger-bg)] text-[var(--color-danger-fg)]'
+                : 'border border-[color-mix(in_srgb,var(--color-ok,#3d9a6a)_25%,var(--color-line))] bg-[color-mix(in_srgb,var(--color-ok,#3d9a6a)_7%,transparent)] text-[var(--color-ok,#3d9a6a)]'
+            "
+            :role="seg.kind === 'error' ? 'alert' : 'status'"
+          >
+            <div class="mb-1 flex items-center gap-1.5 text-[11px] opacity-80">
+              <component
+                :is="seg.kind === 'error' ? CircleAlert : Check"
+                class="size-3 flex-none"
+                aria-hidden="true"
+              />
+              <span>{{ segmentKindLabel(seg.kind === 'error' ? 'error' : 'result') }}</span>
             </div>
-            <p
-              v-else
-              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
-              :title="seg.text"
-            >
-              {{ seg.text }}
-            </p>
+            <p class="m-0 whitespace-pre-wrap break-words">{{ seg.text }}</p>
           </div>
+
+          <!-- 运行日志：等宽弱化行 -->
+          <p
+            v-else
+            class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
+            :title="seg.text"
+          >
+            {{ seg.text }}
+          </p>
         </template>
 
         <p
