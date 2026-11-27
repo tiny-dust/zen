@@ -932,6 +932,20 @@
   background-color: var(--shiki-dark-bg, var(--color-code-bg)) !important;
 }
 
+/* v-html 渲染的 shiki 行（diff 行 / 工具结果代码行）。
+   组件 scoped 样式里的 `:global(.dark) … :deep()` 组合不会产出规则（编译后整条丢失），
+   深色侧只能写在这里：缺了它 token 会取到 --shiki-light 的深墨色，
+   在深色底上几乎与背景同色（变更文件看起来「完全无法查看」）。 */
+.diff-hl span,
+.tool-code-hl span {
+  color: var(--shiki-light, inherit);
+}
+
+.dark .diff-hl span,
+.dark .tool-code-hl span {
+  color: var(--shiki-dark, inherit);
+}
+
 .md-content p:last-child {
   margin-bottom: 0;
 }

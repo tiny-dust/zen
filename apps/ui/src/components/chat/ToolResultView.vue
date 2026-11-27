@@ -182,15 +182,10 @@ const terminalSpans = computed(() => {
   overflow-wrap: anywhere;
   tab-size: 2;
 }
-/* shiki 高亮行：token 双主题 CSS 变量，按深浅取用（与 markdown 代码块同规则） */
+/* shiki 高亮行：token 双主题取色在 styles.css（.tool-code-hl span），
+   组件内写 :global(.dark) + :deep() 会被编译丢弃，别再放回来 */
 .tool-code-line .tool-code-hl {
   color: var(--color-code-fg);
-}
-.tool-code-line .tool-code-hl :deep(span) {
-  color: var(--shiki-light, var(--color-code-fg));
-}
-:global(.dark) .tool-code-line .tool-code-hl :deep(span) {
-  color: var(--shiki-dark, var(--color-code-fg));
 }
 .tool-code-line[data-change="add"] { color: var(--color-add); background: color-mix(in srgb, var(--color-add) 12%, transparent); }
 .tool-code-line[data-change="del"] { color: var(--color-del); background: color-mix(in srgb, var(--color-del) 12%, transparent); }
