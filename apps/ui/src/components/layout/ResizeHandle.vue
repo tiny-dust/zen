@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 const props = withDefaults(
@@ -21,19 +21,58 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const rootRef = ref<HTMLElement | null>(null);
 const dragging = ref(false);
 let lastX = 0;
 let lastY = 0;
+let activePointerId: number | null = null;
+
+/**
+ * 结束拖动。松手事件可能根本到不了手柄：指针在窗口外松开、捕获没拿到、
+ * 或系统弹窗抢走指针（此时只会有 pointercancel / blur）。所以统一收尾，
+ * 并把自己挂的 window 兜底监听一起摘掉，避免状态残留。
+ */
+function endDrag() {
+  if (!dragging.value) return;
+  dragging.value = false;
+  const el = rootRef.value;
+  if (el && activePointerId !== null && el.hasPointerCapture?.(activePointerId)) {
+    el.releasePointerCapture(activePointerId);
+  }
+  activePointerId = null;
+  window.removeEventListener("pointerup", endDrag, true);
+  window.removeEventListener("pointercancel", endDrag, true);
+  window.removeEventListener("blur", endDrag, true);
+}
 
 function onPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
   dragging.value = true;
+  activePointerId = event.pointerId;
   lastX = event.clientX;
   lastY = event.clientY;
-  (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  // 兜底监听先挂：捕获本身可能拿不到或直接抛（非活动指针、环境不支持），
+  // 一旦抛在注册之前，松手事件就再没人收尾，拖动状态会一直残留
+  window.addEventListener("pointerup", endDrag, true);
+  window.addEventListener("pointercancel", endDrag, true);
+  window.addEventListener("blur", endDrag, true);
+  try {
+    rootRef.value?.setPointerCapture?.(event.pointerId);
+  } catch {
+    // 拿不到捕获只是少了越界拖动能力，endDrag 仍会把状态收干净
+  }
 }
 
 function onPointerMove(event: PointerEvent) {
   if (!dragging.value) {
+    return;
+  }
+  if (activePointerId !== null && event.pointerId !== activePointerId) {
+    return;
+  }
+  // 松手事件丢失时，按键已经松开的那一帧就收尾（buttons 归零说明早就松开了）
+  if (event.buttons === 0) {
+    endDrag();
     return;
   }
   if (props.orientation === "vertical") {
@@ -47,9 +86,7 @@ function onPointerMove(event: PointerEvent) {
   emit("drag", props.invert ? -dy : dy);
 }
 
-function onPointerUp() {
-  dragging.value = false;
-}
+onUnmounted(endDrag);
 
 function onKeydown(event: KeyboardEvent) {
   const direction = props.orientation === "vertical"
@@ -74,6 +111,7 @@ const rootClass = computed(() =>
 
 <template>
   <div
+    ref="rootRef"
     :class="[
       rootClass,
       orientation === 'vertical'
@@ -88,7 +126,8 @@ const rootClass = computed(() =>
     @keydown="onKeydown"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
-    @pointerup="onPointerUp"
-    @pointercancel="onPointerUp"
+    @pointerup="endDrag"
+    @pointercancel="endDrag"
+    @lostpointercapture="endDrag"
   />
 </template>
