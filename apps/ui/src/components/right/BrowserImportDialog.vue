@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Copy, Download, KeyRound, Loader2, Trash2 } from "@lucide/vue";
+import { IconCheck as Check, IconCopy as Copy, IconDownload as Download, IconKey as KeyRound, IconLoader2 as Loader2, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

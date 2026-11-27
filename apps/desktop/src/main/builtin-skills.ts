@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -23,6 +23,21 @@ async function isDirectory(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+/**
+ * 模板已经不再带面板时，清掉上次同步留在用户目录的 panel.json / ui：
+ * 否则升级后旧面板还会被渲染。只作用于 zen 拥有的内置技能目录。
+ */
+async function removeStalePanel(from: string, to: string): Promise<void> {
+  try {
+    await stat(join(from, "panel.json"));
+  } catch {
+    await rm(join(to, "panel.json"), { force: true });
+  }
+  if (!(await isDirectory(join(from, "ui")))) {
+    await rm(join(to, "ui"), { recursive: true, force: true });
   }
 }
 
@@ -54,6 +69,7 @@ export async function syncBuiltinSkills(
       continue;
     }
     const to = join(targetRoot, name);
+    await removeStalePanel(from, to);
     if (await sameSkill(from, to)) {
       continue;
     }

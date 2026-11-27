@@ -1,7 +1,0 @@
-{
-  "version": 1,
-  "title": "skill-router",
-  "showOnSkillUse": true,
-  "metrics": ["rounds", "tools", "elapsed", "tests"],
-  "commands": { "band": "toggle" }
-}

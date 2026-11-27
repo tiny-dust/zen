@@ -29,6 +29,7 @@ import {
   setSessionPairMode,
   setSessionPhaseModel,
   setSessionPinned,
+  setSessionRuntimeCli,
   setSessionWorkspace,
   setWorkspaceArchived,
   setWorkspacePinned,
@@ -235,6 +236,13 @@ export function registerSessionIpc(
       (SESSION_MODES as readonly string[]).includes(mode)
     ) {
       setSessionMode(id, mode as SessionMode);
+    }
+  });
+
+  // 会话底座：null = API 模型（旧行为）；非法值在 workspace-db 内被忽略
+  ipcMain.handle("session:set-runtime-cli", (_event, id: string, runtimeCli: string | null) => {
+    if (typeof id === "string" && id.trim()) {
+      setSessionRuntimeCli(id, typeof runtimeCli === "string" ? runtimeCli : null);
     }
   });
 

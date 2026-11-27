@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, FileText, Loader2, Plug, Sparkles } from "@lucide/vue";
+import { IconChevronRight as ChevronRight, IconFileText as FileText, IconLoader2 as Loader2, IconPlug as Plug, IconSparkles as Sparkles } from "@tabler/icons-vue";
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -465,5 +465,20 @@ function breathClass(item: SkillUsageItem): string {
 .usage-breath-a,
 .usage-breath-b {
   animation: usage-breathe 1.4s ease-in-out infinite;
+}
+
+/* 减弱动效：停掉装饰性呼吸与入退场位移，状态仍由图标（旋转/静态）与文字表达 */
+@media (prefers-reduced-motion: reduce) {
+  .usage-breath-a,
+  .usage-breath-b {
+    animation: none;
+    border-color: var(--color-accent);
+  }
+
+  .usage-enter-active,
+  .usage-leave-active,
+  .usage-move {
+    transition: none;
+  }
 }
 </style>

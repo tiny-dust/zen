@@ -48,6 +48,10 @@ export const sessionApi = {
     setPairMode(id: string, enabled: boolean): Promise<void> {
       return ipcRenderer.invoke("session:set-pair-mode", id, enabled);
     },
+    /** 会话底座：null = API 模型；'claude'/'codex' = 本机外部 CLI */
+    setRuntimeCli(id: string, runtimeCli: string | null): Promise<void> {
+      return ipcRenderer.invoke("session:set-runtime-cli", id, runtimeCli);
+    },
     /** 会话模式（interactive/plan/autopilot）；plan 批准后 main 自动切回 interactive */
     setMode(id: string, mode: SessionMode): Promise<void> {
       return ipcRenderer.invoke("session:set-mode", id, mode);

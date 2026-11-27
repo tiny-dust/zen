@@ -1,3 +1,4 @@
+import type { CliRuntimeId } from "./cli-runtime";
 import type { ReasoningEffort } from "./model";
 import type { AgentDoneReason, AgentRunStatus, AgentStreamEvent, ToolCallState } from "./agent-events";
 
@@ -327,4 +328,6 @@ export interface AgentRunRequest {
    * 产出一份计划再交给执行模型落地。显式 false 关闭。
    */
   autoPlan?: boolean;
+  /** 本轮用外部 CLI 执行；缺省走 API 模型。不支持的能力（审批/工具事件）由 main 明确拒绝或降级 */
+  runtimeCli?: CliRuntimeId;
 }

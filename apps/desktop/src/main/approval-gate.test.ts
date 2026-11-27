@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildApprovalGate, matchApprovalRule, parseReviewerVerdict } from "./approval-gate";
+import { buildApprovalGate, commandSegments, matchApprovalRule, parseReviewerVerdict } from "./approval-gate";
 import { completeOnce } from "./model-api";
 
 import type { CommandApprovalRule } from "@zen/shared";
@@ -16,6 +16,40 @@ const RULES: CommandApprovalRule[] = [
   { pattern: "pnpm test", decision: "ask" },
   { pattern: "pnpm", decision: "allow" },
 ];
+
+describe("复合命令不被单段规则放行", () => {
+  const rules: CommandApprovalRule[] = [
+    { pattern: "cd", decision: "allow" },
+    { pattern: "git status", decision: "allow" },
+    { pattern: "cat", decision: "allow" },
+    { pattern: "pnpm test", decision: "ask" },
+    { pattern: "pnpm", decision: "allow" },
+  ];
+
+  it("只用首段前缀合法时整条命令仍要人工确认", () => {
+    expect(matchApprovalRule("cd ~/proj && rm -rf ~", rules)).toBeNull();
+    expect(matchApprovalRule("git status && git push", rules)).toBeNull();
+    expect(matchApprovalRule("cat file | sh", rules)).toBeNull();
+  });
+
+  it("每段都命中 allow 才放行", () => {
+    expect(matchApprovalRule("cd ~/proj && git status --short", rules)).toBe(rules[0]);
+    expect(matchApprovalRule("cd a; cd b", rules)).toBe(rules[0]);
+  });
+
+  it("任一段命中 ask 就让整条命令走确认", () => {
+    const rule = matchApprovalRule("pnpm test; pnpm install", rules);
+    expect(rule?.decision).toBe("ask");
+  });
+
+  it("换行分隔同样逐段判定", () => {
+    expect(matchApprovalRule("git status\nrm -rf build", rules)).toBeNull();
+  });
+
+  it("切分忽略空片段", () => {
+    expect(commandSegments("  git status ;;  ")).toEqual(["git status"]);
+  });
+});
 
 describe("matchApprovalRule 前缀匹配", () => {
   it("前缀命中：完整命令与前缀开头的命令都命中", () => {

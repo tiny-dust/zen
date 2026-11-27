@@ -1,5 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SkillPanelHost from "@/components/chat/SkillPanelHost.vue";
 import { useSkillUsageStore } from "@/stores/skill-usage";
@@ -15,7 +16,7 @@ const chatState = vi.hoisted(() => ({
 }));
 
 const agentState = vi.hoisted(() => ({
-  skills: [{ id: "/skills/skill-router", name: "skill-router", dir: "/skills/skill-router" }],
+  skills: [{ id: "/skills/demo-skill", name: "demo-skill", dir: "/skills/demo-skill" }],
   skillPanel: vi.fn(),
 }));
 
@@ -24,10 +25,10 @@ vi.mock("@/stores/agent", () => ({ useAgentStore: () => agentState }));
 
 function panel(overrides: Partial<SkillPanelInfo["manifest"]> = {}, html?: string): SkillPanelInfo {
   return {
-    dir: "/skills/skill-router",
+    dir: "/skills/demo-skill",
     manifest: {
       version: 1,
-      title: "skill-router",
+      title: "demo-skill",
       showOnSkillUse: true,
       metrics: ["rounds", "tools"],
       ...overrides,
@@ -36,8 +37,8 @@ function panel(overrides: Partial<SkillPanelInfo["manifest"]> = {}, html?: strin
   };
 }
 
-async function mountWithPanel(info: SkillPanelInfo | null) {
-  agentState.skillPanel.mockResolvedValueOnce(info);
+async function mountWithPanel(info: SkillPanelInfo | null, skillName = "demo-skill") {
+  agentState.skillPanel.mockResolvedValue(info);
   chatState.messages = [
     { id: "u1", role: "user", content: "", createdAt: 0 },
     {
@@ -48,29 +49,36 @@ async function mountWithPanel(info: SkillPanelInfo | null) {
       parts: [{ type: "tool", toolCallId: "t1", toolName: "readFile", state: "ok" }],
     },
   ];
-  useSkillUsageStore().noteSkills("s1", ["skill-router"]);
+  useSkillUsageStore().noteSkills("s1", [skillName]);
   const wrapper = mount(SkillPanelHost);
   await flushPromises();
   return wrapper;
 }
 
 describe("SkillPanelHost 技能面板", () => {
+  // 面板信息按目录缓存（pinia store 跨用例存活），每个用例换成全新的 pinia 避免串味
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    agentState.skillPanel.mockReset();
+  });
+
   it("技能声明了 panel.json 时渲染内置指标行", async () => {
     const wrapper = await mountWithPanel(panel());
-    expect(wrapper.text()).toContain("skill-router");
+    expect(wrapper.text()).toContain("demo-skill");
     expect(wrapper.text()).toContain("1 轮");
     expect(wrapper.text()).toContain("1 次工具");
   });
 
-  it("Ponytail band 使用宿主指标行而不是依赖内联脚本", async () => {
-    chatState.lastInputTokens = 1200;
-    chatState.lastOutputTokens = 300;
-    const wrapper = await mountWithPanel(panel({ title: "Ponytail band", metrics: ["rounds", "tools", "tokens"] }));
-    expect(wrapper.find("iframe").exists()).toBe(false);
-    expect(wrapper.text()).toContain("Ponytail band");
-    expect(wrapper.text()).toContain("输入 1.2K / 输出 300");
-    chatState.lastInputTokens = null;
-    chatState.lastOutputTokens = null;
+  it("Ponytail 与 skill-router 的信息栏不再渲染，即使目录里还留着 panel.json", async () => {
+    const ponytail = await mountWithPanel(
+      panel({ title: "Ponytail band", metrics: ["rounds", "tools", "tokens"] }),
+      "ponytail",
+    );
+    expect(ponytail.text()).toBe("");
+    expect(ponytail.find("iframe").exists()).toBe(false);
+
+    const router = await mountWithPanel(panel({ title: "skill-router" }), "skill-router");
+    expect(router.text()).toBe("");
   });
 
   it("技能没有 panel.json 时不渲染任何面板", async () => {

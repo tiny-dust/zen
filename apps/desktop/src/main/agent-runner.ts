@@ -8,16 +8,24 @@ import { loadImageAttachments, isImagePath, withImageAnalysisText } from "./agen
 import { getAgentServicesRegistry } from "./agent-services";
 import { buildApprovalGate } from "./approval-gate";
 import { getCuaService } from "./abilities/cua";
+import { detectCliRuntimes, startCliRun } from "./cli-runtime";
 import { getBrowserRegistry } from "./browser/service";
 import { getChatGptAuthStatus, resolveChatGptCredentials } from "./chatgpt-auth";
 import { chatGptRequestTarget } from "./model-api";
 import { notifyLarkEvent } from "./lark/ipc";
+import { notifyTaskEvent } from "./tasks/runtime";
 import {
   appendMemoryNote,
   readMemoryNotes,
   readMemorySnapshot,
   renderMemoryContext,
 } from "./memory";
+import {
+  maybeAutoIngest,
+  readConversationSettings,
+  readPersonaBlock,
+  renderRecallBlock,
+} from "./memory-conversations";
 import { enabledMcpTools } from "./mcp-ipc";
 import { inspectModelCapabilities } from "./model-capabilities";
 import { chatGptUsageAccountKey, recordProviderUsage } from "./model-usage";
@@ -116,6 +124,57 @@ function persistAssistant(sessionId: string, message: ChatMessage): void {
   });
 }
 
+/**
+ * 系统提示词里的记忆块：既有设备/习惯记忆 + 本轮召回（对话记忆启用且开了 recall 时）。
+ * 记忆任何环节失败都不阻塞聊天：召回抛错吞掉，只注入已有部分。
+ */
+async function buildMemoryContext(query: string): Promise<string | undefined> {
+  const base = await readMemorySnapshot()
+    .then(renderMemoryContext)
+    .catch(() => undefined);
+  let recall: string | undefined;
+  let persona: string | undefined;
+  try {
+    const settings = await readConversationSettings();
+    if (settings.enabled && settings.recall) {
+      recall = await renderRecallBlock(settings, query);
+    }
+    if (settings.enabled) {
+      persona = await readPersonaBlock();
+    }
+  } catch {
+    // 召回/档案失败（文件损坏 / 读取异常）直接跳过，不影响本轮对话
+    recall = undefined;
+    persona = undefined;
+  }
+  return [base, persona, recall]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n") || undefined;
+}
+
+/**
+ * 一轮 run 正常结束后的对话记忆自动摘要：fire-and-forget。
+ * 先看设置（关闭时不读消息、不调模型），节流与失败记录都在 memory-conversations 内处理。
+ */
+function scheduleAutoIngest(sessionId: string, workspaceId: string): void {
+  void (async () => {
+    const settings = await readConversationSettings();
+    if (!settings.enabled || !settings.autoSummarize) {
+      return;
+    }
+    const messages = (loadSessionRecord(sessionId)?.messages ?? [])
+      .filter(
+        (item): item is ChatMessage & { role: "user" | "assistant" } =>
+          item.role === "user" || item.role === "assistant",
+      )
+      .map((item) => ({ role: item.role, content: item.content }));
+    await maybeAutoIngest(sessionId, workspaceId, messages);
+  })().catch((error) => {
+    // 自动摘要失败不能影响聊天主流程
+    console.warn("[memory] 对话记忆自动摘要失败:", error);
+  });
+}
+
 /** 单段 run 的附加选项：编排层（plan → act）用它区分阶段 */
 interface PhaseRunOptions {
   /** 强制会话模式：计划段固定为 plan（只读） */
@@ -142,7 +201,122 @@ export async function runAgentRequest(
   request: AgentRunRequest,
   options: RunAgentOptions,
 ): Promise<AgentRunResult> {
+  if (request.runtimeCli) {
+    return runCliRuntimeRequest(request, options);
+  }
   return runAgentSinglePhase(request, options);
+}
+
+/** 运行中的 CLI 进程：sessionId → 停止函数（agent:cancel 与同会话重发都走它） */
+const cliRuns = new Map<string, () => void>();
+
+/** 停止会话的 CLI 进程；没有在跑返回 false（供 agent:cancel 回退判断） */
+export function stopCliRun(sessionId: string): boolean {
+  const stop = cliRuns.get(sessionId);
+  if (!stop) {
+    return false;
+  }
+  cliRuns.delete(sessionId);
+  stop();
+  return true;
+}
+
+export function isCliRunActive(sessionId: string): boolean {
+  return cliRuns.has(sessionId);
+}
+
+/**
+ * 外部 CLI 会话：提示词交给本机 CLI，stdout 作为正文流；失败透出 stderr 尾部。
+ * 审批边界：CLI 自己执行工具，Zen 无法逐次确认——「默认权限」下明确拒绝，不静默放行。
+ */
+async function runCliRuntimeRequest(
+  request: AgentRunRequest,
+  options: RunAgentOptions,
+): Promise<AgentRunResult> {
+  const sessionId = request.sessionId;
+  const runtimeId = request.runtimeCli;
+  if (!sessionId || !request.userMessage || !runtimeId) {
+    return { ok: false, error: "invalid agent run request" };
+  }
+  const record = loadSessionRecord(sessionId);
+  if (!record) {
+    return { ok: false, error: "session not found" };
+  }
+
+  const settings = await loadAgentSettings();
+  if (settings.permissionMode === "default") {
+    return {
+      ok: false,
+      error: "外部 CLI 无法提供逐次审批：请把权限切换到「智能」或「完全访问」，或改回 API 模型",
+    };
+  }
+
+  const runtime = detectCliRuntimes().find((item) => item.id === runtimeId);
+  if (!runtime?.path) {
+    return { ok: false, error: `${runtimeId} 未安装或不在 PATH 中` };
+  }
+
+  const cwd =
+    request.workspaceRoot ||
+    getWorkspace(record.session.workspaceId)?.path ||
+    process.cwd();
+
+  // 同会话重发：先收掉上一轮还在跑的 CLI，避免两个进程抢同一份工作区
+  stopCliRun(sessionId);
+
+  ensureSessionTitle(sessionId, request.userMessage.slice(0, 24));
+  const displayId = request.display?.id;
+  appendMessage(sessionId, {
+    id: typeof displayId === "string" && displayId.trim() ? displayId : randomUUID(),
+    role: "user",
+    content: request.display?.content ?? request.userMessage,
+    createdAt: Date.now(),
+    meta: request.attachments?.length ? { attachments: request.attachments } : undefined,
+  });
+
+  const startedAt = Date.now();
+  let text = "";
+  let stoppedByUser = false;
+  const run = startCliRun({
+    id: runtimeId,
+    path: runtime.path,
+    prompt: request.userMessage,
+    cwd,
+    onDelta: (chunk) => {
+      text += chunk;
+      options.send?.({ type: "delta", sessionId, text: chunk });
+    },
+  });
+  cliRuns.set(sessionId, () => {
+    stoppedByUser = true;
+    run.stop();
+  });
+
+  const result = await run.done;
+  cliRuns.delete(sessionId);
+
+  const reason: AgentDoneReason = stoppedByUser ? "cancelled" : result.ok ? "stop" : "error";
+  persistAssistant(sessionId, {
+    id: randomUUID(),
+    role: "assistant",
+    content: text,
+    createdAt: Date.now(),
+    meta: {
+      run: {
+        reason,
+        status: reason === "error" ? "error" : "idle",
+        ...(result.error && reason === "error" ? { error: result.error } : {}),
+        startedAt,
+        endedAt: Date.now(),
+      },
+    },
+  });
+
+  if (reason === "error" && result.error) {
+    options.send?.({ type: "error", sessionId, message: result.error });
+  }
+  options.send?.({ type: "done", sessionId, reason });
+  return reason === "error" ? { ok: false, error: result.error } : { ok: true };
 }
 
 async function runAgentSinglePhase(
@@ -269,6 +443,8 @@ async function runAgentSinglePhase(
     }
     // 飞书桥接：ask_user / ask_resolved / done 事件喂给网关（推送与待答清理）
     notifyLarkEvent(streamEvent);
+    // 持续任务：done 事件驱动 `app.run.finished` 触发器（tasks/runtime 内做冷却与排队）
+    notifyTaskEvent(streamEvent);
     if (petSession && !(streamEvent.type === "done" && streamEvent.phase === "insert")) {
       recordPetRunEvent(streamEvent, petSession, petRunId);
     }
@@ -279,7 +455,7 @@ async function runAgentSinglePhase(
     if (streamEvent.type === "usage") {
       if (usageProviderId && usageModelId && usageAccountKey !== null) {
         try {
-          recordProviderUsage(usageProviderId, usageModelId, streamEvent, Date.now(), usageAccountKey);
+          recordProviderUsage(usageProviderId, usageModelId, streamEvent, Date.now(), usageAccountKey, request.sessionId);
         } catch (error) {
           // 用量统计失败不能中断 Agent 的流式响应。
           console.warn("[zen] 供应商用量落库失败", error);
@@ -540,10 +716,8 @@ async function runAgentSinglePhase(
       ),
       // 任务清单：版本号接着会话已落库的最大版本，新一轮 startNew 才真正开新版
       taskListSeed,
-      // 设备环境 + 用户习惯记忆：注入系统提示词，避免每次重复探测路径/命令
-      memoryContext: await readMemorySnapshot()
-        .then(renderMemoryContext)
-        .catch(() => undefined),
+      // 设备环境 + 用户习惯记忆（+ 对话记忆召回，开启时）：注入系统提示词
+      memoryContext: await buildMemoryContext(request.userMessage).catch(() => undefined),
       memoryBridge: {
         appendNote: async (scope, text, category) => {
           await appendMemoryNote(scope, text, category);
@@ -634,6 +808,13 @@ async function runAgentSinglePhase(
     registerPetRun(request.sessionId, session, petRunId, request.display?.content ?? request.userMessage);
     await session.start(runUserMessage, request.history, sessionImages, modelHistory ?? undefined);
     // 不在此处 persist：暂停/等审批时 start 会提前返回，终态由 done/error 事件落库
+    if (!phase.forcedMode && phaseDoneReason === "stop") {
+      // 对话记忆自动摘要：正常结束后后台触发，失败只记 lastError，不影响返回与流
+      scheduleAutoIngest(
+        request.sessionId,
+        request.workspaceId ?? phaseSession?.workspaceId ?? "",
+      );
+    }
     return { ok: true, text: collectedText, doneReason: phaseDoneReason };
   } catch (error) {
     const message = error instanceof Error ? error.message : "agent run failed";

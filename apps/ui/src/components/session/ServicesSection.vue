@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Server, X } from "@lucide/vue";
+import { IconPlugConnected as Server, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";

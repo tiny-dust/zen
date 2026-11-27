@@ -1,3 +1,4 @@
+import type { CliRuntimeId } from "./cli-runtime";
 import type { SessionGoal } from "./session-goal";
 import type { SessionMode } from "./session-mode";
 
@@ -41,6 +42,8 @@ export interface SessionRecord {
   mode?: SessionMode;
   /** 会话目标（Goals 目标模式）；null/缺省 = 未设定目标 */
   goal?: SessionGoal | null;
+  /** 会话底座：外部 CLI；null/缺省 = 走 API 模型（旧会话一律 API 路径） */
+  runtimeCli?: CliRuntimeId | null;
 }
 
 /** 一个会话独占的 Git worktree；path 是该项目在工作树内的实际工作目录。 */

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Bot, MessageCircleQuestion, RotateCcw, SquareTerminal } from "@lucide/vue";
+import { IconRobot as Bot, IconMessageCircleQuestion as MessageCircleQuestion, IconRotate as RotateCcw, IconTerminal2 as SquareTerminal } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
@@ -41,6 +41,44 @@ function meta(status: SubAgentStatusLike) {
 }
 
 type SubAgentStatusLike = AgentNode["status"];
+
+/** 仍在推进的状态：耗时要随时钟增长；终态用 endedAt 定格 */
+const ACTIVE_STATUS: ReadonlySet<SubAgentStatusLike> = new Set(["running", "waiting_user"]);
+const now = ref(Date.now());
+let ticker: number | undefined;
+
+onMounted(() => {
+  ticker = window.setInterval(() => {
+    now.value = Date.now();
+  }, 1_000);
+});
+
+onUnmounted(() => {
+  if (ticker !== undefined) {
+    window.clearInterval(ticker);
+    ticker = undefined;
+  }
+});
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) {
+    return t("chat.bubble.secondsShort", { n: seconds });
+  }
+  return t("chat.bubble.minutesSeconds", {
+    m: Math.floor(seconds / 60),
+    s: String(seconds % 60).padStart(2, "0"),
+  });
+}
+
+/** 真实耗时：运行中按当前时钟，终态用 endedAt；缺时间戳返回空串而不是 0s */
+function elapsedLabel(node: AgentNode): string {
+  if (!node.startedAt) {
+    return "";
+  }
+  const end = node.endedAt ?? (ACTIVE_STATUS.has(node.status) ? now.value : undefined);
+  return end == null ? "" : formatDuration(end - node.startedAt);
+}
 
 type RowKind = "task" | "text" | "reasoning" | "tool" | "ask" | "error" | "system" | "result";
 
@@ -196,7 +234,7 @@ async function onRetry() {
 <template>
   <div class="flex h-full min-h-0 flex-col gap-2" :aria-label="t('panels.agentMessages')">
     <!-- 顶部：选中 Agent 状态 + 紧凑切换条（替代原二级列表，点击直达消息流） -->
-    <div class="flex flex-none items-center gap-2 px-1 text-[12px] text-[var(--color-mut)]">
+    <div class="flex flex-none items-center gap-2 px-1 text-[var(--font-size-sm)] text-[var(--color-mut)]">
       <Bot class="size-3.5" aria-hidden="true" />
       <span v-if="selected" class="min-w-0 truncate font-medium text-[var(--color-txt-strong)]">
         {{ selected.name }}
@@ -204,10 +242,17 @@ async function onRetry() {
       <span v-if="selected" class="flex-none" :class="meta(selected.status).cls">
         {{ meta(selected.status).label }}
       </span>
+      <span
+        v-if="selected && elapsedLabel(selected)"
+        class="flex-none tabular-nums text-[var(--font-size-xs)] text-[var(--color-dim)]"
+        :title="selected.error || selected.result || ''"
+      >
+        {{ elapsedLabel(selected) }}
+      </span>
       <button
         v-if="selected && canRetry"
         type="button"
-        class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[11px] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
+        class="flex h-6 flex-none items-center gap-1 rounded-full border border-[var(--color-line)] px-2 text-[var(--font-size-xs)] text-[var(--color-txt)] transition-colors hover:bg-[var(--color-menu-hover)]"
         :aria-label="t('panels.retryAgent')"
         @click="onRetry"
       >
@@ -235,7 +280,7 @@ async function onRetry() {
         type="button"
         role="tab"
         :aria-selected="node.id === selectedId"
-        class="flex h-6 flex-none items-center gap-1 rounded-full px-2 text-[11px] font-normal transition-colors"
+        class="flex h-6 flex-none items-center gap-1 rounded-full px-2 text-[var(--font-size-xs)] font-normal transition-colors"
         :class="
           node.id === selectedId
             ? 'bg-[var(--color-menu-active)] font-medium text-[var(--color-txt-strong)]'
@@ -282,7 +327,7 @@ async function onRetry() {
           <!-- 任务 / 问询：右对齐用户气泡样式 -->
           <div v-else-if="seg.kind === 'ask'" class="flex w-full justify-end">
             <div
-              class="flex max-w-[min(760px,85%)] items-start gap-1.5 rounded-2xl border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[13px] text-[var(--color-txt-strong)]"
+              class="flex max-w-[min(760px,85%)] items-start gap-1.5 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-side-sel)] px-3.5 py-2 text-[var(--font-size-md)] text-[var(--color-txt-strong)]"
             >
               <MessageCircleQuestion
                 v-if="seg.key !== 'task'"
@@ -310,7 +355,7 @@ async function onRetry() {
             </div>
             <p
               v-else
-              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
+              class="m-0 truncate px-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-dim)]"
               :title="seg.text"
             >
               {{ seg.text }}

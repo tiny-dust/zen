@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  CornerDownLeft,
-  HelpCircle,
-  Send,
-  UserRound,
-} from "@lucide/vue";
+import { IconCheck as Check, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconCornerDownLeft as CornerDownLeft, IconHelpCircle as HelpCircle, IconSend as Send, IconUserCircle as UserRound } from "@tabler/icons-vue";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

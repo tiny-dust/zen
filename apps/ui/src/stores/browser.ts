@@ -347,6 +347,16 @@ export const useBrowserStore = defineStore("browser", () => {
     );
   }
 
+  /** 打开失败：错误必须留在面板上；此前没有可用页面时回到新标签页，不留一块空白视图 */
+  async function failOpen(message: string) {
+    panelNote.value = message;
+    const url = status.value.url;
+    if (!url || url === "about:blank") {
+      showHome.value = true;
+      await syncBoundsHost();
+    }
+  }
+
   async function openUrl(url?: string) {
     const zen = window.zen?.browser;
     if (!zen) {
@@ -384,7 +394,7 @@ export const useBrowserStore = defineStore("browser", () => {
         }),
       ]);
       if (!result.ok) {
-        panelNote.value = result.error || i18n.global.t("app.browser.openFailed");
+        await failOpen(result.error || i18n.global.t("app.browser.openFailed"));
         return;
       }
       urlInput.value = result.url;
@@ -411,7 +421,7 @@ export const useBrowserStore = defineStore("browser", () => {
         }
       }
     } catch (error) {
-      panelNote.value = error instanceof Error ? error.message : i18n.global.t("app.browser.openAddressFailed");
+      await failOpen(error instanceof Error ? error.message : i18n.global.t("app.browser.openAddressFailed"));
     } finally {
       agentNavLock.value = false;
       busy.value = false;

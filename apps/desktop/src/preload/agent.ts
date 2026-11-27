@@ -123,6 +123,10 @@ export const agentApi = {
     promptPresets(): Promise<PromptPreset[]> {
       return ipcRenderer.invoke("agent:prompt-presets");
     },
+    /** 外部 CLI 探测：path 为 null 表示本机未安装 */
+    cliRuntimes(): Promise<Array<{ id: "claude" | "codex"; label: string; command: string; path: string | null }>> {
+      return ipcRenderer.invoke("agent:cli-runtimes");
+    },
     sandboxDir(): Promise<string> {
       return ipcRenderer.invoke("agent:sandbox-dir");
     },

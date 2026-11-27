@@ -1,3 +1,13 @@
+/**
+ * 进程实时指标（看板展示）：平台读不到时字段为 null，UI 显示「不可用」，
+ * 不用 0 冒充。POSIX 的 cpuPercent 是进程生命周期均值，Windows 为最近采样值。
+ */
+export interface ProcessStat {
+  pid: number;
+  cpuPercent: number | null;
+  rssBytes: number | null;
+}
+
 /** runTerminal 起的持续运行服务（dev server / watch 等）：主进程按进程组跟踪 */
 export interface AgentServiceInfo {
   id: string;

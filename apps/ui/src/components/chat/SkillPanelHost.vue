@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, Sparkles, X } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconSparkles as Sparkles, IconX as X } from "@tabler/icons-vue";
 import { computed, onMounted, onUnmounted, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
@@ -34,6 +34,12 @@ const metrics = computed<SkillPanelMetrics>(() =>
   }),
 );
 
+/**
+ * 不再展示面板的技能：Ponytail band 与 skill-router 的信息栏没有实际作用。
+ * 只过滤显示，技能本身（SKILL.md）与路由逻辑完全不受影响。
+ */
+const NO_PANEL_SKILLS = new Set(["ponytail", "skill-router"]);
+
 const frames = new Map<string, HTMLIFrameElement>();
 const collapsed = reactive<Record<string, boolean>>({});
 
@@ -45,7 +51,7 @@ interface PanelEntry {
 const panels = computed<PanelEntry[]>(() => {
   const list: PanelEntry[] = [];
   for (const item of usageStore.entriesOf(chatStore.sessionId)) {
-    if (item.kind !== "skill" || panelsStore.isHidden(item.name)) {
+    if (item.kind !== "skill" || NO_PANEL_SKILLS.has(item.name) || panelsStore.isHidden(item.name)) {
       continue;
     }
     const dir = dirOf(item.name);
@@ -67,7 +73,7 @@ function dirOf(name: string): string | null {
 /** 本会话出现过的技能 → 拉一次 panel.json（store 内缓存） */
 function syncPanels(): void {
   for (const item of usageStore.entriesOf(chatStore.sessionId)) {
-    if (item.kind !== "skill") {
+    if (item.kind !== "skill" || NO_PANEL_SKILLS.has(item.name)) {
       continue;
     }
     const dir = dirOf(item.name);

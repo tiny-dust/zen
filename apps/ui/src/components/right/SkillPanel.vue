@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Loader2, Sparkles } from "@lucide/vue";
+import { IconFileText as FileText, IconLoader2 as Loader2, IconSparkles as Sparkles } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";

@@ -11,6 +11,7 @@ import type {
   WebSearchApiProviderId,
   WebSearchStatus,
 } from "@zen/shared";
+import { detectCliRuntimes, type CliRuntimeInfo } from "./cli-runtime";
 import { showOpenDialogSafe } from "./dialog-safe";
 import { currentLocale } from "./i18n";
 import { syncLarkGatewayWithSettings } from "./lark/ipc";
@@ -91,6 +92,9 @@ export function registerAgentIpc(broadcast: (channel: string, payload: unknown) 
   ipcMain.handle("agent:prompt-presets", async () =>
     localizedPromptPresets(await currentLocale()),
   );
+
+  // 外部 CLI 探测：只报告本机是否已安装，不安装、不探测登录态
+  ipcMain.handle("agent:cli-runtimes", (): CliRuntimeInfo[] => detectCliRuntimes());
 
   ipcMain.handle("agent:sandbox-dir", () => zenSandboxRoot());
 

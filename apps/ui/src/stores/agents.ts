@@ -1,10 +1,4 @@
-import {
-  CheckCircle2,
-  CircleDashed,
-  Clock3,
-  Loader2,
-  XCircle,
-} from "@lucide/vue";
+import { IconCircleCheck as CheckCircle2, IconCircleDashed as CircleDashed, IconClockHour3 as Clock3, IconLoader2 as Loader2, IconCircleX as XCircle } from "@tabler/icons-vue";
 import { defineStore } from "pinia";
 import type { Component } from "vue";
 import { computed, ref } from "vue";

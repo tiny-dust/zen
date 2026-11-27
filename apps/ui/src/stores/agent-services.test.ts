@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentServiceInfo } from "@zen/shared";
 
+import { i18n } from "@/locales";
+
 import { useAgentProcessesStore } from "./agent-processes";
 import { useAgentServicesStore } from "./agent-services";
 import { useTerminalStore } from "./terminal";
@@ -66,6 +68,30 @@ describe("useAgentServicesStore 详情展开", () => {
     expect(result.ok).toBe(false);
     expect(store.items.map((item) => item.id)).toEqual(["a"]);
     expect(store.expandedId).toBe("a");
+  });
+
+  it("进程指标：采样不到时显示不可用，不填 0", () => {
+    const store = useAgentServicesStore();
+    store.items = [service("a")];
+    expect(store.statLabel(service("a"))).toBe(i18n.global.t("app.services.statsUnavailable"));
+  });
+
+  it("进程指标：整组 pid 全部采样到才求和，缺一个都标不可用", () => {
+    const store = useAgentServicesStore();
+    store.stats = {
+      "101": { pid: 101, cpuPercent: 1.5, rssBytes: 10 * 1024 * 1024 },
+      "102": { pid: 102, cpuPercent: 2, rssBytes: 5 * 1024 * 1024 },
+    };
+    const t = i18n.global.t;
+    expect(store.statLabel(service("a"))).toBe(
+      `${t("app.services.cpuPercent", { value: "3.5" })} · ${t("app.services.memoryUsage", { value: "15.0 MB" })}`,
+    );
+
+    store.stats = {
+      "101": { pid: 101, cpuPercent: 1.5, rssBytes: 10 * 1024 * 1024 },
+      "102": { pid: 102, cpuPercent: 2, rssBytes: null },
+    };
+    expect(store.statLabel(service("a"))).toBe(t("app.services.cpuPercent", { value: "3.5" }));
   });
 
   it("按父会话汇总运行中的 Agent 命令、后台服务和活动 PTY", () => {

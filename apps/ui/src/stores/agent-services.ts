@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import type { AgentServiceInfo } from "@zen/shared";
+import type { AgentServiceInfo, ProcessStat } from "@zen/shared";
 
 import { i18n } from "@/locales";
 import { useAgentProcessesStore } from "@/stores/agent-processes";
@@ -19,7 +19,10 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
   const expandedId = ref("");
   /** 时钟：驱动「已运行 xx」的相对时间刷新 */
   const now = ref(Date.now());
+  /** 真实进程指标（按 pid）；采样不到的 pid 不在表里 → UI 显示不可用 */
+  const stats = ref<Record<string, ProcessStat>>({});
   let ticker: ReturnType<typeof setInterval> | null = null;
+  let statsTicker: ReturnType<typeof setInterval> | null = null;
   let unbind: (() => void) | null = null;
 
   const count = computed(() => items.value.length);
@@ -55,6 +58,77 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     }
   }
 
+  /**
+   * 采样真实进程指标（CPU / 内存）：只把主进程实际读到的 pid 写进表，
+   * 读不到就不写——UI 据此显示「不可用」，不填 0。
+   */
+  async function refreshStats() {
+    if (!window.zen?.services) {
+      return;
+    }
+    const pids = items.value.flatMap((item) => item.pids);
+    if (!pids.length) {
+      stats.value = {};
+      return;
+    }
+    try {
+      const list = await window.zen.services.stats(pids);
+      stats.value = Object.fromEntries(list.map((stat) => [String(stat.pid), stat]));
+    } catch {
+      stats.value = {};
+    }
+  }
+
+  function startStatsTicker() {
+    if (statsTicker != null || !items.value.length) {
+      return;
+    }
+    void refreshStats();
+    statsTicker = setInterval(() => void refreshStats(), 5_000);
+  }
+
+  function stopStatsTickerIfEmpty() {
+    if (statsTicker != null && !items.value.length) {
+      clearInterval(statsTicker);
+      statsTicker = null;
+      stats.value = {};
+    }
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes >= 1024 ** 3) {
+      return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+    }
+    if (bytes >= 1024 ** 2) {
+      return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+    }
+    return `${Math.max(0, Math.round(bytes / 1024))} KB`;
+  }
+
+  /**
+   * 服务的进程指标摘要：整组 pid 全部采样到才求和，任一缺失该指标就标不可用
+   * （避免用「部分可见」冒充全量）。
+   */
+  function statLabel(item: AgentServiceInfo): string {
+    const { t } = i18n.global;
+    const samples = item.pids
+      .map((pid) => stats.value[String(pid)])
+      .filter((stat): stat is ProcessStat => stat != null);
+    if (!samples.length) {
+      return t("app.services.statsUnavailable");
+    }
+    const parts: string[] = [];
+    if (samples.every((stat) => stat.cpuPercent != null)) {
+      const cpu = samples.reduce((sum, stat) => sum + (stat.cpuPercent ?? 0), 0);
+      parts.push(t("app.services.cpuPercent", { value: cpu.toFixed(1) }));
+    }
+    if (samples.length === item.pids.length && samples.every((stat) => stat.rssBytes != null)) {
+      const rss = samples.reduce((sum, stat) => sum + (stat.rssBytes ?? 0), 0);
+      parts.push(t("app.services.memoryUsage", { value: formatBytes(rss) }));
+    }
+    return parts.length ? parts.join(" · ") : t("app.services.statsUnavailable");
+  }
+
   function apply(list: AgentServiceInfo[]) {
     items.value = list;
     // 服务自行退出（主进程清扫移除）时收起其详情
@@ -63,8 +137,10 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     }
     if (list.length) {
       startTicker();
+      startStatsTicker();
     }
     stopTickerIfEmpty();
+    stopStatsTickerIfEmpty();
   }
 
   function bindEvents() {
@@ -101,6 +177,8 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
           expandedId.value = "";
         }
         stopTickerIfEmpty();
+        stopStatsTickerIfEmpty();
+        void refreshStats();
       } else {
         error.value = result.error || i18n.global.t("app.services.killFailed");
       }
@@ -142,13 +220,16 @@ export const useAgentServicesStore = defineStore("agentServices", () => {
     killingIds,
     expandedId,
     now,
+    stats,
     count,
     activeSessionCounts,
     bindEvents,
     refresh,
+    refreshStats,
     kill,
     toggle,
     focus,
     durationLabel,
+    statLabel,
   };
 });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
 import type { ModelMessage, PersistedModelHistory } from "@zen/agent-core";
-import { decodeChatMessageMeta, encodeChatMessageMeta, normalizeSessionGoal, normalizeSessionMode, uuidv7 } from "@zen/shared";
+import { decodeChatMessageMeta, encodeChatMessageMeta, isCliRuntimeId, normalizeSessionGoal, normalizeSessionMode, uuidv7 } from "@zen/shared";
 
 import { getDb } from "./model-db-connection";
 
@@ -35,6 +35,9 @@ interface SessionRow {
   pair_mode: number;
   mode: string;
   goal_json: string | null;
+  runtime_cli: string | null;
+  /** 归属的侧边对话 id：非空 = 侧聊的隐藏会话，不进侧栏/搜索结果 */
+  side_chat_of: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -101,6 +104,7 @@ function toSession(row: SessionRow): SessionRecord {
     pairMode: row.pair_mode === 1,
     mode: normalizeSessionMode(row.mode),
     goal: parseGoalJson(row.goal_json),
+    runtimeCli: isCliRuntimeId(row.runtime_cli) ? row.runtime_cli : null,
   };
 }
 
@@ -130,9 +134,49 @@ function toMessage(row: MessageRow): ChatMessage {
   };
 }
 
+/**
+ * 侧边对话的隐藏会话：chat_sessions.side_chat_of 记着它归属的侧聊 id。
+ * 旧库就地补列（只 ADD COLUMN，不重建表）；按连接缓存，换库（单测）会自动重查。
+ */
+const sideChatColumnReady = new WeakSet<object>();
+
+function ensureSideChatColumn(): ReturnType<typeof getDb> {
+  const db = getDb();
+  if (!sideChatColumnReady.has(db)) {
+    const cols = db.prepare("PRAGMA table_info(chat_sessions)").all() as Array<{ name: string }>;
+    if (!cols.some((col) => col.name === "side_chat_of")) {
+      db.exec("ALTER TABLE chat_sessions ADD COLUMN side_chat_of TEXT");
+    }
+    sideChatColumnReady.add(db);
+  }
+  return db;
+}
+
+/** 侧边对话的隐藏会话（不存在返回 undefined）：侧聊续写复用它，避免每轮新建会话 */
+export function findSideChatSession(sideChatId: string): SessionRecord | undefined {
+  const row = ensureSideChatColumn()
+    .prepare(`SELECT * FROM chat_sessions WHERE side_chat_of = ? AND ${ownerSql()}`)
+    .get(sideChatId, ...ownerParams()) as SessionRow | undefined;
+  return row ? toSession(row) : undefined;
+}
+
+/** 把会话标记为某条侧边对话的隐藏会话（它因此不出现在侧栏/搜索里） */
+export function setSessionSideChatOf(id: string, sideChatId: string | null): void {
+  ensureSideChatColumn()
+    .prepare("UPDATE chat_sessions SET side_chat_of = ? WHERE id = ?")
+    .run(sideChatId, id);
+}
+
+/** 删除某条侧边对话的隐藏会话（连同其消息经 FK 级联清除） */
+export function deleteSideChatSessions(sideChatId: string): void {
+  ensureSideChatColumn()
+    .prepare("DELETE FROM chat_sessions WHERE side_chat_of = ?")
+    .run(sideChatId);
+}
+
 /** 侧栏数据源：全部工作区（含归档与公共区）+ 当前用户可见的会话，置顶优先、按更新时间倒序 */
 export function listWorkspaceGroups(): WorkspaceGroup[] {
-  const db = getDb();
+  const db = ensureSideChatColumn();
   // 登录后收养无主会话（升级前/未登录时创建的历史数据归首个登录账号）
   if (currentUserId) {
     db.prepare("UPDATE chat_sessions SET user_id = ? WHERE user_id = ''").run(currentUserId);
@@ -141,7 +185,11 @@ export function listWorkspaceGroups(): WorkspaceGroup[] {
     .prepare("SELECT * FROM workspaces ORDER BY pinned DESC, created_at ASC")
     .all() as WorkspaceRow[];
   const sessions = db
-    .prepare(`SELECT * FROM chat_sessions WHERE ${ownerSql()} ORDER BY pinned DESC, updated_at DESC`)
+    .prepare(
+      `SELECT * FROM chat_sessions
+       WHERE ${ownerSql()} AND (side_chat_of IS NULL OR side_chat_of = '')
+       ORDER BY pinned DESC, updated_at DESC`,
+    )
     .all(...ownerParams()) as SessionRow[];
   return workspaces.map((row) => ({
     ...toWorkspace(row),
@@ -161,10 +209,10 @@ export function searchSessions(query: string, limit = 50): SessionRecord[] {
   }
   // 用户输入按字面匹配：转义 LIKE 通配符（% _ \）
   const pattern = `%${trimmed.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-  const rows = getDb()
+  const rows = ensureSideChatColumn()
     .prepare(
       `SELECT s.* FROM chat_sessions AS s
-       WHERE s.${ownerSql()} AND (
+       WHERE s.${ownerSql()} AND (s.side_chat_of IS NULL OR s.side_chat_of = '') AND (
          s.title LIKE ? ESCAPE '\\' OR EXISTS (
            SELECT 1 FROM chat_messages AS m
            WHERE m.session_id = s.id AND m.content LIKE ? ESCAPE '\\'
@@ -265,6 +313,8 @@ export function createSession(workspaceId: string | null, id?: string): SessionR
     pair_mode: 1,
     mode: "interactive",
     goal_json: null,
+    runtime_cli: null,
+    side_chat_of: null,
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -333,6 +383,17 @@ export function setSessionMode(id: string, mode: SessionMode): void {
 
 function isSessionModeValue(value: unknown): value is SessionMode {
   return value === "interactive" || value === "plan" || value === "autopilot";
+}
+
+/** 会话底座切换：null = 回到 API 模型；非法值忽略，不落库 */
+export function setSessionRuntimeCli(id: string, runtimeCli: string | null): void {
+  const next = runtimeCli === null || runtimeCli === "" ? null : runtimeCli;
+  if (next !== null && !isCliRuntimeId(next)) {
+    return;
+  }
+  getDb()
+    .prepare(`UPDATE chat_sessions SET runtime_cli = ?, updated_at = ? WHERE id = ? AND ${ownerSql()}`)
+    .run(next, Date.now(), id, ...ownerParams());
 }
 
 /**

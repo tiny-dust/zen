@@ -1,19 +1,5 @@
 <script setup lang="ts">
-import {
-  Bookmark,
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Crosshair,
-  ExternalLink,
-  Globe,
-  History,
-  PictureInPicture2,
-  RotateCw,
-  Search,
-  Settings2,
-  X,
-} from "@lucide/vue";
+import { IconBookmark as Bookmark, IconCamera as Camera, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconFocusCentered as Crosshair, IconExternalLink as ExternalLink, IconWorld as Globe, IconHistory as History, IconPictureInPictureOn as PictureInPicture2, IconRotateClockwise as RotateCw, IconSearch as Search, IconAdjustments as Settings2, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -55,6 +41,7 @@ const {
 
 const viewHost = ref<HTMLElement | null>(null);
 const urlInputEl = ref<InstanceType<typeof Input> | null>(null);
+const urlBarContainer = ref<HTMLElement | null>(null);
 const suggestOpen = ref(false);
 const suggestIndex = ref(-1);
 /** 用户是否用方向键明确选择过联想项 */
@@ -166,13 +153,42 @@ function onSubmitUrl() {
   void browserStore.openUrl();
 }
 
-function onFocusUrl() {
+/**
+ * 打开联想列表。地址栏一旦拿过 DOM 焦点就不会再触发 focus：
+ * 之后键盘焦点被原生 WebContentsView 抢走时，点击输入框既不会重开列表、
+ * 也无法输入。所以 pointerdown（每次点击都会来）也要重新唤起。
+ */
+function openSuggestions() {
   suggestOpen.value = true;
   suggestIndex.value = -1;
   suggestSelected.value = false;
-  // 防止 WebContentsView 抢走键盘焦点
-  void browserStore.focusHostInput();
-  urlInputEl.value?.focus();
+}
+
+let focusTask: Promise<void> | null = null;
+
+/** 把键盘焦点从原生视图抢回渲染层；IPC 回程可能把 DOM 焦点丢给 body，丢了自己再落回输入框 */
+function reclaimKeyboardFocus() {
+  focusTask ??= browserStore.focusHostInput().finally(() => {
+    focusTask = null;
+  });
+  void focusTask.then(() => {
+    if (document.activeElement === document.body) {
+      urlInputEl.value?.focus();
+    }
+  });
+}
+
+function onFocusUrl() {
+  openSuggestions();
+  reclaimKeyboardFocus();
+  // 与浏览器一致：聚焦即全选，直接输入就是替换旧地址
+  urlInputEl.value?.select();
+}
+
+/** 点击地址栏：先补开联想并抢焦点（DOM 焦点未变时不会有 focus 事件） */
+function onPointerDownUrl() {
+  openSuggestions();
+  reclaimKeyboardFocus();
 }
 
 function onBlurUrl(event: FocusEvent) {
@@ -180,6 +196,10 @@ function onBlurUrl(event: FocusEvent) {
     return;
   }
   setTimeout(() => {
+    // 抢焦点回程（以及原生视图让出焦点）也会触发 blur：焦点还在地址栏就当我没离开
+    if (urlBarContainer.value?.contains(document.activeElement)) {
+      return;
+    }
     suggestOpen.value = false;
     suggestSelected.value = false;
   }, 150);
@@ -320,6 +340,7 @@ watch(
       <div class="relative min-w-0 flex-1">
         <form class="contents" @submit.prevent="onSubmitUrl">
           <div
+            ref="urlBarContainer"
             class="flex h-7 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-composer-surface)] px-2 [-webkit-app-region:no-drag]"
             :class="suggestOpen && suggestions.length ? 'rounded-b-none border-b-0' : ''"
           >
@@ -333,6 +354,7 @@ watch(
               spellcheck="false"
               autocomplete="off"
               :aria-label="t('panels.urlBar')"
+              @pointerdown="onPointerDownUrl"
               @focus="onFocusUrl"
               @blur="onBlurUrl"
               @keydown="onUrlKeydown"

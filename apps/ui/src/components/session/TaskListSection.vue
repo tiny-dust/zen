@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, Circle, CircleCheck, ListChecks } from "@lucide/vue";
+import { IconChevronRight as ChevronRight, IconCircle as Circle, IconCircleCheck as CircleCheck, IconListCheck as ListChecks } from "@tabler/icons-vue";
 import { computed, h, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

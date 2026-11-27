@@ -29,18 +29,17 @@ export interface ApprovalGateVerdict {
 }
 
 /**
- * 命令前缀匹配（trim + startsWith，大小写不敏感）：返回首条命中的规则。
- * 数组顺序即优先级，先命中先赢——把更具体/更严格的规则（如 ask）排在前面
- * 可以覆盖后面的宽规则。
+ * 复合命令切分：按 `;`、`&&`、`||`、`|`、换行拆成独立片段。
+ * shortcut: 不做完整 shell 解析，引号内的连接符也会被切开——只会让判定更严（回落人工确认）。
  */
-export function matchApprovalRule(
-  command: string,
-  rules: CommandApprovalRule[],
-): CommandApprovalRule | null {
-  const normalized = command.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
+export function commandSegments(command: string): string[] {
+  return command
+    .split(/\|\||&&|[;|]|\r?\n/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function findRule(normalized: string, rules: CommandApprovalRule[]): CommandApprovalRule | null {
   return (
     rules.find(
       (rule) =>
@@ -49,6 +48,35 @@ export function matchApprovalRule(
         normalized.startsWith(rule.pattern.trim().toLowerCase()),
     ) ?? null
   );
+}
+
+/**
+ * 命令前缀匹配（trim + startsWith，大小写不敏感）。
+ * 复合命令要求**每个片段**都命中 allow 规则才返回该规则：
+ * 只要有一段没被允许（或命中 ask），整条命令回落人工确认，
+ * 避免 `cd x && rm -rf ~` 借 `cd` 前缀被整条放行。
+ * 数组顺序即优先级，先命中先赢——更具体的规则（如 ask）排在前面可覆盖后面的宽规则。
+ */
+export function matchApprovalRule(
+  command: string,
+  rules: CommandApprovalRule[],
+): CommandApprovalRule | null {
+  const segments = commandSegments(command);
+  if (!segments.length) {
+    return null;
+  }
+  let allowed: CommandApprovalRule | null = null;
+  for (const segment of segments) {
+    const rule = findRule(segment.toLowerCase(), rules);
+    if (!rule) {
+      return null;
+    }
+    if (rule.decision !== "allow") {
+      return rule;
+    }
+    allowed ??= rule;
+  }
+  return allowed;
 }
 
 export interface ReviewerVerdict {

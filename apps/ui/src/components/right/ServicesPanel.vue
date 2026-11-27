@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Loader2, Server, Terminal, X } from "@lucide/vue";
+import { IconLoader2 as Loader2, IconPlugConnected as Server, IconTerminal2 as Terminal, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { onMounted } from "vue";
 import { useI18n } from "vue-i18n";
@@ -84,6 +84,10 @@ function startedAtLabel(startedAt: number): string {
         <p class="m-0 text-[10px] text-[var(--color-dim)]">
           {{ t("shell.serviceStartedAt", { time: startedAtLabel(item.startedAt) }) }}
           · {{ t("shell.servicePids", { pids: item.pids.join(", ") }) }}
+        </p>
+        <!-- 真实进程指标：主进程采样不到时显示「指标不可用」，不填 0 -->
+        <p class="m-0 text-[10px] text-[var(--color-dim)]" :title="t('shell.processStats')">
+          {{ services.statLabel(item) }}
         </p>
 
         <div class="flex items-center gap-1 text-[10px] text-[var(--color-dim)]">

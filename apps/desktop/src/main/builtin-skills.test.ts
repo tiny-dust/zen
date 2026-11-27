@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -60,6 +60,24 @@ describe("syncBuiltinSkills", () => {
     await expect(syncBuiltinSkills(source, target)).resolves.toEqual(["skill-router"]);
     await expect(readFile(join(target, "skill-router", "SKILL.md"), "utf8")).resolves.toBe(
       "# skill router v2\n",
+    );
+  });
+
+  it("模板不再带面板时，清掉目标目录里上次同步留下的 panel.json 与 ui", async () => {
+    const source = await makeSource("# skill router v1\n");
+    roots.push(source);
+    const target = await makeTarget();
+    await mkdir(join(target, "skill-router", "ui"), { recursive: true });
+    await writeFile(join(target, "skill-router", "SKILL.md"), "# skill router v1\n", "utf8");
+    await writeFile(join(target, "skill-router", "panel.json"), '{"version":1}', "utf8");
+    await writeFile(join(target, "skill-router", "ui", "panel.html"), "<p>old</p>", "utf8");
+
+    // 内容一致（不写 SKILL.md）也要清掉旧面板
+    await expect(syncBuiltinSkills(source, target)).resolves.toEqual([]);
+    await expect(stat(join(target, "skill-router", "panel.json"))).rejects.toThrow();
+    await expect(stat(join(target, "skill-router", "ui"))).rejects.toThrow();
+    await expect(readFile(join(target, "skill-router", "SKILL.md"), "utf8")).resolves.toBe(
+      "# skill router v1\n",
     );
   });
 

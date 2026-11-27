@@ -201,6 +201,10 @@ export class BrowserService extends BrowserAutofillApi implements BrowserAgentBr
           ? this.hostWindow
           : BrowserWindow.getAllWindows()[0];
       if (win && !win.isDestroyed()) {
+        // 窗口在系统层面没拿到焦点时，webContents.focus() 抢不回来
+        if (!win.isFocused()) {
+          win.focus();
+        }
         win.webContents.focus();
       }
       if (viewWc) {
