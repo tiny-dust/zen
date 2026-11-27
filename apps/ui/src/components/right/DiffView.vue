@@ -266,13 +266,3 @@ function gutter(value: number | null): string {
     </template>
   </div>
 </template>
-
-<style scoped>
-/* shiki token 双主题取色（与 markdown 代码块同规则；v-html 内容需 :deep） */
-.diff-hl :deep(span) {
-  color: var(--shiki-light, inherit);
-}
-:global(.dark) .diff-hl :deep(span) {
-  color: var(--shiki-dark, inherit);
-}
-</style>

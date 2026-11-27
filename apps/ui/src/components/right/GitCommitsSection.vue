@@ -398,6 +398,7 @@ const branchFilter = computed({
                     <DiffView
                       v-else
                       :diff="fileDiffs.get(fileKey(row.entry.hash, file.path))!"
+                      :path="file.path"
                       class="min-h-0"
                     />
                   </template>
