@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileCode, FolderOpen, RefreshCw, Save } from "@lucide/vue";
+import { IconFileCode as FileCode, IconFolderOpen as FolderOpen, IconRefresh as RefreshCw, IconDeviceFloppy as Save } from "@tabler/icons-vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 

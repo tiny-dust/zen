@@ -54,11 +54,11 @@ async function mountWith(
     shell: { platformInfo: vi.fn().mockResolvedValue({}) },
   });
   const wrapper = mount(McpDialog, {
-    props: { open: false },
     global: {
       plugins: [pinia],
       stubs: {
-        Dialog: true,
+        // Dialog 桩按 open 渲染内容：添加/编辑子弹窗与删除确认共用
+        Dialog: { props: ["open"], template: '<div v-if="open"><slot /></div>' },
         DialogContent: true,
         DialogHeader: true,
         DialogTitle: true,
@@ -83,7 +83,7 @@ async function mountWith(
     },
     attachTo: document.body,
   });
-  await wrapper.setProps({ open: true });
+  // 页面挂载即渲染并触发 onMounted 的 load()
   await flushPromises();
   return wrapper;
 }
@@ -100,6 +100,16 @@ function buttonByText(wrapper: VueWrapper, text: string) {
   const button = wrapper.findAll("button").find((item) => item.text().trim() === text);
   expect(button, `找不到文案为 ${text} 的按钮`).toBeTruthy();
   return button!;
+}
+
+/** 添加/编辑表单在子弹窗里：先点页头「添加服务」打开 */
+async function openAddForm(wrapper: VueWrapper) {
+  await buttonByText(wrapper, "添加服务").trigger("click");
+  await flushPromises();
+}
+
+function formDialog(wrapper: VueWrapper) {
+  return wrapper.find('[data-testid="mcp-form-dialog"]');
 }
 
 beforeEach(() => {
@@ -120,6 +130,7 @@ describe("McpDialog npx 快捷添加", () => {
       id: "old", name: "old", transport: "stdio", command: "node", args: [], enabled: true,
     };
     const wrapper = await mountWith([statusOf(existing)]);
+    await openAddForm(wrapper);
     let finishSave!: (statuses: McpServerStatus[]) => void;
     setServers.mockImplementationOnce(() => new Promise<McpServerStatus[]>((resolve) => {
       finishSave = resolve;
@@ -144,14 +155,16 @@ describe("McpDialog npx 快捷添加", () => {
 
     finishSave(saved.map((config) => statusOf(config)));
     await flushPromises();
-    expect(button.attributes("disabled")).toBeUndefined();
-    expect(input.element.value).toBe("");
-    expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
+    // 成功后子弹窗关闭，输入随表单一起复位
+    expect(formDialog(wrapper).exists()).toBe(false);
+    await openAddForm(wrapper);
+    expect(inputByPlaceholder(wrapper, "例如 npx").element.value).toBe("");
     wrapper.unmount();
   });
 
   it("无效命令在快捷入口提示错误，不调用保存", async () => {
     const wrapper = await mountWith([]);
+    await openAddForm(wrapper);
     const input = inputByPlaceholder(wrapper, "例如 npx");
     await buttonByText(wrapper, "一键添加").trigger("click");
     expect(wrapper.find('[role="alert"]').text()).toContain("请输入有效的 npx 命令");
@@ -167,6 +180,7 @@ describe("McpDialog npx 快捷添加", () => {
       id: "fs", name: "server-filesystem", transport: "stdio", command: "npx", args: [], enabled: true,
     };
     const wrapper = await mountWith([statusOf(existing)]);
+    await openAddForm(wrapper);
     await inputByPlaceholder(wrapper, "例如 npx").setValue("npx -y @modelcontextprotocol/server-filesystem /path");
     await buttonByText(wrapper, "一键添加").trigger("click");
     expect(wrapper.find('[role="alert"]').text()).toContain("服务 server-filesystem 已存在");
@@ -176,6 +190,7 @@ describe("McpDialog npx 快捷添加", () => {
 
   it("保存失败提示并保留输入，可重试成功", async () => {
     const wrapper = await mountWith([]);
+    await openAddForm(wrapper);
     const input = inputByPlaceholder(wrapper, "例如 npx");
     await input.setValue("npx -y example-mcp");
     setServers.mockRejectedValueOnce(new Error("disk unavailable"));
@@ -187,8 +202,11 @@ describe("McpDialog npx 快捷添加", () => {
     await buttonByText(wrapper, "一键添加").trigger("click");
     await flushPromises();
     expect(setServers).toHaveBeenCalledTimes(2);
+    // 成功后弹窗关闭、错误消失；再次打开时输入为空
+    expect(formDialog(wrapper).exists()).toBe(false);
+    await openAddForm(wrapper);
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
-    expect(input.element.value).toBe("");
+    expect(inputByPlaceholder(wrapper, "例如 npx").element.value).toBe("");
     wrapper.unmount();
   });
 });
@@ -272,9 +290,13 @@ describe("McpDialog 编辑表单", () => {
     const wrapper = await mountWith([statusOf(stdioConfig)]);
 
     await wrapper.find('button[aria-label="编辑 filesystem"]').trigger("click");
+    await flushPromises();
     await buttonByText(wrapper, "取消").trigger("click");
+    await flushPromises();
 
-    expect(wrapper.text()).toContain("添加服务");
+    // 弹窗关闭；再次打开添加表单时字段为空
+    expect(formDialog(wrapper).exists()).toBe(false);
+    await openAddForm(wrapper);
     expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
     expect(setServers).not.toHaveBeenCalled();
     wrapper.unmount();
@@ -282,6 +304,7 @@ describe("McpDialog 编辑表单", () => {
 
   it("添加校验：名称/命令/环境变量 JSON 均有错误提示且不落库", async () => {
     const wrapper = await mountWith([]);
+    await openAddForm(wrapper);
 
     // 空名称
     await buttonByText(wrapper, "添加").trigger("click");
@@ -315,6 +338,7 @@ describe("McpDialog 编辑表单", () => {
 
   it("http 校验：地址须 http(s) 开头，请求头须合法 JSON", async () => {
     const wrapper = await mountWith([]);
+    await openAddForm(wrapper);
 
     await buttonByText(wrapper, "切 http").trigger("click");
     await inputByPlaceholder(wrapper, "名称").setValue("remote");
@@ -349,6 +373,7 @@ describe("McpDialog 编辑表单", () => {
 
   it("保存传给 IPC 的载荷是可结构化克隆的纯对象（含既有服务的响应式条目）", async () => {
     const wrapper = await mountWith([statusOf(stdioConfig)]);
+    await openAddForm(wrapper);
 
     await buttonByText(wrapper, "切 http").trigger("click");
     await inputByPlaceholder(wrapper, "名称").setValue("mobbin");
@@ -363,8 +388,8 @@ describe("McpDialog 编辑表单", () => {
     expect(saved).toHaveLength(2);
     expect(saved[0]).toMatchObject({ id: "srv-1", name: "filesystem" });
     expect(saved[1]).toMatchObject({ name: "mobbin", transport: "http", url: "https://api.mobbin.com/mcp" });
-    // 保存后表单复位
-    expect(inputByPlaceholder(wrapper, "名称").element.value).toBe("");
+    // 保存后子弹窗关闭
+    expect(formDialog(wrapper).exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -617,6 +642,32 @@ describe("McpDialog 状态、扫描与说明", () => {
     expect(wrapper.text()).toContain("发现 1 个服务，其中 0 个未导入");
     // 全部已导入时不显示批量导入按钮
     expect(wrapper.findAll("button").some((b) => b.text().trim() === "全部导入")).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("列表优先：常驻区不渲染添加表单，点「添加服务」才打开子弹窗", async () => {
+    const config: McpServerConfig = {
+      id: "srv-list",
+      name: "listed",
+      transport: "stdio",
+      command: "node",
+      args: ["server.js"],
+      enabled: true,
+    };
+    const wrapper = await mountWith([statusOf(config)]);
+
+    // 常驻区只有服务行，没有名称/命令输入框
+    expect(formDialog(wrapper).exists()).toBe(false);
+    expect(wrapper.findAll("input").some((item) => item.attributes("placeholder")?.includes("名称"))).toBe(false);
+
+    await openAddForm(wrapper);
+    expect(formDialog(wrapper).exists()).toBe(true);
+    expect(inputByPlaceholder(wrapper, "名称").exists()).toBe(true);
+
+    // 关闭后回到列表
+    await buttonByText(wrapper, "取消").trigger("click");
+    await flushPromises();
+    expect(formDialog(wrapper).exists()).toBe(false);
     wrapper.unmount();
   });
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, Plus, RefreshCw, SquareTerminal, X } from "@lucide/vue";
+import { IconExternalLink as ExternalLink, IconPlus as Plus, IconRefresh as RefreshCw, IconTerminal2 as SquareTerminal, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted } from "vue";
 import { useI18n } from "vue-i18n";

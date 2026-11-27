@@ -1,28 +1,19 @@
 <script setup lang="ts">
-import { ExternalLink, FolderOpen, Loader2, PackagePlus, RefreshCw, Search, ShieldCheck, Trash2, Upload } from "@lucide/vue";
+import { IconExternalLink as ExternalLink, IconFolderOpen as FolderOpen, IconLoader2 as Loader2, IconPackageImport as PackagePlus, IconRefresh as RefreshCw, IconSearch as Search, IconShieldCheck as ShieldCheck, IconTrash as Trash2, IconUpload as Upload } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { skillSourceLabel } from "@/lib/skill-source";
 
 import type { SkillMarketHit, SkillSummary, SkillUpdateInfo } from "@zen/shared";
-
-const open = defineModel<boolean>("open", { default: false });
 
 type SkillUpdateResult = { state: "updating" | "ok" | "error"; message: string };
 
@@ -45,9 +36,8 @@ const updateMap = ref<Record<string, SkillUpdateInfo>>({});
 const resultMap = ref<Record<string, SkillUpdateResult>>({});
 const batchRunning = ref(false);
 const batchProgress = ref({ done: 0, total: 0 });
-
-// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
-useBrowserOverlayGuard(open);
+/** 扫描目录管理在独立弹窗里，列表页只留入口 */
+const dirsOpen = ref(false);
 
 /** 同名技能只保留一条（与 listSkills 去重优先级一致：先出现的胜出） */
 function dedupeByName<T extends { name: string }>(items: T[]): T[] {
@@ -144,10 +134,7 @@ const updatableSkills = computed(() =>
   installedSkills.value.filter((skill) => updateOf(skill)?.hasUpdate),
 );
 
-watch(open, (value) => {
-  if (!value) {
-    return;
-  }
+onMounted(() => {
   statusMsg.value = "";
   resultMap.value = {};
   installedQuery.value = "";
@@ -155,7 +142,7 @@ watch(open, (value) => {
   void agentStore.refreshMcp();
 });
 
-/** 刷新序号：打开弹窗与手动刷新可能并发触发，仅最新一轮的结果生效 */
+/** 刷新序号：进入页面与手动刷新可能并发触发，仅最新一轮的结果生效 */
 let refreshSeq = 0;
 
 /** 刷新：本地重扫 + 查询上游是否可更新 */
@@ -368,7 +355,6 @@ const ANALYZE_PROMPT = `请对本机已安装的技能（skills）做一次冲�
 
 /** 一键分析：在公共区新建会话，预填提示词并直接发送 */
 async function analyzeInNewSession() {
-  open.value = false;
   const workspaceStore = useWorkspaceStore();
   workspaceStore.setActive("common");
   const chat = useChatStore();
@@ -384,38 +370,20 @@ const tabCls = (id: Tab) =>
 </script>
 
 <template>
-  <Dialog v-model:open="open">
-    <DialogContent
-      data-large-panel="true"
-      class="flex h-[min(86vh,820px)] w-[min(980px,94vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
-    >
-      <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
-        <DialogTitle class="text-[15px]">{{ t("sidebar.skillsDialog.title") }}</DialogTitle>
-        <DialogDescription class="text-[12px]">
+  <section class="flex h-full min-h-0 flex-col overflow-hidden">
+    <header class="flex flex-none items-start gap-3 px-6 pb-3 pt-5">
+      <div class="min-w-0 flex-1">
+        <h2 class="m-0 truncate text-[16px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t("sidebar.skillsDialog.title") }}
+        </h2>
+        <p class="m-0 truncate text-[12px] text-[var(--color-mut)]">
           {{ t("sidebar.skillsDialog.desc") }}
-        </DialogDescription>
-      </DialogHeader>
-
-      <div class="flex flex-none items-center gap-1 border-b border-[var(--color-line-soft)] px-4 py-2.5">
-        <Button
-          variant="ghost"
-          :class="[tabCls('installed'), tab === 'installed' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
-          @click="tab = 'installed'"
-        >{{ t("sidebar.skillsDialog.installed") }}</Button>
-        <Button
-          variant="ghost"
-          :class="[tabCls('market'), tab === 'market' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
-          @click="tab = 'market'"
-        >{{ t("sidebar.skillsDialog.marketTab") }}</Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="ml-auto h-7 text-[12px]"
-          :title="t('sidebar.skillsDialog.analyzeTitle')"
-          @click="analyzeInNewSession"
-        >
-          <ShieldCheck class="size-3.5" data-icon="inline-start" />
-          {{ t("sidebar.skillsDialog.analyze") }}
+        </p>
+      </div>
+      <div class="flex flex-none flex-wrap items-center justify-end gap-1">
+        <Button variant="ghost" size="sm" @click="dirsOpen = true">
+          <FolderOpen class="size-3.5" />
+          {{ t("sidebar.skillsDialog.manageDirs") }}
         </Button>
         <Button
           variant="ghost"
@@ -428,238 +396,290 @@ const tabCls = (id: Tab) =>
           <RefreshCw v-else :size="13" data-icon="inline-start" />
           {{ t("sidebar.skillsDialog.refresh") }}
         </Button>
-        <Button
-          v-if="updatableSkills.length >= 2"
-          variant="outline"
-          size="sm"
-          class="h-7 text-[12px]"
-          :disabled="batchRunning || !!busyId"
-          :title="t('sidebar.skillsDialog.updateAllTitle')"
-          @click="updateAll"
-        >
-          <Loader2 v-if="batchRunning" class="size-3.5 animate-spin" data-icon="inline-start" />
-          <Upload v-else class="size-3.5" data-icon="inline-start" />
-          {{ batchRunning ? t("sidebar.skillsDialog.updatingProgress", { done: batchProgress.done, total: batchProgress.total }) : t("sidebar.skillsDialog.updateAll") }}
-        </Button>
       </div>
+    </header>
 
-      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <template v-if="tab === 'installed'">
-          <div class="flex flex-col gap-3">
-            <div v-if="installedSkills.length" class="relative">
+    <div class="flex flex-none items-center gap-1 border-b border-[var(--color-line-soft)] px-6 py-2.5">
+      <Button
+        variant="ghost"
+        :class="[tabCls('installed'), tab === 'installed' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
+        @click="tab = 'installed'"
+      >
+        {{ t("sidebar.skillsDialog.installed") }}
+        <span class="ml-1 text-[11px] text-[var(--color-dim)]">{{ installedSkills.length }}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        :class="[tabCls('market'), tab === 'market' ? 'hover:bg-[var(--color-menu-active)] dark:hover:bg-[var(--color-menu-active)]' : 'font-normal']"
+        @click="tab = 'market'"
+      >
+        {{ t("sidebar.skillsDialog.marketTab") }}
+        <span v-if="displayMarketItems.length" class="ml-1 text-[11px] text-[var(--color-dim)]">{{ displayMarketItems.length }}</span>
+      </Button>
+    </div>
+
+    <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <template v-if="tab === 'installed'">
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <div v-if="installedSkills.length" class="relative min-w-40 flex-1">
               <Search
                 class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-dim)]"
                 aria-hidden="true"
               />
               <Input
                 v-model="installedQuery"
-                class="h-8 pl-7 text-[12px]"
+                class="h-8 pl-7 text-[13px]"
                 :placeholder="t('sidebar.skillsDialog.searchInstalledPlaceholder')"
                 :aria-label="t('sidebar.skillsDialog.searchInstalledLabel')"
               />
             </div>
-            <div v-if="filteredSkills.length" class="flex flex-col gap-1.5">
-              <div
-                v-for="skill in filteredSkills"
-                :key="skill.id"
-                class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
-                :class="updateOf(skill)?.hasUpdate ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))]' : ''"
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
-                    <Badge variant="secondary" class="text-[10px]">
-                      {{ skillSourceLabel(skill) }}
-                    </Badge>
-                    <Badge
-                      v-if="updateOf(skill)?.hasUpdate"
-                      class="border-transparent bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]! text-[10px]"
-                    >
-                      {{ t("sidebar.skillsDialog.updatable") }}
-                    </Badge>
-                  </div>
-                  <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]">
-                    {{ skill.description }}
-                  </p>
-                  <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                    {{ skill.dir }}
-                  </p>
-                  <p
-                    v-if="resultOf(skill)"
-                    class="m-0 mt-0.5 truncate text-[10px]"
-                    :class="resultCls(skill)"
-                    :title="resultOf(skill)?.state === 'error' ? resultOf(skill)?.message : undefined"
-                  >
-                    {{ resultText(skill) }}
-                  </p>
-                  <p
-                    v-else-if="updateOf(skill)?.note"
-                    class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]"
-                  >
-                    {{ updateOf(skill)?.note }}
-                  </p>
-                </div>
-                <div class="flex flex-none items-center gap-1">
-                  <Button
-                    v-if="updateOf(skill)?.hasUpdate"
-                    size="sm"
-                    variant="outline"
-                    class="h-7 text-[12px]"
-                    :disabled="batchRunning || busyId === skill.id"
-                    @click="updateSkill(skill)"
-                  >
-                    <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
-                    <Upload v-else class="size-3.5" />
-                    {{ t("sidebar.skillsDialog.update") }}
-                  </Button>
-                  <Button
-                    v-if="skill.removable"
-                    variant="ghost"
-                    size="icon-sm"
-                    class="text-[var(--color-danger-fg)] hover:bg-transparent!"
-                    :disabled="busyId === skill.id"
-                    :aria-label="t('sidebar.skillsDialog.uninstallAria', { name: skill.name })"
-                    :title="t('sidebar.skillsDialog.uninstall')"
-                    @click="uninstallSkill(skill)"
-                  >
-                    <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
-                    <Trash2 v-else class="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <p
-              v-else-if="installedQuery.trim()"
-              class="m-0 text-[12px] text-[var(--color-dim)]"
+            <Button
+              variant="outline"
+              size="sm"
+              class="ml-auto h-7 text-[12px]"
+              :title="t('sidebar.skillsDialog.analyzeTitle')"
+              @click="analyzeInNewSession"
             >
-              {{ t("sidebar.skillsDialog.noMatch", { query: installedQuery.trim() }) }}
-            </p>
-            <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.skillsDialog.noSkills") }}</p>
-
-            <div class="flex flex-col gap-1.5">
-              <div class="text-[12px] font-medium text-[var(--color-mut)]">{{ t("sidebar.skillsDialog.scanDirsTitle") }}</div>
-              <div class="mb-1 flex flex-wrap gap-1.5">
-                <Badge variant="outline" class="text-[10px]">
-                  <FolderOpen :size="11" data-icon="inline-start" />~/.zen/skills
-                </Badge>
-                <Badge variant="outline" class="text-[10px]">{{ t("sidebar.skillsDialog.compatBadge") }}</Badge>
-              </div>
-              <div
-                v-for="path in settings.skillExtraPaths"
-                :key="path"
-                class="flex items-center gap-2 rounded-lg border border-[var(--color-line)] px-2.5 py-1.5"
-              >
-                <span class="min-w-0 flex-1 truncate text-[12px]">{{ path }}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="t('sidebar.skillsDialog.removeDir')"
-                  @click="
-                    agentStore.updateSettings({
-                      skillExtraPaths: settings.skillExtraPaths.filter((item) => item !== path),
-                    })
-                  "
-                >
-                  <Trash2 :size="13" />
-                </Button>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm" @click="addSkillPath">{{ t("sidebar.skillsDialog.addDir") }}</Button>
-                <Input
-                  v-model="newSkillPath"
-                  class="h-8 flex-1 text-[12px]"
-                  :placeholder="t('sidebar.skillsDialog.pathPlaceholder')"
-                  @keydown.enter="addSkillPath"
-                />
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="mb-2 flex items-center gap-2">
-            <div class="relative min-w-0 flex-1">
-              <Search
-                class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-dim)]"
-                aria-hidden="true"
-              />
-              <Input
-                v-model="marketQuery"
-                class="h-8 pl-7 text-[12px]"
-                :placeholder="t('sidebar.skillsDialog.marketPlaceholder')"
-                @keydown.enter="searchMarket"
-              />
-            </div>
-            <Button size="sm" :disabled="marketLoading" @click="searchMarket">
-              <Loader2 v-if="marketLoading" class="size-3.5 animate-spin" />
-              <Search v-else class="size-3.5" />
-              {{ t("sidebar.skillsDialog.search") }}
+              <ShieldCheck class="size-3.5" data-icon="inline-start" />
+              {{ t("sidebar.skillsDialog.analyze") }}
+            </Button>
+            <Button
+              v-if="updatableSkills.length >= 2"
+              variant="outline"
+              size="sm"
+              class="h-7 text-[12px]"
+              :disabled="batchRunning || !!busyId"
+              :title="t('sidebar.skillsDialog.updateAllTitle')"
+              @click="updateAll"
+            >
+              <Loader2 v-if="batchRunning" class="size-3.5 animate-spin" data-icon="inline-start" />
+              <Upload v-else class="size-3.5" data-icon="inline-start" />
+              {{ batchRunning ? t("sidebar.skillsDialog.updatingProgress", { done: batchProgress.done, total: batchProgress.total }) : t("sidebar.skillsDialog.updateAll") }}
             </Button>
           </div>
-          <p v-if="marketError" class="m-0 mb-2 text-[12px] text-[var(--color-danger-fg)]">{{ marketError }}</p>
-          <div class="flex flex-col gap-3">
-            <div v-if="displayMarketItems.length" class="flex flex-col gap-1.5">
-              <div
-                v-for="hit in displayMarketItems"
-                :key="hit.id"
-                class="flex items-center gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-1.5">
-                    <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">{{ hit.name }}</span>
-                    <span class="truncate text-[10px] text-[var(--color-dim)]">{{ hit.source }}</span>
-                  </div>
-                  <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
-                    {{ t("sidebar.skillsDialog.installsCount", { count: hit.installs.toLocaleString() }) }}
-                  </p>
+
+          <div v-if="filteredSkills.length" class="flex flex-col gap-1.5">
+            <div
+              v-for="skill in filteredSkills"
+              :key="skill.id"
+              class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+              :class="updateOf(skill)?.hasUpdate ? 'border-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-line))]' : ''"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ skill.name }}</span>
+                  <Badge variant="secondary" class="text-[10px]">
+                    {{ skillSourceLabel(skill) }}
+                  </Badge>
+                  <Badge
+                    v-if="updateOf(skill)?.hasUpdate"
+                    class="border-transparent bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)]! text-[var(--color-accent)]! text-[10px]"
+                  >
+                    {{ t("sidebar.skillsDialog.updatable") }}
+                  </Badge>
                 </div>
-                <a
-                  :href="`https://skills.sh/${hit.source}/${hit.skillId}`"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="text-[var(--color-dim)] hover:text-[var(--color-txt)]"
-                  :aria-label="t('sidebar.skillsDialog.openOnMarket')"
+                <p v-if="skill.description" class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]">
+                  {{ skill.description }}
+                </p>
+                <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
+                  {{ skill.dir }}
+                </p>
+                <p
+                  v-if="resultOf(skill)"
+                  class="m-0 mt-0.5 truncate text-[10px]"
+                  :class="resultCls(skill)"
+                  :title="resultOf(skill)?.state === 'error' ? resultOf(skill)?.message : undefined"
                 >
-                  <ExternalLink class="size-3.5" />
-                </a>
-                <Badge
-                  v-if="isInstalledHit(hit)"
-                  variant="secondary"
-                  class="flex-none text-[10px]"
+                  {{ resultText(skill) }}
+                </p>
+                <p
+                  v-else-if="updateOf(skill)?.note"
+                  class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]"
                 >
-                  {{ t("sidebar.skillsDialog.installed") }}
-                </Badge>
+                  {{ updateOf(skill)?.note }}
+                </p>
+              </div>
+              <div class="flex flex-none items-center gap-1">
                 <Button
-                  v-else
+                  v-if="updateOf(skill)?.hasUpdate"
                   size="sm"
                   variant="outline"
-                  :disabled="busyId === hit.id"
-                  @click="installSkill(hit)"
+                  class="h-7 text-[12px]"
+                  :disabled="batchRunning || busyId === skill.id"
+                  @click="updateSkill(skill)"
                 >
-                  <Loader2 v-if="busyId === hit.id" class="size-3.5 animate-spin" />
-                  <PackagePlus v-else class="size-3.5" />
-                  {{ t("sidebar.skillsDialog.install") }}
+                  <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
+                  <Upload v-else class="size-3.5" />
+                  {{ t("sidebar.skillsDialog.update") }}
+                </Button>
+                <Button
+                  v-if="skill.removable"
+                  variant="ghost"
+                  size="icon-sm"
+                  class="text-[var(--color-danger-fg)] hover:bg-transparent!"
+                  :disabled="busyId === skill.id"
+                  :aria-label="t('sidebar.skillsDialog.uninstallAria', { name: skill.name })"
+                  :title="t('sidebar.skillsDialog.uninstall')"
+                  @click="uninstallSkill(skill)"
+                >
+                  <Loader2 v-if="busyId === skill.id" class="size-3.5 animate-spin" />
+                  <Trash2 v-else class="size-3.5" />
                 </Button>
               </div>
             </div>
-            <div class="flex items-start gap-3 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] px-3.5 py-3">
-              <div class="flex-none text-[12px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
-              <p class="m-0 min-w-0 flex-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
-                {{ t("sidebar.skillsDialog.marketInfo") }}
-              </p>
+          </div>
+          <p
+            v-else-if="installedQuery.trim()"
+            class="m-0 text-[12px] text-[var(--color-dim)]"
+          >
+            {{ t("sidebar.skillsDialog.noMatch", { query: installedQuery.trim() }) }}
+          </p>
+          <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.skillsDialog.noSkills") }}</p>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="mb-2 flex items-center gap-2">
+          <div class="relative min-w-0 flex-1">
+            <Search
+              class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-dim)]"
+              aria-hidden="true"
+            />
+            <Input
+              v-model="marketQuery"
+              class="h-8 pl-7 text-[13px]"
+              :placeholder="t('sidebar.skillsDialog.marketPlaceholder')"
+              @keydown.enter="searchMarket"
+            />
+          </div>
+          <Button size="sm" :disabled="marketLoading" @click="searchMarket">
+            <Loader2 v-if="marketLoading" class="size-3.5 animate-spin" />
+            <Search v-else class="size-3.5" />
+            {{ t("sidebar.skillsDialog.search") }}
+          </Button>
+        </div>
+        <p v-if="marketError" class="m-0 mb-2 text-[12px] text-[var(--color-danger-fg)]">{{ marketError }}</p>
+        <div class="flex flex-col gap-3">
+          <div v-if="displayMarketItems.length" class="flex flex-col gap-1.5">
+            <div
+              v-for="hit in displayMarketItems"
+              :key="hit.id"
+              class="flex items-center gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-[12px] font-medium text-[var(--color-txt-strong)]">{{ hit.name }}</span>
+                  <span class="truncate text-[10px] text-[var(--color-dim)]">{{ hit.source }}</span>
+                </div>
+                <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">
+                  {{ t("sidebar.skillsDialog.installsCount", { count: hit.installs.toLocaleString() }) }}
+                </p>
+              </div>
+              <a
+                :href="`https://skills.sh/${hit.source}/${hit.skillId}`"
+                target="_blank"
+                rel="noreferrer"
+                class="text-[var(--color-dim)] hover:text-[var(--color-txt)]"
+                :aria-label="t('sidebar.skillsDialog.openOnMarket')"
+              >
+                <ExternalLink class="size-3.5" />
+              </a>
+              <Badge
+                v-if="isInstalledHit(hit)"
+                variant="secondary"
+                class="flex-none text-[10px]"
+              >
+                {{ t("sidebar.skillsDialog.installed") }}
+              </Badge>
+              <Button
+                v-else
+                size="sm"
+                variant="outline"
+                :disabled="busyId === hit.id"
+                @click="installSkill(hit)"
+              >
+                <Loader2 v-if="busyId === hit.id" class="size-3.5 animate-spin" />
+                <PackagePlus v-else class="size-3.5" />
+                {{ t("sidebar.skillsDialog.install") }}
+              </Button>
             </div>
           </div>
-          <p v-if="!displayMarketItems.length && !marketLoading" class="m-0 text-[12px] text-[var(--color-dim)]">
-            {{ t("sidebar.skillsDialog.marketHint") }}
-          </p>
-        </template>
+          <div class="flex items-start gap-3 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken,#1c1c1c)] px-3.5 py-3">
+            <div class="flex-none text-[12px] font-medium text-[var(--color-txt-strong)]">skills.sh</div>
+            <p class="m-0 min-w-0 flex-1 text-[12px] leading-relaxed text-[var(--color-mut)]">
+              {{ t("sidebar.skillsDialog.marketInfo") }}
+            </p>
+          </div>
+        </div>
+        <p v-if="!displayMarketItems.length && !marketLoading" class="m-0 text-[12px] text-[var(--color-dim)]">
+          {{ t("sidebar.skillsDialog.marketHint") }}
+        </p>
+      </template>
+    </div>
+
+    <div
+      class="flex min-h-10 flex-none items-center gap-2 border-t border-[var(--color-line-soft)] px-6 py-2.5 text-[11px] text-[var(--color-mut)]"
+    >
+      <span class="min-w-0 flex-1 truncate">{{ statusMsg || t("sidebar.skillsDialog.skillDirHint") }}</span>
+    </div>
+  </section>
+
+  <Dialog :open="dirsOpen" @update:open="(next) => (dirsOpen = next)">
+    <DialogContent
+      data-large-panel="true"
+      class="flex max-h-[min(600px,calc(100vh-80px))] w-[min(520px,calc(100vw-48px))] flex-col gap-3 border border-[var(--color-line)] bg-[var(--color-popover)] p-4"
+      data-testid="skill-dirs-dialog"
+    >
+      <DialogHeader>
+        <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t("sidebar.skillsDialog.scanDirsTitle") }}
+        </DialogTitle>
+        <DialogDescription class="text-[11px] leading-normal text-[var(--color-mut)]">
+          {{ t("sidebar.skillsDialog.skillDirHint") }}
+        </DialogDescription>
+      </DialogHeader>
+
+      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+        <div class="flex flex-wrap gap-1.5">
+          <Badge variant="outline" class="text-[10px]">
+            <FolderOpen :size="11" data-icon="inline-start" />~/.zen/skills
+          </Badge>
+          <Badge variant="outline" class="text-[10px]">{{ t("sidebar.skillsDialog.compatBadge") }}</Badge>
+        </div>
+        <div
+          v-for="path in settings.skillExtraPaths"
+          :key="path"
+          class="flex items-center gap-2 rounded-lg border border-[var(--color-line)] px-2.5 py-1.5"
+        >
+          <span class="min-w-0 flex-1 truncate text-[12px]">{{ path }}</span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            :aria-label="t('sidebar.skillsDialog.removeDir')"
+            @click="
+              agentStore.updateSettings({
+                skillExtraPaths: settings.skillExtraPaths.filter((item) => item !== path),
+              })
+            "
+          >
+            <Trash2 :size="13" />
+          </Button>
+        </div>
+        <div class="flex items-center gap-2">
+          <Input
+            v-model="newSkillPath"
+            class="h-8 flex-1 text-[13px]"
+            :placeholder="t('sidebar.skillsDialog.pathPlaceholder')"
+            @keydown.enter="addSkillPath"
+          />
+          <Button variant="outline" size="sm" class="flex-none" @click="addSkillPath">{{ t("sidebar.skillsDialog.addDir") }}</Button>
+        </div>
       </div>
 
-      <div
-        class="flex min-h-10 flex-none items-center gap-2 border-t border-[var(--color-line-soft)] px-5 py-2.5 text-[11px] text-[var(--color-mut)]"
-      >
-        <span class="min-w-0 flex-1 truncate">{{ statusMsg || t("sidebar.skillsDialog.skillDirHint") }}</span>
-      </div>
+      <DialogFooter class="flex-none">
+        <Button variant="ghost" size="sm" @click="dirsOpen = false">{{ t("common.close") }}</Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 </template>

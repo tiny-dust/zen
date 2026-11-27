@@ -59,15 +59,9 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
     browser: { setBounds: vi.fn() },
   });
   const wrapper = mount(SchedulerDialog, {
-    props: { open: false },
     global: {
       plugins: [pinia],
       stubs: {
-        Dialog: true,
-        DialogContent: { template: "<div><slot /></div>" },
-        DialogHeader: true,
-        DialogTitle: true,
-        DialogDescription: true,
         ConfirmDialog: true,
         teleport: true,
         Calendar: true,
@@ -129,7 +123,7 @@ async function mountDialog(tasks: ScheduledTask[] = []): Promise<VueWrapper> {
     },
     attachTo: document.body,
   });
-  await wrapper.setProps({ open: true });
+  // 页面挂载即渲染并触发 onMounted 的 load()
   await flushPromises();
   return wrapper;
 }
@@ -441,7 +435,7 @@ describe("SchedulerDialog 运行记录与查看运行", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("还没有运行记录");
 
-    // 历史行「查看运行」：侧栏数据里找不到该会话 → 卡上提示错误、弹窗不关
+    // 历史行「查看运行」：侧栏数据里找不到该会话 → 卡上提示错误、页面留在任务列表
     (zenApi().scheduler.listRuns as Mock).mockResolvedValue(runFixtures());
     await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click"); // 收起
     await wrapper.findAll('button[aria-label="运行记录"]')[0].trigger("click"); // 再展开（刷新）
@@ -450,11 +444,11 @@ describe("SchedulerDialog 运行记录与查看运行", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("找不到该次运行的会话");
-    expect(wrapper.emitted("update:open") ?? []).not.toContainEqual([false]);
+    expect(wrapper.find('button[aria-label="编辑任务"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
-  it("查看运行：切到该次运行的会话并关闭弹窗", async () => {
+  it("查看运行：切到该次运行的会话", async () => {
     const wrapper = await mountDialog([taskFixture()]);
     (zenApi().scheduler.listRuns as Mock).mockResolvedValue(runFixtures());
     // 侧栏工作区数据含目标会话（openSessionById 的定位数据源）
@@ -515,7 +509,6 @@ describe("SchedulerDialog 运行记录与查看运行", () => {
     await flushPromises();
 
     expect(sessionOpen).toHaveBeenCalledWith("s-1");
-    expect(wrapper.emitted("update:open")?.at(-1)).toEqual([false]);
     wrapper.unmount();
   });
 });

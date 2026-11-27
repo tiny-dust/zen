@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, FolderOpen } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconFolderOpen as FolderOpen } from "@tabler/icons-vue";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 

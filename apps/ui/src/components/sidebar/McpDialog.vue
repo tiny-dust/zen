@@ -1,19 +1,7 @@
 <script setup lang="ts">
-import {
-  ChevronDown,
-  ChevronRight,
-  Download,
-  Loader2,
-  LogIn,
-  Pencil,
-  Plus,
-  RefreshCw,
-  ScanSearch,
-  Trash2,
-  X,
-} from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2, IconLogin as LogIn, IconPencil as Pencil, IconPlus as Plus, IconRefresh as RefreshCw, IconZoomScan as ScanSearch, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
@@ -24,6 +12,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { parseNpxCommand } from "@/lib/mcp-npx-command";
 import { useAgentStore } from "@/stores/agent";
 import { useChatStore } from "@/stores/chat";
@@ -43,17 +31,12 @@ import { useWorkspaceStore } from "@/stores/workspace";
 
 import type { McpDiscoveredServer, McpServerConfig, McpTransport } from "@zen/shared";
 
-const open = defineModel<boolean>("open", { default: false });
-
 const agentStore = useAgentStore();
 const chatStore = useChatStore();
 const workspaceStore = useWorkspaceStore();
 const { mcpStatuses } = storeToRefs(agentStore);
 
 const { t, locale } = useI18n();
-
-// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
-useBrowserOverlayGuard(open);
 
 const form = ref<{
   name: string;
@@ -70,6 +53,8 @@ const form = ref<{
   url: "",
   headers: "",
 });
+/** 添加/编辑在独立子弹窗里，列表页不长期占位 */
+const formOpen = ref(false);
 // 正在编辑的服务 id；null 表示表单处于「添加」模式（与 SettingsMcp 一致）
 const editingId = ref<string | null>(null);
 const formError = ref("");
@@ -109,6 +94,7 @@ async function addNpxServer() {
       },
     ]);
     npxInput.value = "";
+    formOpen.value = false;
   } catch {
     npxError.value = t("sidebar.mcp.npxSaveFailed");
   } finally {
@@ -116,22 +102,20 @@ async function addNpxServer() {
   }
 }
 
-watch(open, (value) => {
-  if (value) {
-    void agentStore.refreshMcp().then(() => {
-      // 默认展开运行中的服务，便于直接查看工具清单
-      expandedIds.value = new Set(
-        mcpStatuses.value.filter((item) => item.state === "running").map((item) => item.config.id),
-      );
-    });
-  }
-});
-
 /** 各服务工具清单的展开状态 */
 const expandedIds = ref<Set<string>>(new Set());
 
 /** 工具明细的展开状态（key: serverId:toolName） */
 const expandedToolIds = ref<Set<string>>(new Set());
+
+onMounted(() => {
+  void agentStore.refreshMcp().then(() => {
+    // 默认展开运行中的服务，便于直接查看工具清单
+    expandedIds.value = new Set(
+      mcpStatuses.value.filter((item) => item.state === "running").map((item) => item.config.id),
+    );
+  });
+});
 
 function toggleInSet(set: Set<string>, key: string): Set<string> {
   const next = new Set(set);
@@ -223,6 +207,18 @@ function resetForm() {
   formError.value = "";
 }
 
+/** 打开弹窗（添加模式）：清空表单与 npx 错误，进入页面时的旧状态不会带进来 */
+function openAdd() {
+  cancelEdit();
+  npxError.value = "";
+  formOpen.value = true;
+}
+
+function closeForm() {
+  formOpen.value = false;
+  cancelEdit();
+}
+
 async function addServer() {
   const parsed = buildConfigFromForm();
   if ("error" in parsed) {
@@ -230,13 +226,14 @@ async function addServer() {
     return;
   }
   await agentStore.saveMcpServers([...mcpServers.value, parsed.config]);
-  resetForm();
+  closeForm();
 }
 
 /** 编辑既有服务（含扫描导入的）：表单预填，保存时保留 id / enabled，其余字段以表单为准 */
 function startEdit(config: McpServerConfig) {
   editingId.value = config.id;
   formError.value = "";
+  npxError.value = "";
   form.value = {
     name: config.name,
     transport: config.transport,
@@ -248,6 +245,7 @@ function startEdit(config: McpServerConfig) {
     url: config.url ?? "",
     headers: config.headers ? JSON.stringify(config.headers, null, 2) : "",
   };
+  formOpen.value = true;
 }
 
 function cancelEdit() {
@@ -258,7 +256,7 @@ function cancelEdit() {
 async function saveEdit() {
   const target = mcpServers.value.find((item) => item.id === editingId.value);
   if (!target) {
-    cancelEdit();
+    closeForm();
     return;
   }
   const parsed = buildConfigFromForm();
@@ -273,7 +271,7 @@ async function saveEdit() {
         : item,
     ),
   );
-  cancelEdit();
+  closeForm();
 }
 
 async function submitForm() {
@@ -291,7 +289,7 @@ async function removeServer() {
   removeError.value = "";
   try {
     await agentStore.saveMcpServers(mcpServers.value.filter((item) => item.id !== target.id));
-    if (editingId.value === target.id) cancelEdit();
+    if (editingId.value === target.id) closeForm();
     serverToRemove.value = null;
   } catch (error) {
     removeError.value = error instanceof Error ? error.message : String(error);
@@ -383,25 +381,236 @@ async function authorizeServer(id: string) {
 </script>
 
 <template>
-  <Dialog v-model:open="open">
+  <section class="flex h-full min-h-0 flex-col overflow-hidden">
+    <header class="flex flex-none items-start gap-3 px-6 pb-3 pt-5">
+      <div class="min-w-0 flex-1">
+        <h2 class="m-0 truncate text-[16px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t("sidebar.mcp.title") }}
+        </h2>
+        <p class="m-0 truncate text-[12px] text-[var(--color-mut)]">
+          {{ t("sidebar.mcp.descA") }}<code class="font-[family-name:var(--font-mono)]">{{ t("sidebar.mcp.toolPattern") }}</code>{{ t("sidebar.mcp.descB") }}
+        </p>
+      </div>
+      <div class="flex flex-none flex-wrap items-center justify-end gap-1">
+        <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
+          <Loader2 v-if="scanBusy" class="size-3.5 animate-spin" />
+          <ScanSearch v-else class="size-3.5" />
+          {{ scanBusy ? t("sidebar.mcp.scanning") : t("sidebar.mcp.scan") }}
+        </Button>
+        <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
+          <RefreshCw class="size-3.5" />
+          {{ t("sidebar.mcp.refreshStatus") }}
+        </Button>
+        <Button size="sm" data-testid="mcp-add-open" @click="openAdd">
+          <Plus class="size-3.5" />
+          {{ t("sidebar.mcp.addServer") }}
+        </Button>
+      </div>
+    </header>
+
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
+      <div
+        v-if="scanNote || discovered.length"
+        class="flex flex-col gap-1.5 rounded-lg border border-[var(--color-line)] px-3 py-2"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[12px] font-medium text-[var(--color-mut)]">
+            {{ t("sidebar.mcp.discoveredTitle") }}
+          </span>
+          <Button
+            v-if="discovered.some((item) => !item.alreadyImported)"
+            variant="ghost"
+            size="sm"
+            @click="importDiscovered(discovered)"
+          >
+            <Download class="size-3.5" />{{ t("sidebar.mcp.importAll") }}
+          </Button>
+        </div>
+        <p v-if="scanNote" class="m-0 text-[11px] text-[var(--color-dim)]">{{ scanNote }}</p>
+        <div v-if="discovered.length" class="flex flex-col gap-1.5">
+          <div
+            v-for="item in discovered"
+            :key="`${item.sourcePath}-${item.config.name}`"
+            class="flex items-center gap-2 rounded-lg border border-[var(--color-line-soft)] px-3 py-1.5"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+                  {{ item.config.name }}
+                </span>
+                <Badge variant="outline" class="text-[10px]">{{ item.source }}</Badge>
+                <Badge variant="secondary" class="text-[10px]">{{ item.config.transport }}</Badge>
+              </div>
+              <p
+                class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
+                :title="item.sourcePath"
+              >
+                {{ item.config.transport === "stdio"
+                  ? [item.config.command, ...(item.config.args || [])].join(" ")
+                  : item.config.url }}
+              </p>
+            </div>
+            <Button
+              v-if="!item.alreadyImported"
+              variant="ghost"
+              size="sm"
+              class="flex-none"
+              :aria-label="t('sidebar.mcp.importAria', { name: item.config.name })"
+              @click="importDiscovered([item])"
+            >
+              <Download class="size-3.5" />{{ t("sidebar.mcp.import") }}
+            </Button>
+            <Badge v-else variant="secondary" class="flex-none text-[10px]">{{ t("sidebar.mcp.imported") }}</Badge>
+          </div>
+        </div>
+      </div>
+
+      <div class="min-w-0">
+        <div class="mb-2 text-[12px] font-medium text-[var(--color-mut)]">
+          {{ t("sidebar.mcp.configuredCount", { n: mcpStatuses.length }) }}
+        </div>
+        <div v-if="mcpStatuses.length" class="flex flex-col gap-1.5">
+          <div
+            v-for="item in mcpStatuses"
+            :key="item.config.id"
+            class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+          >
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
+                  {{ item.config.name }}
+                </span>
+                <Badge variant="secondary" class="text-[10px]">{{ stateLabel(item.state) }}</Badge>
+                <Button
+                  v-if="item.state === 'needs-auth'"
+                  variant="secondary"
+                  size="sm"
+                  class="h-5 gap-0.5 px-1.5 text-[10px]"
+                  :disabled="authorizingIds.has(item.config.id)"
+                  :aria-label="t('sidebar.mcp.authorizeAria', { name: item.config.name })"
+                  @click="authorizeServer(item.config.id)"
+                >
+                  <Loader2 v-if="authorizingIds.has(item.config.id)" class="size-3 animate-spin" />
+                  <LogIn v-else class="size-3" />
+                  {{ authorizingIds.has(item.config.id) ? t("sidebar.mcp.authorizing") : t("sidebar.mcp.authorizeLogin") }}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-5 gap-0.5 px-1 text-[10px] text-[var(--color-dim)] hover:bg-transparent!"
+                  :aria-expanded="expandedIds.has(item.config.id)"
+                  @click="toggleTools(item.config.id)"
+                >
+                  <ChevronDown v-if="expandedIds.has(item.config.id)" class="size-3" />
+                  <ChevronRight v-else class="size-3" />
+                  {{ t("sidebar.mcp.toolCount", { n: item.tools.length }) }}
+                </Button>
+              </div>
+              <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
+                {{ item.config.transport === "stdio"
+                  ? [item.config.command, ...(item.config.args || [])].join(" ")
+                  : item.config.url }}
+              </p>
+              <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
+                {{ item.error }}
+              </p>
+              <p
+                v-if="authorizeErrors[item.config.id]"
+                class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]"
+              >
+                {{ authorizeErrors[item.config.id] }}
+              </p>
+              <div
+                v-if="expandedIds.has(item.config.id)"
+                class="mt-1.5 flex flex-col gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2.5 py-1.5"
+              >
+                <p
+                  v-if="item.state === 'running' && !item.tools.length"
+                  class="m-0 text-[11px] text-[var(--color-dim)]"
+                >
+                  {{ t("sidebar.mcp.noTools") }}
+                </p>
+                <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col">
+                  <button
+                    type="button"
+                    class="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-[var(--color-menu-hover)]"
+                    :aria-expanded="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                    @click="toggleTool(item.config.id, tool.name)"
+                  >
+                    <ChevronDown
+                      v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                      class="size-3 flex-none text-[var(--color-dim)]"
+                    />
+                    <ChevronRight v-else class="size-3 flex-none text-[var(--color-dim)]" />
+                    <span class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
+                      {{ tool.name }}
+                    </span>
+                  </button>
+                  <div
+                    v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
+                    class="flex flex-col gap-0.5 pb-0.5 pl-5 pr-1"
+                  >
+                    <p class="m-0 text-[11px] leading-4 text-[var(--color-mut)]">
+                      {{ tool.description || t("sidebar.mcp.noDescription") }}
+                    </p>
+                    <p
+                      v-if="schemaSummary(tool.inputSchema)"
+                      class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
+                      :title="schemaSummary(tool.inputSchema)"
+                    >
+                      {{ t("sidebar.mcp.params") }}{{ schemaSummary(tool.inputSchema) }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              :aria-label="t('sidebar.mcp.editAria', { name: item.config.name })"
+              @click="startEdit(item.config)"
+            >
+              <Pencil class="size-3.5" />
+            </Button>
+            <DangerIconButton
+              :label="`${t('sidebar.mcp.removeServer')} ${item.config.name}`"
+              @click="serverToRemove = item.config; removeError = ''"
+            >
+              <Trash2 class="size-3.5" />
+            </DangerIconButton>
+          </div>
+        </div>
+        <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.mcp.noServers") }}</p>
+        <p v-if="removeError" role="alert" class="m-0 mt-2 text-[11px] text-[var(--color-danger-fg)]">{{ removeError }}</p>
+      </div>
+    </div>
+  </section>
+
+  <Dialog
+    :open="formOpen"
+    @update:open="(next) => { formOpen = next; if (!next) cancelEdit(); }"
+  >
     <DialogContent
       data-large-panel="true"
-      class="flex h-[min(86vh,820px)] w-[min(980px,94vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
+      class="flex max-h-[min(760px,calc(100vh-80px))] w-[min(560px,calc(100vw-48px))] flex-col gap-3 border border-[var(--color-line)] bg-[var(--color-popover)] p-4"
+      data-testid="mcp-form-dialog"
     >
-      <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
-        <DialogTitle class="text-[15px]">{{ t("sidebar.mcp.title") }}</DialogTitle>
-        <DialogDescription class="text-[12px]">
-          {{ t("sidebar.mcp.descA") }}<code class="font-[family-name:var(--font-mono)]">{{ t("sidebar.mcp.toolPattern") }}</code>{{ t("sidebar.mcp.descB") }}
+      <DialogHeader>
+        <DialogTitle class="text-[14px] font-semibold text-[var(--color-txt-strong)]">
+          {{ editingId ? t("sidebar.mcp.editServer") : t("sidebar.mcp.addServer") }}
+        </DialogTitle>
+        <DialogDescription class="text-[11px] leading-normal text-[var(--color-mut)]">
+          {{ t("sidebar.mcp.npxHint") }}
         </DialogDescription>
       </DialogHeader>
 
-      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-        <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("sidebar.mcp.npxTitle") }}</div>
+      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+        <div v-if="!editingId" class="flex flex-col gap-2" data-testid="mcp-npx-section">
+          <div class="text-[12px] font-medium text-[var(--color-mut)]">{{ t("sidebar.mcp.npxTitle") }}</div>
           <div class="flex flex-wrap gap-2">
             <Input
               v-model="npxInput"
-              class="h-8 min-w-0 flex-1 text-[12px]"
+              class="h-8 min-w-0 flex-1 text-[13px]"
               :aria-label="t('sidebar.mcp.npxTitle')"
               :placeholder="t('sidebar.mcp.npxPlaceholder')"
               :disabled="npxSaving"
@@ -412,18 +621,14 @@ async function authorizeServer(id: string) {
               <Plus v-else class="size-3.5" />{{ t("sidebar.mcp.npxAdd") }}
             </Button>
           </div>
-          <p class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("sidebar.mcp.npxHint") }}</p>
           <p v-if="npxError" role="alert" class="m-0 text-[11px] text-[var(--color-danger-fg)]">{{ npxError }}</p>
         </div>
 
-        <div class="flex flex-col gap-2 rounded-xl border border-[var(--color-line)] p-3.5">
-          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-            {{ editingId ? t("sidebar.mcp.editServer") : t("sidebar.mcp.addServer") }}
-          </div>
-          <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
-            <Input v-model="form.name" class="h-8 text-[12px]" :placeholder="t('sidebar.mcp.namePlaceholder')" />
+        <div class="flex flex-col gap-2">
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(150px,200px)]">
+            <Input v-model="form.name" class="h-8 text-[13px]" :placeholder="t('sidebar.mcp.namePlaceholder')" />
             <Select v-model="form.transport">
-              <SelectTrigger class="h-8 text-[12px]">
+              <SelectTrigger class="h-8 text-[13px]">
                 <SelectValue :placeholder="t('sidebar.mcp.transportPlaceholder')" />
               </SelectTrigger>
               <SelectContent>
@@ -435,13 +640,13 @@ async function authorizeServer(id: string) {
             <template v-if="form.transport === 'stdio'">
               <Input
                 v-model="form.command"
-                class="h-8 text-[12px] md:col-span-2"
+                class="h-8 text-[13px] sm:col-span-2"
                 :placeholder="t('sidebar.mcp.commandPlaceholder')"
                 @keydown.enter="submitForm"
               />
               <Input
                 v-model="form.env"
-                class="h-8 text-[12px] md:col-span-2"
+                class="h-8 text-[13px] sm:col-span-2"
                 :placeholder="t('sidebar.mcp.envPlaceholder')"
                 @keydown.enter="submitForm"
               />
@@ -449,209 +654,31 @@ async function authorizeServer(id: string) {
             <template v-else>
               <Input
                 v-model="form.url"
-                class="h-8 text-[12px] md:col-span-2"
+                class="h-8 text-[13px] sm:col-span-2"
                 placeholder="https://…"
                 @keydown.enter="submitForm"
               />
               <Input
                 v-model="form.headers"
-                class="h-8 text-[12px] md:col-span-2"
+                class="h-8 text-[13px] sm:col-span-2"
                 :placeholder="t('sidebar.mcp.headersPlaceholder')"
                 @keydown.enter="submitForm"
               />
             </template>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <Button size="sm" @click="submitForm">
-              <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? t("common.save") : t("sidebar.mcp.add") }}
-            </Button>
-            <Button v-if="editingId" variant="ghost" size="sm" @click="cancelEdit">
-              <X class="size-3.5" />{{ t("common.cancel") }}
-            </Button>
-            <Button variant="ghost" size="sm" @click="agentStore.refreshMcp()">
-              <RefreshCw class="size-3.5" />{{ t("sidebar.mcp.refreshStatus") }}
-            </Button>
-            <span v-if="formError" class="text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</span>
-          </div>
-        </div>
-
-        <div class="min-w-0">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <span class="text-[12px] font-medium text-[var(--color-mut)]">
-              {{ t("sidebar.mcp.discoveredTitle") }}
-            </span>
-            <div class="flex items-center gap-1.5">
-              <Button
-                v-if="discovered.some((item) => !item.alreadyImported)"
-                variant="ghost"
-                size="sm"
-                @click="importDiscovered(discovered)"
-              >
-                <Download class="size-3.5" />{{ t("sidebar.mcp.importAll") }}
-              </Button>
-              <Button variant="ghost" size="sm" :disabled="scanBusy" @click="runScan">
-                <ScanSearch class="size-3.5" />{{ scanBusy ? t("sidebar.mcp.scanning") : t("sidebar.mcp.scan") }}
-              </Button>
-            </div>
-          </div>
-          <p v-if="scanNote" class="m-0 mb-1.5 text-[11px] text-[var(--color-dim)]">{{ scanNote }}</p>
-          <div v-if="discovered.length" class="mb-3 flex flex-col gap-1.5">
-            <div
-              v-for="item in discovered"
-              :key="`${item.sourcePath}-${item.config.name}`"
-              class="flex items-center gap-2 rounded-lg border border-[var(--color-line-soft)] px-3 py-1.5"
-            >
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-                    {{ item.config.name }}
-                  </span>
-                  <Badge variant="outline" class="text-[10px]">{{ item.source }}</Badge>
-                  <Badge variant="secondary" class="text-[10px]">{{ item.config.transport }}</Badge>
-                </div>
-                <p
-                  class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
-                  :title="item.sourcePath"
-                >
-                  {{ item.config.transport === "stdio"
-                    ? [item.config.command, ...(item.config.args || [])].join(" ")
-                    : item.config.url }}
-                </p>
-              </div>
-              <Button
-                v-if="!item.alreadyImported"
-                variant="ghost"
-                size="sm"
-                class="flex-none"
-                :aria-label="t('sidebar.mcp.importAria', { name: item.config.name })"
-                @click="importDiscovered([item])"
-              >
-                <Download class="size-3.5" />{{ t("sidebar.mcp.import") }}
-              </Button>
-              <Badge v-else variant="secondary" class="flex-none text-[10px]">{{ t("sidebar.mcp.imported") }}</Badge>
-            </div>
-          </div>
-
-          <div class="mb-2 text-[12px] font-medium text-[var(--color-mut)]">
-            {{ t("sidebar.mcp.configuredCount", { n: mcpStatuses.length }) }}
-          </div>
-          <div v-if="mcpStatuses.length" class="flex flex-col gap-1.5">
-            <div
-              v-for="item in mcpStatuses"
-              :key="item.config.id"
-              class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
-            >
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="text-[12px] font-medium text-[var(--color-txt-strong)]">
-                    {{ item.config.name }}
-                  </span>
-                  <Badge variant="secondary" class="text-[10px]">{{ stateLabel(item.state) }}</Badge>
-                  <Button
-                    v-if="item.state === 'needs-auth'"
-                    variant="secondary"
-                    size="sm"
-                    class="h-5 gap-0.5 px-1.5 text-[10px]"
-                    :disabled="authorizingIds.has(item.config.id)"
-                    :aria-label="t('sidebar.mcp.authorizeAria', { name: item.config.name })"
-                    @click="authorizeServer(item.config.id)"
-                  >
-                    <Loader2 v-if="authorizingIds.has(item.config.id)" class="size-3 animate-spin" />
-                    <LogIn v-else class="size-3" />
-                    {{ authorizingIds.has(item.config.id) ? t("sidebar.mcp.authorizing") : t("sidebar.mcp.authorizeLogin") }}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    class="h-5 gap-0.5 px-1 text-[10px] text-[var(--color-dim)] hover:bg-transparent!"
-                    :aria-expanded="expandedIds.has(item.config.id)"
-                    @click="toggleTools(item.config.id)"
-                  >
-                    <ChevronDown v-if="expandedIds.has(item.config.id)" class="size-3" />
-                    <ChevronRight v-else class="size-3" />
-                    {{ t("sidebar.mcp.toolCount", { n: item.tools.length }) }}
-                  </Button>
-                </div>
-                <p class="m-0 mt-0.5 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]">
-                  {{ item.config.transport === "stdio"
-                    ? [item.config.command, ...(item.config.args || [])].join(" ")
-                    : item.config.url }}
-                </p>
-                <p v-if="item.error" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
-                  {{ item.error }}
-                </p>
-                <p
-                  v-if="authorizeErrors[item.config.id]"
-                  class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]"
-                >
-                  {{ authorizeErrors[item.config.id] }}
-                </p>
-                <div
-                  v-if="expandedIds.has(item.config.id)"
-                  class="mt-1.5 flex flex-col gap-1.5 rounded-lg border border-[var(--color-line-soft)] bg-[var(--color-sunken)] px-2.5 py-1.5"
-                >
-                  <p
-                    v-if="item.state === 'running' && !item.tools.length"
-                    class="m-0 text-[11px] text-[var(--color-dim)]"
-                  >
-                    {{ t("sidebar.mcp.noTools") }}
-                  </p>
-                  <div v-for="tool in item.tools" :key="tool.name" class="flex flex-col">
-                    <button
-                      type="button"
-                      class="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-[var(--color-menu-hover)]"
-                      :aria-expanded="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
-                      @click="toggleTool(item.config.id, tool.name)"
-                    >
-                      <ChevronDown
-                        v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
-                        class="size-3 flex-none text-[var(--color-dim)]"
-                      />
-                      <ChevronRight v-else class="size-3 flex-none text-[var(--color-dim)]" />
-                      <span class="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--color-txt)]">
-                        {{ tool.name }}
-                      </span>
-                    </button>
-                    <div
-                      v-if="expandedToolIds.has(`${item.config.id}:${tool.name}`)"
-                      class="flex flex-col gap-0.5 pb-0.5 pl-5 pr-1"
-                    >
-                      <p class="m-0 text-[11px] leading-4 text-[var(--color-mut)]">
-                        {{ tool.description || t("sidebar.mcp.noDescription") }}
-                      </p>
-                      <p
-                        v-if="schemaSummary(tool.inputSchema)"
-                        class="m-0 truncate font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-dim)]"
-                        :title="schemaSummary(tool.inputSchema)"
-                      >
-                        {{ t("sidebar.mcp.params") }}{{ schemaSummary(tool.inputSchema) }}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                :aria-label="t('sidebar.mcp.editAria', { name: item.config.name })"
-                @click="startEdit(item.config)"
-              >
-                <Pencil class="size-3.5" />
-              </Button>
-              <DangerIconButton
-                :label="`${t('sidebar.mcp.removeServer')} ${item.config.name}`"
-                @click="serverToRemove = item.config; removeError = ''"
-              >
-                <Trash2 class="size-3.5" />
-              </DangerIconButton>
-            </div>
-          </div>
-          <p v-else class="m-0 text-[12px] text-[var(--color-dim)]">{{ t("sidebar.mcp.noServers") }}</p>
-          <p v-if="removeError" role="alert" class="m-0 mt-2 text-[11px] text-[var(--color-danger-fg)]">{{ removeError }}</p>
+          <p v-if="formError" role="alert" class="m-0 text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</p>
         </div>
       </div>
+
+      <DialogFooter class="flex-none gap-1.5">
+        <Button variant="ghost" size="sm" @click="closeForm">{{ t("common.cancel") }}</Button>
+        <Button size="sm" @click="submitForm">
+          <Plus v-if="!editingId" class="size-3.5" />{{ editingId ? t("common.save") : t("sidebar.mcp.add") }}
+        </Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
+
   <ConfirmDialog
     :open="!!serverToRemove"
     :title="`${t('sidebar.mcp.removeServer')} ${serverToRemove?.name ?? ''}${locale.startsWith('zh') ? '？' : '?'}`"

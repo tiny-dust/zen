@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ToastItem } from "./useToast";
-import { CircleCheck, Info, TriangleAlert, X } from "@lucide/vue";
+import { IconCircleCheck as CircleCheck, IconInfoCircle as Info, IconAlertTriangle as TriangleAlert, IconX as X } from "@tabler/icons-vue";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useToasts } from "./useToast";

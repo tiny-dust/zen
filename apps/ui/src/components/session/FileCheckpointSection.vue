@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { History, Redo2, RotateCcw, Trash2, Undo2 } from "@lucide/vue";
+import { IconHistory as History, IconArrowForwardUp as Redo2, IconRotate as RotateCcw, IconTrash as Trash2, IconArrowBackUp as Undo2 } from "@tabler/icons-vue";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 

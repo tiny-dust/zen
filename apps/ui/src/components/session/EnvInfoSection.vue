@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Download, Info, RefreshCw } from "@lucide/vue";
+import { IconDownload as Download, IconInfoCircle as Info, IconRefresh as RefreshCw } from "@tabler/icons-vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
 import RepoPanel from "@/components/session/RepoPanel.vue";
 import SessionSectionHead from "@/components/session/SessionSectionHead.vue";
+import WorktreeList from "@/components/session/WorktreeList.vue";
 import { Button } from "@/components/ui/button";
 import { useGitStore } from "@/stores/git";
 import { useChatStore } from "@/stores/chat";
@@ -128,15 +129,18 @@ const exportOpen = ref(false);
         {{ t("worktree.envHint", { branch: worktree.branch }) }}
       </p>
 
-      <RepoPanel
-        v-for="repo in repos"
-        :key="repo.path"
-        :repo="repo"
-        :worktree-path="worktree?.path"
-        :open="openRepos.has(repo.path)"
-        @toggle="toggleRepo(repo.path)"
-        @open-panel="openInGitPanel"
-      />
+      <!-- 每个仓库先给出该仓库 Git 登记的全部工作树（含 Agent 创建的其他工作树），
+           再进入仓库面板：工作树清单只读展示 + 安全移除，变更/提交仍由 RepoPanel 负责 -->
+      <div v-for="repo in repos" :key="repo.path" class="flex min-w-0 flex-col gap-1">
+        <WorktreeList :repo-path="repo.path" :repo-name="repo.name" />
+        <RepoPanel
+          :repo="repo"
+          :worktree-path="worktree?.path"
+          :open="openRepos.has(repo.path)"
+          @toggle="toggleRepo(repo.path)"
+          @open-panel="openInGitPanel"
+        />
+      </div>
 
       <p v-if="gitStore.repositoryError" class="m-0 text-[11px] text-[var(--color-err)]" role="alert">
         {{ gitStore.repositoryError }}

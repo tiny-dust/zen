@@ -191,22 +191,24 @@ describe("ProjectSessionGroup 会话列表截断与展开", () => {
     wrapper.unmount();
   });
 
-  it("SessionRow 事件转发为带会话载荷的 open/pin/archive/remove", async () => {
+  it("SessionRow 事件转发为带会话载荷的 open/pin/more/menu/peek", async () => {
     const wrapper = mountGroup({ sessions: sessions.slice(0, 2) });
 
-    const row = wrapper.find(".session-row");
-    await row.trigger("click");
+    await wrapper.find(".session-row").trigger("click");
     expect(wrapper.emitted("open")?.[0]).toEqual([sessions[0]]);
 
     const stub = wrapper.findComponent({ name: "SessionRow" });
+    const anchor = document.createElement("button");
     stub.vm.$emit("pin");
-    stub.vm.$emit("archive", true);
-    stub.vm.$emit("remove");
+    stub.vm.$emit("more", anchor);
+    stub.vm.$emit("menu", 12, 34);
+    stub.vm.$emit("peek", null);
     await wrapper.vm.$nextTick();
 
     expect(wrapper.emitted("pin")?.[0]).toEqual([sessions[0]]);
-    expect(wrapper.emitted("archive")?.[0]).toEqual([sessions[0], true]);
-    expect(wrapper.emitted("remove")?.[0]).toEqual([sessions[0]]);
+    expect(wrapper.emitted("more")?.[0]).toEqual([sessions[0], anchor]);
+    expect(wrapper.emitted("menu")?.[0]).toEqual([sessions[0], 12, 34]);
+    expect(wrapper.emitted("peek")?.[0]).toEqual([sessions[0], null]);
     wrapper.unmount();
   });
 });

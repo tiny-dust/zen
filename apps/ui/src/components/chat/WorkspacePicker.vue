@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, FolderOpen, Globe, Plus } from "@lucide/vue";
+import { IconCheck as Check, IconFolderOpen as FolderOpen, IconWorld as Globe, IconPlus as Plus } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconChevronRight as ChevronRight } from "@tabler/icons-vue";
 import { useI18n } from "vue-i18n";
 
 import FileLabel from "@/components/files/FileLabel.vue";

@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-  Columns2,
-  ExternalLink,
-  Plus,
-  RefreshCw,
-  Rows2,
-  SquareTerminal,
-  X,
-} from "@lucide/vue";
+import { IconColumns2 as Columns2, IconExternalLink as ExternalLink, IconPlus as Plus, IconRefresh as RefreshCw, IconLayoutRows as Rows2, IconTerminal2 as SquareTerminal, IconX as X } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -169,7 +161,8 @@ async function openExternal() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 border-t border-[var(--color-line)] bg-[var(--color-bg)]">
+  <!-- 与上方工作区同属一张卡片：分隔交给分栏手柄与阴影，不重复画边框 -->
+  <div class="flex h-full min-h-0 bg-[var(--color-bg)]">
     <!-- 主区：终端分屏，只保留功能画面 -->
     <div class="relative min-h-0 min-w-0 flex-1 px-1 py-1">
       <div

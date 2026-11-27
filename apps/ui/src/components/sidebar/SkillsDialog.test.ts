@@ -79,14 +79,14 @@ function stubZen(overrides: Partial<ZenMock> = {}): ZenMock {
   return zen;
 }
 
-/** 弹窗内容经 Dialog 传送门渲染，stub 掉容器让断言留在 wrapper 内 */
+/** 页面挂载即渲染，onMounted 触发 refreshAll */
 async function mountDialog(): Promise<VueWrapper> {
   const wrapper = mount(SkillsDialog, {
-    props: { open: false },
     global: {
       plugins: [pinia],
       stubs: {
-        Dialog: true,
+        // 目录管理在子弹窗里：按 open 渲染内容，便于断言「列表优先」层级
+        Dialog: { props: ["open"], template: '<div v-if="open"><slot /></div>' },
         DialogContent: true,
         DialogHeader: true,
         DialogTitle: true,
@@ -111,12 +111,9 @@ vi.mock("@/stores/workspace", () => ({
   useWorkspaceStore: () => ({ setActive }),
 }));
 
-/** 打开弹窗触发 watch(open) → refreshAll */
+/** 进入页面（挂载）即触发 refreshAll */
 async function openDialog(): Promise<VueWrapper> {
-  const wrapper = await mountDialog();
-  await wrapper.setProps({ open: true });
-  await flushPromises();
-  return wrapper;
+  return mountDialog();
 }
 
 function buttonByText(wrapper: VueWrapper, text: string) {
@@ -146,7 +143,7 @@ afterEach(() => {
 });
 
 describe("SkillsDialog 更新反馈", () => {
-  it("打开弹窗刷新并显示可更新数量与可更新徽标", async () => {
+  it("进入页面刷新并显示可更新数量与可更新徽标", async () => {
     stubZen({
       marketCheckUpdates: vi.fn().mockResolvedValue({
         ok: true,
@@ -344,7 +341,6 @@ describe("SkillsDialog 状态文案", () => {
     zen.listSkills.mockImplementation(() => skillsGate.promise);
     const wrapper = await mountDialog();
 
-    await wrapper.setProps({ open: true });
     expect(wrapper.text()).toContain("正在刷新并检查上游更新…");
 
     skillsGate.resolve([skillA, skillB]);
@@ -369,46 +365,27 @@ describe("SkillsDialog 状态文案", () => {
     wrapper.unmount();
   });
 
-  it("上游检测抛异常与过期刷新丢弃：仅最新一轮结果生效", async () => {
-    // 场景一：抛异常
+  it("上游检测抛异常后手动刷新可恢复", async () => {
     stubZen({
       marketCheckUpdates: vi.fn().mockRejectedValue(new Error("DNS 解析失败")),
     });
-    let wrapper = await openDialog();
+    const wrapper = await openDialog();
     expect(wrapper.text()).toContain("DNS 解析失败");
-    wrapper.unmount();
 
-    // 场景二：慢的旧刷新结果晚到，被序号守卫丢弃
-    const slow = deferred<{ ok: boolean; items: SkillUpdateInfo[] }>();
-    const slowCheck = vi.fn().mockImplementation(() => slow.promise);
-    stubZen({
-      listSkills: vi.fn().mockResolvedValue([skillA, skillB]),
-      marketCheckUpdates: slowCheck,
-    });
-    wrapper = await mountDialog();
-    await wrapper.setProps({ open: true });
-    await flushPromises();
-
-    // 第二轮刷新（重开弹窗）换用快速通道；此时第一轮仍挂在 slow 上
+    // 修复上游后点「刷新」：新一轮结果覆盖上一轮的错误状态
     const zen2 = (window as { zen?: { skills?: { marketCheckUpdates?: unknown } } }).zen!;
     (zen2.skills as { marketCheckUpdates: unknown }).marketCheckUpdates = vi.fn().mockResolvedValue({
       ok: true,
       items: [updateInfo(skillA, true), updateInfo(skillB, false)],
     });
-    await wrapper.setProps({ open: false });
-    await wrapper.setProps({ open: true });
+    await buttonByText(wrapper, "刷新").trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("发现 1 个技能可更新");
-
-    // 过期的第一轮结果此刻才返回，应被丢弃
-    slow.resolve({ ok: true, items: [updateInfo(skillA, false), updateInfo(skillB, true)] });
-    await flushPromises();
-    expect(wrapper.text()).toContain("发现 1 个技能可更新");
-    expect(wrapper.text()).toContain("可更新");
+    expect(wrapper.text()).not.toContain("DNS 解析失败");
     wrapper.unmount();
   });
 
-  it("关闭再打开清空行内更新结果", async () => {
+  it("重新挂载（重新进入页面）清空行内更新结果", async () => {
     stubZen({
       marketCheckUpdates: vi.fn().mockResolvedValue({
         ok: true,
@@ -420,17 +397,16 @@ describe("SkillsDialog 状态文案", () => {
     await buttonByText(wrapper, "更新").trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("更新成功");
-
-    await wrapper.setProps({ open: false });
-    await wrapper.setProps({ open: true });
-    await flushPromises();
-    expect(wrapper.text()).not.toContain("更新成功");
     wrapper.unmount();
+
+    const fresh = await openDialog();
+    expect(fresh.text()).not.toContain("更新成功");
+    fresh.unmount();
   });
 });
 
 describe("SkillsDialog 一键分析", () => {
-  it("点击一键分析：关弹窗、公共区新会话并发送分析提示词", async () => {
+  it("点击一键分析：公共区新会话并发送分析提示词", async () => {
     stubZen();
     const wrapper = await openDialog();
 
@@ -520,8 +496,9 @@ describe("SkillsDialog 市场与卸载", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("已安装 frontend-design → /home/u/.claude/skills/frontend-design");
-    // 跳回已安装页
-    expect(wrapper.text()).toContain("扫描目录与自定义路径");
+    // 跳回已安装页（已安装列表的搜索框出现，目录管理留在子弹窗里）
+    expect(wrapper.find('input[placeholder*="搜索已安装技能"]').exists()).toBe(true);
+    expect(wrapper.find('input[placeholder*="搜索 skills.sh"]').exists()).toBe(false);
     wrapper.unmount();
 
     const zen = stubZen({
@@ -563,6 +540,11 @@ describe("SkillsDialog 市场与卸载", () => {
       pickDirectory: vi.fn().mockResolvedValue(null),
     });
     const wrapper = await openDialog();
+
+    // 列表页只有入口，点「扫描目录」才打开管理子弹窗
+    expect(wrapper.find('input[placeholder*="或输入路径"]').exists()).toBe(false);
+    await buttonByText(wrapper, "扫描目录").trigger("click");
+    await flushPromises();
 
     // pickDirectory 返回空且回退输入框为空 → 不保存
     await buttonByText(wrapper, "添加目录").trigger("click");

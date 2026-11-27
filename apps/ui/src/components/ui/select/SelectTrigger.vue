@@ -22,7 +22,7 @@ const forwardedProps = useForwardProps(delegatedProps)
     :data-size="size"
     v-bind="forwardedProps"
     :class="cn(
-      'border-border data-placeholder:text-muted-foreground focus-visible:border-ring aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 gap-1.5 rounded-lg border bg-transparent py-2 pr-2 pl-2.5 text-sm transition-colors select-none data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:gap-1.5 [&_svg:not([class*=size-])]:size-4 flex w-fit items-center justify-between whitespace-nowrap outline-none disabled:cursor-not-allowed disabled:opacity-50 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
+      'border-border data-placeholder:text-muted-foreground focus-visible:border-ring aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 gap-1.5 rounded-[var(--radius-md)] border bg-[var(--color-input-bg)] py-2 pr-2 pl-3 text-sm transition-colors select-none data-[size=default]:h-[var(--control-h-ms)] data-[size=sm]:h-[var(--control-h-sm)] data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:gap-1.5 [&_svg:not([class*=size-])]:size-4 flex w-fit items-center justify-between whitespace-nowrap outline-none disabled:cursor-not-allowed disabled:opacity-50 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
       props.class,
     )"
   >

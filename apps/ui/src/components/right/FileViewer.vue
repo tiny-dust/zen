@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileCode } from "@lucide/vue";
+import { IconFileCode as FileCode } from "@tabler/icons-vue";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -35,7 +35,10 @@ const { t } = useI18n();
 const hostEl = ref<HTMLDivElement | null>(null);
 // 编辑器配色跟随应用主题：深色 oneDark，浅色走 CodeMirror 默认亮色
 const { isDark } = useAppTheme();
-const failed = ref(false);
+/** 读不到的具体原因：区分「文件不存在」与「二进制/过大」，不用同一句话糊过去 */
+const failure = ref<"missing" | "unsupported" | "">("");
+/** unsupported 且主进程给了大小（字节）时展示，便于判断是否超大 */
+const failureSize = ref<number | null>(null);
 const truncated = ref(false);
 const dirty = ref(false);
 const saving = ref(false);
@@ -124,7 +127,8 @@ function destroyView() {
 
 function render() {
   destroyView();
-  failed.value = false;
+  failure.value = "";
+  failureSize.value = null;
   truncated.value = false;
   dirty.value = false;
   saveError.value = "";
@@ -147,7 +151,7 @@ function render() {
         return;
       }
       if (preview?.kind !== "image") {
-        failed.value = true;
+        failure.value = preview ? "unsupported" : "missing";
         return;
       }
       imageDataUrl.value = preview.dataUrl;
@@ -168,8 +172,13 @@ function render() {
       if (requestId !== `${props.root}::${props.path}` || !hostEl.value) {
         return;
       }
-      if (!preview || preview.kind === "unsupported") {
-        failed.value = true;
+      if (!preview) {
+        failure.value = "missing";
+        return;
+      }
+      if (preview.kind === "unsupported") {
+        failure.value = "unsupported";
+        failureSize.value = typeof preview.size === "number" ? preview.size : null;
         return;
       }
       if (preview.kind === "image") {
@@ -185,7 +194,8 @@ function mountEditor(content: string, truncatedFile: boolean, readOnly: boolean)
   if (!hostEl.value) {
     return;
   }
-  failed.value = false;
+  failure.value = "";
+  failureSize.value = null;
   truncated.value = truncatedFile;
   readonlyView.value = readOnly;
   loadedContent = content;
@@ -285,11 +295,17 @@ defineExpose({ render, save, revert, dirty, saving, saveError });
         <span v-else class="flex-1" />
       </div>
       <p
-        v-if="failed"
+        v-if="failure"
         class="m-0 px-1 py-2 text-[12px] text-[var(--color-dim)]"
         role="status"
       >
-        {{ t("panels.cannotReadFile") }}
+        {{
+          failure === "missing"
+            ? t("panels.fileMissing")
+            : failureSize != null
+              ? t("panels.fileUnsupportedWithSize", { size: Math.round(failureSize / 1024) })
+              : t("panels.fileUnsupported")
+        }}
       </p>
       <!-- 图片：点击在适应面板 / 原始尺寸间切换 -->
       <div

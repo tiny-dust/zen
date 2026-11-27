@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ArrowUp, ChevronRight, RefreshCw, WifiOff } from "@lucide/vue";
+import { IconArrowLeft as ArrowLeft, IconArrowUp as ArrowUp, IconChevronRight as ChevronRight, IconRefresh as RefreshCw, IconWifiOff as WifiOff } from "@tabler/icons-vue";
 import { computed, nextTick, shallowRef, useTemplateRef, watch } from "vue";
 
 import { Button } from "@/components/ui/button";

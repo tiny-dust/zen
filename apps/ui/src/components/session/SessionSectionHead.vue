@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, Info } from "@lucide/vue";
+import { IconChevronDown as ChevronDown, IconInfoCircle as Info } from "@tabler/icons-vue";
 import type { Component } from "vue";
 
 import { Button } from "@/components/ui/button";

@@ -161,7 +161,13 @@ describe("AppSidebar 会话激活高亮", () => {
       .find((item) => item.props("group").id === "ws-1");
     expect(group).toBeTruthy();
     if (mode === "single") {
-      group!.vm.$emit("remove", sessionA);
+      // 单条删除走会话菜单：行右键 / 「更多」→「删除会话」→ 二次确认
+      group!.vm.$emit("menu", sessionA, 10, 10);
+      await flushPromises();
+      const deleteItem = wrapper.findAll("button").find((btn) => btn.text().trim() === "删除会话");
+      expect(deleteItem).toBeTruthy();
+      deleteItem!.element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushPromises();
     } else {
       group!.vm.$emit("batch", "delete", [sessionA, sessionB]);
     }

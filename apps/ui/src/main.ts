@@ -4,14 +4,19 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/fonts/misans/MiSans.css";
 import "./assets/fonts/fonts.css";
+import { cachedTheme } from "./composables/useAppTheme";
 import { installErrorReporter } from "./lib/error-reporter";
 import { installAppLinkInterceptor } from "./lib/open-link";
 import { i18n } from "./locales";
 import "./styles.css";
 
-// 主题首帧：按本地镜像直接上 class，避免亮色用户看到深色闪烁；
-// 精确主题（三档 + 跟随系统）由 settings store 加载后驱动 useAppTheme 校正。
-document.documentElement.classList.toggle("dark", localStorage.getItem("zen.theme.dark") !== "0");
+// 主题首帧：按本地镜像直接上 data-theme 与 dark 类，避免亮色用户看到深色闪烁；
+// 精确主题（七套预设 + 跟随系统）由 settings store 加载后驱动 useAppTheme 校正。
+{
+  const { preset, dark } = cachedTheme();
+  document.documentElement.dataset.theme = preset;
+  document.documentElement.classList.toggle("dark", dark);
+}
 
 const pinia = createPinia();
 const app = createApp(App);

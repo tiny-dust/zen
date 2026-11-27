@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ChevronDown, Copy, ExternalLink, Folder, Globe, ListChecks, LoaderCircle, Pencil, Pin, PinOff, Plus, SquareTerminal, Trash2 } from "@lucide/vue";
+  import { IconChevronDown as ChevronDown, IconCopy as Copy, IconExternalLink as ExternalLink, IconFolder as Folder, IconWorld as Globe, IconListCheck as ListChecks, IconLoader2 as LoaderCircle, IconPencil as Pencil, IconPin as Pin, IconPinnedOff as PinOff, IconPlus as Plus, IconTerminal2 as SquareTerminal, IconTrash as Trash2 } from "@tabler/icons-vue";
   import { storeToRefs } from "pinia";
   import { computed, ref } from "vue";
   import { useI18n } from "vue-i18n";
@@ -41,9 +41,12 @@
     "new-session": [];
     open: [session: SessionRecord];
     pin: [session: SessionRecord];
-    archive: [session: SessionRecord, archived: boolean];
-    remove: [session: SessionRecord];
-    export: [session: SessionRecord];
+    /** 行尾「更多」：交给父级在按钮下方打开会话菜单 */
+    more: [session: SessionRecord, anchor: HTMLElement];
+    /** 行右键：同一菜单，坐标来自光标 */
+    menu: [session: SessionRecord, x: number, y: number];
+    /** 悬停 / 键盘聚焦详情卡（null = 收起） */
+    peek: [session: SessionRecord, el: HTMLElement | null];
     "pin-workspace": [];
     rename: [];
     "copy-path": [];
@@ -302,8 +305,9 @@
         <SessionRow v-for="session in shownSessions" :key="session.id" :session="session"
           :active="activeSessionId === session.id" :batch-mode="batchMode"
           :selected="selectedIds.has(session.id)" @open="emit('open', session)" @pin="emit('pin', session)"
-          @archive="(archived) => emit('archive', session, archived)" @remove="emit('remove', session)"
-          @export="emit('export', session)"
+          @more="(anchor) => emit('more', session, anchor)"
+          @menu="(x, y) => emit('menu', session, x, y)"
+          @peek="(el) => emit('peek', session, el)"
           @toggle-select="toggleSelect(session)" />
       </div>
       <div v-if="showExpandToggle" class="flex justify-center pr-10 pt-0.5">

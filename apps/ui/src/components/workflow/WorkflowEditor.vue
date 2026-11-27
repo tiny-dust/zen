@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play, Flag, GitBranch, Globe, Repeat, ShieldCheck, Sparkles, Terminal, Trash2, Wrench } from "@lucide/vue";
+import { IconPlayerPlay as Play, IconFlag as Flag, IconGitBranch as GitBranch, IconWorld as Globe, IconRepeat as Repeat, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconTerminal2 as Terminal, IconTrash as Trash2, IconTool as Wrench } from "@tabler/icons-vue";
 import { computed, onBeforeUnmount, ref, shallowRef, useId } from "vue";
 import { useI18n } from "vue-i18n";
 

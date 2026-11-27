@@ -1,31 +1,18 @@
 <script setup lang="ts">
-import { Blocks, CircleCheck, CircleOff, Loader2, RefreshCw } from "@lucide/vue";
-import { ref, watch } from "vue";
+import { IconBlocks as Blocks, IconCircleCheck as CircleCheck, IconCircleOff as CircleOff, IconLoader2 as Loader2, IconRefresh as RefreshCw } from "@tabler/icons-vue";
+import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 
 import type { FeatureStatus } from "@zen/shared";
-
-const open = defineModel<boolean>("open", { default: false });
 
 const { t, te } = useI18n();
 
 const loading = ref(false);
 const errorMsg = ref("");
 const entries = ref<FeatureStatus[]>([]);
-
-// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
-useBrowserOverlayGuard(open);
 
 async function loadList() {
   const zen = window.zen;
@@ -46,10 +33,8 @@ async function loadList() {
   }
 }
 
-watch(open, (value) => {
-  if (value) {
-    void loadList();
-  }
+onMounted(() => {
+  void loadList();
 });
 
 /** i18n 优先（按条目 id），缺失回退注册表兜底文案 */
@@ -88,75 +73,69 @@ function usageOf(entry: FeatureStatus): string {
 </script>
 
 <template>
-  <Dialog v-model:open="open">
-    <DialogContent
-      data-large-panel="true"
-      class="flex h-[min(72vh,640px)] w-[min(760px,94vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
-    >
-      <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
-        <DialogTitle class="text-[15px]">{{ t("features.title") }}</DialogTitle>
-        <DialogDescription class="text-[12px]">
-          {{ t("features.desc") }}
-        </DialogDescription>
-      </DialogHeader>
-
-      <div class="flex flex-none items-center border-b border-[var(--color-line-soft)] px-4 py-2.5">
-        <Button variant="ghost" size="sm" :disabled="loading" @click="loadList">
-          <Loader2 v-if="loading" class="size-3.5 animate-spin" data-icon="inline-start" />
-          <RefreshCw v-else :size="13" data-icon="inline-start" />
-          {{ t("features.refresh") }}
-        </Button>
+  <section class="flex h-full min-h-0 flex-col overflow-hidden">
+    <header class="flex flex-none items-start gap-3 px-6 pb-3 pt-5">
+      <div class="min-w-0 flex-1">
+        <h2 class="m-0 truncate text-[16px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t("features.title") }}
+        </h2>
+        <p class="m-0 truncate text-[12px] text-[var(--color-mut)]">{{ t("features.desc") }}</p>
       </div>
+      <Button variant="ghost" size="sm" class="flex-none" :disabled="loading" @click="loadList">
+        <Loader2 v-if="loading" class="size-3.5 animate-spin" data-icon="inline-start" />
+        <RefreshCw v-else :size="13" data-icon="inline-start" />
+        {{ t("features.refresh") }}
+      </Button>
+    </header>
 
-      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <p v-if="errorMsg" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ errorMsg }}</p>
-        <div v-else-if="entries.length" class="flex flex-col gap-1.5">
-          <div
-            v-for="entry in entries"
-            :key="entry.id"
-            class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
-            :class="entry.available ? '' : 'opacity-70'"
-          >
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span
-                  class="text-[12px] font-medium"
-                  :class="entry.available ? 'text-[var(--color-txt-strong)]' : 'text-[var(--color-mut)]'"
-                >
-                  {{ nameOf(entry) }}
-                </span>
-                <Badge variant="secondary" class="text-[10px]">
-                  {{ categoryLabel(entry) }}
-                </Badge>
-                <Badge
-                  :class="
-                    entry.available
-                      ? 'border-transparent bg-[color-mix(in_srgb,var(--color-ok)_14%,transparent)]! text-[var(--color-ok)]! text-[10px]'
-                      : 'text-[10px]'
-                  "
-                  variant="outline"
-                >
-                  <CircleCheck v-if="entry.available" class="size-3" data-icon="inline-start" />
-                  <CircleOff v-else class="size-3" data-icon="inline-start" />
-                  {{ statusLabel(entry) }}
-                </Badge>
-              </div>
-              <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">{{ descOf(entry) }}</p>
-              <p v-if="entry.available" class="m-0 mt-1 text-[11px] text-[var(--color-txt)]">
-                <span class="text-[var(--color-dim)]">{{ t("features.usageLabel") }}</span>
-                {{ usageOf(entry) }}
-              </p>
-              <p v-if="!entry.available" class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]">
-                {{ hintOf(entry) }}
-              </p>
+    <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <p v-if="errorMsg" class="m-0 text-[12px] text-[var(--color-danger-fg)]">{{ errorMsg }}</p>
+      <div v-else-if="entries.length" class="flex flex-col gap-1.5">
+        <div
+          v-for="entry in entries"
+          :key="entry.id"
+          class="flex items-start gap-2 rounded-lg border border-[var(--color-line)] px-3 py-2"
+          :class="entry.available ? '' : 'opacity-70'"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span
+                class="text-[12px] font-medium"
+                :class="entry.available ? 'text-[var(--color-txt-strong)]' : 'text-[var(--color-mut)]'"
+              >
+                {{ nameOf(entry) }}
+              </span>
+              <Badge variant="secondary" class="text-[10px]">
+                {{ categoryLabel(entry) }}
+              </Badge>
+              <Badge
+                :class="
+                  entry.available
+                    ? 'border-transparent bg-[color-mix(in_srgb,var(--color-ok)_14%,transparent)]! text-[var(--color-ok)]! text-[10px]'
+                    : 'text-[10px]'
+                "
+                variant="outline"
+              >
+                <CircleCheck v-if="entry.available" class="size-3" data-icon="inline-start" />
+                <CircleOff v-else class="size-3" data-icon="inline-start" />
+                {{ statusLabel(entry) }}
+              </Badge>
             </div>
-            <Blocks class="mt-0.5 size-4 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+            <p class="m-0 mt-0.5 text-[11px] text-[var(--color-mut)]">{{ descOf(entry) }}</p>
+            <p v-if="entry.available" class="m-0 mt-1 text-[11px] text-[var(--color-txt)]">
+              <span class="text-[var(--color-dim)]">{{ t("features.usageLabel") }}</span>
+              {{ usageOf(entry) }}
+            </p>
+            <p v-if="!entry.available" class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]">
+              {{ hintOf(entry) }}
+            </p>
           </div>
+          <Blocks class="mt-0.5 size-4 flex-none text-[var(--color-dim)]" aria-hidden="true" />
         </div>
-        <p v-else-if="!loading" class="m-0 text-[12px] text-[var(--color-dim)]">
-          {{ t("common.empty") }}
-        </p>
       </div>
-    </DialogContent>
-  </Dialog>
+      <p v-else-if="!loading" class="m-0 text-[12px] text-[var(--color-dim)]">
+        {{ t("common.empty") }}
+      </p>
+    </div>
+  </section>
 </template>

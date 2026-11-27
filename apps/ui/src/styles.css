@@ -54,22 +54,28 @@
     "Noto Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC",
     monospace;
 
-  --radius: 12px;
+  /* 圆角刻度（nomi）：徽章 6 / 控件 8–10 / 卡片 14 / 壳体 20；只在这里定义一次 */
+  --radius: 10px;
+  --radius-xs: 6px;
   --radius-sm: 8px;
-  --radius-lg: 12px;
-  --radius-shell: 16px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-shell: 20px;
 
   /* 壳体尺寸：标题栏与各栏头行同高，窗口按钮与图标按钮垂直居中 */
-  --titlebar-h: 38px;
+  --titlebar-h: 44px;
   --titlebar-pad: 5px;
-  --titlebar-lead: 72px; /* macOS 交通灯（12px 起，3×12px + 2×8px 间隔）预留区 */
+  --titlebar-lead: 72px;
+  /* macOS 交通灯（12px 起，3×12px + 2×8px 间隔）预留区 */
   /* Win/Linux 窗口三键右上角预留区：由 WindowControls.vue 运行时按实际宽度覆盖；
      首帧给 0 兜底（macOS 红绿灯在左侧，恒为 0） */
   --titlebar-trail: 0px;
+  /* 消息、附件、审批卡与输入框共用的内容列宽：760 太窄，工具行会挤成两行 */
+  --chat-content-w: 960px;
   --panel-head-h: 38px;
   --control-h: 28px;
   /* 图标线宽：lucide 默认 2 偏粗，全局收到 1.5（CSS 覆盖 SVG 呈现属性） */
-  --icon-stroke: 1.5;
+  --icon-stroke: 1.75; /* 与 nomi 的 Tabler 图标一致 */
 
   --color-file-red: #e05c5c;
   --color-file-orange: #e0a06c;
@@ -158,6 +164,7 @@
   --color-send: #151c13;
   --color-send-fg: #fff;
   --color-send-empty: #bbbbb6;
+  --accent-preview-nomi: #9d3f29;
   --accent-preview-orange: #b64b16;
   --accent-preview-blue: #2556bd;
   --accent-preview-purple: #7034b4;
@@ -178,10 +185,24 @@
   --color-graph-5: #bf3989;
   --color-graph-6: #57606a;
 
-  --color-ok: #1a9e5f;
-  --color-err: #d23f3f;
-  --color-add: #1a7f37;
-  --color-del: #e5484d;
+  /* ---- Agent / Diff / 终端语义（独立于用户可选强调色 --color-accent） ---- */
+  --agent-thinking: #4f46e5;
+  --agent-approval: #b45309;
+  --agent-success: #1a7f37;
+  --agent-danger: #d23f3f;
+  --diff-add-bg: color-mix(in srgb, var(--agent-success) 12%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--agent-danger) 12%, transparent);
+
+  /* 终端引擎取色（xterm 只认具体色值，color-mix/var 无法解析，这里只放普通色值） */
+  --term-bg: #ffffff;
+  --term-fg: #3a3a38;
+  --term-cursor: #ff6a2b;
+  --term-selection: #b3d7ff;
+
+  --color-ok: var(--agent-success);
+  --color-err: var(--agent-danger);
+  --color-add: var(--agent-success);
+  --color-del: var(--agent-danger);
   --color-danger-bg: #fdecea;
   --color-danger-fg: #d93025;
 
@@ -210,10 +231,11 @@
   --shadow-edge-right: 1px 0 2px #0000000a, 6px 0 16px #00000007;
   --shadow-raised: 0 1px 2px #0000000a, 0 3px 10px #0000000f;
 
-  /* shadcn — light (mapped from MiMo) */
+  /* shadcn — light (mapped from MiMo)
+     表面语义：background=窗口底 · sidebar=左栏 · card=编辑器画布 · muted=Agent/终端面板 · popover=浮层 */
   --background: var(--color-bg);
   --foreground: var(--color-txt);
-  --card: var(--color-bg);
+  --card: var(--color-panel);
   --card-foreground: var(--color-txt);
   --popover: var(--color-popover);
   --popover-foreground: var(--color-txt);
@@ -306,6 +328,7 @@
   --color-send-empty: #6e6e6e;
   --color-link: #3295fb;
   --color-blue: #5a9cff;
+  --accent-preview-nomi: #7887f5;
   --accent-preview-orange: #ff8c55;
   --accent-preview-blue: #80aaff;
   --accent-preview-purple: #bf8dff;
@@ -321,9 +344,24 @@
   --color-graph-5: #e56aae;
   --color-graph-6: #9ea7b3;
 
-  --color-ok: #1a9e5f;
-  --color-add: #3fb950;
-  --color-del: #e5484d;
+  /* ---- Agent / Diff / 终端语义（暗色提亮一档，保持 AA 对比） ---- */
+  --agent-thinking: #8b9dff;
+  --agent-approval: #e0a03a;
+  --agent-success: #3fb950;
+  --agent-danger: #ff7b72;
+  --diff-add-bg: color-mix(in srgb, var(--agent-success) 16%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--agent-danger) 16%, transparent);
+
+  /* 终端引擎取色（xterm 只认具体色值） */
+  --term-bg: #141414;
+  --term-fg: #d8d8d4;
+  --term-cursor: #ff6a2b;
+  --term-selection: #3a3a3a;
+
+  --color-ok: var(--agent-success);
+  --color-err: var(--agent-danger);
+  --color-add: var(--agent-success);
+  --color-del: var(--agent-danger);
   --color-danger-bg: #3a2320;
   --color-danger-fg: #ff9b7f;
 
@@ -352,10 +390,10 @@
   --shadow-edge-right: 1px 0 2px #0006, 6px 0 16px #0005;
   --shadow-raised: 0 1px 2px #0006, 0 3px 10px #0008;
 
-  /* shadcn — dark */
+  /* shadcn — dark（card 指向编辑器画布，不再是设置卡片表面） */
   --background: var(--color-bg);
   --foreground: var(--color-txt);
-  --card: var(--color-settings-card);
+  --card: var(--color-panel);
   --card-foreground: var(--color-txt);
   --popover: var(--color-popover);
   --popover-foreground: var(--color-txt);
@@ -435,10 +473,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius-lg);
-  --radius-xl: calc(var(--radius) + 4px);
+  --color-agent-thinking: var(--agent-thinking);
+  --color-agent-approval: var(--agent-approval);
+  --color-agent-success: var(--agent-success);
+  --color-agent-danger: var(--agent-danger);
+  --color-diff-add: var(--diff-add-bg);
+  --color-diff-del: var(--diff-del-bg);
+  /* Tailwind 半径工具与 :root 同一刻度（nomi）：6 / 8 / 10 / 14 / 20 */
+  --radius-xs: 6px;
+  --radius-xl: 20px;
+  --radius-2xl: 20px;
   --font-heading: var(--font-sans);
 }
 
@@ -447,6 +491,13 @@
      CSS 规则优先级高于呈现属性，一处即可全局收细（含浮层内的箭头/勾选等子图标）。 */
   svg.lucide,
   svg.lucide * {
+    stroke-width: var(--icon-stroke);
+  }
+
+  /* Tabler 图标（@tabler/icons-vue）同样按 1.75 统一收细：
+     其组件默认 stroke-width=2，写成呈现属性，CSS 规则可覆盖。 */
+  svg.tabler-icon,
+  svg.tabler-icon * {
     stroke-width: var(--icon-stroke);
   }
 
@@ -475,8 +526,9 @@
     background: var(--color-bg);
     color: var(--color-txt);
     font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.5;
+    /* nomi 类型阶梯：14px 正文 / 13px 次要 / 12px 标签 */
+    font-size: var(--font-size-md);
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     user-select: none;
@@ -557,6 +609,8 @@
   kbd,
   samp {
     font-family: var(--font-mono);
+    /* 行号、耗时、Token 统计需等宽数字对齐 */
+    font-variant-numeric: tabular-nums;
   }
 
   ::selection {
@@ -792,10 +846,10 @@
 }
 
 /* Markdown 渲染正文（v-html 内容，Tailwind 无法稳定命中深层节点）
-   P0 密度：正文 14px/1.8；h2 18px、h3 15px；标题用中性强调，不被单一绿色统治 */
+   P0 密度：正文 13px/1.7（与 UI 基准一致）；h2 18px、h3 16px；标题用中性强调，不被单一绿色统治 */
 .md-content {
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: var(--font-size-md);
+  line-height: 1.7;
   font-weight: 450;
   color: var(--color-txt-strong);
 }
@@ -1093,4 +1147,381 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ============================================================================
+ * nomi-ai 复刻层（Phase 1：token 覆盖）
+ * 依据 Cookieboty/nomi-ai（MIT）packages/ui/src/tokens.css 的 graphite（深色）与 light，
+ * 以及 radius / space / control-h / 字号阶梯。只改数值，不改变量名与组件契约。
+ * 橙色仍作为可选强调色：:root[data-accent-color="orange"] 保持原 #ff6a2b。
+ * shortcut: 覆盖块与上方原始声明并存（同一文件内后者胜出），等全站迁移完再折叠进各主题块。
+ * ========================================================================== */
+
+:root {
+  /* 控件高度阶梯（nomi control-h，4 的倍数） */
+  --control-h-2xs: 20px;
+  --control-h-xs: 24px;
+  --control-h-sm: 28px;
+  --control-h-ms: 32px;
+  --control-h-md: 36px;
+  --control-h-lg: 40px;
+  --control-h: var(--control-h-ms);
+
+  /* 间距网格 4px */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* 字号阶梯 12 / 13 / 14 / 16 / 18 / 22 */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+
+  /* 浅色（nomi light）：暖白画布 + 陶土红强调 */
+  --color-bg: #faf9f6;
+  --color-panel: #faf9f6;
+  --color-main-bg: #faf9f6;
+  --color-side: #f2f0eb;
+  --color-side-glass: #f7f5f1;
+  --color-side-hover: #f2eee6;
+  --color-side-active: #e8e2d6;
+  --color-side-sel: #f2dcd1;
+  --color-side-item: #211d19;
+  --color-side-chip: #f2f0eb;
+  --color-side-chip-active: #e8e2d6;
+  --color-raise: #ffffff;
+  --color-sunken: #f7f5f1;
+  --color-set-card: #ffffff;
+  --color-settings-nav: #f2f0eb;
+  --color-settings-content: #faf9f6;
+  --color-popover: #ffffff;
+  --color-composer-surface: #ffffff;
+
+  --color-line: #e5e0d7;
+  --color-line-soft: #efebe4;
+  --color-line-warm: #e5e0d7;
+  --color-line-strong: #93867a;
+
+  --color-input-bg: #ffffff;
+  --color-input-border: #e5e0d7;
+  --color-btn-border: #e5e0d7;
+
+  --color-txt: #211d19;
+  --color-txt-strong: #211d19;
+  --color-mut: #625951;
+  --color-dim: #685e55;
+  --color-icon: #625951;
+  --color-topbar-icon: #625951;
+
+  --color-send: #211d19;
+  --color-send-fg: #ffffff;
+  --color-send-empty: #bbb5ab;
+
+  --color-accent: #9d3f29;
+  --color-accent-fg: #ffffff;
+  --color-accent-2: #c97d62;
+  --color-link: #2d5893;
+  --color-blue: #2454a4;
+
+  --agent-thinking: #2d5893;
+  --agent-approval: #7c4a00;
+  --agent-success: #24684c;
+  --agent-danger: #a33130;
+
+  --term-bg: #f7f5f1;
+  --term-fg: #211d19;
+  --term-cursor: #9d3f29;
+  --term-selection: #e5e0d7;
+
+  --color-scrim: rgba(0, 0, 0, 0.3);
+  --shadow-composer: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  --shadow-menu: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 28px -4px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.05), 0 24px 56px -12px rgba(0, 0, 0, 0.14);
+}
+
+.dark {
+  /* 深色（nomi graphite）：冷灰底 + 靛蓝强调 */
+  --color-bg: #13161b;
+  --color-panel: #13161b;
+  --color-main-bg: #13161b;
+  --color-side: #191d23;
+  --color-side-glass: #191d23;
+  --color-side-hover: #303845;
+  --color-side-active: #292d49;
+  --color-side-sel: #292d49;
+  --color-side-item: #f0f2f6;
+  --color-side-chip: #282e38;
+  --color-side-chip-active: #303845;
+  --color-raise: #282e38;
+  --color-sunken: #191d23;
+  --color-set-card: #282e38;
+  --color-settings-nav: #191d23;
+  --color-settings-content: #13161b;
+  --color-popover: #282e38;
+  --color-composer-surface: #20252d;
+
+  --color-line: #343b46;
+  --color-line-soft: #282e37;
+  --color-line-warm: #343b46;
+  --color-line-strong: #414b5a;
+
+  --color-input-bg: #282e38;
+  --color-input-border: #414b5a;
+  --color-btn-border: #414b5a;
+
+  --color-txt: #f0f2f6;
+  --color-txt-strong: #f7f9fc;
+  --color-mut: #c9cfd9;
+  --color-dim: #969fad;
+  --color-icon: #c9cfd9;
+  --color-topbar-icon: #c9cfd9;
+
+  --color-send: #f0f2f6;
+  --color-send-fg: #13161b;
+  --color-send-empty: #6e7887;
+
+  --color-accent: #7887f5;
+  --color-accent-fg: #101321;
+  --color-accent-2: #96a1ff;
+  --color-link: #94bfd3;
+  --color-blue: #96a1ff;
+
+  --agent-thinking: #94bfd3;
+  --agent-approval: #e5b567;
+  --agent-success: #6cc59a;
+  --agent-danger: #f29a8e;
+
+  --term-bg: #13161b;
+  --term-fg: #f0f2f6;
+  --term-cursor: #7887f5;
+  --term-selection: #303845;
+
+  --color-scrim: rgba(0, 0, 0, 0.56);
+  --shadow-composer: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  --shadow-menu: 0 2px 6px rgba(0, 0, 0, 0.35), 0 12px 28px -4px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.4), 0 24px 56px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* nomi 强调色：浅色陶土红 / 深色靛蓝随主题切换；橙色等旧选项不受影响 */
+:root[data-accent-color="nomi"] {
+  --color-accent: #9d3f29;
+  --color-accent-2: #c97d62;
+  --color-accent-fg: #ffffff;
+}
+
+:root.dark[data-accent-color="nomi"] {
+  --color-accent: #7887f5;
+  --color-accent-2: #96a1ff;
+  --color-accent-fg: #101321;
+}
+
+/* ---- 主题预设（对照 nomi 的七套配色）----
+   只覆盖底色与文字层级；强调色仍由 data-accent-color 决定。
+   放在文件末尾：与 .dark 选择器同权重时靠顺序覆盖；深色预设同时带 .dark 类，
+   Tailwind 的 dark: 变体与既有深色 token 仍然生效。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="mist"] {
+  color-scheme: light;
+  --color-bg: #f6f8fa;
+  --color-panel: #ffffff;
+  --color-main-bg: #ffffff;
+  --color-side: #eef1f5;
+  --color-side-glass: #eef1f5;
+  --color-side-hover: #e4e9ef;
+  --color-side-active: #dde4ec;
+  --color-side-sel: #dde4ec;
+  --color-side-item: #34414f;
+  --color-side-chip: #e4e9ef;
+  --color-side-chip-active: #dbe2ea;
+  --color-popover: #ffffff;
+  --color-set-card: #ffffff;
+  --color-settings-nav: #eef1f5;
+  --color-settings-card: #ffffff;
+  --color-line: #e2e7ee;
+  --color-line-soft: #16202a0d;
+  --color-line-warm: #e6ebf1;
+  --color-line-strong: #cfd8e2;
+  --color-txt: #16202acc;
+  --color-txt-strong: #16202a;
+  --color-mut: #16202ab3;
+  --color-dim: #16202aa6;
+  --color-icon: #4d5b6a;
+  --color-topbar-icon: #16202a99;
+  --color-menu-hover: #e6ecf2;
+  --color-menu-active: #dde4ec;
+  --color-input-bg: #ffffff;
+  --color-composer-surface: #ffffff;
+  --color-composer-fg: #16202a;
+  --color-composer-placeholder: #16202a99;
+  --term-bg: #ffffff;
+  --term-fg: #2f3a45;
+  --color-code-bg: #eef2f7;
+}
+
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --color-bg: #17181b;
+  --color-panel: #202226;
+  --color-main-bg: #202226;
+  --color-side: #1b1c20;
+  --color-side-glass: #1b1c20;
+  --color-side-hover: #26282d;
+  --color-side-active: #2d3036;
+  --color-side-sel: #2d3036;
+  --color-side-item: #d3d7de;
+  --color-side-chip: #2a2c31;
+  --color-side-chip-active: #33363c;
+  --color-popover: #212327;
+  --color-set-card: #202226;
+  --color-settings-nav: #1b1c20;
+  --color-settings-card: #202226;
+  --color-line: #33363c;
+  --color-line-soft: #ffffff14;
+  --color-line-warm: #33363c;
+  --color-line-strong: #3f434a;
+  --color-txt: #e6e8ec;
+  --color-txt-strong: #f4f5f7;
+  --color-mut: #aeb4be;
+  --color-dim: #9aa1ac;
+  --color-icon: #b6bcc6;
+  --color-topbar-icon: #c3c9d2;
+  --color-menu-hover: #2a2c31;
+  --color-menu-active: #31343a;
+  --color-input-bg: #1b1c20;
+  --color-composer-surface: #202226;
+  --color-composer-fg: #f4f5f7;
+  --color-composer-placeholder: #aeb4be;
+  --term-bg: #1b1c20;
+  --term-fg: #d7dae0;
+  --color-code-bg: #23252a;
+}
+
+:root[data-theme="ink"] {
+  color-scheme: dark;
+  --color-bg: #08080a;
+  --color-panel: #101012;
+  --color-main-bg: #101012;
+  --color-side: #0b0b0d;
+  --color-side-glass: #0b0b0d;
+  --color-side-hover: #17171a;
+  --color-side-active: #202023;
+  --color-side-sel: #202023;
+  --color-side-item: #e4e4e8;
+  --color-side-chip: #1c1c20;
+  --color-side-chip-active: #26262b;
+  --color-popover: #111114;
+  --color-set-card: #101012;
+  --color-settings-nav: #0b0b0d;
+  --color-settings-card: #101012;
+  --color-line: #24242a;
+  --color-line-soft: #ffffff12;
+  --color-line-warm: #24242a;
+  --color-line-strong: #32323a;
+  --color-txt: #ececef;
+  --color-txt-strong: #ffffff;
+  --color-mut: #b4b4bc;
+  --color-dim: #9c9ca6;
+  --color-icon: #c6c6cf;
+  --color-topbar-icon: #d2d2da;
+  --color-menu-hover: #1c1c20;
+  --color-menu-active: #232328;
+  --color-input-bg: #0d0d10;
+  --color-composer-surface: #101012;
+  --color-composer-fg: #ffffff;
+  --color-composer-placeholder: #b4b4bc;
+  --term-bg: #0b0b0d;
+  --term-fg: #dfdfe4;
+  --color-code-bg: #16161a;
+}
+
+:root[data-theme="cream"] {
+  color-scheme: light;
+  --color-bg: #fbf6ec;
+  --color-panel: #fffaf2;
+  --color-main-bg: #fffaf2;
+  --color-side: #f6efe3;
+  --color-side-glass: #f6efe3;
+  --color-side-hover: #efe6d6;
+  --color-side-active: #e9dfcc;
+  --color-side-sel: #e9dfcc;
+  --color-side-item: #4a3f33;
+  --color-side-chip: #efe6d6;
+  --color-side-chip-active: #e7dcc9;
+  --color-popover: #fffaf2;
+  --color-set-card: #fffaf2;
+  --color-settings-nav: #f6efe3;
+  --color-settings-card: #fffaf2;
+  --color-line: #e8dfd0;
+  --color-line-soft: #2a241d0d;
+  --color-line-warm: #e8dfd0;
+  --color-line-strong: #d8cdb8;
+  --color-txt: #2a241dcc;
+  --color-txt-strong: #2a241d;
+  --color-mut: #2a241db3;
+  --color-dim: #2a241da6;
+  --color-icon: #6b5c4a;
+  --color-topbar-icon: #2a241d99;
+  --color-menu-hover: #f1e8d8;
+  --color-menu-active: #e9dfcc;
+  --color-input-bg: #fffaf2;
+  --color-composer-surface: #fffaf2;
+  --color-composer-fg: #2a241d;
+  --color-composer-placeholder: #2a241d99;
+  --term-bg: #fffaf2;
+  --term-fg: #3d342a;
+  --color-code-bg: #f3ece0;
+}
+
+:root[data-theme="sunset"] {
+  color-scheme: dark;
+  --color-bg: #1a120f;
+  --color-panel: #241813;
+  --color-main-bg: #241813;
+  --color-side: #1d1310;
+  --color-side-glass: #1d1310;
+  --color-side-hover: #2b1d17;
+  --color-side-active: #33231b;
+  --color-side-sel: #33231b;
+  --color-side-item: #eddcd0;
+  --color-side-chip: #2b1d17;
+  --color-side-chip-active: #35251c;
+  --color-popover: #241813;
+  --color-set-card: #241813;
+  --color-settings-nav: #1d1310;
+  --color-settings-card: #241813;
+  --color-line: #3a271e;
+  --color-line-soft: #ffffff12;
+  --color-line-warm: #3a271e;
+  --color-line-strong: #4a3226;
+  --color-txt: #f3e4d8;
+  --color-txt-strong: #fdf3ea;
+  --color-mut: #c8b2a2;
+  --color-dim: #b39d8d;
+  --color-icon: #d8c1b0;
+  --color-topbar-icon: #e2cbbb;
+  --color-menu-hover: #2b1d17;
+  --color-menu-active: #33231b;
+  --color-input-bg: #1d1310;
+  --color-composer-surface: #241813;
+  --color-composer-fg: #fdf3ea;
+  --color-composer-placeholder: #c8b2a2;
+  --term-bg: #1d1310;
+  --term-fg: #ecd9ca;
+  --color-code-bg: #2a1c16;
 }

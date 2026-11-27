@@ -27,6 +27,7 @@
     "@internationalized/date": "^3.12.4",
     "@lucide/vue": "^1.45.0",
     "@stream-markdown/code": "2.0.0-beta.5",
+    "@tabler/icons-vue": "^3.53.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vueuse/core": "^14.4.0",
     "@xterm/addon-fit": "0.11.0",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bug, ChevronDown, ChevronRight, LoaderCircle, RefreshCw, Trash2, Wrench } from "@lucide/vue";
+import { IconBug as Bug, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconLoader2 as LoaderCircle, IconRefresh as RefreshCw, IconTrash as Trash2, IconTool as Wrench } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";

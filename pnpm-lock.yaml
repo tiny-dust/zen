@@ -348,6 +348,9 @@ importers:
       '@stream-markdown/code':
         specifier: 2.0.0-beta.5
         version: 2.0.0-beta.5
+      '@tabler/icons-vue':
+        specifier: ^3.53.0
+        version: 3.53.0(vue@3.5.42(typescript@5.9.3))
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@7.3.6(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)(stylus@0.57.0(supports-color@10.2.2))(tsx@4.23.13)(yaml@2.9.0))
@@ -2014,6 +2017,14 @@ packages:
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
+
+  '@tabler/icons-vue@3.53.0':
+    resolution: {integrity: sha512-7+U/U4j5yozu4QSBCdJvgYCcWCA9Ik7IoDp08260J0j45v6bGH2S0WqiFDaczQx+IiSKCAEqMe9qmf7aOSzTAw==}
+    peerDependencies:
+      vue: '>=3.0.1'
+
+  '@tabler/icons@3.53.0':
+    resolution: {integrity: sha512-7V77PESErZob7+Ie4ibDs9tjRoMmZyjr3RpxRK3KLJejwggzxrkhVunbQ7xGYewjwdUyPc6dHpMvvft0prkkzQ==}
 
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
@@ -7067,6 +7078,13 @@ snapshots:
   '@szmarczak/http-timer@4.0.6':
     dependencies:
       defer-to-connect: 2.0.1
+
+  '@tabler/icons-vue@3.53.0(vue@3.5.42(typescript@5.9.3))':
+    dependencies:
+      '@tabler/icons': 3.53.0
+      vue: 3.5.42(typescript@5.9.3)
+
+  '@tabler/icons@3.53.0': {}
 
   '@tailwindcss/node@4.3.3':
     dependencies:

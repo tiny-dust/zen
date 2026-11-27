@@ -16,19 +16,23 @@ interface TerminalPanesOptions {
   visibleIds?: () => string[];
 }
 
-/** 终端配色：深浅各一套，光标沿用品牌橙 */
-const TERM_THEME_DARK = {
-  background: "#141414",
-  foreground: "#d8d8d4",
-  cursor: "#ff6a2b",
-  selectionBackground: "#3a3a3a",
-} as const;
-const TERM_THEME_LIGHT = {
-  background: "#ffffff",
-  foreground: "#3a3a38",
-  cursor: "#ff6a2b",
-  selectionBackground: "#b3d7ff",
-} as const;
+/**
+ * 终端配色统一取全局 Token：xterm 只接受具体色值，无法解析 var()/color-mix()，
+ * 因此读计算值并校验格式，读不到时回退到与 Token 等价的内联默认值。
+ */
+function cssColor(name: string, fallback: string): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return /^(#|rgb|hsl)/i.test(raw) ? raw : fallback;
+}
+
+function terminalTheme() {
+  return {
+    background: cssColor("--term-bg", "#141414"),
+    foreground: cssColor("--term-fg", "#d8d8d4"),
+    cursor: cssColor("--term-cursor", "#ff6a2b"),
+    selectionBackground: cssColor("--term-selection", "#3a3a3a"),
+  };
+}
 
 /** 终端 pane 的 xterm 实例生命周期：按可见分屏挂载、适配尺寸、回放缓冲、销毁 */
 export function useTerminalPanes(options: TerminalPanesOptions = {}) {
@@ -62,9 +66,10 @@ export function useTerminalPanes(options: TerminalPanesOptions = {}) {
 
   // 主题切换就地更新已挂终端配色（xterm options 支持运行时改）
   const { isDark } = useAppTheme();
-  watch(isDark, (dark) => {
+  watch(isDark, () => {
+    const theme = terminalTheme();
     for (const entry of entries.values()) {
-      entry.term.options.theme = dark ? { ...TERM_THEME_DARK } : { ...TERM_THEME_LIGHT };
+      entry.term.options.theme = theme;
     }
   });
 
@@ -97,13 +102,14 @@ export function useTerminalPanes(options: TerminalPanesOptions = {}) {
     const term = new Terminal({
       fontFamily: fontStack(),
       fontSize: fontSizePx(),
-      lineHeight: 1.35,
+      // 与等宽排版 Token 一致：行高 1.5
+      lineHeight: 1.5,
       cursorBlink: true,
       convertEol: true,
       scrollback: 5000,
       allowProposedApi: true,
       logLevel: "warn",
-      theme: isDark.value ? { ...TERM_THEME_DARK } : { ...TERM_THEME_LIGHT },
+      theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

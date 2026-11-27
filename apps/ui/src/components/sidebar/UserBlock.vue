@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ExternalLink, HelpCircle, LogOut, Settings } from "@lucide/vue";
+import { IconAlertTriangle as AlertTriangle, IconCheck as Check, IconExternalLink as ExternalLink, IconHelpCircle as HelpCircle, IconLogout as LogOut, IconSettings as Settings } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
 import { computed, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -30,6 +30,9 @@ import { shortcutDisplayParts } from "@/lib/shortcut-display";
 import { useAgentStore } from "@/stores/agent";
 import { useSettingsStore } from "@/stores/settings";
 import { useUserStore } from "@/stores/user";
+
+/** compact：导航轨道里只显示头像方块，文字信息留给展开的会话面板 */
+const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 
 const userStore = useUserStore();
 const settingsStore = useSettingsStore();
@@ -308,14 +311,16 @@ const accountRowCls =
       <DropdownMenuTrigger as-child>
         <Button
           variant="ghost"
-          class="flex w-full flex-row items-center justify-start gap-2.5 rounded-[10px] border border-transparent bg-transparent p-2.5 text-left font-normal hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
+          class="flex flex-row items-center border border-transparent bg-transparent text-left font-normal hover:bg-[var(--color-side-hover)] data-[state=open]:bg-[var(--color-side-hover)]"
+          :class="props.compact ? 'size-9 justify-center rounded-[var(--radius-md)] p-0' : 'w-full justify-start gap-2.5 rounded-[10px] p-2.5'"
+          :aria-label="props.compact ? t('sidebar.user.settings') : undefined"
         >
           <Avatar class="size-7 flex-none rounded-lg">
             <AvatarImage v-if="shownAvatarUrl" :src="shownAvatarUrl" :alt="displayName" />
             <AvatarImage v-else :src="zenAvatar" alt="Zen" />
             <AvatarFallback class="text-[11px] font-semibold">{{ initials }}</AvatarFallback>
           </Avatar>
-          <span class="flex min-w-0 flex-1 flex-col items-start">
+          <span v-if="!props.compact" class="flex min-w-0 flex-1 flex-col items-start">
             <span class="block w-full truncate text-[13px] leading-tight font-medium text-[var(--color-txt-strong)]">
               {{ displayName }}
             </span>
@@ -381,6 +386,22 @@ const accountRowCls =
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
+        <!-- 令牌续期失败等账户异常：只在这里放一行入口，完整原因在账户设置页 -->
+        <template v-if="loginError">
+          <DropdownMenuSeparator />
+          <DropdownMenuItem :class="[menuItemCls, 'items-start']" @select="openProfile">
+            <AlertTriangle class="mt-0.5 size-[15px] flex-none text-[var(--color-danger-fg)]" aria-hidden="true" />
+            <span class="flex min-w-0 flex-1 flex-col items-start">
+              <span class="block w-full truncate text-[12px] leading-tight">
+                {{ t("sidebar.user.tokenRefreshNotice") }}
+              </span>
+              <span class="block w-full truncate text-[10px] leading-tight text-[var(--color-mut)]">
+                {{ t("sidebar.user.openAccountSettings") }}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        </template>
+
         <DropdownMenuSeparator />
 
         <DropdownMenuGroup>
@@ -423,9 +444,6 @@ const accountRowCls =
         {{ t("common.copy") }}
       </Button>
     </div>
-    <p v-if="loginError" class="mx-1 mt-2 text-[11px] text-[var(--color-danger-fg)]" role="alert">
-      {{ loginError }}
-    </p>
 
     <!-- 登录方式选择：飞书优先，GitHub 其次；登录其一后可绑定另一个 -->
     <Dialog :open="loginDialogOpen" @update:open="(next) => (next ? openLoginDialog() : closeLoginDialog())">

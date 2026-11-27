@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { CalendarClock, History, Loader2, MessageSquareText, Pencil, Play, Plus, Trash2 } from "@lucide/vue";
+import { IconCalendarClock as CalendarClock, IconHistory as History, IconLoader2 as Loader2, IconMessage2 as MessageSquareText, IconPencil as Pencil, IconPlayerPlay as Play, IconPlus as Plus, IconTrash as Trash2 } from "@tabler/icons-vue";
 import { storeToRefs } from "pinia";
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
 import { ScheduleEditor } from "@/components/scheduler";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { useBrowserOverlayGuard } from "@/composables/useBrowserOverlayGuard";
 import { openSessionById } from "@/lib/open-session";
 import { useSchedulerStore } from "@/stores/scheduler";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -34,20 +26,15 @@ import type { ComponentInstance } from "vue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskSchedule, ScheduleUnit } from "@zen/shared";
 import { isValidSchedule } from "@zen/shared";
 
-const open = defineModel<boolean>("open", { default: false });
-
 const schedulerStore = useSchedulerStore();
 const workspaceStore = useWorkspaceStore();
 const { tasks, runs } = storeToRefs(schedulerStore);
 
 const { t } = useI18n();
 
-// 弹窗浮在内嵌浏览器之上时会被原生视图盖住，打开期间压制浏览器视图
-useBrowserOverlayGuard(open);
-
 /**
  * 「公共区」选项的哨兵值：reka-ui 禁止 SelectItem 用空字符串 value
- * （会抛异常打断弹窗渲染循环，导致弹窗内所有交互失效），
+ * （会抛异常打断下拉渲染循环，导致表单内所有交互失效），
  * 表单侧一律用哨兵，提交/回显时与真实 path（null=公共区）互转。
  */
 const COMMON_WORKSPACE = "__common__";
@@ -70,7 +57,7 @@ const UNIT_KEYS: Record<ScheduleUnit, string> = {
   month: "scheduler.unitMonth",
 };
 
-/** 弹窗视图：list=任务列表（默认），form=新建/编辑配置页（提交/取消后回列表） */
+/** 页面视图：list=任务列表（默认），form=新建/编辑配置页（提交/取消后回列表） */
 const view = ref<"list" | "form">("list");
 
 /** 新建/编辑共用表单；editingId 为 null 表示「新建」；调度细节由 ScheduleEditor 管理 */
@@ -125,14 +112,12 @@ const workspaceOptions = computed(() => {
   ];
 });
 
-watch(open, (value) => {
-  if (value) {
-    // 每次打开都从任务列表进（上次关闭前停在表单页不延续）
-    view.value = "list";
-    resetForm();
-    void schedulerStore.load();
-    void workspaceStore.refresh();
-  }
+onMounted(() => {
+  // 进入页面总是从任务列表开始（不带上次的配置页状态）
+  view.value = "list";
+  resetForm();
+  void schedulerStore.load();
+  void workspaceStore.refresh();
 });
 
 function resetForm() {
@@ -272,14 +257,13 @@ function toggleRuns(taskId: string) {
   expandedRuns.value = next;
 }
 
-/** 打开某次运行对应的会话（跳过去看完整过程）；成功后关闭弹窗 */
+/** 打开某次运行对应的会话（跳过去看完整过程） */
 async function openRun(sessionId: string | null, taskId: string) {
   if (!sessionId) {
     return;
   }
   const opened = await openSessionById(sessionId);
   if (opened) {
-    open.value = false;
     return;
   }
   runErrors.value[taskId] = t("scheduler.sessionMissing");
@@ -383,243 +367,242 @@ function lastRunLabel(task: ScheduledTask): string {
 </script>
 
 <template>
-  <Dialog v-model:open="open">
-    <DialogContent
-      data-large-panel="true"
-      class="flex h-[min(86vh,760px)] w-[min(760px,94vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0"
-    >
-      <DialogHeader class="flex-none border-b border-[var(--color-line-soft)] px-5 py-3.5">
-        <DialogTitle class="text-[15px]">{{ t("scheduler.title") }}</DialogTitle>
-        <DialogDescription class="text-[12px]">{{ t("scheduler.desc") }}</DialogDescription>
-      </DialogHeader>
-
-      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-        <!-- 任务列表（默认视图）：先看列表，新建/编辑才进配置页 -->
-        <template v-if="view === 'list'">
-          <div class="flex flex-none items-center justify-between gap-2">
-            <div class="min-w-0 truncate text-[12px] font-medium text-[var(--color-mut)]">
-              {{ t("scheduler.taskCount", { n: tasks.length }) }}
-            </div>
-            <Button size="sm" class="flex-none" @click="startCreate">
-              <Plus class="size-3.5" />{{ t("scheduler.add") }}
-            </Button>
-          </div>
-          <div v-if="tasks.length" class="flex min-w-0 flex-col gap-1.5">
-            <div
-              v-for="task in tasks"
-              :key="task.id"
-              class="rounded-lg border border-[var(--color-line)] px-3 py-2"
-            >
-              <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="min-w-0 max-w-full break-words text-[12px] font-medium text-[var(--color-txt-strong)]">{{ task.name }}</span>
-                  <Badge variant="secondary" class="text-[10px]">
-                    <CalendarClock class="mr-0.5 size-3" aria-hidden="true" />{{ scheduleLabel(task) }}
-                  </Badge>
-                  <Badge v-if="task.lastRunOk !== null" :variant="task.lastRunOk ? 'secondary' : 'destructive'"
-                    class="text-[10px]">
-                    {{ task.lastRunOk ? t("scheduler.ok") : t("scheduler.failed") }}
-                  </Badge>
-                  <span class="text-[10px] text-[var(--color-dim)]">{{ workspaceLabel(task) }}</span>
-                </div>
-                <p class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]" :title="task.prompt">
-                  {{ task.prompt }}
-                </p>
-                <p class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]">
-                  {{ t("scheduler.lastRun") }}：{{ lastRunLabel(task) }}
-                </p>
-                <p
-                  v-if="task.lastResult"
-                  class="m-0 mt-0.5 line-clamp-2 text-[11px]"
-                  :class="task.lastRunOk === false ? 'text-[var(--color-danger-fg)]' : 'text-[var(--color-dim)]'"
-                  :title="task.lastResult"
-                >
-                  {{ t("scheduler.lastResult") }}：{{ task.lastResult }}
-                </p>
-                <p v-if="runErrors[task.id]" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
-                  {{ runErrors[task.id] }}
-                </p>
-              </div>
-              <div class="flex flex-none items-center gap-1">
-                <Switch
-                  :model-value="task.enabled"
-                  size="sm"
-                  :aria-label="t('scheduler.enabled')"
-                  @update:model-value="(value: boolean) => schedulerStore.toggle(task.id, value === true)"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :disabled="schedulerStore.isRunning(task.id)"
-                  :aria-label="t('scheduler.runNow')"
-                  :title="t('scheduler.runNow')"
-                  @click="onRunNow(task)"
-                >
-                  <Loader2 v-if="schedulerStore.isRunning(task.id)" class="size-3.5 animate-spin" />
-                  <Play v-else class="size-3.5" />
-                </Button>
-                <Button
-                  v-if="task.lastSessionId"
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="t('scheduler.viewRun')"
-                  :title="t('scheduler.viewRun')"
-                  @click="openRun(task.lastSessionId, task.id)"
-                >
-                  <MessageSquareText class="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="t('scheduler.runHistory')"
-                  :title="t('scheduler.runHistory')"
-                  @click="toggleRuns(task.id)"
-                >
-                  <History class="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  :aria-label="t('scheduler.editTask')"
-                  :title="t('scheduler.editTask')"
-                  @click="startEdit(task)"
-                >
-                  <Pencil class="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  class="text-[var(--color-del)] hover:text-[var(--color-danger-fg)] hover:bg-transparent!"
-                  :aria-label="t('scheduler.remove')"
-                  :title="t('scheduler.remove')"
-                  @click="pendingDelete = task"
-                >
-                  <Trash2 class="size-3.5" />
-                </Button>
-              </div>
-              </div>
-
-              <!-- 运行历史（展开态；行内「查看运行」跳到该次会话看完整过程） -->
-              <div
-                v-if="isRunsExpanded(task.id)"
-                class="mt-2 border-t border-[var(--color-line-soft)] pt-2"
-              >
-                <div
-                  v-if="!runs[task.id]"
-                  class="flex items-center gap-1.5 text-[11px] text-[var(--color-dim)]"
-                >
-                  <Loader2 class="size-3 animate-spin" aria-hidden="true" />{{ t("common.loading") }}
-                </div>
-                <template v-else-if="runs[task.id].length">
-                  <div
-                    v-for="run in runs[task.id]"
-                    :key="run.id"
-                    class="flex items-center gap-2 py-0.5"
-                  >
-                    <Badge
-                      :variant="run.ok === false ? 'destructive' : 'secondary'"
-                      class="flex-none text-[10px]"
-                    >
-                      {{ runStatusLabel(run.ok) }}
-                    </Badge>
-                    <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
-                      {{ runTimeLabel(run.startedAt) }}
-                    </span>
-                    <span
-                      v-if="run.summary"
-                      class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]"
-                      :title="run.summary"
-                    >
-                      {{ run.summary }}
-                    </span>
-                    <Button
-                      v-if="run.sessionId"
-                      variant="ghost"
-                      size="icon-sm"
-                      :aria-label="t('scheduler.viewRun')"
-                      :title="t('scheduler.viewRun')"
-                      @click="openRun(run.sessionId, task.id)"
-                    >
-                      <MessageSquareText class="size-3" />
-                    </Button>
-                  </div>
-                </template>
-                <p v-else class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("scheduler.noRuns") }}</p>
-              </div>
-            </div>
-          </div>
-          <!-- 空状态：图标 + 一句话（新建按钮已在顶栏，不重复同屏控件） -->
-          <div v-else class="flex flex-col items-center gap-2 py-8 text-[var(--color-dim)]">
-            <CalendarClock class="size-6" aria-hidden="true" />
-            <p class="m-0 text-[12px]">{{ t("scheduler.noTasks") }}</p>
-          </div>
-        </template>
-
-        <!-- 新建 / 编辑配置页：从列表进入，提交/取消回列表 -->
-        <div v-else class="flex min-w-0 flex-col gap-4">
-          <div class="flex items-center justify-between gap-2 border-b border-[var(--color-line-soft)] pb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">
-            {{ editingId ? t("scheduler.editTask") : t("scheduler.add") }}
-          </div>
-          <div class="flex min-w-0 flex-col gap-3">
-            <div class="flex min-w-0 flex-col gap-1.5">
-              <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.name") }}</span>
-              <Input v-model="form.name" class="h-8 min-w-0 text-[12px]" :placeholder="t('scheduler.namePlaceholder')" :aria-label="t('scheduler.name')" />
-            </div>
-            <div class="flex min-w-0 flex-col gap-1.5">
-              <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.prompt") }}</span>
-              <Textarea v-model="form.prompt" class="min-h-[76px] min-w-0 text-[12px]" :placeholder="t('scheduler.promptPlaceholder')" :aria-label="t('scheduler.prompt')" />
-            </div>
-          </div>
-          <div class="min-w-0 border-t border-[var(--color-line-soft)] pt-3">
-            <div class="mb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.schedule") }}</div>
-            <ScheduleEditor ref="editorRef" v-model="form.schedule" />
-          </div>
-          <div class="flex min-w-0 flex-col gap-2 border-t border-[var(--color-line-soft)] pt-3">
-            <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.destination") }}</div>
-            <div class="grid min-w-0 gap-2 sm:grid-cols-2">
-              <div class="min-w-0">
-                <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.workspace") }}</div>
-                <Select :model-value="form.workspacePath" @update:model-value="changeWorkspace(String($event))">
-                  <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.workspace')">
-                    <SelectValue :placeholder="t('scheduler.workspace')" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="item in workspaceOptions" :key="item.path" :value="item.path">{{ item.label }}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div class="min-w-0">
-                <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.targetSession") }}</div>
-                <Select v-model="targetSessionChoice">
-                  <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.targetSession')">
-                    <SelectValue :placeholder="t('scheduler.targetSession')" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__new_session__">{{ t("scheduler.newSession") }}</SelectItem>
-                    <SelectItem v-for="session in sessionOptions" :key="session.id" :value="session.id">{{ session.title }}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <p class="m-0 break-words text-[11px] text-[var(--color-mut)]">
-              {{ selectedSessionMissing ? t("scheduler.errSessionUnavailable") : form.targetSessionId ? t("scheduler.existingSessionHint") : t("scheduler.newSessionHint") }}
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-line-soft)] pt-3">
-            <label class="flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
-              <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />{{ t("scheduler.enabled") }}
-            </label>
-            <div class="flex items-center gap-2">
-              <Button variant="ghost" size="sm" @click="cancelEdit">{{ t("common.cancel") }}</Button>
-              <Button size="sm" @click="submitForm">{{ t("common.save") }}</Button>
-            </div>
-          </div>
-          <p v-if="formError" role="alert" class="m-0 break-words text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</p>
-        </div>
+  <section class="flex h-full min-h-0 flex-col overflow-hidden">
+    <header class="flex flex-none items-start gap-3 px-6 pb-3 pt-5">
+      <div class="min-w-0 flex-1">
+        <h2 class="m-0 truncate text-[16px] font-semibold text-[var(--color-txt-strong)]">
+          {{ t("scheduler.title") }}
+        </h2>
+        <p class="m-0 truncate text-[12px] text-[var(--color-mut)]">{{ t("scheduler.desc") }}</p>
       </div>
-    </DialogContent>
-  </Dialog>
+    </header>
+
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
+      <!-- 任务列表（默认视图）：先看列表，新建/编辑才进配置页 -->
+      <template v-if="view === 'list'">
+        <div class="flex flex-none items-center justify-between gap-2">
+          <div class="min-w-0 truncate text-[12px] font-medium text-[var(--color-mut)]">
+            {{ t("scheduler.taskCount", { n: tasks.length }) }}
+          </div>
+          <Button size="sm" class="flex-none" @click="startCreate">
+            <Plus class="size-3.5" />{{ t("scheduler.add") }}
+          </Button>
+        </div>
+        <div v-if="tasks.length" class="flex min-w-0 flex-col gap-1.5">
+          <div
+            v-for="task in tasks"
+            :key="task.id"
+            class="rounded-lg border border-[var(--color-line)] px-3 py-2"
+          >
+            <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                <span class="min-w-0 max-w-full break-words text-[12px] font-medium text-[var(--color-txt-strong)]">{{ task.name }}</span>
+                <Badge variant="secondary" class="text-[10px]">
+                  <CalendarClock class="mr-0.5 size-3" aria-hidden="true" />{{ scheduleLabel(task) }}
+                </Badge>
+                <Badge v-if="task.lastRunOk !== null" :variant="task.lastRunOk ? 'secondary' : 'destructive'"
+                  class="text-[10px]">
+                  {{ task.lastRunOk ? t("scheduler.ok") : t("scheduler.failed") }}
+                </Badge>
+                <span class="text-[10px] text-[var(--color-dim)]">{{ workspaceLabel(task) }}</span>
+              </div>
+              <p class="m-0 mt-0.5 line-clamp-2 text-[11px] text-[var(--color-mut)]" :title="task.prompt">
+                {{ task.prompt }}
+              </p>
+              <p class="m-0 mt-0.5 text-[10px] text-[var(--color-dim)]">
+                {{ t("scheduler.lastRun") }}：{{ lastRunLabel(task) }}
+              </p>
+              <p
+                v-if="task.lastResult"
+                class="m-0 mt-0.5 line-clamp-2 text-[11px]"
+                :class="task.lastRunOk === false ? 'text-[var(--color-danger-fg)]' : 'text-[var(--color-dim)]'"
+                :title="task.lastResult"
+              >
+                {{ t("scheduler.lastResult") }}：{{ task.lastResult }}
+              </p>
+              <p v-if="runErrors[task.id]" class="m-0 mt-0.5 text-[11px] text-[var(--color-danger-fg)]">
+                {{ runErrors[task.id] }}
+              </p>
+            </div>
+            <div class="flex flex-none items-center gap-1">
+              <Switch
+                :model-value="task.enabled"
+                size="sm"
+                :aria-label="t('scheduler.enabled')"
+                @update:model-value="(value: boolean) => schedulerStore.toggle(task.id, value === true)"
+              />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :disabled="schedulerStore.isRunning(task.id)"
+                :aria-label="t('scheduler.runNow')"
+                :title="t('scheduler.runNow')"
+                @click="onRunNow(task)"
+              >
+                <Loader2 v-if="schedulerStore.isRunning(task.id)" class="size-3.5 animate-spin" />
+                <Play v-else class="size-3.5" />
+              </Button>
+              <Button
+                v-if="task.lastSessionId"
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="t('scheduler.viewRun')"
+                :title="t('scheduler.viewRun')"
+                @click="openRun(task.lastSessionId, task.id)"
+              >
+                <MessageSquareText class="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="t('scheduler.runHistory')"
+                :title="t('scheduler.runHistory')"
+                @click="toggleRuns(task.id)"
+              >
+                <History class="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                :aria-label="t('scheduler.editTask')"
+                :title="t('scheduler.editTask')"
+                @click="startEdit(task)"
+              >
+                <Pencil class="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="text-[var(--color-del)] hover:text-[var(--color-danger-fg)] hover:bg-transparent!"
+                :aria-label="t('scheduler.remove')"
+                :title="t('scheduler.remove')"
+                @click="pendingDelete = task"
+              >
+                <Trash2 class="size-3.5" />
+              </Button>
+            </div>
+            </div>
+
+            <!-- 运行历史（展开态；行内「查看运行」跳到该次会话看完整过程） -->
+            <div
+              v-if="isRunsExpanded(task.id)"
+              class="mt-2 border-t border-[var(--color-line-soft)] pt-2"
+            >
+              <div
+                v-if="!runs[task.id]"
+                class="flex items-center gap-1.5 text-[11px] text-[var(--color-dim)]"
+              >
+                <Loader2 class="size-3 animate-spin" aria-hidden="true" />{{ t("common.loading") }}
+              </div>
+              <template v-else-if="runs[task.id].length">
+                <div
+                  v-for="run in runs[task.id]"
+                  :key="run.id"
+                  class="flex items-center gap-2 py-0.5"
+                >
+                  <Badge
+                    :variant="run.ok === false ? 'destructive' : 'secondary'"
+                    class="flex-none text-[10px]"
+                  >
+                    {{ runStatusLabel(run.ok) }}
+                  </Badge>
+                  <span class="flex-none text-[10px] tabular-nums text-[var(--color-dim)]">
+                    {{ runTimeLabel(run.startedAt) }}
+                  </span>
+                  <span
+                    v-if="run.summary"
+                    class="min-w-0 flex-1 truncate text-[11px] text-[var(--color-mut)]"
+                    :title="run.summary"
+                  >
+                    {{ run.summary }}
+                  </span>
+                  <Button
+                    v-if="run.sessionId"
+                    variant="ghost"
+                    size="icon-sm"
+                    :aria-label="t('scheduler.viewRun')"
+                    :title="t('scheduler.viewRun')"
+                    @click="openRun(run.sessionId, task.id)"
+                  >
+                    <MessageSquareText class="size-3" />
+                  </Button>
+                </div>
+              </template>
+              <p v-else class="m-0 text-[11px] text-[var(--color-dim)]">{{ t("scheduler.noRuns") }}</p>
+            </div>
+          </div>
+        </div>
+        <!-- 空状态：图标 + 一句话（新建按钮已在顶栏，不重复同屏控件） -->
+        <div v-else class="flex flex-col items-center gap-2 py-8 text-[var(--color-dim)]">
+          <CalendarClock class="size-6" aria-hidden="true" />
+          <p class="m-0 text-[12px]">{{ t("scheduler.noTasks") }}</p>
+        </div>
+      </template>
+
+      <!-- 新建 / 编辑配置页：从列表进入，提交/取消回列表 -->
+      <div v-else class="flex min-w-0 flex-col gap-4">
+        <div class="flex items-center justify-between gap-2 border-b border-[var(--color-line-soft)] pb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">
+          {{ editingId ? t("scheduler.editTask") : t("scheduler.add") }}
+        </div>
+        <div class="flex min-w-0 flex-col gap-3">
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.name") }}</span>
+            <Input v-model="form.name" class="h-8 min-w-0 text-[12px]" :placeholder="t('scheduler.namePlaceholder')" :aria-label="t('scheduler.name')" />
+          </div>
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <span class="text-[12px] text-[var(--color-mut)]">{{ t("scheduler.prompt") }}</span>
+            <Textarea v-model="form.prompt" class="min-h-[76px] min-w-0 text-[12px]" :placeholder="t('scheduler.promptPlaceholder')" :aria-label="t('scheduler.prompt')" />
+          </div>
+        </div>
+        <div class="min-w-0 border-t border-[var(--color-line-soft)] pt-3">
+          <div class="mb-2 text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.schedule") }}</div>
+          <ScheduleEditor ref="editorRef" v-model="form.schedule" />
+        </div>
+        <div class="flex min-w-0 flex-col gap-2 border-t border-[var(--color-line-soft)] pt-3">
+          <div class="text-[12px] font-medium text-[var(--color-txt-strong)]">{{ t("scheduler.destination") }}</div>
+          <div class="grid min-w-0 gap-2 sm:grid-cols-2">
+            <div class="min-w-0">
+              <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.workspace") }}</div>
+              <Select :model-value="form.workspacePath" @update:model-value="changeWorkspace(String($event))">
+                <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.workspace')">
+                  <SelectValue :placeholder="t('scheduler.workspace')" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="item in workspaceOptions" :key="item.path" :value="item.path">{{ item.label }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="min-w-0">
+              <div class="mb-1 text-[11px] text-[var(--color-mut)]">{{ t("scheduler.targetSession") }}</div>
+              <Select v-model="targetSessionChoice">
+                <SelectTrigger class="h-8 w-full min-w-0 text-[12px]" :aria-label="t('scheduler.targetSession')">
+                  <SelectValue :placeholder="t('scheduler.targetSession')" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__new_session__">{{ t("scheduler.newSession") }}</SelectItem>
+                  <SelectItem v-for="session in sessionOptions" :key="session.id" :value="session.id">{{ session.title }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p class="m-0 break-words text-[11px] text-[var(--color-mut)]">
+            {{ selectedSessionMissing ? t("scheduler.errSessionUnavailable") : form.targetSessionId ? t("scheduler.existingSessionHint") : t("scheduler.newSessionHint") }}
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-line-soft)] pt-3">
+          <label class="flex items-center gap-1.5 text-[12px] text-[var(--color-mut)]">
+            <Switch v-model="form.enabled" size="sm" :aria-label="t('scheduler.enabled')" />{{ t("scheduler.enabled") }}
+          </label>
+          <div class="flex items-center gap-2">
+            <Button variant="ghost" size="sm" @click="cancelEdit">{{ t("common.cancel") }}</Button>
+            <Button size="sm" @click="submitForm">{{ t("common.save") }}</Button>
+          </div>
+        </div>
+        <p v-if="formError" role="alert" class="m-0 break-words text-[11px] text-[var(--color-danger-fg)]">{{ formError }}</p>
+      </div>
+    </div>
+  </section>
 
   <!-- 删除确认（任务落库，不可恢复） -->
   <ConfirmDialog

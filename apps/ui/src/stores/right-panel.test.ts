@@ -123,6 +123,17 @@ describe("useRightPanelStore", () => {
     expect(setBounds).not.toHaveBeenCalled();
   });
 
+  it("trace tab：标题取 trace 文案，重复打开只激活", () => {
+    const store = useRightPanelStore();
+    const created = store.ensureTab("trace");
+    expect(created.kind).toBe("trace");
+    expect(created.title).toBe("运行轨迹");
+    store.activate("files");
+    store.ensureTab("trace");
+    expect(store.tabs).toHaveLength(2);
+    expect(store.activeTab?.kind).toBe("trace");
+  });
+
   it("revealFile 记录待定位路径并确保 files tab", () => {
     const store = useRightPanelStore();
     store.ensureTab("browser");

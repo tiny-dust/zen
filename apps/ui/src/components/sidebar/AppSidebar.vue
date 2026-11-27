@@ -1,17 +1,23 @@
 <script setup lang="ts">
-  import { Bell, Blocks, Cable, CalendarClock, ChevronDown, FolderClosed, LoaderCircle, Plus, Search, Server, Sparkles } from "@lucide/vue";
+  import {
+    IconArchive as Archive,
+    IconChevronDown as ChevronDown,
+    IconFolder as FolderClosed,
+    IconLoader2 as LoaderCircle,
+    IconPlus as Plus,
+    IconPlugConnected as Server,
+    IconSearch as Search,
+    IconTrash as Trash2,
+  } from "@tabler/icons-vue";
   import { storeToRefs } from "pinia";
   import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
   import { useI18n } from "vue-i18n";
 
   import ConfirmDialog from "@/components/base/ConfirmDialog.vue";
-  import FeaturesDialog from "@/components/sidebar/FeaturesDialog.vue";
-  import McpDialog from "@/components/sidebar/McpDialog.vue";
   import ProjectSessionGroup from "@/components/sidebar/ProjectSessionGroup.vue";
+  import SessionActionsMenu from "@/components/sidebar/SessionActionsMenu.vue";
+  import SessionPeekCard from "@/components/sidebar/SessionPeekCard.vue";
   import ExportSessionDialog from "@/components/session/ExportSessionDialog.vue";
-  import SchedulerDialog from "@/components/sidebar/SchedulerDialog.vue";
-  import SkillsDialog from "@/components/sidebar/SkillsDialog.vue";
-  import UserBlock from "@/components/sidebar/UserBlock.vue";
   import { sortGroupsByActivity, sortSessionsByActivity } from "@/lib/workspace-order";
   import { Button } from "@/components/ui/button";
   import {
@@ -24,30 +30,29 @@
   import { Input } from "@/components/ui/input";
   import { toast } from "@/components/ui/toast";
   import { useChatStore } from "@/stores/chat";
-  import { useActivityInboxStore } from "@/stores/activity-inbox";
   import { useAgentServicesStore } from "@/stores/agent-services";
   import { useSessionStatusStore } from "@/stores/session-status";
   import { useTerminalStore } from "@/stores/terminal";
+  import { useWorkbenchPageStore } from "@/stores/workbench-page";
   import { useWorkspaceStore } from "@/stores/workspace";
 
   import type { SessionRecord, WorkspaceGroup } from "@zen/shared";
 
+  /**
+   * 会话面板（圆角工作区里的一列）：搜索 + 公共区 + 工作区分组。
+   * 分类入口在左侧 52px 轨道（AppRail），账户入口在轨道底部，这里只管会话。
+   */
   const workspaceStore = useWorkspaceStore();
   const chatStore = useChatStore();
   const terminalStore = useTerminalStore();
+  const pageStore = useWorkbenchPageStore();
   const agentServices = useAgentServicesStore();
   const { activeSessionCounts } = storeToRefs(agentServices);
-  const activityInbox = useActivityInboxStore();
-  const { pendingCount } = storeToRefs(activityInbox);
   const { sessionId } = storeToRefs(chatStore);
   const { groups } = storeToRefs(workspaceStore);
 
   const { t } = useI18n();
 
-  const skillsOpen = ref(false);
-  const mcpOpen = ref(false);
-  const schedulerOpen = ref(false);
-  const featuresOpen = ref(false);
   const pendingSessionDelete = ref<SessionRecord | null>(null);
   /** 导出目标会话：侧栏任意会话都可直接导出，不用先切换过去 */
   const exportTarget = ref<SessionRecord | null>(null);
@@ -156,6 +161,8 @@
         break;
       }
     }
+    // 切会话即回到对话页（与 nomi 一致：选会话离开整页）
+    pageStore.close();
     await chatStore.loadSession(record);
   }
 
@@ -164,6 +171,7 @@
     if (workspaceStore.isCollapsed(workspaceId)) {
       workspaceStore.toggleCollapsed(workspaceId);
     }
+    pageStore.close();
     await chatStore.newTask(workspaceId);
   }
 
@@ -174,6 +182,150 @@
     }
     await zen.session.pin(session.id, !session.pinned);
     workspaceStore.pinSessionLocal(session.id, !session.pinned);
+  }
+
+  // ---------- 会话操作菜单 + 悬停详情卡（对齐 nomi：右键与「更多」共用一个菜单） ----------
+  const sessionMenu = ref<{ session: SessionRecord; x: number; y: number } | null>(null);
+  /** 详情卡：hoverDelay 后才弹出，鼠标移进卡片不收起，方便点标题改名 */
+  const peek = ref<{ session: SessionRecord; top: number; left: number; editing: boolean } | null>(null);
+  const PEEK_SHOW_DELAY = 400;
+  const PEEK_HIDE_DELAY = 180;
+  let peekTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearPeekTimer() {
+    clearTimeout(peekTimer);
+    peekTimer = undefined;
+  }
+
+  /** 行悬停 / 键盘聚焦：弹出详情卡；el 为 null 时稍等再收（鼠标要能移进卡片） */
+  function onPeekSession(session: SessionRecord, el: HTMLElement | null) {
+    clearPeekTimer();
+    if (!el) {
+      peekTimer = setTimeout(() => {
+        peek.value = null;
+      }, PEEK_HIDE_DELAY);
+      return;
+    }
+    peekTimer = setTimeout(() => {
+      const rect = el.getBoundingClientRect();
+      peek.value = {
+        session,
+        top: rect.top + rect.height / 2,
+        left: rect.right + 8,
+        editing: peek.value?.session.id === session.id ? peek.value.editing : false,
+      };
+    }, peek.value?.session.id === session.id ? 0 : PEEK_SHOW_DELAY);
+  }
+
+  /** 卡片里的鼠标：保持显示 */
+  function holdPeek() {
+    clearPeekTimer();
+  }
+
+  function openSessionMenu(session: SessionRecord, x: number, y: number) {
+    peek.value = null;
+    clearPeekTimer();
+    sessionMenu.value = { session, x, y };
+  }
+
+  /** 「更多」按钮：菜单贴在按钮右下角 */
+  function openSessionMenuAt(session: SessionRecord, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    openSessionMenu(session, rect.right - 200, rect.bottom + 2);
+  }
+
+  /** 菜单动作统一先取走目标会话再收起菜单：菜单先 emit close，晚读 sessionMenu 会拿到 null */
+  function takeMenuSession(): SessionRecord | null {
+    const target = sessionMenu.value?.session ?? null;
+    sessionMenu.value = null;
+    return target;
+  }
+
+  function menuPin() {
+    const target = takeMenuSession();
+    if (target) void onPinSession(target);
+  }
+
+  function menuFork() {
+    const target = takeMenuSession();
+    if (target) void onForkSession(target);
+  }
+
+  function menuExport() {
+    exportTarget.value = takeMenuSession();
+  }
+
+  function menuArchive(archived: boolean) {
+    const target = takeMenuSession();
+    if (target) void onArchiveSession(target, archived);
+  }
+
+  function menuRemove() {
+    const target = takeMenuSession();
+    if (target) pendingSessionDelete.value = target;
+  }
+
+  function onMenuRename() {
+    const target = sessionMenu.value?.session;
+    sessionMenu.value = null;
+    if (!target) return;
+    const row = document.querySelector<HTMLElement>(`[data-session-id="${target.id}"]`);
+    const rect = row?.getBoundingClientRect();
+    peek.value = {
+      session: target,
+      top: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      left: rect ? rect.right + 8 : 320,
+      editing: true,
+    };
+  }
+
+  /** 会话改名：菜单 / 详情卡共用一个入口，当前会话同步页头标题 */
+  async function onRenameSession(session: SessionRecord, title: string) {
+    const next = title.trim();
+    if (!next || next === session.title) return;
+    await window.zen?.session.rename(session.id, next);
+    workspaceStore.renameSessionLocal(session.id, next);
+    if (chatStore.sessionId === session.id) chatStore.sessionName = next;
+    if (peek.value?.session.id === session.id) peek.value.session.title = next;
+  }
+
+  /**
+   * 从会话分叉：Zen 的分叉按「消息」发起，这里取最后一条消息作为边界（= 整段复制）。
+   * 运行中的会话主进程会拒绝，空会话没有可复制的边界，都直接给出提示。
+   */
+  async function onForkSession(session: SessionRecord) {
+    const zen = window.zen;
+    if (!zen) return;
+    if (statusById.value[session.id] === "running") {
+      toast.err(t("sidebar.forkRunning"));
+      return;
+    }
+    const snapshot = await zen.session.snapshot(session.id);
+    const messages = snapshot?.messages ?? [];
+    const anchor = messages[messages.length - 1];
+    if (!anchor) {
+      toast.err(t("sidebar.forkEmpty"));
+      return;
+    }
+    const result = await zen.session.fork(session.id, anchor.id);
+    if (!result.ok || !result.sessionId) {
+      toast.err(result.error || t("sidebar.forkFailed"));
+      return;
+    }
+    await workspaceStore.refresh();
+    const created = groups.value.flatMap((group) => group.sessions).find((item) => item.id === result.sessionId);
+    if (created) await openSession(created);
+  }
+
+  /** 详情卡的状态行：运行中 / 待确认 / 上次结果，与行首状态点同源 */
+  function peekStatusOf(session: SessionRecord): string {
+    const runtime = statusById.value[session.id];
+    if (runtime === "running") return t("sidebar.running");
+    if (runtime === "needs_action") return t("sidebar.pendingConfirm");
+    if (sessionStatus.hasUnseenResult(session.id)) {
+      return runtime === "error" ? t("sidebar.lastRunFailed") : t("sidebar.lastRunDone");
+    }
+    return "";
   }
 
   async function onArchiveSession(session: SessionRecord, archived: boolean) {
@@ -283,6 +435,33 @@
     }
   }
 
+  // ---------- 已归档：归档会话与归档工作区都可在这里找回 ----------
+  const ARCHIVED_ZONE_KEY = "zone:archived";
+  const archivedZoneOpen = computed(() => !workspaceStore.isCollapsed(ARCHIVED_ZONE_KEY));
+  const archivedSessions = computed(() =>
+    groups.value
+      .flatMap((group) =>
+        group.sessions
+          .filter((session) => session.archived)
+          .map((session) => ({ session, groupName: group.name })),
+      )
+      .sort((a, b) => b.session.updatedAt - a.session.updatedAt),
+  );
+  const archivedWorkspaces = computed(() => groups.value.filter((group) => group.archived));
+  const archivedCount = computed(() => archivedSessions.value.length + archivedWorkspaces.value.length);
+
+  function toggleArchivedZone() {
+    workspaceStore.toggleCollapsed(ARCHIVED_ZONE_KEY);
+  }
+
+  function restoreSession(session: SessionRecord) {
+    void onArchiveSession(session, false);
+  }
+
+  async function restoreWorkspace(group: WorkspaceGroup) {
+    await workspaceStore.archive(group.id, false);
+  }
+
   /** 「工作区」区块折叠键：复用工作区分组的同一持久化集合（localStorage） */
   const WORKSPACES_ZONE_KEY = "zone:workspaces";
   /** 工作区区块是否展开（折叠后只显示区块头，隐藏全部目录与目录内会话） */
@@ -323,80 +502,9 @@
 </script>
 
 <template>
-  <aside class="relative flex h-full justify-between min-w-0 flex-col overflow-hidden bg-[var(--color-side)]"
-    :aria-label="t('sidebar.sidebar')">
-    <header
-      class="flex h-[var(--titlebar-h)] flex-none items-center gap-0.5 px-1.5 select-none [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]">
-      <span class="w-[var(--titlebar-lead)] flex-none" aria-hidden="true" />
-      <div class="flex min-w-0 flex-1 items-center gap-2 px-1">
-        <span class="text-[14px] font-semibold tracking-tight text-[var(--color-txt-strong)]">Zen</span>
-      </div>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="relative text-[var(--color-topbar-icon)] hover:text-[var(--color-txt-strong)]"
-        :aria-label="pendingCount ? t('activityInbox.pendingCount', { n: pendingCount }) : t('activityInbox.entry')"
-        :title="t('activityInbox.entry')"
-        @click="activityInbox.open = true"
-      >
-        <Bell class="size-4" aria-hidden="true" />
-        <span
-          v-if="pendingCount"
-          class="absolute -right-1 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--color-accent)] px-0.5 text-[9px] leading-none text-[var(--color-accent-fg)]"
-          aria-hidden="true"
-        >{{ pendingCount }}</span>
-      </Button>
-    </header>
-
-    <!-- 常驻入口：会话列表上方，竖排小卡片（每个独占一行） -->
-    <nav class="flex flex-none flex-col gap-1 px-2.5 pb-0.5 pt-2" :aria-label="t('sidebar.tools')">
-      <Button variant="ghost"
-        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
-        @click="skillsOpen = true">
-        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
-          aria-hidden="true">
-          <Sparkles class="size-3.5 text-[var(--color-mut)]" />
-        </span>
-        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
-          {{ t("sidebar.skills") }}
-        </span>
-      </Button>
-      <Button variant="ghost"
-        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
-        @click="mcpOpen = true">
-        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
-          aria-hidden="true">
-          <Cable class="size-3.5 text-[var(--color-mut)]" />
-        </span>
-        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">MCP</span>
-      </Button>
-      <Button variant="ghost"
-        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
-        @click="schedulerOpen = true">
-        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
-          aria-hidden="true">
-          <CalendarClock class="size-3.5 text-[var(--color-mut)]" />
-        </span>
-        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
-          {{ t("scheduler.entry") }}
-        </span>
-      </Button>
-      <Button variant="ghost"
-        class="group h-auto w-full justify-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-line-soft)] px-2 py-[7px] text-left font-normal transition-colors duration-[var(--motion-fast)] hover:border-[var(--color-line)] hover:bg-[var(--color-side-hover)] dark:hover:bg-[var(--color-side-hover)]"
-        @click="featuresOpen = true">
-        <span class="flex size-6 flex-none items-center justify-center rounded-[6px] bg-[var(--color-side-chip)] transition-colors duration-[var(--motion-fast)] group-hover:bg-[var(--color-side-chip-active)]"
-          aria-hidden="true">
-          <Blocks class="size-3.5 text-[var(--color-mut)]" />
-        </span>
-        <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--color-txt)]">
-          {{ t("features.entry") }}
-        </span>
-      </Button>
-    </nav>
-
-    <!-- 会话搜索：常驻入口与会话分区之间；输入即时查询，有词时会话区切换为结果列表 -->
-    <div class="flex-none px-2.5 pt-1.5">
-      <div class="relative">
+  <aside class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden" :aria-label="t('sidebar.sidebar')">
+    <div class="flex h-11 flex-none items-center px-2">
+      <div class="relative min-w-0 flex-1">
         <Search
           class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--color-mut)]"
           aria-hidden="true" />
@@ -406,7 +514,7 @@
     </div>
 
     <!-- 会话分区：公共区 / 工作区（单层滚动容器，区块头可折叠）；有搜索词时整块切换为搜索结果 -->
-    <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0 pb-2 pt-2 my-2">
+    <div class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0 pt-1 pb-2">
       <!-- 搜索结果：平铺列表（标题 + 所属组名小字），点击直接打开该会话 -->
       <template v-if="searchActive">
         <p v-if="!searchResults.length" class="px-2.5 pt-1 text-[12px] text-[var(--color-dim)]">
@@ -415,7 +523,7 @@
         <ul v-else class="flex flex-col gap-0.5 px-2" :aria-label="t('sidebar.searchResults')">
           <li v-for="session in searchResults" :key="session.id">
             <button type="button"
-              class="flex h-8 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]"
+              class="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-[13px] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)] focus-visible:bg-[var(--color-side-hover)]"
               :class="session.id === sessionId
                 ? 'bg-[var(--color-side-sel)] font-medium text-[var(--color-txt-strong)]'
                 : 'text-[var(--color-side-item)]'"
@@ -438,16 +546,14 @@
       </template>
 
       <template v-else>
-      <!-- 公共区：组头即区块头（variant=zone），点击折叠/展开其下会话 -->
+        <!-- 公共区：组头即区块头（variant=zone），点击折叠/展开其下会话 -->
         <ProjectSessionGroup v-if="commonGroup" variant="zone" :group="commonGroup" :sessions="sessionsOf(commonGroup)"
           :open="groupOpen(commonGroup.id)" :expanded="workspaceStore.expanded.has(commonGroup.id)"
           :active-session-id="sessionId" :show-in-folder-label="showInFolderLabel"
           @toggle="onGroupToggle(commonGroup.id)" @toggle-expand="workspaceStore.toggleExpanded(commonGroup.id)"
           @new-session="onNewSessionIn(commonGroup.id)" @open="openSession" @pin="onPinSession"
-          @archive="(session, archived) => onArchiveSession(session, archived)"
           @batch="onBatchSessions"
-          @export="exportTarget = $event"
-          @remove="pendingSessionDelete = $event" />
+          @more="openSessionMenuAt" @menu="openSessionMenu" @peek="onPeekSession" />
 
         <div class="mx-2.5 h-px flex-none bg-[var(--color-line-soft)]" aria-hidden="true" />
 
@@ -455,7 +561,7 @@
         <section class="flex flex-col">
           <div class="px-2">
             <div
-              class="group/zone flex h-8 items-center gap-2 rounded-[var(--radius-sm)] pr-1 transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
+              class="group/zone flex h-8 items-center gap-2 rounded-sm pr-1 transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
               <Button variant="ghost"
                 class="h-full flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent"
                 :aria-expanded="workspacesZoneOpen" :aria-label="t('sidebar.workspaces')" @click="toggleWorkspacesZone">
@@ -495,7 +601,7 @@
           </div>
 
           <!-- 目录列表：左侧竖线导轨 + 目录行（可折叠）+ 目录内会话 -->
-          <div v-if="workspacesZoneOpen" class="ml-2 mt-0.5 flex flex-col gap-0.5  pl-1">
+          <div v-if="workspacesZoneOpen" class="mt-0.5 ml-2 flex flex-col gap-0.5 pl-1">
             <p v-if="!workspaceGroups.length" class="px-2 py-1 text-[12px] text-[var(--color-dim)]">
               {{ t("sidebar.noWorkspaces") }}
             </p>
@@ -505,21 +611,111 @@
               :show-in-folder-label="showInFolderLabel" @toggle="onGroupToggle(group.id)"
               @toggle-expand="workspaceStore.toggleExpanded(group.id)" @new-session="onNewSessionIn(group.id)"
               @open="openSession" @pin="onPinSession"
-              @archive="(session, archived) => onArchiveSession(session, archived)"
               @batch="onBatchSessions"
-              @remove="pendingSessionDelete = $event" @export="exportTarget = $event"
+              @more="openSessionMenuAt" @menu="openSessionMenu" @peek="onPeekSession"
               @pin-workspace="workspaceStore.pin(group.id, !group.pinned)"
               @rename="beginRenameWorkspace(group)" @copy-path="onCopyWorkspacePath(group)"
               @show-in-folder="onShowWorkspaceInFolder(group)" @delete-workspace="pendingWorkspaceDelete = group" />
           </div>
         </section>
+
+        <!-- 已归档：归档会话与归档工作区都在这里找回（隐藏不等于删除） -->
+        <div class="mx-2.5 h-px flex-none bg-[var(--color-line-soft)]" aria-hidden="true" />
+
+        <section class="flex flex-col">
+          <div class="px-2">
+            <div
+              class="group/zone flex h-8 items-center gap-2 rounded-sm pr-1 transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
+              <Button variant="ghost"
+                class="h-full flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left font-normal hover:bg-transparent dark:hover:bg-transparent aria-expanded:bg-transparent"
+                :aria-expanded="archivedZoneOpen" :aria-label="t('sidebar.archivedZone')" @click="toggleArchivedZone">
+                <span class="flex size-5 flex-none items-center justify-center rounded-md bg-[var(--color-side-hover)]"
+                  aria-hidden="true">
+                  <Archive class="size-4 text-[var(--color-mut)]" />
+                </span>
+                <span class="min-w-0 flex-1 truncate font-semibold text-[var(--color-txt-strong)]">
+                  {{ t("sidebar.archivedZone") }}
+                </span>
+                <span v-if="archivedCount" class="text-[11px] font-normal text-[var(--color-dim)]">{{ archivedCount }}</span>
+              </Button>
+              <ChevronDown class="mr-1 size-3 flex-none text-[var(--color-dim)] transition-transform duration-[var(--motion-fast)]"
+                :class="archivedZoneOpen ? '' : '-rotate-90'" aria-hidden="true" />
+            </div>
+          </div>
+
+          <div v-if="archivedZoneOpen" class="mt-0.5 ml-2 flex flex-col gap-0.5 pl-1">
+            <p v-if="!archivedCount" class="px-2 py-1 text-[12px] text-[var(--color-dim)]">
+              {{ t("sidebar.archivedEmpty") }}
+            </p>
+
+            <div v-for="entry in archivedSessions" :key="entry.session.id"
+              class="group/archived flex h-8 items-center gap-2 rounded-sm pr-1 pl-2 text-[13px] text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
+              <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                :title="entry.groupName" @click="openSession(entry.session)">
+                <span class="min-w-0 flex-1 truncate">{{ entry.session.title }}</span>
+                <span class="max-w-[45%] min-w-0 flex-none truncate text-[11px] text-[var(--color-dim)]">{{ entry.groupName }}</span>
+              </button>
+              <Button variant="ghost" size="xs"
+                class="h-6 flex-none px-1.5 text-[11px] text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="t('sidebar.restore')" :title="t('sidebar.restore')" @click.stop="restoreSession(entry.session)">
+                {{ t("sidebar.restore") }}
+              </Button>
+              <button type="button"
+                class="flex size-5 flex-none items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-mut)] opacity-0 transition-opacity duration-[var(--motion-fast)] hover:text-[var(--color-del)] focus-visible:opacity-100 group-hover/archived:opacity-100"
+                :aria-label="t('sidebar.deleteSession')" :title="t('sidebar.deleteSession')"
+                @click.stop="pendingSessionDelete = entry.session">
+                <Trash2 class="size-3.5 shrink-0" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div v-for="group in archivedWorkspaces" :key="group.id"
+              class="group/archived flex h-8 items-center gap-2 rounded-sm pr-1 pl-2 text-[13px] text-[var(--color-side-item)] transition-colors duration-[var(--motion-fast)] hover:bg-[var(--color-side-hover)]">
+              <FolderClosed class="size-3.5 flex-none text-[var(--color-dim)]" aria-hidden="true" />
+              <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
+              <span class="flex-none text-[11px] text-[var(--color-dim)]">{{ t("sidebar.archivedTag") }}</span>
+              <Button variant="ghost" size="xs"
+                class="h-6 flex-none px-1.5 text-[11px] text-[var(--color-mut)] hover:text-[var(--color-txt-strong)]"
+                :aria-label="t('sidebar.restoreWorkspace')" :title="t('sidebar.restoreWorkspace')"
+                @click.stop="restoreWorkspace(group)">
+                {{ t("sidebar.restore") }}
+              </Button>
+            </div>
+          </div>
+        </section>
       </template>
     </div>
-
-    <div class="flex-none border-t border-[var(--color-line-soft)] p-2">
-      <UserBlock />
-    </div>
   </aside>
+
+  <!-- 会话操作菜单（右键 / 「更多」共用）与悬停详情卡：挂在 body 上，不受侧栏裁切 -->
+  <SessionActionsMenu
+    v-if="sessionMenu"
+    :session="sessionMenu.session"
+    :x="sessionMenu.x"
+    :y="sessionMenu.y"
+    :can-fork="statusById[sessionMenu.session.id] !== 'running'"
+    @close="sessionMenu = null"
+    @rename="onMenuRename"
+    @pin="menuPin"
+    @fork="menuFork"
+    @export="menuExport"
+    @archive="menuArchive"
+    @remove="menuRemove"
+  />
+
+  <SessionPeekCard
+    v-if="peek"
+    :session="peek.session"
+    :top="peek.top"
+    :left="peek.left"
+    :status="peekStatusOf(peek.session)"
+    :place="groupNameOf(peek.session)"
+    :editing="peek.editing"
+    @update:editing="(value: boolean) => { if (peek) peek.editing = value; }"
+    @rename="(title: string) => peek && onRenameSession(peek.session, title)"
+    @hold="holdPeek"
+    @release="onPeekSession(peek!.session, null)"
+  />
+
   <ConfirmDialog :open="!!pendingSessionDelete" :title="t('sidebar.deleteSessionTitle', { title: pendingSessionDelete?.title ?? '' })"
     :description="t('sidebar.deleteSessionDesc')" :confirm-label="t('sidebar.deleteSession')" :cancel-label="t('sidebar.keep')"
     @update:open="pendingSessionDelete = null" @confirm="onDeleteSession" />
@@ -559,9 +755,4 @@
     :session-title="exportTarget?.title"
     @update:open="(open: boolean) => { if (!open) exportTarget = null; }"
   />
-
-  <SkillsDialog v-model:open="skillsOpen" />
-  <McpDialog v-model:open="mcpOpen" />
-  <SchedulerDialog v-model:open="schedulerOpen" />
-  <FeaturesDialog v-model:open="featuresOpen" />
 </template>

@@ -41,6 +41,7 @@ export default {
       },
     },
     panel: {
+      external: "外部会话",
       files: "文件",
       browser: "浏览器",
       git: "Git",
@@ -257,6 +258,7 @@ export default {
       },
     },
     panel: {
+      external: "External sessions",
       files: "Files",
       browser: "Browser",
       git: "Git",
