@@ -211,6 +211,19 @@ Zen 对齐 **Xiaomi MiMo Desktop** 的视觉语言：极致克制的单色调 + 
   - 用量账本：说明与行摘要 13px、标签 12px，数字保持 tabular-nums。
   - 素材库：预览/缩略图圆角走 `--radius-xs`；删除按钮从「外层 button 内的 span」改为独立 `button`，键盘可聚焦、二次确认期间常显（原实现键盘不可达）。
   - 运行态复验（构建产物）：控制台零报错，轨道 52px，深色 `#13161b` / `#7887f5`，`--radius-sm: 8px`，导航入口无重复。
+- 2026-11-27（分栏拖拽闪烁）：
+  - **现象**：拖会话面板与消息区之间的分割线，越过某个宽度后分割线疯狂闪烁。
+  - **根因**：主结构用 reka `Splitter` 做 px 面板，同时 App 把面板上报的尺寸写回 `layout` store、再把 `panelWidth` 反向 `resize()` 回面板。拖动时面板每帧会上报一次**上一次提交的布局**（7.67%），store 被覆盖回 260px，同一帧再被拖到指针位置——两套真源互相对打，面板宽度在「指针位置」与「260px」之间来回跳（实测 0.9s 内交替 12 次）。上限/下限附近最明显，因为 clamp 让 store 卡死而面板继续跟随指针。
+  - **修复**：主结构弃用 reka Splitter，改用仓库自有的 `layout/ResizeHandle.vue`（`@drag` 只报位移）+ 行内尺寸：宽度一律取自 `layout` store（`panelWidth` / `rightWidth` / `bottomHeight`），拖拽只做 `setLeftWidth(leftWidth + delta)`，钳制仍在 store。删除 `pushedLeft/Right/Bottom` 回声丢弃、`syncPanel` 回写与三个 watcher（约 60 行）。分割线命中区同时从 5px 放宽到 9px（`-mx-1` 抵消，占位仍 1px）。
+  - **顺带**：终端面板首次打开后常驻、用高度折叠（此前每次收起都会卸载重建 PTY）；`chatEmpty` 居中与整页模式保持原样。
+  - **实测**（1440×900 与 3440 宽屏两轮，合成 pointer 拖动）：左栏 232↔472 单调变化、clamp 处不再回弹，方向反转计数 0；右栏收起/展开、终端开关、窗口缩放按比例回收、键盘 ←/→（10px，Shift 为 1px）均正常。验证时 `pnpm typecheck`、ui 165 文件 / 1091 用例、`vite build` 全过。
+
+- 2026-11-27（变更文件看不见字）：
+  - **根因**：`DiffView` / `ToolResultView` 的深色 token 取色写成组件 scoped 里的 `:global(.dark) .diff-hl :deep(span)`，Vue 编译后整条规则丢失（产物只剩 `--shiki-light` 那条），深色下 token 取到浅色主题的深墨色，在增删行底色上几乎与背景同色，表现为「变更文件完全无法查看」。
+  - **修复**：两处取色移到 `styles.css` 全局（`.diff-hl span` / `.tool-code-hl span` 深浅成对），组件内删掉无效规则；提交图谱里展开的文件 patch 补传 `:path`（此前不传路径 → `langFromPath` 为空 → 整段不做语法高亮，只靠增删色区分）。
+  - **实测**（DESIGN.md 那段 diff，深色）：改前 token 色 `#393A34` 落在 `#2e2e2e` 底上（对比度≈1），改后取 `--shiki-dark`，抽样平均 6.89、最低 6.74（AA）；浅色侧仍走 `--shiki-light`。
+  - **回归**：新增 `styles.shiki.test.ts`——锁住全局深浅两条规则，并禁止组件再出现 `:global(.dark)` + `--shiki-*` 的组合（该写法编译即丢，测试是唯一能拦住的地方）。
+
 - 2026-11-27（空态与规范收口）：
   - 空会话改为「欢迎区 + 输入框」整体居中：`ChatTimeline` 新增 `empty` 属性（空态不占满高度），`App.vue` 用 `messages/pendingApproval/pendingAsk` 派生，不再看运行状态（发送后消息即刻出现，自然回到底部输入框）。实测整组中心偏移 0。
   - `DESIGN.md` 直接替换旧规则：配色改 nomi graphite/light 语义表、圆角 6/8/10/14/20、正文 14px、控件高走 `--control-h-*`；删除「暖橙为唯一强调色」「6px 圆角」「28px 控件」等 MiMo 条款，暖橙降级为可选主题。
